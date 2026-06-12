@@ -7,6 +7,7 @@ import { navigationGroups } from "@/lib/modules";
 import { Badge } from "@/components/ui";
 import { useTheme } from "@/components/theme-provider";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { getRolePermissions } from "@/lib/database/roles";
 import { 
   LayoutDashboard, 
   Settings, 
@@ -41,6 +42,7 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const [userPermissions, setUserPermissions] = useState<any[] | null>(null);
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
@@ -94,16 +96,30 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
         // Obtenemos el perfil y su rol
         const { data } = await supabase
           .from('profiles')
-          .select('full_name, avatar_url, user_roles(role)')
+          .select('full_name, email, avatar_url, user_roles(role, role_id)')
           .eq('id', session.user.id)
           .single();
         if (data) {
+          const role = data.user_roles && data.user_roles.length > 0 ? data.user_roles[0].role : 'Sin Rol';
+          const roleId = data.user_roles && data.user_roles.length > 0 ? data.user_roles[0].role_id : null;
+          
           setCurrentUser({
             id: session.user.id,
+            email: data.email,
             full_name: data.full_name,
             avatar_url: data.avatar_url,
-            role: data.user_roles && data.user_roles.length > 0 ? data.user_roles[0].role : 'Sin Rol'
+            role,
+            role_id: roleId
           });
+
+          if (role === 'ADMINISTRADOR' || data.email === 'gurbano@techcommwireless.com' || data.email === 'gurbnao@techcommwireless.com') {
+             setUserPermissions([{ is_admin: true }]);
+          } else if (roleId) {
+             const perms = await getRolePermissions(roleId);
+             setUserPermissions(perms || []);
+          } else {
+             setUserPermissions([]); // No role, no access
+          }
         }
       } else {
         router.push('/');
@@ -178,7 +194,24 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
 
           {/* Navigation */}
           <nav className="flex-1 overflow-y-auto px-3 py-6 space-y-6 custom-scrollbar">
-            {navigationGroups.map((group) => (
+            {navigationGroups.map((group) => {
+              // Filtrar items basados en permisos
+              const filteredItems = group.items.filter(item => {
+                // Si aún no cargan permisos, no mostrar nada
+                if (!userPermissions) return false;
+                
+                // Administradores ven todo
+                if (userPermissions.length > 0 && userPermissions[0].is_admin) return true;
+                
+                // Verificar matriz de permisos
+                const perm = userPermissions.find(p => p.module_name === item.label);
+                return perm ? perm.can_view === true : false;
+              });
+
+              // Si el grupo no tiene items después de filtrar, no lo renderizamos
+              if (filteredItems.length === 0) return null;
+
+              return (
               <div key={group.title} className="space-y-1">
                 {isSidebarOpen ? (
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em] px-4 mb-3">
@@ -189,7 +222,7 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
                 )}
                 
                 <div className="space-y-1">
-                  {group.items.map((item) => {
+                  {filteredItems.map((item) => {
                     const isActive = pathname === item.href;
                     const Icon = item.icon ? ICON_MAP[item.icon] : LayoutDashboard;
                     
@@ -225,7 +258,8 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
                   })}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </nav>
 
           {/* User & Footer */}

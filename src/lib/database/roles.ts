@@ -13,12 +13,16 @@ const getAdminClient = () => {
 export async function getRoles() {
   const supabase = getAdminClient();
   if (!supabase) return [];
-  const { data, error } = await supabase.from('erp_roles').select('*').order('name');
+  const { data, error } = await supabase.from('hr_positions').select('*').order('name');
   if (error) {
     const errorMsg = error instanceof Error ? error.message : (error as any).message || JSON.stringify(error);
     console.error("Error fetching roles:", errorMsg, error);
   }
-  return data || [];
+  return (data || []).map(pos => ({
+    id: pos.id,
+    name: pos.name,
+    description: pos.description || `Puesto del departamento de RRHH`
+  }));
 }
 
 // Get permissions for a specific role
@@ -73,8 +77,26 @@ export async function getUsersWithRoles() {
   const supabase = getAdminClient();
   if (!supabase) return [];
   
-  const profilesData = await getProfiles();
-  const { data: erpRoles } = await supabase.from('erp_roles').select('*');
+  const { data: profilesData, error: profilesError } = await supabase
+    .from('profiles')
+    .select(`
+      id,
+      full_name,
+      email,
+      is_active,
+      created_at,
+      avatar_url,
+      employee_id,
+      employees ( codigo_empleado, nombre_completo ),
+      user_roles ( role, role_id )
+    `)
+    .order('created_at', { ascending: false });
+
+  if (profilesError) {
+    console.error("Error fetching profiles as admin:", profilesError);
+  }
+
+  const { data: erpRoles } = await supabase.from('hr_positions').select('*');
   
   return (profilesData || []).map((p: any) => {
     // getProfiles returns user_roles inside the profile object (p.user_roles)
@@ -112,7 +134,9 @@ export async function getUsersWithRoles() {
       last_login: null,
       role: roleName,
       role_id: roleId,
-      avatar_url: p.avatar_url
+      avatar_url: p.avatar_url,
+      employee_code: p.employees?.codigo_empleado || null,
+      employee_id: p.employee_id
     };
   });
 }
@@ -169,21 +193,21 @@ export async function changeUserRole(userId: string, roleId: string, roleName: s
   const supabase = getAdminClient();
   if (!supabase) return { error: "Supabase not configured" };
 
+  // 1. Asegurarnos que el Enum de la base de datos contenga este nuevo Puesto de RRHH
+  await supabase.rpc('add_app_role_value', { new_role: roleName });
+
   const { data: existing } = await supabase.from('user_roles').select('id').eq('user_id', userId).single();
 
   let result;
   if (existing) {
     result = await supabase
       .from('user_roles')
-      .update({ role_id: roleId })
+      .update({ role_id: roleId, role: roleName })
       .eq('user_id', userId);
   } else {
-    // Si no existe, insertamos solo con role_id
-    // Si la DB requiere un 'role' (enum), esto podría fallar, pero como
-    // app_role es problemático, omitimos enviarlo asumiendo que tiene un DEFAULT
     result = await supabase
       .from('user_roles')
-      .insert({ user_id: userId, role_id: roleId });
+      .insert({ user_id: userId, role_id: roleId, role: roleName });
   }
 
   if (result.error) return { error: result.error.message };

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Card, Button, Spinner } from '@/components/ui';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { Calculator, Download, CheckCircle2 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 export default function PlanillaTab() {
   const [loading, setLoading] = useState(false);
@@ -15,7 +16,7 @@ export default function PlanillaTab() {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
 
-    const { data: employees } = await supabase.from('employees').select('id, codigo_empleado, nombre_completo, sueldo_mensual_base, bono_metas');
+    const { data: employees } = await supabase.from('employees').select('id, codigo_empleado, nombre_completo, sueldo_mensual_base, bono_metas, numero_cuenta, banco, tipo_pago, tipo_contrato');
     
     // Simplificado para MVP: Traemos todo o deberíamos filtrar por periodo
     const { data: logs } = await supabase.from('time_logs').select('*');
@@ -81,46 +82,65 @@ export default function PlanillaTab() {
   };
 
   const handleExport = () => {
-    let csv = "Código,Empleado,Sueldo Quincenal,Dias Trabajados,Faltas Injustificadas,Retrasos (min),Salida Anticipada (min),Horas Extras,Pago Extras,Bono Metas,Descuentos,Neto a Pagar,Detalle Fechas con Tardanzas o Extras\n";
+    const exportData = planilla.map(emp => {
+      let observacion = '';
+      if (emp.banco) observacion = `Pago x Transf.${emp.banco}`;
+      else if (emp.tipo_pago === 'Cheque') observacion = 'Pago x Cheque';
+      else if (emp.tipo_pago === 'Efectivo') observacion = 'Pago en Efectivo';
 
-    planilla.forEach(emp => {
-      // Filtrar y agrupar incidencias
-      const detalles = emp.empLogs
-        .filter((l: any) => l.minutos_retraso_entrada > 0 || l.minutos_exceso_almuerzo > 0 || l.minutos_salida_anticipada > 0 || l.minutos_extra > 0 || l.evento_detectado === 'MARCAJE_ESPECIAL')
-        .map((l: any) => {
-          const d = new Date(l.timestamp).toLocaleDateString();
-          let ev = [];
-          const motivo = l.justificacion ? `[Motivo: ${l.justificacion}]` : '';
+      let comentariosTardanza = '';
+      if (emp.retrasosMin > 0) {
+         comentariosTardanza = `Tarde: ${emp.retrasosMin}m`;
+      }
+      
+      const bonifDecreto = 125.00; // Estático para quincena
+      const otrosBonos = emp.pagoExtras + emp.bonoMetas;
+      const totalQuincena = emp.sueldoQuincenal + bonifDecreto + otrosBonos;
+      const liquidoRecibir = totalQuincena - emp.descuentoTotal;
 
-          if(l.evento_detectado === 'MARCAJE_ESPECIAL') {
-             ev.push(`Especial ${motivo}`);
-          }
-          if(l.minutos_retraso_entrada > 0) {
-             ev.push(`Tarde: ${l.minutos_retraso_entrada}m ${motivo}`);
-          }
-          if(l.minutos_exceso_almuerzo > 0) {
-             ev.push(`Exceso Receso: ${l.minutos_exceso_almuerzo}m ${motivo}`);
-          }
-          if(l.minutos_salida_anticipada > 0) {
-             ev.push(`Salida Temprano: ${l.minutos_salida_anticipada}m ${motivo}`);
-          }
-          if(l.minutos_extra > 0) {
-             ev.push(`Extra: ${l.minutos_extra}m ${motivo}`);
-          }
-          return `${d} (${ev.join(' | ')})`;
-        }).join(' ; ');
-
-      csv += `"${emp.codigo_empleado}","${emp.nombre_completo}",${emp.sueldoQuincenal.toFixed(2)},${emp.diasTrabajados},${emp.faltas},${emp.retrasosMin},${emp.salidaAnticipadaMin},${emp.horasExtras},${emp.pagoExtras.toFixed(2)},${emp.bonoMetas.toFixed(2)},${emp.descuentoTotal.toFixed(2)},${emp.netoPagar.toFixed(2)},"${detalles}"\n`;
+      return {
+        'COLABORADOR': emp.nombre_completo,
+        'TIPO CONTRATO': emp.tipo_contrato || 'Fijo',
+        'Ctas Bancos': emp.numero_cuenta || '',
+        'DIAS': 15.0, // emp.diasTrabajados o estático 15.0 como en la imagen
+        'Sueldo Ordinario': parseFloat(emp.sueldoQuincenal.toFixed(2)),
+        'Bonif. Decreto': bonifDecreto,
+        'Otros Bonos': parseFloat(otrosBonos.toFixed(2)),
+        'Total Quincena': parseFloat(totalQuincena.toFixed(2)),
+        'Desctos': parseFloat(emp.descuentoTotal.toFixed(2)),
+        'Liquido a Recibir': parseFloat(liquidoRecibir.toFixed(2)),
+        'OBSERVACIONES': observacion,
+        'COMENTARIOS TARDANZAS': comentariosTardanza
+      };
     });
 
-    const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `Planilla_${periodoSeleccionado.replace(' ', '_')}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    if (exportData.length === 0) {
+       alert("No hay datos calculados para exportar. Por favor procese la planilla primero.");
+       return;
+    }
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    
+    // Auto-ajustar ancho de columnas
+    const wscols = [
+      {wch: 35}, // Colaborador
+      {wch: 15}, // Tipo Contrato
+      {wch: 18}, // Cta Banco
+      {wch: 8},  // Dias
+      {wch: 15}, // Sueldo
+      {wch: 15}, // Bonif
+      {wch: 15}, // Otros
+      {wch: 15}, // Total
+      {wch: 10}, // Desctos
+      {wch: 18}, // Liquido
+      {wch: 30}, // Observaciones
+      {wch: 25}  // Comentarios Tardanzas
+    ];
+    ws['!cols'] = wscols;
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Nómina Quincenal");
+    XLSX.writeFile(wb, `Planilla_${periodoSeleccionado.replace(' ', '_')}.xlsx`);
   };
 
   return (
@@ -166,8 +186,8 @@ export default function PlanillaTab() {
                 <p className="text-xs font-medium text-emerald-700">{planilla.length} empleados procesados para {periodoSeleccionado}.</p>
               </div>
             </div>
-            <Button variant="outline" onClick={handleExport} className="border-emerald-200 text-emerald-700 hover:bg-emerald-100 font-bold bg-white">
-              <Download className="w-4 h-4 mr-2" /> Exportar a Excel (.csv)
+            <Button variant="outline" className="gap-2 bg-white" onClick={handleExport}>
+              <Download className="w-4 h-4" /> Exportar a Excel
             </Button>
           </div>
 

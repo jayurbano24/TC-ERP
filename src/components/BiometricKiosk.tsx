@@ -13,6 +13,7 @@ export function BiometricKiosk() {
   const [faceData, setFaceData] = useState<any[]>([]);
   const [matchStatus, setMatchStatus] = useState<'idle' | 'success' | 'error' | 'verifying'>('idle');
   const [statusMessage, setStatusMessage] = useState('');
+  const [isCameraActive, setIsCameraActive] = useState(false);
   const cooldownRef = useRef(false);
 
   // Estados UI
@@ -39,7 +40,6 @@ export function BiometricKiosk() {
       setLoadingMsg('Conectando a base de datos...');
       await fetchEmployeeEmbeddings();
       setIsModelLoaded(true);
-      startVideo();
     } catch (err) {
       console.error(err);
       setLoadingMsg('Error cargando modelos. Revisa consola.');
@@ -54,11 +54,21 @@ export function BiometricKiosk() {
   };
 
   const startVideo = () => {
+    setIsCameraActive(true);
     navigator.mediaDevices.getUserMedia({ video: true })
       .then((stream) => {
         if (videoRef.current) videoRef.current.srcObject = stream;
       })
       .catch((err) => console.error('Error accessing webcam', err));
+  };
+
+  const stopVideo = () => {
+    if (videoRef.current && videoRef.current.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach(track => track.stop());
+      videoRef.current.srcObject = null;
+    }
+    setIsCameraActive(false);
   };
 
   const handleVideoPlay = () => {
@@ -305,18 +315,53 @@ export function BiometricKiosk() {
       
       setMatchStatus('success');
       
+      const hour = new Date().getHours();
+      const day = new Date().getDay(); // 0 = Dom, 1 = Lun, ..., 5 = Vie
+      
       let greeting = '';
-      if (punchData.eventToLog === 'INGRESO') greeting = '¡Buenos días';
-      else if (punchData.eventToLog === 'SALIDA_DESAYUNO' || punchData.eventToLog === 'SALIDA_ALMUERZO') greeting = '¡Buen provecho';
+      if (punchData.eventToLog === 'INGRESO') {
+        if (day === 1) greeting = 'Buenos días y feliz inicio de semana';
+        else greeting = 'Buenos días';
+      }
+      else if (punchData.eventToLog === 'SALIDA_DESAYUNO' || punchData.eventToLog === 'SALIDA_ALMUERZO') {
+        greeting = 'Buen provecho';
+      }
       else if (punchData.eventToLog === 'SALIDA_FINAL') {
-        const hour = new Date().getHours();
-        greeting = hour < 18 ? '¡Feliz tarde' : '¡Feliz noche';
+        if (day === 5) greeting = 'Feliz tarde y buen fin de semana';
+        else if (hour < 18) greeting = 'Feliz tarde';
+        else greeting = 'Feliz noche';
       } else {
-        greeting = '¡Listo';
+        greeting = 'Marcaje registrado';
       }
 
+      // Extraer Primer Nombre y Primer Apellido
+      let shortName = punchData.employee.nombre_completo;
+      if (shortName.includes(',')) {
+        const apellidos = shortName.split(',')[0].trim().split(' ');
+        const nombres = shortName.split(',')[1].trim().split(' ');
+        shortName = `${nombres[0]} ${apellidos[0]}`;
+      } else {
+        const parts = shortName.trim().split(' ');
+        if (parts.length >= 3) {
+           shortName = `${parts[0]} ${parts[2]}`; // Asumiendo Nombre1 Nombre2 Apellido1
+        } else {
+           shortName = `${parts[0]} ${parts.length > 1 ? parts[1] : ''}`.trim();
+        }
+      }
+
+      const spokenMessage = `${greeting}, ${shortName}`;
       const eventName = punchData.eventToLog.replace(/_/g, ' ');
-      setStatusMessage(`${greeting}, ${punchData.employee.nombre_completo}! ${eventName} registrado.`);
+      setStatusMessage(`${spokenMessage}! ${eventName} registrado.`);
+      
+      // Text-to-Speech
+      if ('speechSynthesis' in window) {
+        const utterance = new SpeechSynthesisUtterance(spokenMessage);
+        utterance.lang = 'es-MX'; // Español latino
+        utterance.rate = 1.0;
+        utterance.pitch = 1.0;
+        window.speechSynthesis.speak(utterance);
+      }
+
       resetCooldown(4000);
     } catch (err) {
       console.error(err);
@@ -341,6 +386,7 @@ export function BiometricKiosk() {
       setSpecialMode(false);
       setSpecialDirection('INGRESO_ESPECIAL');
       cooldownRef.current = false;
+      stopVideo();
     }, ms);
   };
 
@@ -360,23 +406,92 @@ export function BiometricKiosk() {
       
       {/* Botón Marcaje Especial */}
       <button 
-        onClick={() => setSpecialMode(true)}
+        onClick={() => {
+          if (!isCameraActive) startVideo();
+          setSpecialMode(true);
+        }}
         className={`absolute top-4 right-4 z-30 flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider transition-all ${specialMode ? 'bg-[#2ec4f1] text-white shadow-[0_0_15px_rgba(46,196,241,0.5)]' : 'bg-white/10 text-white/50 hover:bg-white/20'}`}
       >
         <ShieldAlert className="w-3 h-3" />
         {specialMode ? 'ESCANEA TU ROSTRO' : 'Marcaje Especial'}
       </button>
 
-      <div className="w-full h-[400px] bg-slate-900 relative">
-        <video 
-          ref={videoRef}
-          autoPlay 
-          muted 
-          onPlay={handleVideoPlay}
-          className="absolute inset-0 w-full h-full object-cover"
-        />
-        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#2ec4f1]/10 to-transparent w-full h-1/4 animate-scan-line pointer-events-none" />
+      {isCameraActive && (
+        <button 
+          onClick={() => {
+            stopVideo();
+            cancelFlow();
+          }}
+          className="absolute top-4 left-4 z-30 flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider transition-all bg-rose-500/20 text-rose-400 hover:bg-rose-500/40"
+        >
+          <AlertCircle className="w-3 h-3" />
+          Cerrar Cámara
+        </button>
+      )}
+
+      <div className="w-full h-[600px] bg-slate-900 relative flex items-center justify-center">
+        {!isCameraActive ? (
+           <div className="flex flex-col items-center justify-center space-y-6 p-8 pb-28 text-center animate-in fade-in zoom-in-95 duration-500">
+              <div className="w-full max-w-md bg-slate-800/80 p-8 rounded-3xl border border-slate-700/50 backdrop-blur-md shadow-2xl flex flex-col items-center">
+                 {/* Logo SVG */}
+                 <svg viewBox="0 0 565 280" xmlns="http://www.w3.org/2000/svg" className="w-56 h-auto mb-8 drop-shadow-2xl">
+                  <defs>
+                    <mask id="c-cutout">
+                      {/* Fondo blanco: lo que sea blanco en la máscara será visible */}
+                      <rect width="565" height="280" fill="white" />
+                      {/* Formas negras: lo que sea negro será recortado y transparente */}
+                      <circle cx="425" cy="140" r="85" fill="black" />
+                      <rect x="500" y="100" width="80" height="60" fill="black" />
+                    </mask>
+                  </defs>
+
+                  {/* Letras con máscara y color integrado al diseño (blanco y celeste) */}
+                  <g>
+                    {/* Letra T (Blanca) */}
+                    <g fill="#ffffff">
+                      <rect x="8" y="9" width="232" height="60"/>
+                      <rect x="92" y="9" width="65" height="271"/>
+                    </g>
+                   
+                    {/* Letra C (Blanca) */}
+                    <g fill="#ffffff">
+                      {/* El gran círculo principal recortado por la máscara */}
+                      <circle cx="425" cy="140" r="140" mask="url(#c-cutout)"/>
+                      {/* El detalle circular central */}
+                      <circle cx="425" cy="140" r="35" fill="#ffffff"/>
+                    </g>
+                  </g>
+                 </svg>
+                 
+                 <div className="text-center mb-4">
+                   <p className="text-white font-black text-2xl tracking-wide uppercase drop-shadow-md">Bienvenido a</p>
+                   <p className="text-white font-black text-xl tracking-wide uppercase drop-shadow-md">Tech Corps Guatemala</p>
+                 </div>
+                 
+                 <p className="text-slate-300 text-base font-medium leading-relaxed text-center">
+                   Presione <span className="font-bold text-white">MARCAR</span> para habilitar el reconocimiento facial y registrar su asistencia.
+                 </p>
+              </div>
+              <button 
+                onClick={startVideo}
+                className="px-16 py-5 bg-[#2ec4f1] hover:bg-[#2ec4f1]/80 text-slate-950 font-black text-3xl tracking-widest rounded-full transition-all transform hover:scale-105 active:scale-95 shadow-[0_0_30px_rgba(46,196,241,0.5)]"
+              >
+                MARCAR
+              </button>
+           </div>
+        ) : (
+          <>
+            <video 
+              ref={videoRef}
+              autoPlay 
+              muted 
+              onPlay={handleVideoPlay}
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+            <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
+            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#2ec4f1]/10 to-transparent w-full h-1/4 animate-scan-line pointer-events-none" />
+          </>
+        )}
 
         {/* Modal de Selección de Acción Principal */}
         {pendingActionSelect && (() => {
@@ -535,10 +650,10 @@ export function BiometricKiosk() {
         
         <div className="flex-1">
           <p className="text-xs font-black uppercase tracking-widest opacity-70">
-            {matchStatus === 'idle' ? 'Kiosko Biométrico Activo' : matchStatus}
+            {matchStatus === 'idle' ? (isCameraActive ? 'Kiosko Biométrico Activo' : 'Kiosko en Espera') : matchStatus}
           </p>
           <h3 className="text-lg font-bold leading-tight">
-            {matchStatus === 'idle' ? 'Mira a la cámara para marcar' : statusMessage}
+            {matchStatus === 'idle' ? (isCameraActive ? 'Mira a la cámara para marcar' : 'Presione MARCAR para iniciar') : statusMessage}
           </h3>
         </div>
       </div>

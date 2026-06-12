@@ -77,3 +77,49 @@ export async function adminToggleUserStatus(userId: string, isActive: boolean) {
     return { error: error.message || "Error al cambiar el estatus del usuario" };
   }
 }
+
+/**
+ * Crea un nuevo usuario directamente desde el admin dashboard
+ */
+export async function adminCreateUser(email: string, password: string, fullName: string, roleId?: string, employeeId?: string) {
+  try {
+    const supabaseAdmin = getAdminClient();
+    
+    const { data, error } = await supabaseAdmin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { full_name: fullName }
+    });
+
+    if (error) throw error;
+    if (!data.user) throw new Error("No se pudo crear el usuario");
+
+    // Supabase will automatically insert into `profiles` via a database trigger (usually).
+    // But if we need to set role_id or employee_id immediately, or if the trigger is missing:
+    const upsertData: any = {
+      id: data.user.id,
+      email: email, // Enforce email is present
+      full_name: fullName,
+      is_active: true
+    };
+    if (roleId) upsertData.role_id = roleId;
+    if (employeeId) upsertData.employee_id = employeeId;
+
+    // Wait a moment for trigger to run (if any) to avoid unique constraint conflicts if upsert isn't well handled
+    await new Promise(r => setTimeout(r, 1000));
+    
+    const { error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .upsert(upsertData, { onConflict: 'id' });
+      
+    if (profileError) {
+       console.error("Warning: Could not upsert profile data", profileError);
+    }
+
+    return { success: true, user: data.user };
+  } catch (error: any) {
+    console.error("Error in adminCreateUser:", error);
+    return { error: error.message || "Error desconocido al crear usuario" };
+  }
+}

@@ -544,6 +544,8 @@ export async function getProfiles() {
       is_active,
       created_at,
       avatar_url,
+      employee_id,
+      employees ( codigo_empleado, nombre_completo ),
       user_roles ( role, role_id )
     `)
     .order('created_at', { ascending: false });
@@ -560,6 +562,9 @@ export async function getProfiles() {
     is_active: p.is_active,
     created_at: p.created_at,
     avatar_url: p.avatar_url,
+    employee_id: p.employee_id,
+    employee_code: p.employees?.codigo_empleado || null,
+    employee_name: p.employees?.nombre_completo || null,
     role: p.user_roles && p.user_roles.length > 0 ? p.user_roles[0].role : 'Sin Rol',
     user_roles: p.user_roles // pasar el objeto completo para que getUsersWithRoles procese role_id
   }));
@@ -569,12 +574,13 @@ export async function saveProfile(profile: any) {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: "Supabase not configured" };
   
-  const { id, full_name, email, avatar_url } = profile;
+  const { id, full_name, email, avatar_url, employee_id } = profile;
   if (!id) return { error: "ID de usuario requerido" };
 
   const updateData: any = { full_name };
   if (email !== undefined) updateData.email = email;
   if (avatar_url !== undefined) updateData.avatar_url = avatar_url;
+  if (employee_id !== undefined) updateData.employee_id = employee_id;
 
   const { data, error } = await supabase
     .from('profiles')
@@ -597,10 +603,18 @@ export async function assignUserRole(userId: string, role: string) {
   // Eliminar rol anterior
   await supabase.from('user_roles').delete().eq('user_id', userId);
   
+  // Añadir rol al enum dinámicamente si no existe
+  await supabase.rpc('add_app_role_value', { new_role: role });
+  
+  // Buscar el role_id de hr_positions
+  const { data: posData } = await supabase.from('hr_positions').select('id').eq('name', role).single();
+  const roleId = posData ? posData.id : null;
+
   // Asignar nuevo rol
   const { data, error } = await supabase.from('user_roles').insert({
     user_id: userId,
-    role: role
+    role: role,
+    role_id: roleId
   });
 
   if (error) {

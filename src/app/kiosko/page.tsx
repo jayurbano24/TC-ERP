@@ -56,7 +56,7 @@ export default function KioskoPage() {
         </Link>
       </div>
 
-      <main className="w-full max-w-2xl p-4 sm:p-6 md:p-8 relative z-10 animate-rise-in mt-12 sm:mt-4 flex flex-col items-center">
+      <main className="w-full max-w-5xl p-4 sm:p-6 md:p-8 relative z-10 animate-rise-in mt-12 sm:mt-4 flex flex-col items-center">
         
         {!isAuthenticated ? (
           <div className="w-full max-w-sm mt-12 bg-slate-900/80 p-8 rounded-[2rem] border border-slate-800 backdrop-blur-xl shadow-2xl">
@@ -102,7 +102,7 @@ export default function KioskoPage() {
               </div>
 
           <h1 className="text-5xl sm:text-7xl md:text-8xl font-black text-white tracking-tighter mb-1 sm:mb-2 font-mono tabular-nums drop-shadow-2xl">
-            {time ? time.toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit', hour12: true }) : '00:00'}
+            {time ? time.toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }) : '00:00:00'}
           </h1>
           <p className="text-slate-400 font-bold text-xs sm:text-sm md:text-base tracking-widest uppercase flex items-center justify-center gap-2">
             <Clock className="w-4 h-4 text-[#2ec4f1]" />
@@ -114,7 +114,7 @@ export default function KioskoPage() {
         <div className="relative w-full animate-in fade-in zoom-in-95 duration-700">
            {/* Glow behind the kiosk */}
            <div className="absolute inset-0 bg-[#2ec4f1]/5 blur-3xl rounded-full transform scale-110" />
-            <div className="relative z-10 w-full max-w-md mx-auto">
+            <div className="relative z-10 w-full max-w-4xl mx-auto">
               <BiometricKiosk />
             </div>
           </div>

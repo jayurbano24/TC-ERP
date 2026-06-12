@@ -6,6 +6,10 @@ import { Users, Clock, Calculator } from 'lucide-react';
 import GestionPersonalTab from './components/GestionPersonalTab';
 import AuditoriaTab from './components/AuditoriaTab';
 import PlanillaTab from './components/PlanillaTab';
+import ObligacionesTab from './components/ObligacionesTab';
+import CatalogosTab from './components/CatalogosTab';
+import ReportesTab from './components/ReportesTab';
+import { BarChart2 } from 'lucide-react';
 
 export default function RRHHPage() {
   const [activeTab, setActiveTab] = useState("gestion");
@@ -22,27 +26,48 @@ export default function RRHHPage() {
       }
     >
       <div className="w-full mt-6">
-        <div className="grid w-full grid-cols-3 max-w-2xl bg-slate-100/50 p-1 rounded-2xl">
+        <div className="flex flex-wrap gap-2 bg-slate-100/50 p-1 rounded-2xl">
           <button 
             onClick={() => setActiveTab("gestion")}
-            className={`flex items-center justify-center py-2 rounded-xl font-bold gap-2 transition-all ${activeTab === 'gestion' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
+            className={`flex-1 min-w-[160px] flex items-center justify-center py-2 rounded-xl font-bold gap-2 transition-all ${activeTab === 'gestion' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
           >
             <Users className="w-4 h-4" />
             Gestión de Personal
           </button>
           <button 
             onClick={() => setActiveTab("auditoria")}
-            className={`flex items-center justify-center py-2 rounded-xl font-bold gap-2 transition-all ${activeTab === 'auditoria' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
+            className={`flex-1 min-w-[160px] flex items-center justify-center py-2 rounded-xl font-bold gap-2 transition-all ${activeTab === 'auditoria' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
           >
             <Clock className="w-4 h-4" />
             Auditoría de Asistencia
           </button>
           <button 
             onClick={() => setActiveTab("planilla")}
-            className={`flex items-center justify-center py-2 rounded-xl font-bold gap-2 transition-all ${activeTab === 'planilla' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
+            className={`flex-1 min-w-[160px] flex items-center justify-center py-2 rounded-xl font-bold gap-2 transition-all ${activeTab === 'planilla' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
           >
             <Calculator className="w-4 h-4" />
             Cálculo de Planilla
+          </button>
+          <button 
+            onClick={() => setActiveTab("obligaciones")}
+            className={`flex-1 min-w-[160px] flex items-center justify-center py-2 rounded-xl font-bold gap-2 transition-all ${activeTab === 'obligaciones' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            <BarChart2 className="w-4 h-4" />
+            Obligaciones e Impuestos
+          </button>
+          <button 
+            onClick={() => setActiveTab("catalogos")}
+            className={`flex-1 min-w-[160px] flex items-center justify-center py-2 rounded-xl font-bold gap-2 transition-all ${activeTab === 'catalogos' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            <Users className="w-4 h-4" />
+            Catálogos y Estructura
+          </button>
+          <button 
+            onClick={() => setActiveTab("reportes")}
+            className={`flex-1 min-w-[160px] flex items-center justify-center py-2 rounded-xl font-bold gap-2 transition-all ${activeTab === 'reportes' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            <BarChart2 className="w-4 h-4" />
+            Reportes
           </button>
         </div>
 
@@ -50,6 +75,9 @@ export default function RRHHPage() {
           {activeTab === 'gestion' && <GestionPersonalTab />}
           {activeTab === 'auditoria' && <AuditoriaTab />}
           {activeTab === 'planilla' && <PlanillaTab />}
+          {activeTab === 'obligaciones' && <ObligacionesTab />}
+          {activeTab === 'catalogos' && <CatalogosTab />}
+          {activeTab === 'reportes' && <ReportesTab />}
         </div>
       </div>
     </ModulePage>

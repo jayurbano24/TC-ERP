@@ -33,11 +33,12 @@ import {
   KeyRound
 } from 'lucide-react';
 
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 // DB Access
 import { getProfiles, assignUserRole, saveProfile } from '@/lib/database/config';
 import { getAdvancedAuditLogs, logAdvancedAudit } from '@/lib/database/audit';
 import { getRoles, getRolePermissions, updateRolePermission, getUsersWithRoles, getUserSecurity, updateUserSecurity, changeUserRole } from '@/lib/database/roles';
-import { adminUpdateUserPassword, adminToggleUserStatus } from '@/lib/actions/users';
+import { adminUpdateUserPassword, adminToggleUserStatus, adminCreateUser } from '@/lib/actions/users';
 import { uploadAvatar } from '@/lib/database/storage';
 import { Camera, Image as ImageIcon } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -66,6 +67,7 @@ export default function SeguridadPage() {
   const [selectedRole, setSelectedRole] = useState<any>(null);
   const [permissions, setPermissions] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
+  const [hrEmployees, setHrEmployees] = useState<any[]>([]);
   const [roleSearch, setRoleSearch] = useState('');
   const [userSearch, setUserSearch] = useState('');
   const [savingPerm, setSavingPerm] = useState<string | null>(null);
@@ -73,20 +75,22 @@ export default function SeguridadPage() {
 
   // Modal Action State
   const [userProfileModal, setUserProfileModal] = useState<any>(null);
-  const [profileData, setProfileData] = useState({ full_name: '', role_id: '', is_active: false, email: '' });
+  const [profileData, setProfileData] = useState({ full_name: '', role_id: '', is_active: false, email: '', employee_id: '' });
   const [newPassword, setNewPassword] = useState('');
   const [profileFile, setProfileFile] = useState<File | null>(null);
   const [profilePreview, setProfilePreview] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
 
   const MODULES_MATRIX = [
-    'Dashboard', 
+    'Dashboard',
+    'Consulta',
     'Recepción General', 
     'Devoluciones', 
     'Backoffice', 
     'Taller', 
     'Bodega', 
     'Despacho', 
+    'Recursos Humanos',
     'Productividad', 
     'Costos', 
     'Seguridad',
@@ -130,6 +134,12 @@ export default function SeguridadPage() {
 
   const loadRBACData = async () => {
     try {
+      const supabase = getSupabaseBrowserClient();
+      if (supabase) {
+        const { data: emps } = await supabase.from('employees').select('id, codigo_empleado, nombre_completo').order('nombre_completo');
+        if (emps) setHrEmployees(emps);
+      }
+      
       const rolesData = await getRoles();
       if (!rolesData || rolesData.length === 0) {
         setDbError("No se encontraron roles. O la base de datos está vacía, o el script SQL falló.");
@@ -195,9 +205,24 @@ export default function SeguridadPage() {
       full_name: user.full_name || '',
       role_id: user.role_id || '',
       is_active: user.status === 'Activo',
-      email: user.email || ''
+      email: user.email || '',
+      employee_id: user.employee_id || ''
     });
     setProfilePreview(user.avatar_url || null);
+    setProfileFile(null);
+    setNewPassword('');
+  };
+
+  const handleOpenCreateProfile = () => {
+    setUserProfileModal({ isNew: true });
+    setProfileData({
+      full_name: '',
+      role_id: '',
+      is_active: true,
+      email: '',
+      employee_id: ''
+    });
+    setProfilePreview(null);
     setProfileFile(null);
     setNewPassword('');
   };
@@ -209,40 +234,73 @@ export default function SeguridadPage() {
 
     // 1. Upload Avatar si hay uno nuevo
     if (profileFile) {
-      const res = await uploadAvatar(userProfileModal.id, profileFile);
-      if (res.error) {
-        alert("Error al subir foto: " + res.error);
+      const targetId = userProfileModal.id || 'new'; // This might fail for new users if storage depends on ID
+      if (!userProfileModal.isNew) {
+        const res = await uploadAvatar(userProfileModal.id, profileFile);
+        if (res.error) {
+          alert("Error al subir foto: " + res.error);
+          setActionLoading(false);
+          return;
+        }
+        avatar_url = res.url;
+      }
+    }
+
+    if (userProfileModal.isNew) {
+      // Create new user
+      if (!profileData.email || !newPassword || !profileData.full_name) {
+        alert("Correo, Contraseña y Nombre son obligatorios para nuevos usuarios.");
         setActionLoading(false);
         return;
       }
-      avatar_url = res.url;
-    }
+      const res = await adminCreateUser(
+        profileData.email, 
+        newPassword, 
+        profileData.full_name, 
+        profileData.role_id, 
+        profileData.employee_id
+      );
+      if (res.error) {
+        alert("Error creando usuario: " + res.error);
+        setActionLoading(false);
+        return;
+      }
+      
+      // If we uploaded a file for a new user, we'd need to upload it AFTER user creation
+      if (profileFile && res.user) {
+        const uploadRes = await uploadAvatar(res.user.id, profileFile);
+        if (!uploadRes.error) {
+          await saveProfile({ id: res.user.id, avatar_url: uploadRes.url });
+        }
+      }
+    } else {
+      // Update existing user
+      // 2. Guardar Nombre Completo, Avatar y Empleado
+      if (profileData.full_name !== userProfileModal.full_name || avatar_url !== userProfileModal.avatar_url || profileData.employee_id !== userProfileModal.employee_id) {
+         await saveProfile({ id: userProfileModal.id, full_name: profileData.full_name, avatar_url, employee_id: profileData.employee_id || null });
+      }
 
-    // 2. Guardar Nombre Completo y Avatar
-    if (profileData.full_name !== userProfileModal.full_name || avatar_url !== userProfileModal.avatar_url) {
-       await saveProfile({ id: userProfileModal.id, full_name: profileData.full_name, avatar_url });
-    }
-
-    // 3. Cambiar Rol
-    if (profileData.role_id && profileData.role_id !== userProfileModal.role_id) {
-       const r = roles.find(ro => ro.id === profileData.role_id);
-       if (r) {
-         const res = await changeUserRole(userProfileModal.id, r.id, r.name);
-         if (res.error) {
-           alert("Error cambiando rol: " + res.error);
+      // 3. Cambiar Rol
+      if (profileData.role_id && profileData.role_id !== userProfileModal.role_id) {
+         const r = roles.find(ro => ro.id === profileData.role_id);
+         if (r) {
+           const res = await changeUserRole(userProfileModal.id, r.id, r.name);
+           if (res.error) {
+             alert("Error cambiando rol: " + res.error);
+           }
          }
-       }
-    }
+      }
 
-    // 4. Cambiar Estado
-    const currentActive = userProfileModal.status === 'Activo';
-    if (profileData.is_active !== currentActive) {
-       await adminToggleUserStatus(userProfileModal.id, profileData.is_active);
-    }
+      // 4. Cambiar Estado
+      const currentActive = userProfileModal.status === 'Activo';
+      if (profileData.is_active !== currentActive) {
+         await adminToggleUserStatus(userProfileModal.id, profileData.is_active);
+      }
 
-    // 5. Resetear Contraseña (si se escribió algo)
-    if (newPassword.length >= 6) {
-       await adminUpdateUserPassword(userProfileModal.id, newPassword);
+      // 5. Resetear Contraseña (si se escribió algo)
+      if (newPassword.length >= 6) {
+         await adminUpdateUserPassword(userProfileModal.id, newPassword);
+      }
     }
 
     await loadRBACData();
@@ -365,15 +423,20 @@ export default function SeguridadPage() {
                 </h3>
                 <p className="text-xs text-slate-500 mt-1">Administra accesos, contraseñas y roles del personal.</p>
               </div>
-              <div className="relative w-full md:w-72">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input 
-                  type="text" 
-                  placeholder="Buscar por nombre, correo o rol..." 
-                  value={userSearch}
-                  onChange={e => setUserSearch(e.target.value)}
-                  className="w-full h-10 pl-10 pr-4 bg-white border-2 border-slate-100 rounded-lg text-xs font-bold outline-none focus:border-[#2ec4f1] transition-all"
-                />
+              <div className="flex gap-4 items-center">
+                <div className="relative w-full md:w-72">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input 
+                    type="text" 
+                    placeholder="Buscar por nombre, correo o rol..." 
+                    value={userSearch}
+                    onChange={e => setUserSearch(e.target.value)}
+                    className="w-full h-10 pl-10 pr-4 bg-white border-2 border-slate-100 rounded-lg text-xs font-bold outline-none focus:border-[#2ec4f1] transition-all"
+                  />
+                </div>
+                <Button variant="primary" className="gap-2 shrink-0" onClick={handleOpenCreateProfile}>
+                  <Plus className="w-4 h-4" /> Nuevo Usuario
+                </Button>
               </div>
             </div>
 
@@ -404,6 +467,11 @@ export default function SeguridadPage() {
                           </div>
                           <div>
                             <div className="font-bold text-[#181c3a]">{user.full_name || 'Sin Nombre'}</div>
+                            {user.employee_code && (
+                              <div className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded inline-block mt-0.5">
+                                RRHH: {user.employee_code}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -743,8 +811,8 @@ export default function SeguridadPage() {
           <Card className="w-full max-w-2xl flex flex-col overflow-hidden shadow-2xl p-0">
             <div className="p-6 bg-[#181c3a] text-white flex justify-between items-center">
                <div>
-                  <h3 className="font-black text-xl flex items-center gap-2"><UserCog size={24} className="text-[#2ec4f1]"/> Editar Perfil</h3>
-                  <p className="text-xs text-slate-400 mt-1 font-mono">{userProfileModal.email}</p>
+                  <h3 className="font-black text-xl flex items-center gap-2"><UserCog size={24} className="text-[#2ec4f1]"/> {userProfileModal.isNew ? 'Nuevo Usuario' : 'Editar Perfil'}</h3>
+                  <p className="text-xs text-slate-400 mt-1 font-mono">{userProfileModal.isNew ? 'Nueva cuenta de acceso' : userProfileModal.email}</p>
                </div>
                <Button variant="ghost" onClick={() => setUserProfileModal(null)} className="hover:bg-white/10"><XCircle size={24} /></Button>
             </div>
@@ -811,12 +879,15 @@ export default function SeguridadPage() {
                      />
                   </div>
                   <div>
-                     <label className="text-[10px] font-black text-[#181c3a] uppercase tracking-widest block mb-1">Correo Electrónico (No editable)</label>
+                     <label className="text-[10px] font-black text-[#181c3a] uppercase tracking-widest block mb-1">
+                       Correo Electrónico {userProfileModal.isNew ? '(Obligatorio)' : '(No editable)'}
+                     </label>
                      <input 
-                        type="text" 
+                        type="email" 
                         value={profileData.email}
-                        disabled
-                        className="w-full h-10 px-3 bg-slate-100 border-2 border-slate-200 rounded-lg text-sm font-bold text-slate-400 outline-none cursor-not-allowed"
+                        onChange={e => setProfileData({...profileData, email: e.target.value})}
+                        disabled={!userProfileModal.isNew}
+                        className={`w-full h-10 px-3 border-2 border-slate-200 rounded-lg text-sm font-bold outline-none transition-all ${userProfileModal.isNew ? 'bg-white focus:border-[#2ec4f1] text-[#181c3a]' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
                      />
                   </div>
                   <div>
@@ -830,10 +901,22 @@ export default function SeguridadPage() {
                         {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                      </select>
                   </div>
+
+                  <div>
+                     <label className="text-[10px] font-black text-[#181c3a] uppercase tracking-widest block mb-1 flex items-center gap-1"><Users size={12}/> Enlazar a Empleado (RRHH)</label>
+                     <select 
+                        value={profileData.employee_id || ''}
+                        onChange={e => setProfileData({...profileData, employee_id: e.target.value})}
+                        className="w-full h-10 px-3 bg-emerald-50 border-2 border-emerald-100 rounded-lg text-sm font-bold text-emerald-900 outline-none focus:border-emerald-400 transition-all"
+                     >
+                        <option value="">-- Sin cuenta de empleado --</option>
+                        {hrEmployees.map(e => <option key={e.id} value={e.id}>{e.codigo_empleado} - {e.nombre_completo}</option>)}
+                     </select>
+                  </div>
                   
                   <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
-                     <label className="text-[10px] font-black text-amber-700 uppercase tracking-widest block mb-1 flex items-center gap-1"><KeyRound size={12}/> Forzar Cambio de Contraseña</label>
-                     <p className="text-[10px] text-amber-600 mb-2 leading-tight">Si escribes aquí, la contraseña del usuario será reemplazada. Déjalo en blanco para no cambiarla.</p>
+                     <label className="text-[10px] font-black text-amber-700 uppercase tracking-widest block mb-1 flex items-center gap-1"><KeyRound size={12}/> {userProfileModal.isNew ? 'Contraseña (Obligatoria)' : 'Forzar Cambio de Contraseña'}</label>
+                     <p className="text-[10px] text-amber-600 mb-2 leading-tight">{userProfileModal.isNew ? 'Escribe la contraseña inicial para este usuario.' : 'Si escribes aquí, la contraseña del usuario será reemplazada. Déjalo en blanco para no cambiarla.'}</p>
                      <input 
                         type="password" 
                         value={newPassword}

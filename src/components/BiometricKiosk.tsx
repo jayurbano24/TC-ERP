@@ -99,6 +99,7 @@ export function BiometricKiosk() {
 
     try {
       const supabase = getSupabaseBrowserClient();
+      if (!supabase) return;
       
       if (employee.tipo_contrato === 'Temporada') {
         const today = new Date();

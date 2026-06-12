@@ -40,7 +40,8 @@ import {
 import { getReceptions, createReceptionWithSeries, createPxReceptionWithBoxes, DbReception } from '@/lib/database/receptions';
 import { getCarriers, getTechnologies, getBrands, getModels, getPxProviders } from '@/lib/database/config';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+import BarcodeScanner from '@/components/BarcodeScanner';
 
 // --- DATA ---
 const initialManifestItems: any[] = [];
@@ -77,6 +78,7 @@ export default function UnifiedRecepcionPage() {
   const [cacPilot, setCacPilot] = useState('');
   const [cacAgency, setCacAgency] = useState('');
   const [isIndustrialScanning, setIsIndustrialScanning] = useState(false);
+  const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
   const [cacError, setCacError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showTimeline, setShowTimeline] = useState<any | null>(null);
@@ -1645,7 +1647,7 @@ export default function UnifiedRecepcionPage() {
                     <div className={`w-2 h-2 rounded-full animate-pulse ${isIndustrialScanning ? 'bg-emerald-500' : 'bg-slate-300'}`} />
                     <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Escaneo Industrial Activo</p>
                   </div>
-                  <form onSubmit={handleScan_CAC} className="flex gap-4">
+                  <form onSubmit={handleScan_CAC} className="flex gap-2 w-full">
                     <div className="relative flex-1">
                       <div className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-300">
                         <QrCode size={24} />
@@ -1660,6 +1662,19 @@ export default function UnifiedRecepcionPage() {
                         className={`w-full h-20 pl-16 pr-8 bg-white border-2 rounded-3xl font-black text-xl text-[#181c3a] outline-none transition-all shadow-xl shadow-blue-500/5 placeholder:font-bold placeholder:text-slate-300 uppercase ${cacTotalCajas < 1 ? 'border-rose-100 bg-rose-50/30' : 'border-[#2ec4f1]/20 focus:border-[#2ec4f1]'}`}
                       />
                     </div>
+                    
+                    <Button 
+                      variant="outline" 
+                      type="button"
+                      onClick={() => setIsCameraScannerOpen(true)}
+                      disabled={!isIndustrialScanning || cacTotalCajas < 1}
+                      className="h-20 px-6 border-2 border-[#2ec4f1]/20 text-[#2ec4f1] rounded-3xl font-black hover:bg-[#2ec4f1] hover:text-[#181c3a] transition-all shadow-xl disabled:opacity-30 bg-white flex flex-col items-center justify-center gap-1"
+                      title="Escanear con Cámara"
+                    >
+                      <Camera size={24} />
+                      <span className="text-[9px] uppercase tracking-widest">Cámara</span>
+                    </Button>
+
                     <Button 
                       variant="primary" 
                       type="submit"
@@ -1669,6 +1684,21 @@ export default function UnifiedRecepcionPage() {
                       Añadir
                     </Button>
                   </form>
+                  
+                  {isCameraScannerOpen && (
+                    <BarcodeScanner 
+                      onClose={() => setIsCameraScannerOpen(false)}
+                      onScanSuccess={(decodedText) => {
+                        const newSn = decodedText.trim().toUpperCase();
+                        if (newSn && !cacScannedItems.includes(newSn)) {
+                           setCacScannedItems(prev => [newSn, ...prev]);
+                           setCacError('');
+                        } else {
+                           setCacError(`La serie ${newSn} ya fue escaneada o es inválida.`);
+                        }
+                      }}
+                    />
+                  )}
 
                   {cacError && (
                     <p className="text-xs font-black text-rose-500 uppercase tracking-widest bg-rose-50 px-6 py-3 rounded-2xl border border-rose-100 inline-block animate-shake">{cacError}</p>

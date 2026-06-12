@@ -20,7 +20,12 @@ export default function LoginPage() {
     setError('');
 
     try {
-      const authData = await signInWithEmail(email, password);
+      let loginIdentifier = email.trim();
+      if (!loginIdentifier.includes('@')) {
+        loginIdentifier = `${loginIdentifier}@techcorps.com`;
+      }
+      
+      const authData = await signInWithEmail(loginIdentifier, password);
       
       if (authData?.user?.id && authData.user.id !== 'dev-user') {
         const res = await fetch('/api/auth/session', {

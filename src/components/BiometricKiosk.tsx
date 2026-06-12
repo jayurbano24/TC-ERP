@@ -24,6 +24,14 @@ export function BiometricKiosk() {
   const [specialMode, setSpecialMode] = useState(false);
   const [specialDirection, setSpecialDirection] = useState('INGRESO_ESPECIAL');
 
+  // Estados de Registro
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [registerStep, setRegisterStep] = useState<'pin' | 'select' | 'capture'>('pin');
+  const [pinCode, setPinCode] = useState('');
+  const [registerEmployees, setRegisterEmployees] = useState<any[]>([]);
+  const [selectedRegisterEmp, setSelectedRegisterEmp] = useState<any>(null);
+  const [registerStatusMsg, setRegisterStatusMsg] = useState('');
+
   useEffect(() => {
     loadModels();
   }, []);
@@ -83,6 +91,38 @@ export function BiometricKiosk() {
           .withFaceDescriptor();
 
         if (detections) {
+          // Si estamos en modo de registrar un rostro nuevo
+          if (isRegistering && registerStep === 'capture' && selectedRegisterEmp) {
+             cooldownRef.current = true;
+             setRegisterStatusMsg('Rostro detectado, guardando datos faciales...');
+             
+             try {
+                const supabase = getSupabaseBrowserClient();
+                if (supabase) {
+                   const embeddingArray = Array.from(detections.descriptor);
+                   await supabase.from('employees').update({ face_embedding: embeddingArray }).eq('id', selectedRegisterEmp.id);
+                   
+                   setRegisterStatusMsg('¡Datos faciales registrados correctamente!');
+                   await fetchEmployeeEmbeddings(); // Recargar las caras
+                   
+                   setTimeout(() => {
+                      setIsRegistering(false);
+                      setRegisterStep('pin');
+                      setPinCode('');
+                      setSelectedRegisterEmp(null);
+                      stopVideo();
+                      cooldownRef.current = false;
+                   }, 3000);
+                }
+             } catch (err) {
+                setRegisterStatusMsg('Error al guardar rostro.');
+                setTimeout(() => { cooldownRef.current = false; }, 3000);
+             }
+             return; // Detenemos aquí
+          }
+
+          if (isRegistering) return; // No hacer login si estamos registrando
+          
           let bestMatch = null;
           let bestDistance = 0.6; 
           for (const emp of faceData) {
@@ -416,7 +456,22 @@ export function BiometricKiosk() {
         {specialMode ? 'ESCANEA TU ROSTRO' : 'Marcaje Especial'}
       </button>
 
-      {isCameraActive && (
+      {/* Botón Registrar Rostro */}
+      {!isCameraActive && !isRegistering && (
+        <button 
+          onClick={() => {
+            setIsRegistering(true);
+            setRegisterStep('pin');
+            setPinCode('');
+          }}
+          className="absolute top-4 left-4 z-30 flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider transition-all bg-white/10 text-white/50 hover:bg-white/20"
+        >
+          <Camera className="w-3 h-3" />
+          Registrar Rostro
+        </button>
+      )}
+
+      {isCameraActive && !isRegistering && (
         <button 
           onClick={() => {
             stopVideo();
@@ -430,7 +485,117 @@ export function BiometricKiosk() {
       )}
 
       <div className="w-full h-[600px] bg-slate-900 relative flex items-center justify-center">
-        {!isCameraActive ? (
+        
+        {/* FLUJO DE REGISTRO FACIAL */}
+        {isRegistering ? (
+           <div className="absolute inset-0 z-40 bg-slate-900/95 backdrop-blur-md flex flex-col items-center justify-center p-6 animate-in fade-in zoom-in-95 duration-300">
+             
+             {registerStep === 'pin' && (
+               <div className="w-full max-w-sm flex flex-col items-center text-center">
+                 <ShieldAlert className="w-12 h-12 text-[#2ec4f1] mb-4" />
+                 <h2 className="text-xl font-black text-white mb-2 uppercase tracking-widest">Código de Autorización</h2>
+                 <p className="text-sm text-slate-400 mb-6">Ingrese el PIN para acceder al registro facial</p>
+                 <input 
+                   type="password" 
+                   value={pinCode}
+                   onChange={e => setPinCode(e.target.value)}
+                   className="w-full h-14 bg-slate-800 text-center text-white text-2xl tracking-[1em] font-black rounded-2xl border-2 border-slate-700 outline-none focus:border-[#2ec4f1] transition-colors mb-4"
+                   placeholder="****"
+                   maxLength={4}
+                 />
+                 <button 
+                   onClick={async () => {
+                     if (pinCode === '1234') {
+                       const supabase = getSupabaseBrowserClient();
+                       if (supabase) {
+                         const { data } = await supabase.from('employees').select('id, nombre_completo, face_embedding').order('nombre_completo');
+                         if (data) setRegisterEmployees(data);
+                       }
+                       setRegisterStep('select');
+                     } else {
+                       alert('PIN Incorrecto');
+                       setPinCode('');
+                     }
+                   }}
+                   className="w-full py-4 bg-[#2ec4f1] text-[#181c3a] font-black rounded-xl uppercase tracking-widest hover:bg-[#2ec4f1]/80 transition-colors"
+                 >
+                   Verificar PIN
+                 </button>
+                 <button 
+                   onClick={() => setIsRegistering(false)} 
+                   className="mt-6 text-slate-500 hover:text-white font-bold text-xs uppercase tracking-widest underline"
+                 >
+                   Cancelar
+                 </button>
+               </div>
+             )}
+
+             {registerStep === 'select' && (
+               <div className="w-full max-w-xl flex flex-col items-center">
+                 <h2 className="text-xl font-black text-white mb-2 uppercase tracking-widest">Seleccionar Empleado</h2>
+                 <p className="text-sm text-slate-400 mb-6">Seleccione el empleado a quien se le registrará el rostro</p>
+                 
+                 <div className="w-full max-h-96 overflow-y-auto space-y-2 custom-scrollbar bg-slate-800 p-4 rounded-3xl border border-slate-700">
+                   {registerEmployees.map(emp => (
+                     <button
+                       key={emp.id}
+                       onClick={() => {
+                         setSelectedRegisterEmp(emp);
+                         setRegisterStep('capture');
+                         startVideo();
+                       }}
+                       className="w-full flex items-center justify-between p-4 rounded-2xl hover:bg-white/5 transition-colors border border-transparent hover:border-white/10 group text-left"
+                     >
+                       <span className="text-white font-bold group-hover:text-[#2ec4f1] transition-colors">{emp.nombre_completo}</span>
+                       {emp.face_embedding ? (
+                         <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400 bg-emerald-500/20 px-2 py-1 rounded-full">Ya Registrado</span>
+                       ) : (
+                         <span className="text-[10px] font-black uppercase tracking-widest text-amber-400 bg-amber-500/20 px-2 py-1 rounded-full">Sin Rostro</span>
+                       )}
+                     </button>
+                   ))}
+                 </div>
+                 <button 
+                   onClick={() => setIsRegistering(false)} 
+                   className="mt-6 text-slate-500 hover:text-white font-bold text-xs uppercase tracking-widest underline"
+                 >
+                   Cancelar
+                 </button>
+               </div>
+             )}
+
+             {registerStep === 'capture' && (
+               <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-50">
+                 <h2 className="absolute top-8 text-2xl font-black text-white uppercase tracking-widest z-50 drop-shadow-lg">
+                   {registerStatusMsg || `Registrando rostro para: ${selectedRegisterEmp?.nombre_completo}`}
+                 </h2>
+                 <video 
+                   ref={videoRef}
+                   autoPlay 
+                   muted 
+                   onPlay={handleVideoPlay}
+                   className="w-full h-full object-cover opacity-80"
+                 />
+                 {/* Marco guía */}
+                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div className="w-64 h-64 border-4 border-[#2ec4f1] rounded-full border-dashed animate-[spin_10s_linear_infinite]" />
+                 </div>
+                 
+                 <button 
+                   onClick={() => {
+                     stopVideo();
+                     setIsRegistering(false);
+                     setRegisterStep('pin');
+                   }}
+                   className="absolute bottom-10 px-8 py-3 bg-rose-500/20 text-rose-400 font-bold rounded-full border border-rose-500/30 hover:bg-rose-500/40 transition-colors z-50"
+                 >
+                   Cancelar Escaneo
+                 </button>
+               </div>
+             )}
+
+           </div>
+        ) : !isCameraActive ? (
            <div className="flex flex-col items-center justify-center space-y-6 p-8 pb-28 text-center animate-in fade-in zoom-in-95 duration-500">
               <div className="w-full max-w-md bg-slate-800/80 p-8 rounded-3xl border border-slate-700/50 backdrop-blur-md shadow-2xl flex flex-col items-center">
                  {/* Logo SVG */}

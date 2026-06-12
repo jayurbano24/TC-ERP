@@ -72,14 +72,21 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
             return;
           }
 
-          const { data: sessionData } = await supabase
+          const { data: sessionData, error: sessionError } = await supabase
             .from('user_sessions')
             .select('created_at')
             .eq('id', localSessionId)
             .single();
 
-          if (!sessionData) {
-            // La sesión fue borrada (otro PC inició sesión o expiró)
+          if (sessionError) {
+             // Si el error es 'PGRST116', significa que la fila no existe (fue borrada / otro PC inició sesión)
+             if (sessionError.code === 'PGRST116') {
+                handleLogout();
+                return;
+             }
+             // Si es otro error (ej. red caída), NO cerramos sesión por error temporal
+          } else if (!sessionData) {
+            // La sesión fue borrada
             handleLogout();
             return;
           }

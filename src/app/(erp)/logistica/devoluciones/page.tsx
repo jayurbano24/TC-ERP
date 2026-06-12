@@ -160,7 +160,7 @@ export default function DevolucionesPage() {
       // Filtramos por la pestaña activa
       const filtered = allData.filter((d: any) => d.category === activeCategory);
       
-      setDevoluciones(filtered);
+      setDevoluciones(filtered as Devolucion[]);
     } catch (err) {
       console.error("Error in fetchReturns:", err);
     } finally {

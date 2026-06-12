@@ -575,7 +575,7 @@ export default function DevolucionesPage() {
                   <Button 
                     variant="outline" 
                     className="w-full text-rose-500 border-rose-200 hover:bg-rose-50 hover:text-rose-600 transition-colors"
-                    onClick={handleUndoDevolution}
+                    onClick={() => handleUndoDevolution()}
                     disabled={loading}
                     leftIcon={<RotateCcw className="w-4 h-4" />}
                   >

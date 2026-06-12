@@ -109,7 +109,7 @@ export function BiometricKiosk() {
   };
 
   const handleVideoPlay = () => {
-    if (!videoRef.current || !canvasRef.current) return;
+    if (!videoRef.current) return;
     
     if (intervalRef.current) clearInterval(intervalRef.current);
 

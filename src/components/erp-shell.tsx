@@ -41,6 +41,19 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      if (mobile) setIsSidebarOpen(false);
+      else setIsSidebarOpen(true);
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
     async function loadUser() {
@@ -128,7 +141,15 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
         </button>
       </div>
 
-      <div className="mx-auto flex min-h-screen">
+      <div className="mx-auto flex min-h-screen relative overflow-x-hidden">
+        {/* Mobile Sidebar Overlay */}
+        {isMobile && isSidebarOpen && (
+          <div 
+            className="fixed inset-0 bg-black/60 z-30 backdrop-blur-sm transition-opacity"
+            onClick={() => setIsSidebarOpen(false)}
+          />
+        )}
+
         {/* Sidebar */}
         <aside className={`
           ${isSidebarOpen ? 'translate-x-0 w-72' : '-translate-x-full md:translate-x-0 w-0 md:w-20'} 
@@ -176,6 +197,7 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
                       <Link
                         key={item.href}
                         href={item.href}
+                        onClick={() => { if (isMobile) setIsSidebarOpen(false); }}
                         title={!isSidebarOpen ? item.label : undefined}
                         className={`
                           group flex items-center rounded-xl p-3 transition-all duration-200
@@ -285,7 +307,7 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
             </div>
           </header>
 
-          <main className="flex-1 p-8 md:p-10 max-w-[1600px] mx-auto w-full transition-all duration-500">
+          <main className="flex-1 p-4 md:p-10 max-w-[1600px] mx-auto w-full transition-all duration-500 overflow-x-hidden">
             {children}
           </main>
         </div>

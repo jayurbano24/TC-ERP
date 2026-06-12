@@ -291,6 +291,7 @@ export function BiometricKiosk() {
       setMatchStatus('verifying');
       
       const supabase = getSupabaseBrowserClient();
+      if (!supabase) return;
       await supabase.from('time_logs').insert({
         employee_id: punchData.employee.id,
         evento_detectado: punchData.eventToLog,

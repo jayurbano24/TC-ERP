@@ -89,14 +89,14 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
             // La sesión fue borrada
             handleLogout();
             return;
-          }
-
-          const sessionAgeHours = (new Date().getTime() - new Date(sessionData.created_at).getTime()) / (1000 * 60 * 60);
-          if (sessionAgeHours > 5) {
-            // Sesión excedió las 5 horas
-            await supabase.from('user_sessions').delete().eq('id', localSessionId);
-            handleLogout();
-            return;
+          } else {
+             const sessionAgeHours = (new Date().getTime() - new Date(sessionData.created_at).getTime()) / (1000 * 60 * 60);
+             if (sessionAgeHours > 5) {
+               // Sesión excedió las 5 horas
+               await supabase.from('user_sessions').delete().eq('id', localSessionId);
+               handleLogout();
+               return;
+             }
           }
         }
 

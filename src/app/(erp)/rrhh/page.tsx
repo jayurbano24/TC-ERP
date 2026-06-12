@@ -13,7 +13,7 @@ export default function RRHHPage() {
   return (
     <ModulePage
       title="Recursos Humanos & Nómina"
-      description="Gestión integral de personal, control de asistencia biométrica y cálculo de planillas automatizado."
+      subtitle="Gestión integral de personal, control de asistencia biométrica y cálculo de nóminas."
       actions={
         <div className="text-sm font-bold text-[var(--accent)] bg-[var(--accent)]/10 px-4 py-2 rounded-xl">
           Módulo HRMS Activo

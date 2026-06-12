@@ -123,6 +123,12 @@ export function BiometricKiosk() {
             .withFaceLandmarks()
             .withFaceDescriptor();
 
+          if (refs.isRegistering && refs.registerStep === 'capture') {
+             if (!detections) {
+                setRegisterStatusMsg(`BUSCANDO ROSTRO... POR FAVOR MIRE A LA CÁMARA`);
+             }
+          }
+
           if (detections) {
             // Si estamos en modo de registrar un rostro nuevo
             if (refs.isRegistering && refs.registerStep === 'capture' && refs.selectedRegisterEmp) {
@@ -133,7 +139,19 @@ export function BiometricKiosk() {
                   const supabase = getSupabaseBrowserClient();
                   if (supabase) {
                      const embeddingArray = Array.from(detections.descriptor);
-                     await supabase.from('employees').update({ face_embedding: embeddingArray }).eq('id', refs.selectedRegisterEmp.id);
+                     
+                     // Hacemos el update explícito con manejo de errores
+                     const { error: updateError } = await supabase
+                        .from('employees')
+                        .update({ face_embedding: embeddingArray })
+                        .eq('id', refs.selectedRegisterEmp.id);
+                     
+                     if (updateError) {
+                        console.error("Supabase Error:", updateError);
+                        setRegisterStatusMsg('Error en BD: ' + updateError.message);
+                        setTimeout(() => { cooldownRef.current = false; setRegisterStatusMsg(''); }, 5000);
+                        return;
+                     }
                      
                      setRegisterStatusMsg('¡Datos faciales registrados correctamente!');
                      await fetchEmployeeEmbeddings(); // Recargar las caras
@@ -148,9 +166,10 @@ export function BiometricKiosk() {
                         cooldownRef.current = false;
                      }, 3000);
                   }
-               } catch (err) {
-                  setRegisterStatusMsg('Error al guardar rostro.');
-                  setTimeout(() => { cooldownRef.current = false; }, 3000);
+               } catch (err: any) {
+                  console.error(err);
+                  setRegisterStatusMsg('Error de conexión: ' + err.message);
+                  setTimeout(() => { cooldownRef.current = false; setRegisterStatusMsg(''); }, 5000);
                }
                return; // Detenemos aquí
             }

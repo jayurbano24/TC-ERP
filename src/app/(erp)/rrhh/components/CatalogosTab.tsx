@@ -115,7 +115,7 @@ export default function CatalogosTab() {
                   <tr key={item.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-6 py-4 font-bold text-slate-700">{item.name}</td>
                     <td className="px-6 py-4 text-right">
-                      <Button variant="ghost" size="icon" onClick={() => handleDelete(item.id)} className="text-rose-500 hover:bg-rose-50">
+                      <Button variant="ghost" size="sm" onClick={() => handleDelete(item.id)} className="text-rose-500 hover:bg-rose-50 p-2">
                         <Trash2 size={16} />
                       </Button>
                     </td>

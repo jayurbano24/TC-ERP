@@ -212,11 +212,11 @@ export default function EmployeeModal({
         employee_type_id: formData.employee_type_id || null,
         
         tipo_contrato: formData.tipo_contrato,
-        fecha_inicio_labores: formData.fecha_inicio_labores,
+        fecha_inicio_labores: formData.fecha_inicio_labores || null,
         sueldo_mensual_base: parseFloat(formData.sueldo_mensual_base) || 0,
         shift_id: formData.shift_id || null,
-        inicio_temporada: formData.tipo_contrato === 'Temporada' ? formData.inicio_temporada : null,
-        fin_temporada: formData.tipo_contrato === 'Temporada' ? formData.fin_temporada : null,
+        inicio_temporada: (formData.tipo_contrato === 'Temporada' && formData.inicio_temporada) ? formData.inicio_temporada : null,
+        fin_temporada: (formData.tipo_contrato === 'Temporada' && formData.fin_temporada) ? formData.fin_temporada : null,
         face_embedding: faceEmbedding,
         status: 'Activo'
       };

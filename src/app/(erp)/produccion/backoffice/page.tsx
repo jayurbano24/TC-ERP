@@ -638,6 +638,7 @@ export default function BackofficePage() {
     setLoading(true);
     try {
       const supabase = getSupabaseBrowserClient();
+      if (!supabase) return;
       
       const { error: err } = await supabase
         .from('series')

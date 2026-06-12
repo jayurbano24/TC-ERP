@@ -108,9 +108,9 @@ export function BiometricKiosk() {
     setIsCameraActive(false);
   };
 
-  const handleVideoPlay = () => {
-    if (!videoRef.current) return;
-    
+  useEffect(() => {
+    if (!isCameraActive || !isModelLoaded) return;
+
     if (intervalRef.current) clearInterval(intervalRef.current);
 
     intervalRef.current = setInterval(async () => {
@@ -118,60 +118,76 @@ export function BiometricKiosk() {
       if (cooldownRef.current || refs.pendingActionSelect || refs.pendingJustification) return;
 
       if (videoRef.current && videoRef.current.readyState === 4) {
-        const detections = await faceapi.detectSingleFace(videoRef.current)
-          .withFaceLandmarks()
-          .withFaceDescriptor();
+        try {
+          const detections = await faceapi.detectSingleFace(videoRef.current)
+            .withFaceLandmarks()
+            .withFaceDescriptor();
 
-        if (detections) {
-          // Si estamos en modo de registrar un rostro nuevo
-          if (refs.isRegistering && refs.registerStep === 'capture' && refs.selectedRegisterEmp) {
-             cooldownRef.current = true;
-             setRegisterStatusMsg('Rostro detectado, guardando datos faciales...');
-             
-             try {
-                const supabase = getSupabaseBrowserClient();
-                if (supabase) {
-                   const embeddingArray = Array.from(detections.descriptor);
-                   await supabase.from('employees').update({ face_embedding: embeddingArray }).eq('id', refs.selectedRegisterEmp.id);
-                   
-                   setRegisterStatusMsg('¡Datos faciales registrados correctamente!');
-                   await fetchEmployeeEmbeddings(); // Recargar las caras
-                   
-                   setTimeout(() => {
-                      setIsRegistering(false);
-                      setRegisterStep('pin');
-                      setPinCode('');
-                      setSelectedRegisterEmp(null);
-                      stopVideo();
-                      cooldownRef.current = false;
-                   }, 3000);
-                }
-             } catch (err) {
-                setRegisterStatusMsg('Error al guardar rostro.');
-                setTimeout(() => { cooldownRef.current = false; }, 3000);
-             }
-             return; // Detenemos aquí
-          }
+          if (detections) {
+            // Si estamos en modo de registrar un rostro nuevo
+            if (refs.isRegistering && refs.registerStep === 'capture' && refs.selectedRegisterEmp) {
+               cooldownRef.current = true;
+               setRegisterStatusMsg('Rostro detectado, guardando datos faciales...');
+               
+               try {
+                  const supabase = getSupabaseBrowserClient();
+                  if (supabase) {
+                     const embeddingArray = Array.from(detections.descriptor);
+                     await supabase.from('employees').update({ face_embedding: embeddingArray }).eq('id', refs.selectedRegisterEmp.id);
+                     
+                     setRegisterStatusMsg('¡Datos faciales registrados correctamente!');
+                     await fetchEmployeeEmbeddings(); // Recargar las caras
+                     
+                     setTimeout(() => {
+                        setIsRegistering(false);
+                        setRegisterStep('pin');
+                        setPinCode('');
+                        setSelectedRegisterEmp(null);
+                        setRegisterStatusMsg('');
+                        stopVideo();
+                        cooldownRef.current = false;
+                     }, 3000);
+                  }
+               } catch (err) {
+                  setRegisterStatusMsg('Error al guardar rostro.');
+                  setTimeout(() => { cooldownRef.current = false; }, 3000);
+               }
+               return; // Detenemos aquí
+            }
 
-          if (refs.isRegistering) return; // No hacer login si estamos registrando
-          
-          let bestMatch = null;
-          let bestDistance = 0.6; 
-          for (const emp of refs.faceData) {
-            const empDescriptor = new Float32Array(emp.face_embedding);
-            const distance = faceapi.euclideanDistance(detections.descriptor, empDescriptor);
-            if (distance < bestDistance) {
-              bestDistance = distance;
-              bestMatch = emp;
+            if (refs.isRegistering) return; // No hacer login si estamos registrando
+            
+            let bestMatch = null;
+            let bestDistance = 0.6; 
+            for (const emp of refs.faceData) {
+              const empDescriptor = new Float32Array(emp.face_embedding);
+              const distance = faceapi.euclideanDistance(detections.descriptor, empDescriptor);
+              if (distance < bestDistance) {
+                bestDistance = distance;
+                bestMatch = emp;
+              }
+            }
+
+            if (bestMatch) {
+              prepareActionSelect(bestMatch);
             }
           }
-
-          if (bestMatch) {
-            prepareActionSelect(bestMatch);
-          }
+        } catch (err) {
+          console.error('Error during face detection interval', err);
         }
       }
     }, 1000);
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, [isCameraActive, isModelLoaded]);
+
+  const handleVideoPlay = () => {
+    // Ya no lo usamos en onPlay, el useEffect se encarga.
   };
 
   const prepareActionSelect = async (employee: any) => {

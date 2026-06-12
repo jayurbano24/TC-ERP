@@ -33,7 +33,7 @@ export async function getSeries(filters?: any) {
   return data;
 }
 
-export async function searchSeriesDetailed(filters: { os?: string, imei?: string, cliente?: string, ticket?: string, tracking?: string }) {
+export async function searchSeriesDetailed(filters: { os?: string, imei?: string, cliente?: string, ticket?: string, tracking?: string, box?: string }) {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return [];
 

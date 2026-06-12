@@ -1,0 +1,32 @@
+import { createClient } from '@supabase/supabase-js';
+import * as dotenv from 'dotenv';
+import { resolve } from 'path';
+
+// Using local dot env
+import * as fs from 'fs';
+const envConfig = dotenv.parse(fs.readFileSync(resolve(__dirname, '.env.local')));
+for (const k in envConfig) {
+  process.env[k] = envConfig[k];
+}
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+async function test() {
+  console.log("Fetching box_status enum values...");
+  // Use RPC or a deliberate error to see the enum values.
+  const { error } = await supabase
+    .from('boxes')
+    .insert([{ box_code: 'TEST-ENUM', status: 'INVALID_ENUM_VALUE_TO_FORCE_ERROR' }]);
+  
+  if (error) {
+    console.log("Error object:", JSON.stringify(error, null, 2));
+    console.log("Error message:", error.message);
+    console.log("Error details:", error.details);
+    console.log("Error hint:", error.hint);
+  }
+}
+
+test();

@@ -1,0 +1,172 @@
+"use client";
+
+import { useState, useEffect } from 'react';
+import { Card, Button, Spinner } from '@/components/ui';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { FileWarning } from 'lucide-react';
+
+export default function AuditoriaTab() {
+  const [logs, setLogs] = useState<any[]>([]);
+  const [absences, setAbsences] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [periodo, setPeriodo] = useState('Mes Actual');
+
+  useEffect(() => {
+    fetchData();
+  }, [periodo]);
+
+  const fetchData = async () => {
+    setLoading(true);
+    const supabase = getSupabaseBrowserClient();
+    if (supabase) {
+      // 1. Fetch time logs
+      const { data: logsData } = await supabase
+        .from('time_logs')
+        .select('*, employees(id, nombre_completo, codigo_empleado)')
+        .order('timestamp', { ascending: false })
+        .limit(100);
+      if (logsData) setLogs(logsData);
+
+      // 2. Fetch employee absences/incidents
+      const { data: absData } = await supabase
+        .from('employee_absences')
+        .select('*, employees(nombre_completo)')
+        .order('fecha', { ascending: false });
+      if (absData) setAbsences(absData);
+
+      // 3. (Lógica Backend) Aquí el sistema normalmente cruzaría los días del mes vs los logs.
+      // Como esto es un MVP, la lógica real de cruce de días se puede disparar desde el Cálculo de Planilla
+      // o un cronjob, pero mostraremos las incidencias guardadas.
+    }
+    setLoading(false);
+  };
+
+  const updateAbsenceType = async (id: string, newType: string) => {
+    const supabase = getSupabaseBrowserClient();
+    if (supabase) {
+      await supabase.from('employee_absences').update({ tipo_falta: newType }).eq('id', id);
+      fetchData();
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-xl font-bold">Auditoría de Asistencia</h2>
+          <p className="text-sm text-slate-500">Historial de marcajes biométricos y detección de anomalías.</p>
+        </div>
+        <div className="flex gap-2">
+          <select 
+            value={periodo}
+            onChange={(e) => setPeriodo(e.target.value)}
+            className="bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm font-bold outline-none"
+          >
+            <option>Primera Quincena</option>
+            <option>Segunda Quincena</option>
+            <option>Mes Actual</option>
+          </select>
+          <Button variant="outline">Filtrar Rango</Button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        {/* Incidencias Panel */}
+        <Card className="lg:col-span-1 border-rose-200 bg-rose-50/30">
+          <div className="flex items-center gap-2 mb-4">
+            <FileWarning className="w-5 h-5 text-rose-500" />
+            <h3 className="font-bold text-slate-800">Incidencias y Faltas</h3>
+          </div>
+          <p className="text-xs text-slate-500 mb-4">Días laborales sin marcaje detectados por el sistema.</p>
+          
+          <div className="space-y-3">
+            {absences.length === 0 ? (
+              <p className="text-sm text-slate-400 font-medium text-center py-4">No hay faltas detectadas en este periodo.</p>
+            ) : (
+              absences.map(abs => (
+                <div key={abs.id} className="bg-white border border-rose-100 p-3 rounded-xl flex flex-col gap-2 shadow-sm">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <div className="text-xs font-bold text-slate-800">{abs.employees?.nombre_completo}</div>
+                      <div className="text-[10px] text-slate-500 font-medium">{abs.fecha}</div>
+                    </div>
+                    <span className="bg-rose-100 text-rose-700 px-2 py-0.5 rounded text-[10px] font-black tracking-widest">
+                      {abs.tipo_falta.replace(/_/g, ' ')}
+                    </span>
+                  </div>
+                  <select 
+                    value={abs.tipo_falta}
+                    onChange={(e) => updateAbsenceType(abs.id, e.target.value)}
+                    className="w-full text-xs font-bold bg-slate-50 border border-slate-200 rounded p-1.5 outline-none"
+                  >
+                    <option value="FALTA_INJUSTIFICADA">Manejar como Falta Injustificada</option>
+                    <option value="VACACIONES">Justificar: Vacaciones</option>
+                    <option value="SUSPENSION_IGSS">Justificar: Suspensión IGSS</option>
+                    <option value="PERMISO_CON_GOCE">Justificar: Permiso con Goce</option>
+                    <option value="PERMISO_SIN_GOCE">Justificar: Permiso sin Goce</option>
+                  </select>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+
+        {/* Marcajes Table */}
+        <Card padding="none" className="lg:col-span-2 overflow-hidden border-slate-200">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-50 text-xs uppercase font-black text-slate-500 tracking-wider border-b border-slate-100">
+                <tr>
+                  <th className="px-4 py-3">Fecha y Hora</th>
+                  <th className="px-4 py-3">Empleado</th>
+                  <th className="px-4 py-3">Evento</th>
+                  <th className="px-4 py-3 text-right">Métricas</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {loading ? (
+                  <tr>
+                    <td colSpan={4} className="text-center py-10 text-slate-400">
+                      <Spinner size="md" className="mx-auto mb-2" />
+                    </td>
+                  </tr>
+                ) : logs.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="text-center py-10 text-slate-400 font-medium">No hay marcajes recientes.</td>
+                  </tr>
+                ) : (
+                  logs.map(log => (
+                    <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-4 py-3 font-medium text-slate-600 whitespace-nowrap">
+                        {new Date(log.timestamp).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 font-bold text-slate-900">
+                        {log.employees?.nombre_completo}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center px-2 py-1 rounded-md text-[10px] font-bold bg-[#2ec4f1]/10 text-[#2ec4f1]">
+                          {log.evento_detectado.replace(/_/g, ' ')}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {log.minutos_retraso_entrada > 0 && <div className="text-xs text-rose-500 font-bold">Retraso {log.minutos_retraso_entrada}m</div>}
+                        {log.minutos_exceso_almuerzo > 0 && <div className="text-xs text-rose-500 font-bold">Exceso Alm {log.minutos_exceso_almuerzo}m</div>}
+                        {log.minutos_salida_anticipada > 0 && <div className="text-xs text-amber-500 font-bold">Salida Ant {log.minutos_salida_anticipada}m</div>}
+                        {log.es_dia_extra && <div className="text-[10px] font-black tracking-widest text-emerald-500 uppercase">Día Extra</div>}
+                        {(log.minutos_retraso_entrada === 0 && log.minutos_exceso_almuerzo === 0 && log.minutos_salida_anticipada === 0 && !log.es_dia_extra) && (
+                          <span className="text-xs text-emerald-500 font-bold tracking-widest uppercase">OK</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+
+      </div>
+    </div>
+  );
+}

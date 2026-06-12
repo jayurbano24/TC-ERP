@@ -1,0 +1,90 @@
+export type ErpModule = {
+  id: number;
+  nombre: string;
+  descripcion: string;
+  ruta: string;
+  categoria: 'Logística' | 'Producción' | 'Bodega' | 'Gestión' | 'Sistema';
+};
+
+export const erpModules: ErpModule[] = [
+  // LOGÍSTICA
+  { id: 1, categoria: 'Logística', nombre: "Recepción General", descripcion: "Módulo unificado para CAC y Planta Externa (PX).", ruta: "/recepcion" },
+  { id: 4, categoria: 'Logística', nombre: "Devoluciones", descripcion: "Trazabilidad entrada/salida y motivos de retorno.", ruta: "/logistica/devoluciones" },
+  
+  // PRODUCCIÓN
+  { id: 3, categoria: 'Producción', nombre: "Backoffice (Series)", descripcion: "Registro SN, aceptación y generación de OS.", ruta: "/produccion/backoffice" },
+  { id: 9, categoria: 'Producción', nombre: "Taller Técnico", descripcion: "Diagnóstico, reparación (L3/L4) y Kitting.", ruta: "/produccion/taller" },
+  { id: 15, categoria: 'Producción', nombre: "Control de Calidad", descripcion: "Validación cosmética y Power On/Off.", ruta: "/produccion/qc" },
+
+  // BODEGA
+  { id: 6, categoria: 'Bodega', nombre: "Gestión de Bodega", descripcion: "Ubicación en rack, cajas homogéneas y movimientos.", ruta: "/bodega/gestion" },
+  { id: 7, categoria: 'Bodega', nombre: "Ingreso Inteligente", descripcion: "Autocompletado por serie y cierre de caja.", ruta: "/bodega/ingreso" },
+  { id: 8, categoria: 'Bodega', nombre: "Tipos de Salida", descripcion: "Salidas masivas: Producción, Obsoleto, etc.", ruta: "/bodega/salidas" },
+
+  // DESPACHO
+  { id: 10, categoria: 'Bodega', nombre: "Despacho Final", descripcion: "Masivo, individual y Master Box.", ruta: "/despacho" },
+
+  // GESTIÓN
+  { id: 11, categoria: 'Gestión', nombre: "Dashboard & BI", descripcion: "Productividad, KPIs y proyección de capacidad.", ruta: "/gestion/bi" },
+  { id: 12, categoria: 'Gestión', nombre: "Costos & Rentabilidad", descripcion: "Costeo por equipo, técnico y proyecto.", ruta: "/gestion/costos" },
+  { id: 13, categoria: 'Gestión', nombre: "Alertas & SLA", descripcion: "Monitoreo de tiempos y alertas preventivas.", ruta: "/gestion/alertas" },
+
+  // SISTEMA
+  { id: 14, categoria: 'Sistema', nombre: "Seguridad & Logs", descripcion: "Control de acceso (RBAC) y auditoría Supabase.", ruta: "/sistema/seguridad" },
+];
+
+export type NavigationItem = {
+  label: string;
+  href: string;
+  descripcion: string;
+  icon?: string;
+};
+
+// Main sidebar groups
+export const navigationGroups = [
+  {
+    title: "General",
+    items: [
+      { label: "Dashboard", href: "/dashboard", descripcion: "Resumen Operativo", icon: "LayoutDashboard" },
+      { label: "Consulta", href: "/consulta", descripcion: "Trazabilidad de Equipos", icon: "Activity" },
+    ]
+  },
+  {
+    title: "Logística",
+    items: [
+      { label: "Recepción General", href: "/recepcion", descripcion: "Control CAC y Planta Externa", icon: "PackageSearch" },
+      { label: "Devoluciones", href: "/logistica/devoluciones", descripcion: "Gestión retornos", icon: "Undo2" },
+    ]
+  },
+  {
+    title: "Operaciones",
+    items: [
+      { label: "Backoffice", href: "/produccion/backoffice", descripcion: "Aceptación & SN", icon: "Laptop" },
+      { label: "Taller", href: "/produccion/taller", descripcion: "Reparación & QC", icon: "Wrench" },
+      { label: "Bodega", href: "/bodega/gestion", descripcion: "Racks & Stock", icon: "Warehouse" },
+      { label: "Despacho", href: "/despacho", descripcion: "Salida de Equipos", icon: "Truck" },
+    ]
+  },
+  {
+    title: "Gestión & BI",
+    items: [
+      { label: "Recursos Humanos", href: "/rrhh", descripcion: "Asistencia y Planilla", icon: "Users" },
+      { label: "Productividad", href: "/gestion/bi", descripcion: "Métricas y KPIs", icon: "TrendingUp" },
+      { label: "Costos", href: "/gestion/costos", descripcion: "Análisis financiero", icon: "CircleDollarSign" },
+      { label: "Seguridad", href: "/sistema/seguridad", descripcion: "Auditoría & Roles", icon: "ShieldCheck" },
+    ]
+  }
+];
+
+export type DashboardMetric = {
+  label: string;
+  valor: string;
+  detalle: string;
+};
+
+export const starterMetrics: DashboardMetric[] = [
+  { label: "Recepciones CAC", valor: "46", detalle: "Guías ingresadas hoy" },
+  { label: "WIP Taller", valor: "342", detalle: "Equipos en proceso" },
+  { label: "Stock Bodega", valor: "402K", detalle: "Total unidades en rack" },
+  { label: "Eficiencia", valor: "94%", detalle: "Cumplimiento de metas" },
+];

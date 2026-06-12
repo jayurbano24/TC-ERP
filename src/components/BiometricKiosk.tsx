@@ -1,0 +1,545 @@
+"use client";
+
+import { useEffect, useRef, useState } from 'react';
+import * as faceapi from 'face-api.js';
+import { Camera, CheckCircle2, AlertCircle, Loader2, LogIn, Coffee, Utensils, LogOut, ShieldAlert } from 'lucide-react';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+
+export function BiometricKiosk() {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [isModelLoaded, setIsModelLoaded] = useState(false);
+  const [loadingMsg, setLoadingMsg] = useState('Cargando modelos neuronales...');
+  const [faceData, setFaceData] = useState<any[]>([]);
+  const [matchStatus, setMatchStatus] = useState<'idle' | 'success' | 'error' | 'verifying'>('idle');
+  const [statusMessage, setStatusMessage] = useState('');
+  const cooldownRef = useRef(false);
+
+  // Estados UI
+  const [pendingActionSelect, setPendingActionSelect] = useState<any>(null);
+  const [pendingJustification, setPendingJustification] = useState<any>(null); // { type, data, options }
+  const [selectedReason, setSelectedReason] = useState('');
+  const [otherReason, setOtherReason] = useState('');
+  const [specialMode, setSpecialMode] = useState(false);
+  const [specialDirection, setSpecialDirection] = useState('INGRESO_ESPECIAL');
+
+  useEffect(() => {
+    loadModels();
+  }, []);
+
+  const loadModels = async () => {
+    try {
+      setLoadingMsg('Cargando motor biométrico...');
+      const MODEL_URL = '/models';
+      await Promise.all([
+        faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
+        faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+        faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
+      ]);
+      setLoadingMsg('Conectando a base de datos...');
+      await fetchEmployeeEmbeddings();
+      setIsModelLoaded(true);
+      startVideo();
+    } catch (err) {
+      console.error(err);
+      setLoadingMsg('Error cargando modelos. Revisa consola.');
+    }
+  };
+
+  const fetchEmployeeEmbeddings = async () => {
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase) return;
+    const { data } = await supabase.from('employees').select('id, nombre_completo, face_embedding, status, shift_id, tipo_contrato, inicio_temporada, fin_temporada').not('face_embedding', 'is', null);
+    if (data) setFaceData(data);
+  };
+
+  const startVideo = () => {
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then((stream) => {
+        if (videoRef.current) videoRef.current.srcObject = stream;
+      })
+      .catch((err) => console.error('Error accessing webcam', err));
+  };
+
+  const handleVideoPlay = () => {
+    if (!videoRef.current || !canvasRef.current) return;
+    
+    setInterval(async () => {
+      if (cooldownRef.current || pendingActionSelect || pendingJustification) return;
+
+      if (videoRef.current && videoRef.current.readyState === 4) {
+        const detections = await faceapi.detectSingleFace(videoRef.current)
+          .withFaceLandmarks()
+          .withFaceDescriptor();
+
+        if (detections) {
+          let bestMatch = null;
+          let bestDistance = 0.6; 
+          for (const emp of faceData) {
+            const empDescriptor = new Float32Array(emp.face_embedding);
+            const distance = faceapi.euclideanDistance(detections.descriptor, empDescriptor);
+            if (distance < bestDistance) {
+              bestDistance = distance;
+              bestMatch = emp;
+            }
+          }
+
+          if (bestMatch) {
+            prepareActionSelect(bestMatch);
+          }
+        }
+      }
+    }, 1000);
+  };
+
+  const prepareActionSelect = async (employee: any) => {
+    cooldownRef.current = true;
+    setMatchStatus('verifying');
+    setStatusMessage('Autenticando...');
+
+    try {
+      const supabase = getSupabaseBrowserClient();
+      
+      if (employee.tipo_contrato === 'Temporada') {
+        const today = new Date();
+        const start = new Date(employee.inicio_temporada);
+        const end = new Date(employee.fin_temporada);
+        if (today < start || today > end) {
+          showError(`Contrato inactivo para ${employee.nombre_completo}`);
+          return;
+        }
+      }
+
+      const { data: shift } = await supabase.from('company_shifts').select('*').eq('id', employee.shift_id).single();
+      if (!shift) {
+        showError(`Horario no asignado para ${employee.nombre_completo}`);
+        return;
+      }
+
+      const now = new Date();
+      const todayStr = now.toISOString().split('T')[0];
+      const { data: logs } = await supabase.from('time_logs')
+        .select('*')
+        .eq('employee_id', employee.id)
+        .gte('timestamp', `${todayStr}T00:00:00Z`)
+        .order('timestamp', { ascending: false });
+
+      setMatchStatus('idle');
+      setStatusMessage('');
+      
+      // Si está en special mode, directamente le mostramos las justificaciones de "MARCAJE ESPECIAL"
+      if (specialMode) {
+        setPendingJustification({
+          type: 'MARCAJE_ESPECIAL',
+          data: { employee, shift, logs, eventToLog: 'MARCAJE_ESPECIAL' },
+          options: [
+            "Reingreso a Laborar", "Horas Extras", "Trabajo Extraordinario", 
+            "Capacitación", "Reunión Fuera de Horario", "Inventario", 
+            "Soporte de Emergencia", "Visita Técnica", "Comisión Externa", 
+            "Corrección de Marcación", "Permiso Especial", "Otros"
+          ]
+        });
+        setSpecialMode(false); // reset toggle
+        return;
+      }
+
+      setPendingActionSelect({ employee, shift, logs });
+
+    } catch (err) {
+      console.error(err);
+      showError('Error de conexión.');
+    }
+  };
+
+  const handleActionSelect = (selectedAction: string) => {
+    const { employee, shift, logs } = pendingActionSelect;
+    const now = new Date();
+    const currentDay = (now.getDay() || 7).toString();
+    const daySchedule = shift.weekly_schedule ? shift.weekly_schedule[currentDay] : null;
+    const esDiaExtra = !daySchedule;
+    const currentMins = now.getHours() * 60 + now.getMinutes();
+
+    let minRetraso = 0, minExcesoAlm = 0, minSalidaAnt = 0, minExtra = 0;
+    let shiftEntradaMins = 0, shiftSalidaMins = 0;
+
+    if (daySchedule) {
+      shiftEntradaMins = parseInt(daySchedule.entrada.split(':')[0]) * 60 + parseInt(daySchedule.entrada.split(':')[1]);
+      shiftSalidaMins = parseInt(daySchedule.salida.split(':')[0]) * 60 + parseInt(daySchedule.salida.split(':')[1]);
+    }
+
+    const lastLog = logs && logs.length > 0 ? logs[0] : null;
+
+    // 1. Control de Remarcajes
+    if (lastLog && lastLog.evento_detectado === selectedAction) {
+       showError('Ya existe una marcación registrada para este período.');
+       setPendingActionSelect(null);
+       return;
+    }
+
+    // 2. Cálculos de Tiempos
+    const MAX_TOLERANCIA_INGRESO = 10;
+    const MAX_EXCESO_BREAK = 10;
+
+    if (selectedAction === 'INGRESO') {
+      if (daySchedule && currentMins > shiftEntradaMins + MAX_TOLERANCIA_INGRESO) {
+        minRetraso = currentMins - shiftEntradaMins;
+      }
+    } 
+    else if (selectedAction === 'REGRESO_DESAYUNO') {
+      const salidaRef = logs?.find((l: any) => l.evento_detectado === 'SALIDA_DESAYUNO');
+      if (salidaRef) {
+        const diffMins = Math.floor((now.getTime() - new Date(salidaRef.timestamp).getTime()) / 60000);
+        if (diffMins > MAX_EXCESO_BREAK) minExcesoAlm = diffMins - MAX_EXCESO_BREAK; 
+      }
+    }
+    else if (selectedAction === 'REGRESO_ALMUERZO') {
+      const salidaAlm = logs?.find((l: any) => l.evento_detectado === 'SALIDA_ALMUERZO');
+      if (salidaAlm) {
+        const diffMins = Math.floor((now.getTime() - new Date(salidaAlm.timestamp).getTime()) / 60000);
+        if (diffMins > MAX_EXCESO_BREAK) minExcesoAlm = diffMins - MAX_EXCESO_BREAK;
+      }
+    }
+    else if (selectedAction === 'SALIDA_FINAL') {
+      if (daySchedule && currentMins < shiftSalidaMins) {
+        minSalidaAnt = shiftSalidaMins - currentMins;
+      } else if (daySchedule && currentMins >= shiftSalidaMins) {
+        minExtra = currentMins - shiftSalidaMins;
+      }
+    }
+
+    const punchData = {
+      employee,
+      eventToLog: selectedAction,
+      minRetraso,
+      minExcesoAlm,
+      minSalidaAnt,
+      minExtra,
+      esDiaExtra
+    };
+
+    // 3. Flujos de Justificación Obligatoria
+    setPendingActionSelect(null);
+
+    if (selectedAction === 'INGRESO' && minRetraso > 0) {
+      setPendingJustification({
+        type: 'LLEGADA_TARDE',
+        data: punchData,
+        options: ["Percance en el trayecto al trabajo", "Tráfico", "Permiso autorizado", "Consulta médica", "Problema de transporte", "Otros"]
+      });
+      return;
+    }
+
+    if ((selectedAction === 'REGRESO_DESAYUNO' || selectedAction === 'REGRESO_ALMUERZO') && minExcesoAlm > 0) {
+      setPendingJustification({
+        type: 'EXCESO_RECESO',
+        data: punchData,
+        options: ["Atención de cliente", "Reunión laboral", "Permiso autorizado", "Problema operativo", "Otros"]
+      });
+      return;
+    }
+
+    if (selectedAction === 'SALIDA_FINAL' && minSalidaAnt > 0) {
+      setPendingJustification({
+        type: 'SALIDA_ANTICIPADA',
+        data: punchData,
+        options: ["Indispuesto por salud", "Motivos familiares", "Emergencia en casa", "Permiso autorizado", "Cita médica", "Comisión laboral", "Otros"]
+      });
+      return;
+    }
+
+    // Horas Extras (Silencioso para el empleado según nueva instrucción)
+    // El sistema guarda minExtra matemáticamente sin preguntar.
+    
+    submitPunchFinal({ ...punchData, razon: null });
+  };
+
+  const handleSpecialPunchClick = () => {
+    const { employee, shift, logs } = pendingActionSelect;
+    setPendingActionSelect(null);
+    setPendingJustification({
+      type: 'MARCAJE_ESPECIAL',
+      data: { employee, shift, logs, minRetraso: 0, minExcesoAlm: 0, minSalidaAnt: 0, minExtra: 0, esDiaExtra: false },
+      options: [
+        "Reingreso a Laborar", "Horas Extras", "Trabajo Extraordinario", 
+        "Capacitación", "Reunión Fuera de Horario", "Inventario", 
+        "Soporte de Emergencia", "Visita Técnica", "Comisión Externa", 
+        "Corrección de Marcación", "Permiso Especial", "Otros"
+      ]
+    });
+  };
+
+  const submitJustification = () => {
+    if (!pendingJustification) return;
+    if (!selectedReason || (selectedReason === 'Otros' && !otherReason)) {
+      alert("Por favor indique el motivo para poder registrar su marcación.");
+      return;
+    }
+    const finalReason = selectedReason === 'Otros' ? otherReason : selectedReason;
+    const finalEvent = pendingJustification.type === 'MARCAJE_ESPECIAL' ? specialDirection : pendingJustification.data.eventToLog;
+    submitPunchFinal({
+      ...pendingJustification.data,
+      eventToLog: finalEvent,
+      razon: finalReason
+    });
+  };
+
+  const submitPunchFinal = async (punchData: any) => {
+    try {
+      setPendingActionSelect(null);
+      setPendingJustification(null);
+      setMatchStatus('verifying');
+      
+      const supabase = getSupabaseBrowserClient();
+      await supabase.from('time_logs').insert({
+        employee_id: punchData.employee.id,
+        evento_detectado: punchData.eventToLog,
+        minutos_retraso_entrada: punchData.minRetraso,
+        minutos_exceso_almuerzo: punchData.minExcesoAlm,
+        minutos_salida_anticipada: punchData.minSalidaAnt,
+        minutos_extra: punchData.minExtra,
+        es_dia_extra: punchData.esDiaExtra,
+        justificacion: punchData.razon
+      });
+      
+      setMatchStatus('success');
+      
+      let greeting = '';
+      if (punchData.eventToLog === 'INGRESO') greeting = '¡Buenos días';
+      else if (punchData.eventToLog === 'SALIDA_DESAYUNO' || punchData.eventToLog === 'SALIDA_ALMUERZO') greeting = '¡Buen provecho';
+      else if (punchData.eventToLog === 'SALIDA_FINAL') {
+        const hour = new Date().getHours();
+        greeting = hour < 18 ? '¡Feliz tarde' : '¡Feliz noche';
+      } else {
+        greeting = '¡Listo';
+      }
+
+      const eventName = punchData.eventToLog.replace(/_/g, ' ');
+      setStatusMessage(`${greeting}, ${punchData.employee.nombre_completo}! ${eventName} registrado.`);
+      resetCooldown(4000);
+    } catch (err) {
+      console.error(err);
+      showError('Error guardando marcaje.');
+    }
+  };
+
+  const showError = (msg: string) => {
+    setMatchStatus('error');
+    setStatusMessage(msg);
+    resetCooldown(4000);
+  };
+
+  const resetCooldown = (ms: number = 3000) => {
+    setTimeout(() => {
+      setMatchStatus('idle');
+      setStatusMessage('');
+      setPendingActionSelect(null);
+      setPendingJustification(null);
+      setSelectedReason('');
+      setOtherReason('');
+      setSpecialMode(false);
+      setSpecialDirection('INGRESO_ESPECIAL');
+      cooldownRef.current = false;
+    }, ms);
+  };
+
+  const cancelFlow = () => resetCooldown(100);
+
+  if (!isModelLoaded) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 text-[var(--muted)] animate-pulse">
+        <Loader2 className="w-12 h-12 mb-4 animate-spin text-[var(--accent)]" />
+        <p className="font-bold uppercase tracking-widest text-xs">{loadingMsg}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative w-full overflow-hidden rounded-[2rem] bg-black shadow-2xl flex flex-col items-center">
+      
+      {/* Botón Marcaje Especial */}
+      <button 
+        onClick={() => setSpecialMode(true)}
+        className={`absolute top-4 right-4 z-30 flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider transition-all ${specialMode ? 'bg-[#2ec4f1] text-white shadow-[0_0_15px_rgba(46,196,241,0.5)]' : 'bg-white/10 text-white/50 hover:bg-white/20'}`}
+      >
+        <ShieldAlert className="w-3 h-3" />
+        {specialMode ? 'ESCANEA TU ROSTRO' : 'Marcaje Especial'}
+      </button>
+
+      <div className="w-full h-[400px] bg-slate-900 relative">
+        <video 
+          ref={videoRef}
+          autoPlay 
+          muted 
+          onPlay={handleVideoPlay}
+          className="absolute inset-0 w-full h-full object-cover"
+        />
+        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#2ec4f1]/10 to-transparent w-full h-1/4 animate-scan-line pointer-events-none" />
+
+        {/* Modal de Selección de Acción Principal */}
+        {pendingActionSelect && (() => {
+           const logs = pendingActionSelect.logs || [];
+           const lastLog = logs.length > 0 ? logs[0] : null;
+           const lastEvent = lastLog?.evento_detectado;
+           const currentMins = new Date().getHours() * 60 + new Date().getMinutes();
+           
+           const showIngreso = !lastEvent;
+           const showRegresoDesayuno = lastEvent === 'SALIDA_DESAYUNO';
+           const showRegresoAlmuerzo = lastEvent === 'SALIDA_ALMUERZO';
+           const isInside = lastEvent === 'INGRESO' || lastEvent === 'REGRESO_DESAYUNO' || lastEvent === 'REGRESO_ALMUERZO';
+           const isFinished = lastEvent === 'SALIDA_FINAL' || lastEvent === 'MARCAJE_ESPECIAL';
+
+           const showSalidaDesayuno = isInside && currentMins < (11 * 60 + 30);
+           const showSalidaAlmuerzo = isInside && currentMins >= (11 * 60 + 30) && currentMins <= (15 * 60 + 30);
+
+           return (
+            <div className="absolute inset-0 z-40 bg-slate-900/95 backdrop-blur-md flex flex-col items-center justify-center p-6 animate-in fade-in zoom-in-95">
+              <h2 className="text-xl font-black text-white mb-1">{pendingActionSelect.employee.nombre_completo}</h2>
+              <p className="text-xs text-[#2ec4f1] font-bold mb-6 uppercase tracking-widest">Seleccione Acción Válida</p>
+              
+              <div className="grid grid-cols-2 gap-3 w-full max-w-sm">
+                {showIngreso && (
+                  <button onClick={() => handleActionSelect('INGRESO')} className="flex flex-col items-center justify-center gap-2 p-4 bg-emerald-500/20 hover:bg-emerald-500/40 border border-emerald-500/30 rounded-2xl text-white transition-colors col-span-2">
+                    <LogIn className="w-6 h-6 text-emerald-400" />
+                    <span className="text-sm font-bold">Ingresar a Laborar</span>
+                  </button>
+                )}
+                
+                {showSalidaDesayuno && (
+                  <button onClick={() => handleActionSelect('SALIDA_DESAYUNO')} className="flex flex-col items-center justify-center gap-2 p-3 bg-amber-500/20 hover:bg-amber-500/40 border border-amber-500/30 rounded-2xl text-white transition-colors">
+                    <Coffee className="w-6 h-6 text-amber-400" />
+                    <span className="text-xs font-bold">Ir a Desayuno</span>
+                  </button>
+                )}
+                
+                {showRegresoDesayuno && (
+                  <button onClick={() => handleActionSelect('REGRESO_DESAYUNO')} className="flex flex-col items-center justify-center gap-2 p-4 bg-amber-500/20 hover:bg-amber-500/40 border border-amber-500/30 rounded-2xl text-white transition-colors col-span-2">
+                    <Coffee className="w-6 h-6 text-amber-400" />
+                    <span className="text-sm font-bold">Volver de Desayuno</span>
+                  </button>
+                )}
+
+                {showSalidaAlmuerzo && (
+                  <button onClick={() => handleActionSelect('SALIDA_ALMUERZO')} className="flex flex-col items-center justify-center gap-2 p-3 bg-blue-500/20 hover:bg-blue-500/40 border border-blue-500/30 rounded-2xl text-white transition-colors">
+                    <Utensils className="w-6 h-6 text-blue-400" />
+                    <span className="text-xs font-bold">Ir a Almuerzo</span>
+                  </button>
+                )}
+                
+                {showRegresoAlmuerzo && (
+                  <button onClick={() => handleActionSelect('REGRESO_ALMUERZO')} className="flex flex-col items-center justify-center gap-2 p-4 bg-blue-500/20 hover:bg-blue-500/40 border border-blue-500/30 rounded-2xl text-white transition-colors col-span-2">
+                    <Utensils className="w-6 h-6 text-blue-400" />
+                    <span className="text-sm font-bold">Volver de Almuerzo</span>
+                  </button>
+                )}
+
+                {(isInside || showRegresoDesayuno || showRegresoAlmuerzo) && (
+                  <button onClick={() => handleActionSelect('SALIDA_FINAL')} className={`flex flex-col items-center justify-center gap-2 p-3 bg-rose-500/20 hover:bg-rose-500/40 border border-rose-500/30 rounded-2xl text-white transition-colors ${!showSalidaDesayuno && !showSalidaAlmuerzo ? 'col-span-2 p-4' : 'col-span-2 mt-2'}`}>
+                    <LogOut className="w-6 h-6 text-rose-400" />
+                    <span className="text-sm font-bold">Finalizar Turno Laboral</span>
+                  </button>
+                )}
+
+                <button onClick={handleSpecialPunchClick} className="flex items-center justify-center gap-2 p-3 bg-purple-500/20 hover:bg-purple-500/40 border border-purple-500/30 rounded-xl text-white transition-colors col-span-2 mt-2">
+                  <ShieldAlert className="w-5 h-5 text-purple-400" />
+                  <span className="text-xs font-bold">Registrar Marcaje Especial</span>
+                </button>
+              </div>
+
+              <button onClick={cancelFlow} className="mt-6 text-slate-400 hover:text-white text-xs font-bold underline transition-colors">
+                Cancelar Operación
+              </button>
+            </div>
+          );
+        })()}
+
+        {/* Modal Dinámico de Justificaciones (Tardanzas, Anticipadas, Especiales) */}
+        {pendingJustification && (
+          <div className="absolute inset-0 z-50 bg-slate-900/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center animate-in zoom-in-95">
+            <AlertCircle className="w-12 h-12 text-amber-500 mb-3" />
+            <h2 className="text-xl font-black text-white mb-1">
+              {pendingJustification.type === 'MARCAJE_ESPECIAL' ? 'Marcaje Especial' : 'Justificación Requerida'}
+            </h2>
+            <p className="text-[11px] font-medium text-slate-300 mb-4 max-w-xs">
+              {pendingJustification.type === 'MARCAJE_ESPECIAL' 
+                ? 'Seleccione el tipo de marcaje extraordinario a registrar.'
+                : 'Se ha detectado una excepción en sus tiempos laborales. Por favor, indique el motivo.'}
+            </p>
+
+            <div className="w-full max-w-sm space-y-3 mb-6">
+              {pendingJustification.type === 'MARCAJE_ESPECIAL' && (
+                <select 
+                  value={specialDirection} 
+                  onChange={e => setSpecialDirection(e.target.value)}
+                  className="w-full h-12 bg-slate-800 border border-purple-500/50 rounded-xl px-4 text-white font-bold text-sm outline-none focus:border-purple-500 transition-colors"
+                >
+                  <option value="INGRESO_ESPECIAL">Registrar como: Entrada (Ingreso)</option>
+                  <option value="SALIDA_ESPECIAL">Registrar como: Retiro (Salida)</option>
+                </select>
+              )}
+
+              <select 
+                value={selectedReason} 
+                onChange={e => setSelectedReason(e.target.value)}
+                className="w-full h-12 bg-slate-800 border border-slate-700 rounded-xl px-4 text-white font-bold text-sm outline-none focus:border-amber-500 transition-colors"
+              >
+                <option value="" disabled>Seleccione una opción...</option>
+                {pendingJustification.options.map((opt: string) => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
+              </select>
+
+              {selectedReason === 'Otros' && (
+                <input 
+                  type="text" 
+                  value={otherReason}
+                  onChange={e => setOtherReason(e.target.value)}
+                  placeholder="Especifique el motivo..."
+                  className="w-full h-12 bg-slate-800 border border-slate-700 rounded-xl px-4 text-white font-medium text-sm outline-none focus:border-amber-500 transition-colors"
+                  maxLength={50}
+                />
+              )}
+            </div>
+
+            <div className="flex gap-3 w-full max-w-sm">
+              <button 
+                onClick={cancelFlow}
+                className="flex-1 h-12 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl transition-colors"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={submitJustification}
+                className="flex-1 h-12 bg-amber-500 hover:bg-amber-400 text-slate-900 font-black rounded-xl transition-colors"
+              >
+                Registrar
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+      
+      {/* Banner de Estado */}
+      <div className={`absolute bottom-0 left-0 w-full p-6 backdrop-blur-xl border-t transition-all duration-300 flex items-center gap-4
+        ${matchStatus === 'idle' ? 'bg-black/60 border-white/10' : ''}
+        ${matchStatus === 'success' ? 'bg-emerald-500/90 border-emerald-400 text-white' : ''}
+        ${matchStatus === 'error' ? 'bg-rose-500/90 border-rose-400 text-white' : ''}
+        ${matchStatus === 'verifying' ? 'bg-[#2ec4f1]/90 border-[#2ec4f1] text-white' : ''}
+      `}>
+        {matchStatus === 'idle' && <Camera className="w-8 h-8 text-white/50" />}
+        {matchStatus === 'verifying' && <Loader2 className="w-8 h-8 animate-spin" />}
+        {matchStatus === 'success' && <CheckCircle2 className="w-8 h-8" />}
+        {matchStatus === 'error' && <AlertCircle className="w-8 h-8" />}
+        
+        <div className="flex-1">
+          <p className="text-xs font-black uppercase tracking-widest opacity-70">
+            {matchStatus === 'idle' ? 'Kiosko Biométrico Activo' : matchStatus}
+          </p>
+          <h3 className="text-lg font-bold leading-tight">
+            {matchStatus === 'idle' ? 'Mira a la cámara para marcar' : statusMessage}
+          </h3>
+        </div>
+      </div>
+    </div>
+  );
+}

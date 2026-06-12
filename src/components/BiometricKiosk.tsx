@@ -15,6 +15,7 @@ export function BiometricKiosk() {
   const [statusMessage, setStatusMessage] = useState('');
   const [isCameraActive, setIsCameraActive] = useState(false);
   const cooldownRef = useRef(false);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Estados UI
   const [pendingActionSelect, setPendingActionSelect] = useState<any>(null);
@@ -32,8 +33,32 @@ export function BiometricKiosk() {
   const [selectedRegisterEmp, setSelectedRegisterEmp] = useState<any>(null);
   const [registerStatusMsg, setRegisterStatusMsg] = useState('');
 
+  // Refs for current state to use inside setInterval closure
+  const stateRefs = useRef({
+    isRegistering,
+    registerStep,
+    selectedRegisterEmp,
+    faceData,
+    pendingActionSelect,
+    pendingJustification
+  });
+
+  useEffect(() => {
+    stateRefs.current = {
+      isRegistering,
+      registerStep,
+      selectedRegisterEmp,
+      faceData,
+      pendingActionSelect,
+      pendingJustification
+    };
+  }, [isRegistering, registerStep, selectedRegisterEmp, faceData, pendingActionSelect, pendingJustification]);
+
   useEffect(() => {
     loadModels();
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
   }, []);
 
   const loadModels = async () => {
@@ -71,6 +96,10 @@ export function BiometricKiosk() {
   };
 
   const stopVideo = () => {
+    if (intervalRef.current) {
+       clearInterval(intervalRef.current);
+       intervalRef.current = null;
+    }
     if (videoRef.current && videoRef.current.srcObject) {
       const stream = videoRef.current.srcObject as MediaStream;
       stream.getTracks().forEach(track => track.stop());
@@ -82,8 +111,11 @@ export function BiometricKiosk() {
   const handleVideoPlay = () => {
     if (!videoRef.current || !canvasRef.current) return;
     
-    setInterval(async () => {
-      if (cooldownRef.current || pendingActionSelect || pendingJustification) return;
+    if (intervalRef.current) clearInterval(intervalRef.current);
+
+    intervalRef.current = setInterval(async () => {
+      const refs = stateRefs.current;
+      if (cooldownRef.current || refs.pendingActionSelect || refs.pendingJustification) return;
 
       if (videoRef.current && videoRef.current.readyState === 4) {
         const detections = await faceapi.detectSingleFace(videoRef.current)
@@ -92,7 +124,7 @@ export function BiometricKiosk() {
 
         if (detections) {
           // Si estamos en modo de registrar un rostro nuevo
-          if (isRegistering && registerStep === 'capture' && selectedRegisterEmp) {
+          if (refs.isRegistering && refs.registerStep === 'capture' && refs.selectedRegisterEmp) {
              cooldownRef.current = true;
              setRegisterStatusMsg('Rostro detectado, guardando datos faciales...');
              
@@ -100,7 +132,7 @@ export function BiometricKiosk() {
                 const supabase = getSupabaseBrowserClient();
                 if (supabase) {
                    const embeddingArray = Array.from(detections.descriptor);
-                   await supabase.from('employees').update({ face_embedding: embeddingArray }).eq('id', selectedRegisterEmp.id);
+                   await supabase.from('employees').update({ face_embedding: embeddingArray }).eq('id', refs.selectedRegisterEmp.id);
                    
                    setRegisterStatusMsg('¡Datos faciales registrados correctamente!');
                    await fetchEmployeeEmbeddings(); // Recargar las caras
@@ -121,11 +153,11 @@ export function BiometricKiosk() {
              return; // Detenemos aquí
           }
 
-          if (isRegistering) return; // No hacer login si estamos registrando
+          if (refs.isRegistering) return; // No hacer login si estamos registrando
           
           let bestMatch = null;
           let bestDistance = 0.6; 
-          for (const emp of faceData) {
+          for (const emp of refs.faceData) {
             const empDescriptor = new Float32Array(emp.face_embedding);
             const distance = faceapi.euclideanDistance(detections.descriptor, empDescriptor);
             if (distance < bestDistance) {

@@ -87,7 +87,6 @@ export default function LoginPage() {
               </g>
             </svg>
           </div>
-          <h1 className="text-4xl font-black text-[var(--foreground)] tracking-tight mb-3">TC–ERP</h1>
           <p className="text-[var(--muted)] font-medium text-sm">Enterprise Resource Planning & HRMS</p>
         </div>
 

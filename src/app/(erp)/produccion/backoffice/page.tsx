@@ -3,6 +3,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Card, Badge, Button } from '@/components/ui';
+import { getActualUserFullName } from '@/lib/auth';
 import { ModulePage } from '@/components/module-page';
 import { 
   Search, 
@@ -190,7 +191,7 @@ export default function BackofficePage() {
       const equipGroups = groupSeriesByEquipment(rec.series || []);
       
       if (equipGroups.length === 0) {
-        csv += `${date},${displayGuide},${piloto},${rec.carrier},${rec.received_by || 'Admin User'},${rec.status},---,"${agencia}",${tech},${brand},${model},---,---,---,---\n`;
+        csv += `${date},${displayGuide},${piloto},${rec.carrier},${rec.received_by || 'SISTEMA'},${rec.status},---,"${agencia}",${tech},${brand},${model},---,---,---,---\n`;
       } else {
         equipGroups.forEach(grp => {
           const units = [];
@@ -206,7 +207,7 @@ export default function BackofficePage() {
             const s3 = unit[2]?.serial_number || '';
             const s4 = unit[3]?.serial_number || '';
             
-            csv += `${date},${displayGuide},${piloto},${rec.carrier},${rec.received_by || 'Admin User'},${rec.status},${os},"${agencia}",${tech},${brand},${model},${s1},${s2},${s3},${s4}\n`;
+            csv += `${date},${displayGuide},${piloto},${rec.carrier},${rec.received_by || 'SISTEMA'},${rec.status},${os},"${agencia}",${tech},${brand},${model},${s1},${s2},${s3},${s4}\n`;
           });
         });
       }
@@ -243,6 +244,16 @@ export default function BackofficePage() {
   const [currentScanningIndex, setCurrentScanningIndex] = useState(0);
   const [currentSN, setCurrentSN] = useState('');
   const [pendingReceptions, setPendingReceptions] = useState<any[]>([]);
+  const [currentUserFullName, setCurrentUserFullName] = useState('SISTEMA');
+
+  useEffect(() => {
+    async function initUser() {
+      const name = await getActualUserFullName();
+      setCurrentUserFullName(name);
+    }
+    initUser();
+  }, []);
+
   const [activeReception, setActiveReception] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
@@ -440,7 +451,7 @@ export default function BackofficePage() {
       ? new Date(record.created_at).getTime().toString().slice(-8)
       : Math.floor(10000000 + Math.random() * 90000000).toString();
 
-    const operatorName = record.received_by || 'Admin User';
+    const operatorName = record.received_by || 'SISTEMA';
     
     // Extraer datos de las notas
     const pilot = record.notes?.split('Piloto: ')[1]?.split('\n')[0] || '---';
@@ -620,7 +631,7 @@ export default function BackofficePage() {
     const cleanNotes = (rec.notes || '').split('--- LÍNEA DE TIEMPO')[0].split('Backoffice_')[0].split('Guías Procesadas:')[0];
     const guias = cleanNotes?.split('Guías: ')[1]?.split('\n')[0] || rec.guide_number;
     const piloto = rec.notes?.split('Piloto: ')[1]?.split('\n')[0] || '---';
-    alert(`📜 MANIFIESTO DE RECEPCIÓN\n\nGuías Incluidas:\n${guias}\n\nPiloto: ${piloto}\nRecibido por: ${rec.received_by || 'Admin User'}`);
+    alert(`📜 MANIFIESTO DE RECEPCIÓN\n\nGuías Incluidas:\n${guias}\n\nPiloto: ${piloto}\nRecibido por: ${rec.received_by || 'SISTEMA'}`);
   };
 
   const handleOpenEditMeta = (rec: any) => {
@@ -837,7 +848,7 @@ export default function BackofficePage() {
           const timestamp = new Date().toLocaleString();
           const movId = generateMovId();
           const actionCode = finalCategory === 'Accesorio' ? 'BOD-ACC' : (finalCategory === 'Teléfono' ? 'BOD-MOV' : 'BOD-EQP');
-          const timelineEvent = `\n[${timestamp}] ${movId} | ${actionCode} | CLASIFICACIÓN (SUB-GUÍA): Movido a BODEGA: ${finalCategory.toUpperCase()} - Por: ${activeReception.received_by || 'Admin User'}`;
+          const timelineEvent = `\n[${timestamp}] ${movId} | ${actionCode} | CLASIFICACIÓN (SUB-GUÍA): Movido a BODEGA: ${finalCategory.toUpperCase()} - Por: ${currentUserFullName}`;
           
           const pilotoLine = activeReception.notes?.split('Piloto: ')[1]?.split('\n')[0] || '';
 
@@ -903,7 +914,7 @@ export default function BackofficePage() {
           baseNotes += `\nGuías Procesadas: ${newProcessed.join(', ')}`;
         }
 
-        const timelineEvent = `\n[${timestamp}] ${movId} | ${actionCode} | CLASIFICACIÓN (Guía ${scannedGuides.join(',')}): Movido a BODEGA: ${finalCategory.toUpperCase()} - Por: ${activeReception.received_by || 'Admin User'}`;
+        const timelineEvent = `\n[${timestamp}] ${movId} | ${actionCode} | CLASIFICACIÓN (Guía ${scannedGuides.join(',')}): Movido a BODEGA: ${finalCategory.toUpperCase()} - Por: ${currentUserFullName}`;
         
         if (!timelineNotes) {
             timelineNotes = `[${new Date(activeReception.created_at).toLocaleString()}] MOV-START | REC-01 | RECEPCIÓN: Ingreso inicial al sistema en CAC.`;
@@ -1135,7 +1146,7 @@ export default function BackofficePage() {
                           <div>
                             <p className="text-[9px] font-black text-slate-400 uppercase mb-0.5">Transportista</p>
                             <p className="text-sm font-black text-[#181c3a] leading-tight">{rec.carrier || '---'}</p>
-                            <p className="text-[8px] font-bold text-[#2ec4f1] uppercase mt-0.5">Recibido por: {rec.received_by || 'Admin User'}</p>
+                            <p className="text-[8px] font-bold text-[#2ec4f1] uppercase mt-0.5">Recibido por: {rec.received_by || 'SISTEMA'}</p>
                           </div>
                           <div>
                             <p className="text-[9px] font-black text-slate-400 uppercase mb-0.5">Unidades</p>
@@ -1359,7 +1370,7 @@ export default function BackofficePage() {
                   <div>
                     <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2">Fecha de Procesamiento</p>
                     <h3 className="text-xl font-black text-[#181c3a] uppercase leading-tight">{new Date().toLocaleDateString()}</h3>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase mt-2">Usuario: {activeReception.received_by || 'Admin User'}</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase mt-2">Usuario: {activeReception.received_by || 'SISTEMA'}</p>
                   </div>
                 </div>
               </div>
@@ -2327,7 +2338,7 @@ export default function BackofficePage() {
                             <td className="px-4 py-3 whitespace-nowrap"><span className="text-[11px] font-black font-mono text-[#181c3a]">{displayGuide}</span></td>
                             <td className="px-4 py-3 text-[11px] font-black text-slate-500 uppercase whitespace-nowrap">{piloto}</td>
                             <td className="px-4 py-3 text-[11px] text-slate-400 uppercase whitespace-nowrap">{rec.carrier || '---'}</td>
-                            <td className="px-4 py-3 text-[11px] text-slate-500 whitespace-nowrap">{rec.received_by || 'Admin User'}</td>
+                            <td className="px-4 py-3 text-[11px] text-slate-500 whitespace-nowrap">{rec.received_by || 'SISTEMA'}</td>
                             <td className="px-4 py-3 whitespace-nowrap">
                               {(() => {
                                 const status = rec.status || '';
@@ -2419,7 +2430,7 @@ export default function BackofficePage() {
                               <td className="px-4 py-3 whitespace-nowrap"><span className="text-[11px] font-black font-mono text-[#181c3a]">{displayGuide}</span></td>
                               <td className="px-4 py-3 text-[11px] font-black text-slate-500 uppercase whitespace-nowrap">{piloto}</td>
                               <td className="px-4 py-3 text-[11px] text-slate-400 uppercase whitespace-nowrap">{rec.carrier || '---'}</td>
-                              <td className="px-4 py-3 text-[11px] text-slate-500 whitespace-nowrap">{rec.received_by || 'Admin User'}</td>
+                              <td className="px-4 py-3 text-[11px] text-slate-500 whitespace-nowrap">{rec.received_by || 'SISTEMA'}</td>
                               <td className="px-4 py-3 whitespace-nowrap">
                                 {(() => {
                                   const status = rec.status || '';
@@ -2677,7 +2688,7 @@ export default function BackofficePage() {
             <div className="grid grid-cols-2 gap-4 px-6 pb-4 bg-slate-50 border-b border-slate-100 shrink-0">
               <div className="bg-white rounded-2xl p-4 border border-slate-100">
                 <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 mb-1">Recibido en Backoffice</p>
-                <p className="text-sm font-black text-[#181c3a] uppercase leading-tight">{selectedHistoryReception.received_by || 'Admin User'}</p>
+                <p className="text-sm font-black text-[#181c3a] uppercase leading-tight">{selectedHistoryReception.received_by || 'SISTEMA'}</p>
               </div>
               <div className="bg-white rounded-2xl p-4 border border-slate-100">
                 <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 mb-1">Estatus</p>
@@ -3027,7 +3038,7 @@ export default function BackofficePage() {
                            const tlRegex = new RegExp(`\\[(.*?)\\].*?CLASIFICACIÓN.*?(?:${gEscaped}).*?- Por: (.*)`, 'i');
                            const tlMatch = notes.match(tlRegex);
                            const processDate = tlMatch ? tlMatch[1] : new Date(r.created_at).toLocaleString();
-                           const processUser = tlMatch ? tlMatch[2].trim() : (r.received_by || 'Admin User');
+                           const processUser = tlMatch ? tlMatch[2].trim() : (r.received_by || 'SISTEMA');
 
                            rows.push({
                              id: r.id + '-' + g,

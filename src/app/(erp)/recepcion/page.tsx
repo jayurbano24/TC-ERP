@@ -40,6 +40,7 @@ import {
 import { getReceptions, createReceptionWithSeries, createPxReceptionWithBoxes, DbReception } from '@/lib/database/receptions';
 import { getCarriers, getTechnologies, getBrands, getModels, getPxProviders } from '@/lib/database/config';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { getActualUserFullName } from "@/lib/auth";
 import { useEffect, useRef } from 'react';
 import BarcodeScanner from '@/components/BarcodeScanner';
 
@@ -90,20 +91,13 @@ export default function UnifiedRecepcionPage() {
   const [systemBrands, setSystemBrands] = useState<any[]>([]);
   const [systemModels, setSystemModels] = useState<any[]>([]);
   const [systemPxProviders, setSystemPxProviders] = useState<any[]>([]);
-  const [currentUserFullName, setCurrentUserFullName] = useState('Admin User');
+  const [currentUserFullName, setCurrentUserFullName] = useState('SISTEMA');
   const scanInputRef = React.useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     async function loadUser() {
-      const supabase = getSupabaseBrowserClient();
-      if (!supabase) return;
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        const { data } = await supabase.from('profiles').select('full_name').eq('id', session.user.id).single();
-        if (data && data.full_name) {
-          setCurrentUserFullName(data.full_name);
-        }
-      }
+      const name = await getActualUserFullName();
+      setCurrentUserFullName(name);
     }
     loadUser();
   }, []);
@@ -153,7 +147,7 @@ export default function UnifiedRecepcionPage() {
       const adaptedData = data.map((r: any) => ({
         ...r,
         fecha_formateada: new Date(r.created_at).toLocaleString(),
-        usuario: r.received_by || 'Admin User',
+        usuario: r.received_by || 'SISTEMA',
         pilot_display: r.notes?.split('Piloto: ')[1]?.split('\n')[0] || '---'
       }));
       
@@ -428,7 +422,7 @@ export default function UnifiedRecepcionPage() {
       ? new Date(record.created_at).getTime().toString().slice(-8)
       : Math.floor(10000000 + Math.random() * 90000000).toString();
 
-    const operatorName = record.usuario || 'Admin User';
+    const operatorName = record.usuario || 'SISTEMA';
     
     // Extraer datos de las notas
     const pilot = record.notes?.split('Piloto: ')[1]?.split('\n')[0] || '---';
@@ -1883,7 +1877,7 @@ export default function UnifiedRecepcionPage() {
                       const matchSearch = !searchTerm || 
                         (rec.sap_document || '').toLowerCase().includes(searchLower) ||
                         (rec.carrier || '').toLowerCase().includes(searchLower) ||
-                        (rec.received_by || 'Admin User').toLowerCase().includes(searchLower);
+                        (rec.received_by || 'SISTEMA').toLowerCase().includes(searchLower);
                       const matchFilter = filterPilot === 'Todos' || rec.carrier === filterPilot;
                       const notEliminated = rec.status !== 'ELIMINADO POR BODEGA';
                       return matchSearch && matchFilter && notEliminated;
@@ -1893,7 +1887,7 @@ export default function UnifiedRecepcionPage() {
                       <td className="px-6 py-5 font-bold text-slate-600 text-xs">{rec.fecha_formateada || new Date(rec.created_at).toLocaleString()}</td>
                       <td className="px-6 py-5 font-mono font-black text-[#181c3a]">{rec.sap_document || '---'}</td>
                       <td className="px-6 py-5 text-xs font-bold text-slate-500">{rec.carrier || '---'}</td>
-                      <td className="px-6 py-5 text-xs font-bold text-slate-500">{rec.received_by || 'Admin User'}</td>
+                      <td className="px-6 py-5 text-xs font-bold text-slate-500">{rec.received_by || 'SISTEMA'}</td>
                       <td className="px-6 py-5 text-center font-black text-slate-800">{rec.notes?.match(/Cajas:\s*(\d+)/)?.[1] || 1} Cajas</td>
                       <td className="px-6 py-5 text-center font-black text-slate-800">{rec.received_units || 0} Equipos</td>
                       <td className="px-6 py-5">
@@ -2346,7 +2340,7 @@ export default function UnifiedRecepcionPage() {
               </div>
               <div>
                 <p className="text-[10px] font-black uppercase text-slate-400">Usuario</p>
-                <p className="text-sm font-bold text-[#181c3a]">{showPxDetails.received_by || 'Admin User'}</p>
+                <p className="text-sm font-bold text-[#181c3a]">{showPxDetails.received_by || 'SISTEMA'}</p>
               </div>
               <div>
                 <p className="text-[10px] font-black uppercase text-slate-400">Total Equipos</p>

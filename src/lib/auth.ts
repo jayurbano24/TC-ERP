@@ -45,3 +45,31 @@ export async function getCurrentUser() {
   const { data: { user } } = await supabase.auth.getUser();
   return user;
 }
+
+export async function getActualUserFullName() {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return 'SISTEMA';
+  
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return 'SISTEMA';
+
+    // 1. Try employees table by email
+    if (session.user.email) {
+      const { data: emp } = await supabase.from('employees').select('nombre_completo').eq('email', session.user.email).single();
+      if (emp && emp.nombre_completo) return emp.nombre_completo;
+    }
+    
+    // 2. Fallback to profiles table
+    const { data: profile } = await supabase.from('profiles').select('full_name').eq('id', session.user.id).single();
+    if (profile && profile.full_name && profile.full_name !== 'Admin User') {
+      return profile.full_name;
+    }
+
+    // 3. Fallback to email prefix
+    return session.user.email ? session.user.email.split('@')[0] : 'SISTEMA';
+  } catch (err) {
+    console.error("Error fetching actual user name:", err);
+    return 'SISTEMA';
+  }
+}

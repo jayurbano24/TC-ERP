@@ -50,7 +50,7 @@ export default function InventarioDetallePage() {
           r.guide_number || 'PX',
           extractField(r.notes, 'Piloto') || 'N/A',
           r.carrier || extractField(r.notes, 'Courier') || 'REDESIS',
-          r.received_by || 'Admin User',
+          r.received_by || 'SISTEMA',
           'BODEGA CENTRAL',
           i.service_orders?.os_label || 'TC-00012',
           '1° Ingreso',
@@ -244,7 +244,7 @@ export default function InventarioDetallePage() {
                     <td className="px-4 py-4 font-black text-[#181c3a]">{r.guide_number || 'PX'}</td>
                     <td className="px-4 py-4 uppercase">{extractField(r.notes, 'Piloto') || 'N/A'}</td>
                     <td className="px-4 py-4 uppercase">{r.carrier || extractField(r.notes, 'Courier') || 'REDESIS'}</td>
-                    <td className="px-4 py-4">{r.received_by || 'Admin User'}</td>
+                    <td className="px-4 py-4">{r.received_by || 'SISTEMA'}</td>
                     <td className="px-4 py-4">
                       <Badge variant="green">BODEGA CENTRAL</Badge>
                     </td>

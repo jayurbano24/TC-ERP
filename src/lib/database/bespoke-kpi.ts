@@ -294,21 +294,21 @@ export async function getBespokeKPIs() {
     const stats = getProgressAndMeta(logs, 'diagnostico', 20);
     return { tecnico: u.name, procesadas: logs.length, meta: stats.meta, semana: stats.semana, pendientes: 0, estado: stats.isBono ? 'Bono' : 'Ok' };
   }).filter(u => u.procesadas > 0);
-  if (diagnosticoTable.length === 0) diagnosticoTable.push({ tecnico: 'Sin registros', procesadas: '-', meta: '-', semana: '-', pendientes: '-', estado: 'Ok' });
+  if (diagnosticoTable.length === 0) diagnosticoTable.push({ tecnico: 'Sin registros', procesadas: '-', meta: '-', semana: '-', pendientes: '-', estado: 'Ok' } as any);
 
   const reacondicionadoTable = tallerUsersBase.map(u => {
     const logs = reacondicionadoLogs[u.name] || [];
     const stats = getProgressAndMeta(logs, 'reacondicionado', 20);
     return { tecnico: u.name, completadas: logs.length, meta: stats.meta, semana: stats.semana, tat: '12h', estado: stats.isBono ? 'Bono' : 'Ok' };
   }).filter(u => u.completadas > 0);
-  if (reacondicionadoTable.length === 0) reacondicionadoTable.push({ tecnico: 'Sin registros', completadas: '-', meta: '-', semana: '-', tat: '-', estado: 'Ok' });
+  if (reacondicionadoTable.length === 0) reacondicionadoTable.push({ tecnico: 'Sin registros', completadas: '-', meta: '-', semana: '-', tat: '-', estado: 'Ok' } as any);
 
   const reparacionTable = tallerUsersBase.map(u => {
     const logs = reparacionLogs[u.name] || [];
     const stats = getProgressAndMeta(logs, 'reparacion', 15);
     return { tecnico: u.name, reparadas: logs.length, meta: stats.meta, semana: stats.semana, enviadas: 0, estado: stats.isBono ? 'Bono' : 'Ok' };
   }).filter(u => u.reparadas > 0);
-  if (reparacionTable.length === 0) reparacionTable.push({ tecnico: 'Sin registros', reparadas: '-', meta: '-', semana: '-', enviadas: '-', estado: 'Ok' });
+  if (reparacionTable.length === 0) reparacionTable.push({ tecnico: 'Sin registros', reparadas: '-', meta: '-', semana: '-', enviadas: '-', estado: 'Ok' } as any);
 
   const qcUsersBase = getNamesByRoles(['qc', 'supervisor', 'SUPERVISOR STB']);
   const ccTable = qcUsersBase.map(u => {
@@ -318,7 +318,7 @@ export async function getBespokeKPIs() {
     const stats = getProgressAndMeta(allLogs, 'qc', 35);
     return { inspector: u.name, aprobadas: logsA.length, meta: stats.meta, semana: stats.semana, rechazadas: logsR.length, tecnicoRechazado: '—', estado: stats.isBono ? 'Bono' : 'Ok' };
   }).filter(u => u.aprobadas > 0 || u.rechazadas > 0);
-  if (ccTable.length === 0) ccTable.push({ inspector: 'Sin registros', aprobadas: '-', meta: '-', semana: '-', rechazadas: '-', tecnicoRechazado: '—', estado: 'Ok' });
+  if (ccTable.length === 0) ccTable.push({ inspector: 'Sin registros', aprobadas: '-', meta: '-', semana: '-', rechazadas: '-', tecnicoRechazado: '—', estado: 'Ok' } as any);
 
   const tallerTechStats: Record<string, any> = {};
   auditTaller?.forEach(log => {

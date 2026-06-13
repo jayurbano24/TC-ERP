@@ -137,6 +137,32 @@ export default function EmployeeModal({
             .withFaceDescriptor();
 
           if (detections) {
+            const supabase = getSupabaseBrowserClient();
+            if (supabase) {
+              const { data: existingFaces } = await supabase.from('employees').select('id, nombre_completo, face_embedding').not('face_embedding', 'is', null);
+              if (existingFaces) {
+                let isDuplicate = false;
+                let duplicateName = '';
+                for (const emp of existingFaces) {
+                  if (employee && emp.id === employee.id) continue;
+                  const empDescriptor = new Float32Array(emp.face_embedding);
+                  const distance = faceapi.euclideanDistance(detections.descriptor, empDescriptor);
+                  if (distance < 0.45) { // 0.45 threshold
+                    isDuplicate = true;
+                    duplicateName = emp.nombre_completo;
+                    break;
+                  }
+                }
+                if (isDuplicate) {
+                  alert(`Este rostro ya está registrado en el sistema bajo el empleado: ${duplicateName}. No se permiten duplicados.`);
+                  setBiometricStatus('idle');
+                  stopCamera(stream);
+                  setIsCameraActive(false);
+                  return;
+                }
+              }
+            }
+
             setFaceEmbedding(Array.from(detections.descriptor));
             setBiometricStatus('success');
             stopCamera(stream);

@@ -133,7 +133,28 @@ export function BiometricKiosk() {
             // Si estamos en modo de registrar un rostro nuevo
             if (refs.isRegistering && refs.registerStep === 'capture' && refs.selectedRegisterEmp) {
                cooldownRef.current = true;
-               setRegisterStatusMsg('Rostro detectado, guardando datos faciales...');
+               setRegisterStatusMsg('Rostro detectado, verificando duplicados...');
+               
+               let isDuplicate = false;
+               let duplicateName = '';
+               for (const emp of refs.faceData) {
+                 if (emp.id === refs.selectedRegisterEmp.id) continue;
+                 const empDescriptor = new Float32Array(emp.face_embedding);
+                 const distance = faceapi.euclideanDistance(detections.descriptor, empDescriptor);
+                 if (distance < 0.45) { // Threshold estricto
+                   isDuplicate = true;
+                   duplicateName = emp.nombre_completo;
+                   break;
+                 }
+               }
+               
+               if (isDuplicate) {
+                 setRegisterStatusMsg(`Error: Este rostro ya pertenece a ${duplicateName}.`);
+                 setTimeout(() => { cooldownRef.current = false; setRegisterStatusMsg(''); }, 5000);
+                 return;
+               }
+
+               setRegisterStatusMsg('Rostro verificado, guardando datos faciales...');
                
                try {
                   const supabase = getSupabaseBrowserClient();

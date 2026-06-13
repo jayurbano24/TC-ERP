@@ -56,8 +56,19 @@ export function BiometricKiosk() {
 
   useEffect(() => {
     loadModels();
+    
+    // Auto-recarga diaria a la medianoche (00:05 AM) para liberar memoria y actualizar código.
+    const now = new Date();
+    const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 5, 0);
+    const msToMidnight = nextMidnight.getTime() - now.getTime();
+    
+    const reloadTimer = setTimeout(() => {
+      window.location.reload();
+    }, msToMidnight);
+
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
+      clearTimeout(reloadTimer);
     };
   }, []);
 
@@ -256,11 +267,11 @@ export function BiometricKiosk() {
       }
 
       const now = new Date();
-      const todayStr = now.toISOString().split('T')[0];
+      const localMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
       const { data: logs } = await supabase.from('time_logs')
         .select('*')
         .eq('employee_id', employee.id)
-        .gte('timestamp', `${todayStr}T00:00:00Z`)
+        .gte('timestamp', localMidnight.toISOString())
         .order('timestamp', { ascending: false });
 
       setMatchStatus('idle');
@@ -324,8 +335,8 @@ export function BiometricKiosk() {
         minRetraso = currentMins - shiftEntradaMins;
       }
     } 
-    else if (selectedAction === 'REGRESO_DESAYUNO') {
-      const salidaRef = logs?.find((l: any) => l.evento_detectado === 'SALIDA_DESAYUNO');
+    else if (selectedAction === 'REGRESO_REFACCION') {
+      const salidaRef = logs?.find((l: any) => l.evento_detectado === 'SALIDA_REFACCION');
       if (salidaRef) {
         const diffMins = Math.floor((now.getTime() - new Date(salidaRef.timestamp).getTime()) / 60000);
         if (diffMins > MAX_EXCESO_BREAK) minExcesoAlm = diffMins - MAX_EXCESO_BREAK; 
@@ -339,10 +350,23 @@ export function BiometricKiosk() {
       }
     }
     else if (selectedAction === 'SALIDA_FINAL') {
-      if (daySchedule && currentMins < shiftSalidaMins) {
-        minSalidaAnt = shiftSalidaMins - currentMins;
-      } else if (daySchedule && currentMins >= shiftSalidaMins) {
-        minExtra = currentMins - shiftSalidaMins;
+      if (esDiaExtra) {
+        // En día extra (ej. Sábado), se asume un horario base de 8 a 5 (17:00).
+        // Las "horas extra" adicionales corren solo después de las 17:00.
+        const baseSalidaMins = 17 * 60; // 17:00
+        if (currentMins > baseSalidaMins) {
+          minExtra = currentMins - baseSalidaMins;
+        } else {
+          minExtra = 0;
+        }
+      } else {
+         const shiftSalidaParts = daySchedule.salida.split(':');
+         const shiftSalidaMins = parseInt(shiftSalidaParts[0]) * 60 + parseInt(shiftSalidaParts[1]);
+         if (currentMins < shiftSalidaMins) {
+           minSalidaAnt = shiftSalidaMins - currentMins;
+         } else {
+           minExtra = currentMins - shiftSalidaMins;
+         }
       }
     }
 
@@ -368,7 +392,7 @@ export function BiometricKiosk() {
       return;
     }
 
-    if ((selectedAction === 'REGRESO_DESAYUNO' || selectedAction === 'REGRESO_ALMUERZO') && minExcesoAlm > 0) {
+    if ((selectedAction === 'REGRESO_REFACCION' || selectedAction === 'REGRESO_ALMUERZO') && minExcesoAlm > 0) {
       setPendingJustification({
         type: 'EXCESO_RECESO',
         data: punchData,
@@ -443,30 +467,45 @@ export function BiometricKiosk() {
       
       setMatchStatus('success');
       
+      const day = new Date().getDay();
       const hour = new Date().getHours();
-      const day = new Date().getDay(); // 0 = Dom, 1 = Lun, ..., 5 = Vie
-      
       let greeting = '';
-      if (punchData.eventToLog === 'INGRESO') {
-        if (day === 1) greeting = 'Buenos días y feliz inicio de semana';
-        else greeting = 'Buenos días';
+
+      if (punchData.eventToLog === 'INGRESO' || punchData.eventToLog === 'INGRESO_ESPECIAL') {
+        if (hour < 12) {
+          greeting = day === 1 ? 'Buenos días y feliz inicio de semana' : 'Buenos días';
+        } else {
+          greeting = 'Buenas tardes';
+        }
       }
-      else if (punchData.eventToLog === 'SALIDA_DESAYUNO' || punchData.eventToLog === 'SALIDA_ALMUERZO') {
+      else if (punchData.eventToLog === 'SALIDA_REFACCION') {
+        greeting = 'Buen provecho y que tenga buen día';
+      }
+      else if (punchData.eventToLog === 'SALIDA_ALMUERZO') {
         greeting = 'Buen provecho';
       }
       else if (punchData.eventToLog === 'SALIDA_FINAL') {
-        if (day === 5) greeting = 'Feliz tarde y buen fin de semana';
-        else if (hour < 18) greeting = 'Feliz tarde';
-        else greeting = 'Feliz noche';
-      } else {
+        if (hour < 12) {
+          greeting = 'Que tenga un buen día';
+        } else if (hour < 18) {
+          if (day === 5 || day === 6) greeting = 'Que tenga un excelente fin de semana';
+          else greeting = 'Feliz tarde';
+        } else {
+          if (day === 5 || day === 6) greeting = 'Feliz noche y excelente fin de semana';
+          else greeting = 'Feliz noche';
+        }
+      }
+      else {
         greeting = 'Marcaje registrado';
       }
 
       // Extraer Primer Nombre y Primer Apellido
       let shortName = punchData.employee.nombre_completo;
+      let firstName = '';
       if (shortName.includes(',')) {
         const apellidos = shortName.split(',')[0].trim().split(' ');
         const nombres = shortName.split(',')[1].trim().split(' ');
+        firstName = nombres[0];
         shortName = `${nombres[0]} ${apellidos[0]}`;
       } else {
         const parts = shortName.trim().split(' ');
@@ -485,8 +524,23 @@ export function BiometricKiosk() {
       if ('speechSynthesis' in window) {
         const utterance = new SpeechSynthesisUtterance(spokenMessage);
         utterance.lang = 'es-MX'; // Español latino
-        utterance.rate = 1.0;
-        utterance.pitch = 1.0;
+        utterance.rate = 0.95; // Ligeramente más lento para sonar más humano
+        utterance.pitch = 1.05; // Tono más amigable
+        
+        // Buscar voces naturales
+        const voices = window.speechSynthesis.getVoices();
+        const esVoices = voices.filter(v => v.lang.startsWith('es'));
+        const bestVoice = esVoices.find(v => 
+          v.name.toLowerCase().includes('natural') || 
+          v.name.toLowerCase().includes('google') || 
+          v.name.toLowerCase().includes('sabina') ||
+          v.name.toLowerCase().includes('premium')
+        ) || esVoices[0];
+        
+        if (bestVoice) {
+          utterance.voice = bestVoice;
+        }
+
         window.speechSynthesis.speak(utterance);
       }
 
@@ -512,7 +566,7 @@ export function BiometricKiosk() {
       setSelectedReason('');
       setOtherReason('');
       setSpecialMode(false);
-      setSpecialDirection('INGRESO_ESPECIAL');
+      setSpecialDirection('INGRESO');
       cooldownRef.current = false;
       stopVideo();
     }, ms);
@@ -752,20 +806,29 @@ export function BiometricKiosk() {
            const lastLog = logs.length > 0 ? logs[0] : null;
            const lastEvent = lastLog?.evento_detectado;
            const currentMins = new Date().getHours() * 60 + new Date().getMinutes();
-           
-           const showIngreso = !lastEvent;
-           const showRegresoDesayuno = lastEvent === 'SALIDA_DESAYUNO';
-           const showRegresoAlmuerzo = lastEvent === 'SALIDA_ALMUERZO';
-           const isInside = lastEvent === 'INGRESO' || lastEvent === 'REGRESO_DESAYUNO' || lastEvent === 'REGRESO_ALMUERZO';
-           const isFinished = lastEvent === 'SALIDA_FINAL' || lastEvent === 'MARCAJE_ESPECIAL';
+           const normalizedEvent = lastEvent?.trim().toUpperCase().replace(/ /g, '_');
 
-           const showSalidaDesayuno = isInside && currentMins < (11 * 60 + 30);
-           const showSalidaAlmuerzo = isInside && currentMins >= (11 * 60 + 30) && currentMins <= (15 * 60 + 30);
+           const yaDesayuno = logs.some((l: any) => l.evento_detectado?.trim().toUpperCase().replace(/ /g, '_') === 'SALIDA_REFACCION');
+           const yaAlmorzo = logs.some((l: any) => l.evento_detectado?.trim().toUpperCase().replace(/ /g, '_') === 'SALIDA_ALMUERZO');
+           
+           const showIngreso = !normalizedEvent || normalizedEvent === 'SALIDA_FINAL';
+           const showRegresoDesayuno = normalizedEvent === 'SALIDA_REFACCION';
+           const showRegresoAlmuerzo = normalizedEvent === 'SALIDA_ALMUERZO';
+           const isInside = normalizedEvent === 'INGRESO' || normalizedEvent === 'REGRESO_REFACCION' || normalizedEvent === 'REGRESO_ALMUERZO' || normalizedEvent === 'INGRESO_ESPECIAL';
+           const isFinished = normalizedEvent === 'SALIDA_FINAL';
+
+           const showSalidaDesayuno = isInside && !yaDesayuno && currentMins >= (8 * 60) && currentMins <= (11 * 60 + 30);
+           const showSalidaAlmuerzo = isInside && !yaAlmorzo && currentMins >= (11 * 60 + 30) && currentMins <= (17 * 60 + 30); // Extended to 17:30 to be safe
 
            return (
             <div className="absolute inset-0 z-40 bg-slate-900/95 backdrop-blur-md flex flex-col items-center justify-center p-6 animate-in fade-in zoom-in-95">
               <h2 className="text-xl font-black text-white mb-1">{pendingActionSelect.employee.nombre_completo}</h2>
               <p className="text-xs text-[#2ec4f1] font-bold mb-6 uppercase tracking-widest">Seleccione Acción Válida</p>
+              
+              {/* DEBUG INFO TO HELP IDENTIFY THE ISSUE */}
+              <div className="text-[10px] text-white/50 mb-4 bg-black/50 p-2 rounded w-full max-w-sm font-mono whitespace-pre-wrap">
+                Last Event: {lastEvent || 'NONE'} | Normalized: {normalizedEvent || 'NONE'} | isInside: {isInside ? 'TRUE' : 'FALSE'} | showSalidaAlmuerzo: {showSalidaAlmuerzo ? 'TRUE' : 'FALSE'}
+              </div>
               
               <div className="grid grid-cols-2 gap-3 w-full max-w-sm">
                 {showIngreso && (
@@ -776,14 +839,14 @@ export function BiometricKiosk() {
                 )}
                 
                 {showSalidaDesayuno && (
-                  <button onClick={() => handleActionSelect('SALIDA_DESAYUNO')} className="flex flex-col items-center justify-center gap-2 p-3 bg-amber-500/20 hover:bg-amber-500/40 border border-amber-500/30 rounded-2xl text-white transition-colors">
+                  <button onClick={() => handleActionSelect('SALIDA_REFACCION')} className="flex flex-col items-center justify-center gap-2 p-3 bg-amber-500/20 hover:bg-amber-500/40 border border-amber-500/30 rounded-2xl text-white transition-colors">
                     <Coffee className="w-6 h-6 text-amber-400" />
                     <span className="text-xs font-bold">Ir a Desayuno</span>
                   </button>
                 )}
                 
                 {showRegresoDesayuno && (
-                  <button onClick={() => handleActionSelect('REGRESO_DESAYUNO')} className="flex flex-col items-center justify-center gap-2 p-4 bg-amber-500/20 hover:bg-amber-500/40 border border-amber-500/30 rounded-2xl text-white transition-colors col-span-2">
+                  <button onClick={() => handleActionSelect('REGRESO_REFACCION')} className="flex flex-col items-center justify-center gap-2 p-4 bg-amber-500/20 hover:bg-amber-500/40 border border-amber-500/30 rounded-2xl text-white transition-colors col-span-2">
                     <Coffee className="w-6 h-6 text-amber-400" />
                     <span className="text-sm font-bold">Volver de Desayuno</span>
                   </button>
@@ -843,8 +906,8 @@ export function BiometricKiosk() {
                   onChange={e => setSpecialDirection(e.target.value)}
                   className="w-full h-12 bg-slate-800 border border-purple-500/50 rounded-xl px-4 text-white font-bold text-sm outline-none focus:border-purple-500 transition-colors"
                 >
-                  <option value="INGRESO_ESPECIAL">Registrar como: Entrada (Ingreso)</option>
-                  <option value="SALIDA_ESPECIAL">Registrar como: Retiro (Salida)</option>
+                  <option value="INGRESO">Registrar como: Entrada (Ingreso)</option>
+                  <option value="SALIDA_FINAL">Registrar como: Retiro (Salida)</option>
                 </select>
               )}
 

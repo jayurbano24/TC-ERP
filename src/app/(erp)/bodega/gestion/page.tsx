@@ -31,7 +31,7 @@ import {
   Truck,
   PackageMinus
 } from 'lucide-react';
-import { getInventoryBoxes, transferBoxesToArea, createBoxWithSeries, addSeriesToBox, dispatchBoxFromWarehouse, dispatchSpecificSeries } from '@/lib/database/warehouse';
+import { getInventoryBoxes, transferBoxesToArea, createBoxWithSeries, addSeriesToBox, dispatchBoxFromWarehouse, dispatchSpecificSeries, transferSpecificSeriesToArea } from '@/lib/database/warehouse';
 import { getTechnologies, getBrands, getModels } from '@/lib/database/config';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { useEffect } from 'react';
@@ -86,6 +86,8 @@ export default function BodegaGestionPage() {
   const [dispatchNotes, setDispatchNotes] = useState('');
   const [isDispatching, setIsDispatching] = useState(false);
   const [dispatchMode, setDispatchMode] = useState<'all'|'specific'>('all');
+  const [dispatchAction, setDispatchAction] = useState<'despacho'|'traslado'>('despacho');
+  const [dispatchArea, setDispatchArea] = useState('Diagnóstico');
   const [selectedSeriesForDispatch, setSelectedSeriesForDispatch] = useState<string[]>([]);
   const [catTecnologias, setCatTecnologias] = useState<any[]>([]);
   const [catMarcas, setCatMarcas] = useState<any[]>([]);
@@ -133,25 +135,35 @@ export default function BodegaGestionPage() {
   }, [showNewBoxModal]);
 
   const handleDispatchBox = async (boxId: string, realDbId?: string) => {
-    if (!dispatchDestination.trim()) {
+    if (dispatchAction === 'despacho' && !dispatchDestination.trim()) {
       alert("Por favor ingresa un destino o guía de salida.");
       return;
     }
     
     if (dispatchMode === 'specific' && selectedSeriesForDispatch.length === 0) {
-      alert("Debes seleccionar al menos una serie para despachar.");
+      alert("Debes seleccionar al menos una serie para procesar.");
       return;
     }
     
     setIsDispatching(true);
     try {
       let error;
-      if (dispatchMode === 'all') {
-        const res = await dispatchBoxFromWarehouse(realDbId || boxId, dispatchDestination, dispatchNotes);
-        error = res.error;
+      if (dispatchAction === 'traslado') {
+         if (dispatchMode === 'all') {
+            const res = await transferBoxesToArea([realDbId || boxId], dispatchArea, undefined, 'Admin User');
+            error = res.error;
+         } else {
+            const res = await transferSpecificSeriesToArea(realDbId || boxId, selectedSeriesForDispatch, dispatchArea, 'Admin User');
+            error = res.error;
+         }
       } else {
-        const res = await dispatchSpecificSeries(realDbId || boxId, selectedSeriesForDispatch, dispatchDestination, dispatchNotes);
-        error = res.error;
+        if (dispatchMode === 'all') {
+          const res = await dispatchBoxFromWarehouse(realDbId || boxId, dispatchDestination, dispatchNotes);
+          error = res.error;
+        } else {
+          const res = await dispatchSpecificSeries(realDbId || boxId, selectedSeriesForDispatch, dispatchDestination, dispatchNotes);
+          error = res.error;
+        }
       }
       
       if (error) {
@@ -163,6 +175,7 @@ export default function BodegaGestionPage() {
         setDispatchNotes('');
         setSelectedSeriesForDispatch([]);
         setDispatchMode('all');
+        setDispatchAction('despacho');
       }
     } catch (err) {
       console.error(err);
@@ -1125,6 +1138,7 @@ export default function BodegaGestionPage() {
                           <button className="text-slate-400 hover:text-emerald-500 transition-all hover:scale-110" title="Despachar de Inventario" onClick={async (e) => {
                             e.stopPropagation();
                             setDispatchMode('specific');
+                            setDispatchAction('despacho');
                             setShowDispatchModal(item);
                             setDispatchDestination('Calculando...');
                             
@@ -2154,15 +2168,30 @@ export default function BodegaGestionPage() {
                   <Truck className="w-5 h-5 text-emerald-400" />
                 </div>
                 <div>
-                  <h3 className="font-black text-lg">Despachar de Inventario</h3>
+                  <h3 className="font-black text-lg">Procesar Series de Inventario</h3>
                   <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest">{showDispatchModal.id}</p>
                 </div>
               </div>
               
               <div className="p-6 space-y-4">
                 <p className="text-sm text-slate-600">
-                  Selecciona las series que deseas despachar. La caja quedará con las series restantes.
+                  Selecciona las series que deseas extraer. La caja quedará con las series restantes.
                 </p>
+                
+                <div className="flex bg-slate-100 p-1 rounded-lg">
+                  <button 
+                    onClick={() => setDispatchAction('despacho')}
+                    className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-colors ${dispatchAction === 'despacho' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500'}`}
+                  >
+                    Despachar (Salida)
+                  </button>
+                  <button 
+                    onClick={() => setDispatchAction('traslado')}
+                    className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-colors ${dispatchAction === 'traslado' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
+                  >
+                    Trasladar a Área
+                  </button>
+                </div>
                 <div className="space-y-2 mt-2">
                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Pistolear Serie</label>
                   <div className="relative">
@@ -2216,34 +2245,61 @@ export default function BodegaGestionPage() {
                   </div>
                 )}
 
-                <div className="space-y-2 mt-4">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Conduce de Salida *</label>
-                  <input 
-                    type="text"
-                    value={dispatchDestination}
-                    readOnly
-                    placeholder="Generando código..."
-                    className="w-full bg-slate-100 text-slate-500 p-3 rounded-xl border border-slate-200 font-bold text-sm outline-none cursor-not-allowed"
-                  />
-                </div>
-
-                <div className="space-y-2 mt-4">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Notas Adicionales (Opcional)</label>
-                  <textarea 
-                    value={dispatchNotes}
-                    onChange={(e) => setDispatchNotes(e.target.value)}
-                    placeholder="Observaciones adicionales sobre el despacho..."
-                    className="w-full bg-slate-50 p-3 rounded-xl border border-slate-200 text-sm outline-none focus:border-emerald-500 transition-colors"
-                    rows={2}
-                  />
-                </div>
-                
-                <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl flex gap-3 mt-4">
-                  <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
-                  <p className="text-xs text-amber-700 leading-tight">
-                    Esta acción actualizará el estado de todas las series dentro de la caja a "Despachado" y la caja dejará de ocupar espacio en el Rack actual.
-                  </p>
-                </div>
+                {dispatchAction === 'despacho' ? (
+                  <>
+                    <div className="space-y-2 mt-4">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Conduce de Salida *</label>
+                      <input 
+                        type="text"
+                        value={dispatchDestination}
+                        readOnly
+                        placeholder="Generando código..."
+                        className="w-full bg-slate-100 text-slate-500 p-3 rounded-xl border border-slate-200 font-bold text-sm outline-none cursor-not-allowed"
+                      />
+                    </div>
+    
+                    <div className="space-y-2 mt-4">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Notas Adicionales (Opcional)</label>
+                      <textarea 
+                        value={dispatchNotes}
+                        onChange={(e) => setDispatchNotes(e.target.value)}
+                        placeholder="Observaciones adicionales sobre el despacho..."
+                        className="w-full bg-slate-50 p-3 rounded-xl border border-slate-200 text-sm outline-none focus:border-emerald-500 transition-colors"
+                        rows={2}
+                      />
+                    </div>
+                    <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl flex gap-3 mt-4">
+                      <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+                      <p className="text-xs text-amber-700 leading-tight">
+                        Esta acción actualizará el estado de todas las series escaneadas a "Despachado" y saldrán de esta caja.
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="space-y-2 mt-4">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Área de Destino *</label>
+                      <select 
+                        value={dispatchArea}
+                        onChange={(e) => setDispatchArea(e.target.value)}
+                        className="w-full bg-white text-slate-700 p-3 rounded-xl border border-slate-200 font-bold text-sm outline-none focus:border-indigo-500 transition-colors"
+                      >
+                        <option value="Diagnóstico">Diagnóstico</option>
+                        <option value="Reparación">Reparación (Calidad)</option>
+                        <option value="Bodega Central">Reacondicionado (Bodega)</option>
+                        <option value="L3">L3</option>
+                        <option value="Bodega SCRAP">SCRAP</option>
+                        <option value="Bodega Obsoleto">Obsoleto</option>
+                      </select>
+                    </div>
+                    <div className="bg-indigo-50 border border-indigo-200 p-3 rounded-xl flex gap-3 mt-4">
+                      <AlertCircle className="w-5 h-5 text-indigo-600 shrink-0" />
+                      <p className="text-xs text-indigo-700 leading-tight">
+                        Esta acción desvinculará las series de la caja y las moverá al área de {dispatchArea} para ser trabajadas.
+                      </p>
+                    </div>
+                  </>
+                )}
               </div>
 
               <div className="p-4 border-t border-slate-100 flex justify-end gap-3 bg-slate-50">
@@ -2254,7 +2310,7 @@ export default function BodegaGestionPage() {
                     setDispatchDestination('');
                     setDispatchNotes('');
                     setSelectedSeriesForDispatch([]);
-                    setDispatchMode('all');
+                    setDispatchAction('despacho');
                   }}
                   disabled={isDispatching}
                 >
@@ -2265,7 +2321,7 @@ export default function BodegaGestionPage() {
                   onClick={() => handleDispatchBox(showDispatchModal.id, showDispatchModal.realDbId)}
                   disabled={isDispatching || !dispatchDestination.trim()}
                 >
-                  {isDispatching ? 'Procesando...' : 'Confirmar Despacho'}
+                  {isDispatching ? 'Procesando...' : dispatchAction === 'despacho' ? 'Confirmar Despacho' : 'Confirmar Traslado'}
                 </Button>
               </div>
             </Card>

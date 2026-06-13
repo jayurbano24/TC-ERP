@@ -39,6 +39,8 @@ type DispatchItem = {
 
 
 export default function DespachoPage() {
+  const [activeTab, setActiveTab] = useState<'operacion'|'historial'>('operacion');
+  const [dispatchHistory, setDispatchHistory] = useState<any[]>([]);
   const [showDispatchForm, setShowDispatchForm] = useState(false);
   const [dispatchType, setDispatchType] = useState<'massive' | 'individual' | 'master_box'>('master_box');
   const [itemsToDispatch, setItemsToDispatch] = useState<string[]>([]);
@@ -120,6 +122,23 @@ export default function DespachoPage() {
 
   const fetchDispatches = async (supabase: any) => {
     try {
+      // 1. Fetch History
+      const { data: hist } = await supabase
+        .from('dispatches')
+        .select(`
+          id, 
+          guide_number, 
+          dispatch_type, 
+          notes, 
+          created_at, 
+          dispatched_by,
+          dispatch_items(count)
+        `)
+        .order('created_at', { ascending: false });
+      
+      if (hist) setDispatchHistory(hist);
+
+      // 2. Fetch active boxes
       const { data: recData } = await supabase.from('receptions').select('id').eq('guide_number', 'MANUAL_BOXES_DESPACHO').single();
       if (recData) {
         const { data: boxes } = await supabase.from('boxes').select('*').eq('reception_id', recData.id).order('created_at', { ascending: false });
@@ -691,7 +710,24 @@ export default function DespachoPage() {
         </div>
       }
     >
-      <div className="space-y-10">
+      <div className="space-y-6">
+        <div className="flex bg-slate-100 p-1 rounded-xl w-fit">
+          <button 
+            onClick={() => setActiveTab('operacion')}
+            className={`px-6 py-2.5 text-sm font-bold rounded-lg transition-colors ${activeTab === 'operacion' ? 'bg-white text-[#181c3a] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            Gestión de Cajas & Despachos
+          </button>
+          <button 
+            onClick={() => setActiveTab('historial')}
+            className={`px-6 py-2.5 text-sm font-bold rounded-lg transition-colors ${activeTab === 'historial' ? 'bg-white text-[#181c3a] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            Historial de Despachos
+          </button>
+        </div>
+
+        {activeTab === 'operacion' ? (
+          <div className="space-y-10 animate-in fade-in">
         
         {showUploadSAPModal && (
           <div className="fixed inset-0 bg-[#0b0e20]/80 backdrop-blur-sm z-50 flex items-center justify-center animate-in fade-in">
@@ -988,6 +1024,57 @@ export default function DespachoPage() {
             </div>
           </Card>
         </section>
+        </div>
+        ) : (
+          <div className="space-y-6 animate-in fade-in">
+            <Card padding="none" className="overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-100">
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Guía / Destino</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Fecha</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Tipo</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Items / Cajas</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Usuario</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {dispatchHistory.map((hist) => (
+                      <tr key={hist.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-6 py-5">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600">
+                              <Truck className="w-4 h-4" />
+                            </div>
+                            <span className="text-sm font-black text-[#181c3a] font-mono">{hist.guide_number}</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-5">
+                          <span className="text-xs font-bold text-slate-500">{new Date(hist.created_at).toLocaleString()}</span>
+                        </td>
+                        <td className="px-6 py-5">
+                          <Badge variant="blue">{hist.dispatch_type}</Badge>
+                        </td>
+                        <td className="px-6 py-5">
+                          <span className="text-sm font-bold text-slate-700">{hist.dispatch_items?.[0]?.count || 0}</span>
+                        </td>
+                        <td className="px-6 py-5">
+                          <span className="text-xs font-bold text-slate-500">{hist.dispatched_by || 'Sistema'}</span>
+                        </td>
+                      </tr>
+                    ))}
+                    {dispatchHistory.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="py-12 text-center text-slate-400 text-sm">No hay historial de despachos registrados.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          </div>
+        )}
       </div>
     </ModulePage>
   );

@@ -575,8 +575,16 @@ export default function ConfiguracionPage() {
             >
               <ClipboardList size={14} /> Proveedores PX
             </button>
+          </div>
 
-
+          <div className="pt-4 mt-4 border-t border-slate-100">
+            <p className="px-6 text-[9px] font-black uppercase text-slate-400 mb-2 tracking-widest">Rendimiento</p>
+            <a 
+              href="/configuracion/metas"
+              className="w-full flex items-center gap-3 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all text-[#2ec4f1] hover:bg-[#2ec4f1]/10 bg-white border-2 border-[#2ec4f1]/20"
+            >
+              <Activity size={14} /> Metas KPI
+            </a>
           </div>
         </div>
 

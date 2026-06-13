@@ -62,6 +62,7 @@ export const navigationGroups = [
       { label: "Backoffice", href: "/produccion/backoffice", descripcion: "Aceptación & SN", icon: "Laptop" },
       { label: "Taller", href: "/produccion/taller", descripcion: "Reparación & QC", icon: "Wrench" },
       { label: "Bodega", href: "/bodega/gestion", descripcion: "Racks & Stock", icon: "Warehouse" },
+      { label: "Accesorios", href: "/bodega/accesorios", descripcion: "Bodega de Accesorios", icon: "Boxes" },
       { label: "Despacho", href: "/despacho", descripcion: "Salida de Equipos", icon: "Truck" },
     ]
   },

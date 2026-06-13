@@ -116,13 +116,21 @@ export async function transferBoxesToArea(boxIds: string[], targetArea: string, 
   }
 
   // 2. Update all series inside these boxes
-  const { error: seriesError } = await supabase
+  const { data: updatedSeries, error: seriesError } = await supabase
     .from('series')
     .update({ current_status: nextStatus })
-    .in('current_box_id', boxIds);
+    .in('current_box_id', boxIds)
+    .select('id');
 
   if (seriesError) return { error: seriesError.message };
   
+  if (updatedSeries && nextStatus === 'in_central_warehouse') {
+    const { logAudit } = await import('@/lib/database/audit');
+    for (const s of updatedSeries) {
+      await logAudit('series', s.id, 'INGRESO BODEGA', { status: 'in_central_warehouse', boxIds });
+    }
+  }
+
   return { success: true };
 }
 
@@ -174,6 +182,13 @@ export async function dispatchBoxFromWarehouse(boxId: string, destination: strin
 
   if (dispatchError) return { error: dispatchError.message };
 
+  if (dispatchRecord && seriesInBox && seriesInBox.length > 0) {
+    const { logAudit } = await import('@/lib/database/audit');
+    for (const s of seriesInBox) {
+      await logAudit('series', s.id, 'DESPACHO CREADO', { dispatch_id: dispatchRecord.id, destination });
+    }
+  }
+
   // 6. Insert into dispatch_items
   if (dispatchRecord && seriesInBox && seriesInBox.length > 0) {
     const itemsToInsert = seriesInBox.map((s: any) => ({
@@ -186,6 +201,51 @@ export async function dispatchBoxFromWarehouse(boxId: string, destination: strin
       .insert(itemsToInsert);
       
     if (itemsError) console.error("Error inserting dispatch_items:", itemsError);
+  }
+
+  return { success: true };
+}
+
+export async function transferSpecificSeriesToArea(boxId: string, seriesNumbers: string[], targetArea: string, userId?: string) {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return { error: "Supabase not configured" };
+
+  // Map area to status
+  let nextStatus = 'in_central_warehouse';
+  if (targetArea === 'Bodega SCRAP' || targetArea === 'SCRAP') nextStatus = 'irreparable';
+  if (targetArea === 'Bodega Obsoleto' || targetArea === 'Obsoleto') nextStatus = 'obsolete';
+  if (targetArea === 'Diagnóstico') nextStatus = 'in_workshop';
+  if (targetArea === 'Reparación') nextStatus = 'in_qc';
+  if (targetArea === 'L3') nextStatus = 'in_control_warehouse';
+
+  // 1. Update the series
+  const { data: updatedSeries, error: seriesError } = await supabase
+    .from('series')
+    .update({ 
+      current_status: nextStatus,
+      current_box_id: null
+    })
+    .in('serial_number', seriesNumbers)
+    .select('id');
+
+  if (seriesError) return { error: seriesError.message };
+
+  if (updatedSeries && updatedSeries.length > 0) {
+    const { logAudit } = await import('@/lib/database/audit');
+    for (const s of updatedSeries) {
+      await logAudit('series', s.id, 'TRASLADO', { status: nextStatus, fromBox: boxId });
+    }
+  }
+
+  // 2. Fetch remaining series count to check if box is empty
+  const { count, error: countError } = await supabase
+    .from('series')
+    .select('*', { count: 'exact', head: true })
+    .eq('current_box_id', boxId);
+
+  if (!countError && count === 0) {
+    // If the box is now empty, mark it as dispatched too or handle as needed
+    await supabase.from('boxes').update({ rack_location: 'DESPACHO' }).eq('id', boxId);
   }
 
   return { success: true };
@@ -231,6 +291,13 @@ export async function dispatchSpecificSeries(boxId: string, seriesNumbers: strin
     .single();
 
   if (dispatchError) return { error: dispatchError.message };
+
+  if (dispatchRecord && targetSeries && targetSeries.length > 0) {
+    const { logAudit } = await import('@/lib/database/audit');
+    for (const s of targetSeries) {
+      await logAudit('series', s.id, 'DESPACHO CREADO', { dispatch_id: dispatchRecord.id, destination });
+    }
+  }
 
   // 5. Insert into dispatch_items
   if (dispatchRecord && targetSeries && targetSeries.length > 0) {

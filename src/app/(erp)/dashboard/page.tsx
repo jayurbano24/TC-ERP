@@ -8,11 +8,15 @@ import {
   UserKPI, 
   getDashboardMetrics, 
   DashboardMetrics, 
-  getAreaKPIs, 
-  AreaKPI,
   getBIData,
   getStorageData
 } from '@/lib/database/kpi';
+import { getBespokeKPIs } from '@/lib/database/bespoke-kpi';
+import { RecepcionKpiView } from '@/components/dashboard/kpi/recepcion-kpi-view';
+import { BackofficeKpiView } from '@/components/dashboard/kpi/backoffice-kpi-view';
+import { BodegaKpiView } from '@/components/dashboard/kpi/bodega-kpi-view';
+import { TallerKpiView } from '@/components/dashboard/kpi/taller-kpi-view';
+import { SalidaKpiView } from '@/components/dashboard/kpi/salida-kpi-view';
 import { ModulePage, ModuleToolbar } from '@/components/module-page';
 import { 
   BarChart3, 
@@ -41,7 +45,7 @@ export default function GeneralDashboardPage() {
     errorRate: 0,
     productionByBrand: []
   });
-  const [areaKpis, setAreaKpis] = useState<AreaKPI[]>([]);
+  const [bespokeData, setBespokeData] = useState<any>(null);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editTargetValue, setEditTargetValue] = useState<string>('');
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -83,8 +87,8 @@ export default function GeneralDashboardPage() {
       setKpis(kpiData);
       const metricsData = await getDashboardMetrics();
       setMetrics(metricsData);
-      const areaData = await getAreaKPIs();
-      setAreaKpis(areaData);
+      const bData = await getBespokeKPIs();
+      setBespokeData(bData);
       const biInfo = await getBIData();
       setBiData(biInfo);
       const storageInfo = await getStorageData();
@@ -440,68 +444,13 @@ export default function GeneralDashboardPage() {
         </>
         )}
 
-        {activeTab === 'kpi' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 animate-rise-in">
-            {areaKpis.map(area => (
-              <Card key={area.id} className="p-8 border-2 border-slate-100 hover:border-blue-200 transition-colors shadow-sm bg-white">
-                <div className="flex justify-between items-start mb-6">
-                  <h3 className="text-lg font-black text-slate-800 uppercase tracking-wide">{area.name}</h3>
-                  <Badge className={`px-3 py-1 font-bold ${
-                    area.status === 'warning' ? 'bg-rose-50 text-rose-600 border-rose-200' : 
-                    area.status === 'critical' ? 'bg-red-50 text-red-600 border-red-200' :
-                    'bg-emerald-50 text-emerald-600 border-emerald-200'
-                  } border`}>
-                    {area.status === 'warning' ? 'ATENCIÓN' : area.status === 'critical' ? 'CRÍTICO' : 'ÓPTIMO'}
-                  </Badge>
-                </div>
-
-                <div className="mb-8">
-                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">{area.mainMetric}</p>
-                  <p className="text-4xl font-black text-[#181c3a]">{area.mainValue.toLocaleString()}</p>
-                </div>
-                {area.users && area.users.length > 0 && (
-                  <div className="mt-6 mb-8">
-                    <table className="w-full text-sm text-left">
-                      <thead className="bg-slate-100 text-[#181c3a] font-bold text-xs">
-                        <tr>
-                          <th className="py-2 px-3 rounded-l-md capitalize">Operador</th>
-                          <th className="py-2 px-3 text-center capitalize">Real</th>
-                          <th className="py-2 px-3 text-center rounded-r-md capitalize">métrica</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {area.users.map((user, idx) => (
-                          <tr key={idx} className="border-b border-slate-50 last:border-none">
-                            <td className="py-2 px-3 font-semibold text-slate-600 truncate max-w-[140px] uppercase">{user.name}</td>
-                            <td className="py-2 px-3 text-center font-bold text-[#181c3a]">{user.count}</td>
-                            <td className="py-2 px-3 text-center font-bold text-[#181c3a]">{user.target || 100}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-
-                <div className="mt-auto border-t-[3px] border-[#181c3a] pt-2">
-                  <table className="w-full text-sm text-center">
-                    <thead className="text-[#181c3a] font-bold text-xs">
-                      <tr>
-                        <th className="py-2 text-left capitalize">Dispositivo</th>
-                        <th className="py-2 capitalize">{area.subMetric1.toLowerCase()}</th>
-                        <th className="py-2 capitalize">{area.subMetric2.toLowerCase()}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td className="py-2 text-left font-bold text-slate-500 uppercase">General</td>
-                        <td className="py-2 font-black text-slate-700">{area.subValue1}</td>
-                        <td className="py-2 font-black text-slate-700">{area.subValue2}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </Card>
-            ))}
+        {activeTab === 'kpi' && bespokeData && (
+          <div className="flex flex-col gap-8 animate-rise-in max-w-7xl mx-auto">
+            <RecepcionKpiView data={bespokeData.recepcion} />
+            <BackofficeKpiView data={bespokeData.backoffice} />
+            <BodegaKpiView data={bespokeData.bodega} />
+            <TallerKpiView data={bespokeData.taller} />
+            <SalidaKpiView data={bespokeData.salida} />
           </div>
         )}
 

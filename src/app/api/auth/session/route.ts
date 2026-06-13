@@ -1,15 +1,20 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// Usamos el cliente admin para saltar RLS al borrar/crear sesiones si es necesario, 
-// o simplemente el anon key si RLS lo permite. RLS lo permite porque usamos auth.uid()
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
   try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+    
+    if (!supabaseUrl || !supabaseServiceKey) {
+      console.warn('Supabase env vars missing. Skipping session recording during build.');
+      return NextResponse.json({ success: false, reason: 'build_mode' });
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
     const body = await request.json();
     const { userId } = body;
 

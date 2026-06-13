@@ -825,10 +825,6 @@ export function BiometricKiosk() {
               <h2 className="text-xl font-black text-white mb-1">{pendingActionSelect.employee.nombre_completo}</h2>
               <p className="text-xs text-[#2ec4f1] font-bold mb-6 uppercase tracking-widest">Seleccione Acción Válida</p>
               
-              {/* DEBUG INFO TO HELP IDENTIFY THE ISSUE */}
-              <div className="text-[10px] text-white/50 mb-4 bg-black/50 p-2 rounded w-full max-w-sm font-mono whitespace-pre-wrap">
-                Last Event: {lastEvent || 'NONE'} | Normalized: {normalizedEvent || 'NONE'} | isInside: {isInside ? 'TRUE' : 'FALSE'} | showSalidaAlmuerzo: {showSalidaAlmuerzo ? 'TRUE' : 'FALSE'}
-              </div>
               
               <div className="grid grid-cols-2 gap-3 w-full max-w-sm">
                 {showIngreso && (

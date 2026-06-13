@@ -323,7 +323,8 @@ export async function getBespokeKPIs() {
   const tallerTechStats: Record<string, any> = {};
   auditTaller?.forEach(log => {
      const s = seriesMap.get(log.record_id);
-     const tId = Array.isArray(s?.models) ? s?.models[0]?.technology_id : s?.models?.technology_id;
+     const modelsAny = s?.models as any;
+     const tId = Array.isArray(modelsAny) ? modelsAny[0]?.technology_id : modelsAny?.technology_id;
      const techName = techMap.get(tId) || 'EQUIPO';
      if (!tallerTechStats[techName]) tallerTechStats[techName] = { diagnostico: 0, reacondicionado: 0, reparacion: 0, cc: 0 };
      
@@ -344,7 +345,8 @@ export async function getBespokeKPIs() {
   
   const salidaPendientesByTech: Record<string, number> = {};
   listosDespachoSeries?.forEach(s => {
-    const tId = Array.isArray(s.models) ? s.models[0]?.technology_id : s.models?.technology_id;
+    const modelsAny = s.models as any;
+    const tId = Array.isArray(modelsAny) ? modelsAny[0]?.technology_id : modelsAny?.technology_id;
     const techName = techMap.get(tId) || 'EQUIPO';
     salidaPendientesByTech[techName] = (salidaPendientesByTech[techName] || 0) + 1;
   });

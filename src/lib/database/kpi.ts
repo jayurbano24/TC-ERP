@@ -13,10 +13,10 @@ export async function getDailyKPIs(): Promise<UserKPI[]> {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return [];
 
-  // Obtener usuarios activos y roles
+  // Obtener usuarios activos y roles y empleados
   const { data: usersData } = await supabase
     .from('profiles')
-    .select('id, full_name, is_active, user_roles(role)');
+    .select('id, full_name, is_active, user_roles(role), employees(nombre_completo)');
 
   if (!usersData) return [];
 
@@ -96,12 +96,22 @@ export async function getDailyKPIs(): Promise<UserKPI[]> {
       const progress = progressMap[u.id] || 0;
       const targetObj = targetsData.find(t => t.user_id === u.id);
       
+      // Intentar sacar nombre_completo
+      let realName = u.full_name || 'Usuario';
+      if (u.employees && Array.isArray(u.employees) && u.employees.length > 0 && u.employees[0].nombre_completo) {
+        realName = u.employees[0].nombre_completo;
+      } else if (u.employees && !Array.isArray(u.employees) && u.employees.nombre_completo) {
+        realName = u.employees.nombre_completo;
+      } else if (realName.includes('@')) {
+        realName = realName.split('@')[0];
+      }
+
       // Default target 100 if not set
       let target = targetObj ? targetObj.target_value : 100;
 
       return {
         user_id: u.id,
-        name: u.full_name || 'Usuario',
+        name: realName,
         role: roleStr,
         target,
         progress,
@@ -221,7 +231,7 @@ export async function getAreaKPIs(): Promise<AreaKPI[]> {
   // Fetch users and roles to assign to areas
   const { data: usersData } = await supabase
     .from('profiles')
-    .select('id, full_name, user_roles(role)')
+    .select('id, full_name, user_roles(role), employees(nombre_completo)')
     .eq('is_active', true);
 
   let targetsData: any[] = [];
@@ -232,14 +242,30 @@ export async function getAreaKPIs(): Promise<AreaKPI[]> {
     // ignore
   }
 
-  const getUserName = (id: string) => usersData?.find(u => u.id === id)?.full_name || 'Desconocido';
+  const getUserName = (id: string) => {
+    const u = usersData?.find(u => u.id === id);
+    if (!u) return 'Desconocido';
+    let realName = u.full_name || 'Desconocido';
+    if (u.employees && Array.isArray(u.employees) && u.employees.length > 0 && u.employees[0].nombre_completo) {
+      realName = u.employees[0].nombre_completo;
+    } else if (u.employees && !Array.isArray(u.employees) && u.employees.nombre_completo) {
+      realName = u.employees.nombre_completo;
+    } else if (realName.includes('@')) {
+      realName = realName.split('@')[0];
+    }
+    return realName;
+  };
   const getUserTarget = (id: string) => targetsData.find(t => t.user_id === id)?.target_value || 0;
-  const getUserIdByName = (name: string) => usersData?.find(u => u.full_name === name)?.id;
+  const getUserIdByName = (name: string) => {
+    // Attempt reverse lookup (rough approximation since names are now transformed)
+    const u = usersData?.find(u => getUserName(u.id) === name);
+    return u?.id;
+  };
 
   const getNamesByRoles = (roles: string[]) => {
     return usersData
       ?.filter(u => u.user_roles?.some((ur: any) => roles.includes(ur.role)))
-      .map(u => ({ name: u.full_name, count: 0, target: getUserTarget(u.id) })) || [];
+      .map(u => ({ name: getUserName(u.id), count: 0, target: getUserTarget(u.id) })) || [];
   };
 
   // 1. Recepción General

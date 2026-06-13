@@ -116,8 +116,29 @@ export async function getSeriesHistory(recordIds: string | string[]) {
       .in('id', userIds);
       
     if (profilesData) {
+      const emailsToSearch = profilesData.map(p => p.full_name).filter(n => n?.includes('@'));
+      let empMap: Record<string, string> = {};
+      
+      if (emailsToSearch.length > 0) {
+         const { data: emps } = await supabase.from('employees').select('email, nombre_completo').in('email', emailsToSearch);
+         if (emps) {
+            empMap = emps.reduce((acc: any, e: any) => {
+               if (e.email && e.nombre_completo) acc[e.email] = e.nombre_completo;
+               return acc;
+            }, {});
+         }
+      }
+
       profiles = profilesData.reduce((acc: any, p: any) => {
-        acc[p.id] = p.full_name;
+        let name = p.full_name;
+        if (name && name.includes('@')) {
+           if (empMap[name]) {
+              name = empMap[name];
+           } else {
+              name = name.split('@')[0];
+           }
+        }
+        acc[p.id] = name;
         return acc;
       }, {});
     }
@@ -175,8 +196,29 @@ export async function getAdvancedAuditLogs(filters?: {
       .in('id', userIds);
       
     if (profilesData) {
+      const emailsToSearch = profilesData.map(p => p.full_name).filter(n => n?.includes('@'));
+      let empMap: Record<string, string> = {};
+      
+      if (emailsToSearch.length > 0) {
+         const { data: emps } = await supabase.from('employees').select('email, nombre_completo').in('email', emailsToSearch);
+         if (emps) {
+            empMap = emps.reduce((acc: any, e: any) => {
+               if (e.email && e.nombre_completo) acc[e.email] = e.nombre_completo;
+               return acc;
+            }, {});
+         }
+      }
+
       profiles = profilesData.reduce((acc: any, p: any) => {
-        acc[p.id] = p.full_name;
+        let name = p.full_name;
+        if (name && name.includes('@')) {
+           if (empMap[name]) {
+              name = empMap[name];
+           } else {
+              name = name.split('@')[0];
+           }
+        }
+        acc[p.id] = name;
         return acc;
       }, {});
     }

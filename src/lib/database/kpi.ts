@@ -91,7 +91,8 @@ export async function getDailyKPIs(): Promise<UserKPI[]> {
   // Unificar todo
   const kpis: UserKPI[] = usersData
     .filter(u => u.is_active && u.user_roles && u.user_roles.length > 0)
-    .map((u: any) => {
+    .map((userRow: any) => {
+      const u = userRow as any;
       const roleStr = u.user_roles[0].role;
       const progress = progressMap[u.id] || 0;
       const targetObj = targetsData.find(t => t.user_id === u.id);
@@ -243,8 +244,9 @@ export async function getAreaKPIs(): Promise<AreaKPI[]> {
   }
 
   const getUserName = (id: string) => {
-    const u = usersData?.find(u => u.id === id);
-    if (!u) return 'Desconocido';
+    const userRow = usersData?.find(u => u.id === id);
+    if (!userRow) return 'Desconocido';
+    const u = userRow as any;
     let realName = u.full_name || 'Desconocido';
     if (u.employees && Array.isArray(u.employees) && u.employees.length > 0 && u.employees[0].nombre_completo) {
       realName = u.employees[0].nombre_completo;
@@ -268,6 +270,19 @@ export async function getAreaKPIs(): Promise<AreaKPI[]> {
       .map(u => ({ name: getUserName(u.id), count: 0, target: getUserTarget(u.id) })) || [];
   };
 
+  const mergeUsers = (counts: Record<string, number>, roles: string[]) => {
+    const baseUsers = getNamesByRoles(roles);
+    Object.entries(counts).forEach(([name, count]) => {
+      const existing = baseUsers.find(u => u.name === name);
+      if (existing) {
+        existing.count += count;
+      } else {
+        baseUsers.push({ name, count, target: getUserTarget(getUserIdByName(name) || '') });
+      }
+    });
+    return baseUsers;
+  };
+
   // 1. Recepción General
   const { data: receptions } = await supabase.from('receptions').select('id, received_units, received_by').gte('created_at', startIso).lte('created_at', endIso);
   const recepcionUnits = receptions?.reduce((acc: number, r: any) => acc + (r.received_units || 0), 0) || 0;
@@ -280,16 +295,15 @@ export async function getAreaKPIs(): Promise<AreaKPI[]> {
       recUserCounts[name] = (recUserCounts[name] || 0) + (r.received_units || 0);
     }
   });
-  let recepcionUsers = Object.entries(recUserCounts).map(([name, count]) => ({ name, count, target: getUserTarget(getUserIdByName(name) || '') }));
-  if (recepcionUsers.length === 0) recepcionUsers = getNamesByRoles(['receptor_cac', 'receptor_px']);
+  const recepcionUsers = mergeUsers(recUserCounts, ['receptor_cac', 'receptor_px', 'RECEPCION']);
 
   // 2. Devoluciones
   const { count: devolucionesCount } = await supabase.from('series').select('id', { count: 'exact', head: true }).eq('current_status', 'returned').gte('updated_at', startIso).lte('updated_at', endIso);
-  const devolucionesUsers = getNamesByRoles(['qc', 'supervisor']); // No tracker specifically for who returned it currently
+  const devolucionesUsers = getNamesByRoles(['qc', 'supervisor', 'DEVOLUCIONES', 'OPERACION STB']); 
   
   // 3. Backoffice
   const { count: backofficeCount } = await supabase.from('series').select('id', { count: 'exact', head: true }).eq('current_status', 'in_validation').gte('updated_at', startIso).lte('updated_at', endIso);
-  const backofficeUsers = getNamesByRoles(['admin', 'supervisor', 'gerencia']); // No tracker specifically for who validated it currently
+  const backofficeUsers = mergeUsers({}, ['admin', 'supervisor', 'gerencia', 'BACKOFFICES', 'BACKOFFICES-LBT', 'GERENTE GENERAL']); 
 
   // 4. Taller
   const { data: jobs } = await supabase.from('workshop_jobs').select('id, technician_id').gte('created_at', startIso).lte('created_at', endIso);
@@ -301,12 +315,11 @@ export async function getAreaKPIs(): Promise<AreaKPI[]> {
       wsUserCounts[name] = (wsUserCounts[name] || 0) + 1;
     }
   });
-  let tallerUsers = Object.entries(wsUserCounts).map(([name, count]) => ({ name, count, target: getUserTarget(getUserIdByName(name) || '') }));
-  if (tallerUsers.length === 0) tallerUsers = getNamesByRoles(['tecnico', 'qc']);
+  const tallerUsers = mergeUsers(wsUserCounts, ['tecnico', 'qc', 'OPERACION STB', 'SUPERVISOR STB']);
 
   // 5. Bodega
   const { count: bodegaCount } = await supabase.from('series').select('id', { count: 'exact', head: true }).in('current_status', ['in_central_warehouse', 'in_control_warehouse']).gte('updated_at', startIso).lte('updated_at', endIso);
-  const bodegaUsers = getNamesByRoles(['bodega']);
+  const bodegaUsers = mergeUsers({}, ['bodega', 'BODEGA RFB']);
 
   // 6. Despacho
   const { data: dispatches } = await supabase.from('dispatches').select('id, dispatched_by').gte('created_at', startIso).lte('created_at', endIso);
@@ -315,11 +328,10 @@ export async function getAreaKPIs(): Promise<AreaKPI[]> {
   dispatches?.forEach((d: any) => {
     if (d.dispatched_by) {
       const name = getUserName(d.dispatched_by);
-      dispUserCounts[name] = (dispUserCounts[name] || 0) + 1; // Or sum items in dispatch if we wanted deeper logic
+      dispUserCounts[name] = (dispUserCounts[name] || 0) + 1;
     }
   });
-  let despachoUsers = Object.entries(dispUserCounts).map(([name, count]) => ({ name, count, target: getUserTarget(getUserIdByName(name) || '') }));
-  if (despachoUsers.length === 0) despachoUsers = getNamesByRoles(['bodega', 'supervisor']);
+  const despachoUsers = mergeUsers(dispUserCounts, ['bodega', 'supervisor', 'BODEGA RFB']);
 
   // 7. Equipo Listo
   const { data: listoJobs } = await supabase.from('workshop_jobs')

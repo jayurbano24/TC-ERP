@@ -12,11 +12,11 @@ export default function ReportesTab() {
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
 
   const downloadExcel = (data: any[], filename: string) => {
+    let exportData = data;
     if (!data || data.length === 0) {
-      alert("No hay datos para exportar en este rango de fechas.");
-      return;
+      exportData = [{ 'Mensaje': 'No hay registros para este reporte en las fechas seleccionadas.' }];
     }
-    const ws = XLSX.utils.json_to_sheet(data);
+    const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Reporte");
     XLSX.writeFile(wb, `${filename}_${new Date().toISOString().split('T')[0]}.xlsx`);

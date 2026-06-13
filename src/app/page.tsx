@@ -80,9 +80,9 @@ export default function LoginPage() {
               {/* Letra C */}
               <g fill="#2e3165">
                 <circle cx="425" cy="140" r="140"/>
-                {/* Asumimos que el fondo de la app es claro, si es oscuro podemos cambiar este blanco al color del fondo */}
-                <circle cx="425" cy="140" r="85" fill="#ffffff"/>
-                <rect x="500" y="100" width="80" height="60" fill="#ffffff"/>
+                {/* Usamos el color de fondo dinámico de la app en lugar de blanco puro */}
+                <circle cx="425" cy="140" r="85" fill="var(--background)"/>
+                <rect x="500" y="100" width="80" height="60" fill="var(--background)"/>
                 <circle cx="425" cy="140" r="35" fill="#2e3165"/>
               </g>
             </svg>

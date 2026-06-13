@@ -127,7 +127,8 @@ export async function getBespokeKPIs() {
   const pendientesIngreso = pendientesSeriesBodega?.length || 0;
   const pendientesBodegaByTech: Record<string, number> = {};
   pendientesSeriesBodega?.forEach(s => {
-    const tId = Array.isArray(s.models) ? s.models[0]?.technology_id : s.models?.technology_id;
+    const modelsAny = s.models as any;
+    const tId = Array.isArray(modelsAny) ? modelsAny[0]?.technology_id : modelsAny?.technology_id;
     const techName = techMap.get(tId) || 'EQUIPO';
     pendientesBodegaByTech[techName] = (pendientesBodegaByTech[techName] || 0) + 1;
   });
@@ -150,7 +151,8 @@ export async function getBespokeKPIs() {
   const ingresosBodegaByTech: Record<string, number> = {};
   auditBodega?.forEach(log => {
     const s = bodegaSeriesMap.get(log.record_id);
-    const tId = Array.isArray(s?.models) ? s?.models[0]?.technology_id : s?.models?.technology_id;
+    const modelsAny = s?.models as any;
+    const tId = Array.isArray(modelsAny) ? modelsAny[0]?.technology_id : modelsAny?.technology_id;
     const techName = techMap.get(tId) || 'EQUIPO';
     ingresosBodegaByTech[techName] = (ingresosBodegaByTech[techName] || 0) + 1;
   });

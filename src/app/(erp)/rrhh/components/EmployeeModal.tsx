@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Button, Spinner } from '@/components/ui';
-import { X, Camera, UploadCloud, User, Briefcase, Fingerprint, Banknote } from 'lucide-react';
+import { X, Camera, UploadCloud, User, Briefcase, Fingerprint, Banknote, Trash2 } from 'lucide-react';
 import * as faceapi from 'face-api.js';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 
@@ -109,6 +109,33 @@ export default function EmployeeModal({
   const [biometricStatus, setBiometricStatus] = useState<'idle' | 'scanning' | 'success' | 'error'>('idle');
 
   if (!isOpen) return null;
+
+  const handleDeleteFace = async () => {
+    if (!employee?.id) {
+       setFaceEmbedding(null);
+       return;
+    }
+    const confirmDelete = window.confirm('¿Está seguro de que desea eliminar el rostro registrado de este empleado?');
+    if (!confirmDelete) return;
+    
+    setLoading(true);
+    try {
+      const supabase = getSupabaseBrowserClient();
+      if (supabase) {
+         const { error } = await supabase.from('employees').update({ face_embedding: null }).eq('id', employee.id);
+         if (!error) {
+           setFaceEmbedding(null);
+           alert('Rostro eliminado correctamente. Ya puede registrar este rostro en otro usuario.');
+         } else {
+           alert('Error eliminando rostro: ' + error.message);
+         }
+      }
+    } catch (err: any) {
+      alert('Error eliminando rostro: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const startCamera = async () => {
     setIsCameraActive(true);
@@ -553,10 +580,15 @@ export default function EmployeeModal({
 
                   {faceEmbedding && (
                     <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-center">
-                      <p className="text-emerald-800 font-bold text-sm">¡Vectores extraídos correctamente!</p>
-                      <Button type="button" variant="outline" className="mt-4 text-xs h-8" onClick={() => setFaceEmbedding(null)}>
-                        Volver a escanear
-                      </Button>
+                      <p className="text-emerald-800 font-bold text-sm">¡Rostro ya está registrado!</p>
+                      <div className="mt-4 flex gap-2 justify-center">
+                        <Button type="button" variant="outline" className="text-xs h-8 text-rose-600 border-rose-200 hover:bg-rose-50 hover:text-rose-700 transition-colors" onClick={handleDeleteFace}>
+                          <Trash2 className="w-4 h-4 mr-1" /> Eliminar Rostro
+                        </Button>
+                        <Button type="button" variant="outline" className="text-xs h-8" onClick={() => { setFaceEmbedding(null); startCamera(); }}>
+                          <Camera className="w-4 h-4 mr-1" /> Re-escanear
+                        </Button>
+                      </div>
                     </div>
                   )}
                 </div>

@@ -122,7 +122,7 @@ export default function BodegaAccesoriosPage() {
     setIsProcessing(true);
     const qtyNum = parseInt(moveQty);
 
-    let res;
+    let res: any;
     if (moveType === 'IN') {
       res = await registerAccessoryEntry(moveAccId, moveCondition, boxQuantities, moveCondition === 'NEW' ? moveSap : undefined, moveCondition === 'RECOVERED' ? moveInitialStatus : undefined);
     } else {

@@ -43,6 +43,34 @@ export default function PlanillaTab() {
           totalExtraMin += l.minutos_extra || 0;
         });
 
+        // Group logs by date to check extra days
+        const logsByDate: { [date: string]: any[] } = {};
+        empLogs.forEach(l => {
+          const date = new Date(l.timestamp).toISOString().split('T')[0];
+          if (!logsByDate[date]) logsByDate[date] = [];
+          logsByDate[date].push(l);
+        });
+
+        let extraDaysFull = 0;
+        let extraDaysHalf = 0;
+
+        Object.keys(logsByDate).forEach(date => {
+          const dayLogs = logsByDate[date];
+          const isExtraDay = dayLogs.some(l => l.es_dia_extra);
+          if (isExtraDay) {
+            const firstLog = dayLogs.reduce((a, b) => new Date(a.timestamp) < new Date(b.timestamp) ? a : b);
+            const lastLog = dayLogs.reduce((a, b) => new Date(a.timestamp) > new Date(b.timestamp) ? a : b);
+            const hoursWorked = (new Date(lastLog.timestamp).getTime() - new Date(firstLog.timestamp).getTime()) / 3600000;
+            const lastHour = new Date(lastLog.timestamp).getHours();
+
+            if (lastHour >= 17 || hoursWorked >= 8) {
+              extraDaysFull += 1;
+            } else if (lastHour >= 12 || hoursWorked >= 4) {
+              extraDaysHalf += 1;
+            }
+          }
+        });
+
         // Sueldo Quincenal
         const sueldoMensual = Number(emp.sueldo_mensual_base || 0);
         const sueldoQuincenal = sueldoMensual / 2;
@@ -53,8 +81,11 @@ export default function PlanillaTab() {
         const descuentoTiempos = (totalRetrasoMin + totalExcesoAlmMin + totalSalidaAntMin) * valorMinuto;
         const totalDescuentos = descuentoFaltas + descuentoTiempos;
 
-        // Horas extras (1.5x)
-        const pagoExtras = totalExtraMin * (valorMinuto * 1.5);
+        // Horas extras (1.5x) + Días Extras Completos (1.5x) + Días Extras Medios (0.75x)
+        const pagoExtrasHoras = totalExtraMin * (valorMinuto * 1.5);
+        const pagoExtrasDias = (extraDaysFull * sueldoDiario * 1.5) + (extraDaysHalf * sueldoDiario * 0.75);
+        const pagoExtras = pagoExtrasHoras + pagoExtrasDias;
+        
         const bonoMetas = Number(emp.bono_metas || 0);
 
         const neto = sueldoQuincenal + pagoExtras + bonoMetas - totalDescuentos;

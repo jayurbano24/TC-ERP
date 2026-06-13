@@ -10,33 +10,39 @@ export default function AuditoriaTab() {
   const [absences, setAbsences] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [periodo, setPeriodo] = useState('Mes Actual');
+  const [selectedDate, setSelectedDate] = useState('');
 
   useEffect(() => {
     fetchData();
-  }, [periodo]);
+  }, [periodo, selectedDate]);
 
   const fetchData = async () => {
     setLoading(true);
     const supabase = getSupabaseBrowserClient();
     if (supabase) {
-      // 1. Fetch time logs
-      const { data: logsData } = await supabase
+      let logsQuery = supabase
         .from('time_logs')
         .select('*, employees(id, nombre_completo, codigo_empleado)')
         .order('timestamp', { ascending: false })
         .limit(100);
-      if (logsData) setLogs(logsData);
 
-      // 2. Fetch employee absences/incidents
-      const { data: absData } = await supabase
+      let absQuery = supabase
         .from('employee_absences')
         .select('*, employees(nombre_completo)')
         .order('fecha', { ascending: false });
-      if (absData) setAbsences(absData);
 
-      // 3. (Lógica Backend) Aquí el sistema normalmente cruzaría los días del mes vs los logs.
-      // Como esto es un MVP, la lógica real de cruce de días se puede disparar desde el Cálculo de Planilla
-      // o un cronjob, pero mostraremos las incidencias guardadas.
+      if (selectedDate) {
+        const start = new Date(selectedDate + 'T00:00:00');
+        const end = new Date(selectedDate + 'T23:59:59.999');
+        logsQuery = logsQuery.gte('timestamp', start.toISOString()).lte('timestamp', end.toISOString());
+        absQuery = absQuery.eq('fecha', selectedDate);
+      }
+
+      const { data: logsData } = await logsQuery;
+      if (logsData) setLogs(logsData);
+
+      const { data: absData } = await absQuery;
+      if (absData) setAbsences(absData);
     }
     setLoading(false);
   };
@@ -57,6 +63,12 @@ export default function AuditoriaTab() {
           <p className="text-sm text-slate-500">Historial de marcajes biométricos y detección de anomalías.</p>
         </div>
         <div className="flex gap-2">
+          <input 
+            type="date"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm font-bold outline-none text-slate-700"
+          />
           <select 
             value={periodo}
             onChange={(e) => setPeriodo(e.target.value)}
@@ -66,7 +78,7 @@ export default function AuditoriaTab() {
             <option>Segunda Quincena</option>
             <option>Mes Actual</option>
           </select>
-          <Button variant="outline">Filtrar Rango</Button>
+          <Button variant="outline" onClick={() => setSelectedDate('')}>Limpiar Fecha</Button>
         </div>
       </div>
 

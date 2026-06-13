@@ -33,7 +33,7 @@ export default function ReportesTab() {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return [];
     const { data } = await supabase
-      .from('biometric_logs')
+      .from('time_logs')
       .select('*, employees(*, company_shifts(*))')
       .gte('timestamp', `${start}T00:00:00`)
       .lte('timestamp', `${end}T23:59:59`)
@@ -120,8 +120,8 @@ export default function ReportesTab() {
       'Hora': new Date(l.timestamp).toLocaleTimeString(),
       'Empleado': l.employees?.nombre_completo,
       'Código': l.employees?.codigo_empleado,
-      'Evento': l.event_type,
-      'Confianza Biometría': l.confidence_score ? `${(l.confidence_score * 100).toFixed(1)}%` : 'N/A'
+      'Evento': l.evento_detectado,
+      'Justificación': l.justificacion || 'N/A'
     }));
     downloadExcel(exportData, isDiaria ? "Asistencia_Diaria" : "Asistencia_Mensual_Periodo");
     setLoading(false);
@@ -131,28 +131,15 @@ export default function ReportesTab() {
     setLoading(true);
     const logs = await getLogsData(startDate, endDate);
     
-    const tardanzas = logs.filter(l => l.event_type === 'INGRESO' && l.employees?.company_shifts).map(l => {
-      const shiftTime = l.employees.company_shifts.start_time; // HH:mm:ss
-      const logTime = new Date(l.timestamp).toTimeString().split(' ')[0];
-      
-      // Calculate delay if logTime > shiftTime + grace period (e.g. 5 mins)
-      if (logTime > shiftTime) {
-        const logDate = new Date(`1970-01-01T${logTime}Z`);
-        const shiftDate = new Date(`1970-01-01T${shiftTime}Z`);
-        const delayMin = Math.floor((logDate.getTime() - shiftDate.getTime()) / 60000);
-        
-        if (delayMin > 5) { // 5 min de gracia
-          return {
-            'Fecha': new Date(l.timestamp).toLocaleDateString(),
-            'Empleado': l.employees?.nombre_completo,
-            'Hora Entrada Oficial': shiftTime,
-            'Hora Marcaje': logTime,
-            'Minutos Retraso': delayMin
-          };
-        }
-      }
-      return null;
-    }).filter(Boolean);
+    const tardanzas = logs.filter(l => l.evento_detectado === 'INGRESO' && l.minutos_retraso_entrada > 0).map(l => {
+      return {
+        'Fecha': new Date(l.timestamp).toLocaleDateString(),
+        'Empleado': l.employees?.nombre_completo,
+        'Hora Marcaje': new Date(l.timestamp).toLocaleTimeString(),
+        'Minutos Retraso': l.minutos_retraso_entrada,
+        'Justificación': l.justificacion || 'Sin justificación'
+      };
+    });
     
     downloadExcel(tardanzas, "Tardanzas");
     setLoading(false);
@@ -162,28 +149,16 @@ export default function ReportesTab() {
     setLoading(true);
     const logs = await getLogsData(startDate, endDate);
     
-    const extras = logs.filter(l => l.event_type === 'SALIDA FINAL' && l.employees?.company_shifts).map(l => {
-      const shiftTime = l.employees.company_shifts.end_time; // HH:mm:ss
-      const logTime = new Date(l.timestamp).toTimeString().split(' ')[0];
-      
-      if (logTime > shiftTime) {
-        const logDate = new Date(`1970-01-01T${logTime}Z`);
-        const shiftDate = new Date(`1970-01-01T${shiftTime}Z`);
-        const extraMin = Math.floor((logDate.getTime() - shiftDate.getTime()) / 60000);
-        
-        if (extraMin > 30) { // Consideramos HE si se queda más de 30 min extra
-          return {
-            'Fecha': new Date(l.timestamp).toLocaleDateString(),
-            'Empleado': l.employees?.nombre_completo,
-            'Hora Salida Oficial': shiftTime,
-            'Hora Marcaje': logTime,
-            'Minutos Extra': extraMin,
-            'Horas Extra Calculadas': (extraMin / 60).toFixed(2)
-          };
-        }
-      }
-      return null;
-    }).filter(Boolean);
+    const extras = logs.filter(l => l.evento_detectado === 'SALIDA_FINAL' && l.minutos_extra > 0).map(l => {
+      return {
+        'Fecha': new Date(l.timestamp).toLocaleDateString(),
+        'Empleado': l.employees?.nombre_completo,
+        'Hora Marcaje': new Date(l.timestamp).toLocaleTimeString(),
+        'Minutos Extra': l.minutos_extra,
+        'Horas Extra Calculadas': (l.minutos_extra / 60).toFixed(2),
+        'Justificación': l.justificacion || 'N/A'
+      };
+    });
     
     downloadExcel(extras, "Horas_Extras");
     setLoading(false);

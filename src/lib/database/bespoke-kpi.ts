@@ -99,8 +99,10 @@ export async function getBespokeKPIs() {
     const logrado = backofficeCounts[u.name] || 0;
     return { tecnico: u.name, meta: 100, logrado, retornoMalo: 0 };
   }).filter(u => u.logrado > 0);
-  if (metasTable.length === 0) metasTable.push({ tecnico: 'Sin registros', meta: '-', logrado: '-', retornoMalo: '-' });
-
+  if (metasTable.length === 0) {
+    metasTable.push({ tecnico: 'Sin registros', meta: 0, logrado: 0, retornoMalo: 0 } as any);
+  }
+  
   const { data: techsData } = await supabase.from('system_technologies').select('id, name');
   const techMap = new Map(techsData?.map(t => [t.id, t.name]) || []);
   const techList = Array.from(techMap.values());

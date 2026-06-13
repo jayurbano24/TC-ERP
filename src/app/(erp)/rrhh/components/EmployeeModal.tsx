@@ -118,25 +118,42 @@ export default function EmployeeModal({
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         
-        setTimeout(async () => {
-          if (!videoRef.current) return;
-          try {
-            await Promise.all([
-              faceapi.nets.ssdMobilenetv1.loadFromUri('/models'),
-              faceapi.nets.faceLandmark68Net.loadFromUri('/models'),
-              faceapi.nets.faceRecognitionNet.loadFromUri('/models')
-            ]);
-          } catch (modelErr) {
-            console.error("Error loading models:", modelErr);
-            setBiometricStatus('error');
-            stopCamera(stream);
+        // Wait a bit for the video to start playing
+        await new Promise(r => setTimeout(r, 1000));
+        
+        try {
+          await Promise.all([
+            faceapi.nets.ssdMobilenetv1.loadFromUri('/models'),
+            faceapi.nets.faceLandmark68Net.loadFromUri('/models'),
+            faceapi.nets.faceRecognitionNet.loadFromUri('/models')
+          ]);
+        } catch (modelErr) {
+          console.error("Error loading models:", modelErr);
+          setBiometricStatus('error');
+          stopCamera(stream);
+          return;
+        }
+
+        let attempts = 0;
+        const maxAttempts = 20; // 20 attempts = ~10 seconds
+        
+        const scanInterval = setInterval(async () => {
+          if (!videoRef.current || attempts >= maxAttempts) {
+            clearInterval(scanInterval);
+            if (attempts >= maxAttempts) {
+              setBiometricStatus('error');
+              setTimeout(() => { setBiometricStatus('idle'); stopCamera(stream); setIsCameraActive(false); }, 3000);
+            }
             return;
           }
+          
+          attempts++;
           const detections = await faceapi.detectSingleFace(videoRef.current)
             .withFaceLandmarks()
             .withFaceDescriptor();
 
           if (detections) {
+            clearInterval(scanInterval);
             const supabase = getSupabaseBrowserClient();
             if (supabase) {
               const { data: existingFaces } = await supabase.from('employees').select('id, nombre_completo, face_embedding').not('face_embedding', 'is', null);
@@ -147,7 +164,7 @@ export default function EmployeeModal({
                   if (employee && emp.id === employee.id) continue;
                   const empDescriptor = new Float32Array(emp.face_embedding);
                   const distance = faceapi.euclideanDistance(detections.descriptor, empDescriptor);
-                  if (distance < 0.45) { // 0.45 threshold
+                  if (distance < 0.45) {
                     isDuplicate = true;
                     duplicateName = emp.nombre_completo;
                     break;
@@ -166,11 +183,8 @@ export default function EmployeeModal({
             setFaceEmbedding(Array.from(detections.descriptor));
             setBiometricStatus('success');
             stopCamera(stream);
-          } else {
-            setBiometricStatus('error');
-            setTimeout(() => { setBiometricStatus('idle'); stopCamera(stream); setIsCameraActive(false); }, 3000);
           }
-        }, 2000);
+        }, 500); // Poll every 500ms
       }
     } catch (err) {
       console.error(err);

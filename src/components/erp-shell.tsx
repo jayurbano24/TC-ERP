@@ -183,17 +183,16 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
             {isSidebarOpen ? (
               <div className="flex items-center gap-4 animate-in fade-in duration-300">
                 <div className="flex items-center justify-center">
-                  <svg viewBox="0 0 565 280" className="h-8 w-auto rounded overflow-hidden">
-                    <rect width="565" height="280" fill="#ffffff"/>
-                    <g fill="#2e3165">
+                  <svg viewBox="0 0 565 280" className="h-8 w-auto drop-shadow-md">
+                    <g fill="#ffffff">
                       <rect x="8" y="9" width="232" height="60"/>
                       <rect x="92" y="9" width="65" height="271"/>
                     </g>
-                    <g fill="#2e3165">
+                    <g fill="#ffffff">
                       <circle cx="425" cy="140" r="140"/>
-                      <circle cx="425" cy="140" r="85" fill="#ffffff"/>
-                      <rect x="500" y="100" width="80" height="60" fill="#ffffff"/>
-                      <circle cx="425" cy="140" r="35" fill="#2e3165"/>
+                      <circle cx="425" cy="140" r="85" fill="#181c3a"/>
+                      <rect x="500" y="100" width="80" height="60" fill="#181c3a"/>
+                      <circle cx="425" cy="140" r="35" fill="#ffffff"/>
                     </g>
                   </svg>
                 </div>
@@ -204,17 +203,17 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
               </div>
             ) : (
               <div className="w-full flex justify-center animate-in fade-in duration-300">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center border border-[#2ec4f1]/20 bg-white overflow-hidden">
-                  <svg viewBox="0 0 565 280" className="h-6 w-auto">
-                    <g fill="#2e3165">
+                <div className="w-10 h-10 flex items-center justify-center">
+                  <svg viewBox="0 0 565 280" className="h-6 w-auto drop-shadow-md">
+                    <g fill="#ffffff">
                       <rect x="8" y="9" width="232" height="60"/>
                       <rect x="92" y="9" width="65" height="271"/>
                     </g>
-                    <g fill="#2e3165">
+                    <g fill="#ffffff">
                       <circle cx="425" cy="140" r="140"/>
-                      <circle cx="425" cy="140" r="85" fill="#ffffff"/>
-                      <rect x="500" y="100" width="80" height="60" fill="#ffffff"/>
-                      <circle cx="425" cy="140" r="35" fill="#2e3165"/>
+                      <circle cx="425" cy="140" r="85" fill="#181c3a"/>
+                      <rect x="500" y="100" width="80" height="60" fill="#181c3a"/>
+                      <circle cx="425" cy="140" r="35" fill="#ffffff"/>
                     </g>
                   </svg>
                 </div>

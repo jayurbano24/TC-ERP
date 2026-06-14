@@ -1,9 +1,13 @@
 import { PrismaClient } from '@prisma/client';
 import { RequestContext } from '../../../shared/context/RequestContext';
 
-const basePrisma = new PrismaClient({
-  // Si necesitas forzar la URL, usa datasourceUrl: process.env.DATABASE_URL
-});
+const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefined };
+
+const basePrisma = globalForPrisma.prisma ?? new PrismaClient();
+
+if (process.env.NODE_ENV !== 'production') {
+  globalForPrisma.prisma = basePrisma;
+}
 
 export function getTenantPrisma(ctx: RequestContext) {
   return basePrisma.$extends({

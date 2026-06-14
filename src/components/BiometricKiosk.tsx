@@ -6,6 +6,24 @@ import { Camera, CheckCircle2, AlertCircle, Loader2, LogIn, Coffee, Utensils, Lo
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { useAttendanceState, AllowedAction } from '@/hooks/useAttendanceState';
 
+const getShortName = (fullName: string) => {
+  if (!fullName) return '';
+  const cleanName = fullName.trim();
+  
+  if (cleanName.includes(',')) {
+    const [surnames, names] = cleanName.split(',').map(s => s.trim());
+    const firstName = names ? names.split(/\s+/)[0] : '';
+    const firstSurname = surnames ? surnames.split(/\s+/)[0] : '';
+    return `${firstName} ${firstSurname}`.trim();
+  } else {
+    const parts = cleanName.split(/\s+/);
+    if (parts.length === 1) return parts[0];
+    if (parts.length === 2) return `${parts[0]} ${parts[1]}`;
+    if (parts.length === 3) return `${parts[0]} ${parts[1]}`;
+    return `${parts[0]} ${parts[2]}`;
+  }
+};
+
 export function BiometricKiosk() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -21,15 +39,13 @@ export function BiometricKiosk() {
   const cooldownRef = useRef(false);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Estados UI
   const [pendingActionSelect, setPendingActionSelect] = useState<any>(null);
-  const [pendingJustification, setPendingJustification] = useState<any>(null); // { action, data, options }
+  const [pendingJustification, setPendingJustification] = useState<any>(null);
   const [selectedReason, setSelectedReason] = useState('');
   const [otherReason, setOtherReason] = useState('');
   const [specialMode, setSpecialMode] = useState(false);
   const [specialDirection, setSpecialDirection] = useState('INGRESO');
 
-  // Estados de Registro
   const [isRegistering, setIsRegistering] = useState(false);
   const [registerStep, setRegisterStep] = useState<'pin' | 'select' | 'capture'>('pin');
   const [pinCode, setPinCode] = useState('');
@@ -37,7 +53,6 @@ export function BiometricKiosk() {
   const [selectedRegisterEmp, setSelectedRegisterEmp] = useState<any>(null);
   const [registerStatusMsg, setRegisterStatusMsg] = useState('');
 
-  // Hook de Estado (Máquina de Estados)
   const { currentState, allowedActions, calculatePunches } = useAttendanceState({
     logs: pendingActionSelect?.logs || [],
     shift: pendingActionSelect?.shift || null,
@@ -150,7 +165,6 @@ export function BiometricKiosk() {
           }
 
           if (detections) {
-            // Verificar calidad de detección (score > 0.85 para ajustar, >0.90 listo)
             if (detections.detection.score < 0.85) {
               setFaceStatus('adjusting');
             } else {
@@ -158,7 +172,6 @@ export function BiometricKiosk() {
             }
 
             if (refs.isRegistering && refs.registerStep === 'capture' && refs.selectedRegisterEmp) {
-               // Registration Logic (Omitted details for brevity, keeping original logic structure)
                cooldownRef.current = true;
                setRegisterStatusMsg('Rostro verificado, guardando datos faciales...');
                const supabase = getSupabaseBrowserClient();
@@ -176,8 +189,8 @@ export function BiometricKiosk() {
             if (refs.isRegistering) return;
             
             let bestMatch = null;
-            let bestDistance = 0.75; // Umbral muy alto para forzar el reconocimiento
-            let closestDistance = 1.0; // Para diagnóstico
+            let bestDistance = 0.75; 
+            let closestDistance = 1.0; 
 
             for (const emp of refs.faceData) {
               const distance = faceapi.euclideanDistance(detections.descriptor, new Float32Array(emp.face_embedding));
@@ -189,7 +202,6 @@ export function BiometricKiosk() {
               setFaceStatus('capturing');
               prepareActionSelect(bestMatch);
             } else if (detections.detection.score >= 0.85) {
-               // Si el rostro se ve bien pero no hace match, es desconocido
                setFaceStatus('unknown');
                setStatusMessage(`No coincide (Distancia: ${closestDistance.toFixed(2)})`);
             }
@@ -242,7 +254,6 @@ export function BiometricKiosk() {
   const handleActionSelect = (action: AllowedAction) => {
     const { employee, shift, logs } = pendingActionSelect;
     
-    // Validar anti-remarcaje doble
     const lastLog = logs && logs.length > 0 ? logs[0] : null;
     if (lastLog && lastLog.evento_detectado === action) {
        showError('Ya existe una marcación registrada para este evento.');
@@ -258,7 +269,6 @@ export function BiometricKiosk() {
 
     setPendingActionSelect(null);
 
-    // Activar Justificaciones según Estado
     if (action === 'INGRESO' && (punchData.tardanza_segundos > 0 || punchData.minRetraso > 0)) {
       setPendingJustification({ action, data: punchData, options: ["Tráfico", "Transporte público", "Cita médica", "Emergencia familiar", "Otros"] });
       return;
@@ -273,7 +283,6 @@ export function BiometricKiosk() {
       return;
     }
 
-    // Horas Extras (Silencioso para el kiosko, RRHH aprueba luego)
     submitPunchFinal({ ...punchData, razon: null });
   };
 
@@ -343,14 +352,12 @@ export function BiometricKiosk() {
 
       const tipo_jornada = punchData.esDiaExtra ? 'Descanso' : 'Laboral';
 
-      // Insert Time Log
       const { data: logData, error } = await supabase.from('time_logs').insert({
         employee_id: punchData.employee.id,
         evento_detectado: eventToLog,
         attendance_session_id,
         tipo_jornada,
         
-        // Estructura Vieja (Minutos)
         minutos_retraso_entrada: punchData.minRetraso,
         minutos_exceso_almuerzo: Math.max(punchData.minExcesoAlm || 0, punchData.minExcesoBreak || 0),
         minutos_salida_anticipada: punchData.minSalidaAnt,
@@ -358,7 +365,6 @@ export function BiometricKiosk() {
         es_dia_extra: punchData.esDiaExtra,
         justificacion: punchData.razon,
         
-        // Estructura Nueva (Exacta)
         hora_entrada_prog,
         hora_salida_prog,
         desayuno_inicio_prog,
@@ -375,7 +381,6 @@ export function BiometricKiosk() {
 
       if (error) throw error;
 
-      // Si hubo justificación obligatoria, escribir en time_justifications
       if (punchData.razon) {
          let tipoJust = 'LLEGADA_TARDE';
          if (eventToLog.includes('REGRESO_ALMUERZO') || eventToLog.includes('ALMUERZO_FIN')) tipoJust = 'EXCESO_ALMUERZO';
@@ -395,22 +400,29 @@ export function BiometricKiosk() {
       }
 
       setMatchStatus('success');
-      playTTS(eventToLog, punchData.employee.nombre_completo);
+      const shortName = getShortName(punchData.employee.nombre_completo);
+      let text = 'Marcación registrada';
+      if (eventToLog === 'INGRESO') text = `Bienvenido, ${shortName}`;
+      if (eventToLog === 'SALIDA_FINAL') text = `Hasta pronto, ${shortName}`;
+      if (eventToLog === 'DESAYUNO_INICIO') text = `Buen provecho, ${shortName}`;
+      if (eventToLog === 'DESAYUNO_FIN') text = `Bienvenido de vuelta, ${shortName}`;
+      if (eventToLog === 'ALMUERZO_INICIO') text = `Buen provecho, ${shortName}`;
+      if (eventToLog === 'ALMUERZO_FIN') text = `Bienvenido de vuelta, ${shortName}`;
+      setStatusMessage(text);
+      playTTS(eventToLog, shortName);
       resetCooldown(policies?.kiosko_tiempo_bloqueo_ms || 4000);
     } catch (err) {
       showError('Error guardando marcaje.');
     }
   };
 
-  const playTTS = (event: string, fullName: string) => {
+  const playTTS = (event: string, shortName: string) => {
     if (!policies?.kiosko_voz_activa || !('speechSynthesis' in window)) return;
     
-    let shortName = fullName.includes(',') ? fullName.split(',')[1].trim().split(' ')[0] : fullName.split(' ')[0];
     const hour = new Date().getHours();
     let greeting = hour < 12 ? 'Buenos días' : hour < 18 ? 'Buenas tardes' : 'Buenas noches';
     
     const msg = `${greeting} ${shortName}. ${event.replace(/_/g, ' ')} registrado correctamente.`;
-    setStatusMessage(msg);
 
     const utterance = new SpeechSynthesisUtterance(msg);
     utterance.lang = 'es-MX';
@@ -429,11 +441,6 @@ export function BiometricKiosk() {
     }, ms);
   };
 
-  const formatTime = (isoString?: string) => {
-    if (!isoString) return '--:--';
-    return new Date(isoString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
-
   if (!isModelLoaded) {
     return (
       <div className="flex flex-col items-center justify-center h-96 text-slate-400 animate-pulse">
@@ -445,7 +452,6 @@ export function BiometricKiosk() {
 
   return (
     <div className="relative w-full overflow-hidden rounded-[2rem] bg-black shadow-2xl flex flex-col items-center">
-      {/* Botones Flotantes (Registro y Especial) */}
       <button onClick={() => { if (!isCameraActive) startVideo(); setSpecialMode(true); }} className={`absolute top-4 right-4 z-30 flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider transition-all ${specialMode ? 'bg-[#2ec4f1] text-white shadow-[0_0_15px_rgba(46,196,241,0.5)]' : 'bg-white/10 text-white/50 hover:bg-white/20'}`}>
         <ShieldAlert className="w-3 h-3" /> Marcaje Especial
       </button>
@@ -462,10 +468,7 @@ export function BiometricKiosk() {
         </button>
       )}
 
-      {/* ÁREA DE VIDEO Y UI PRINCIPAL */}
       <div className="w-full h-[600px] bg-slate-900 relative flex items-center justify-center">
-        
-        {/* PANTALLA INICIAL */}
         {!isCameraActive ? (
            <div className="flex flex-col items-center justify-center space-y-6 p-8 pb-28 text-center animate-in fade-in zoom-in-95 duration-500">
               <div className="w-full max-w-md bg-slate-800/80 p-8 rounded-3xl border border-slate-700/50 backdrop-blur-md shadow-2xl flex flex-col items-center">
@@ -504,7 +507,6 @@ export function BiometricKiosk() {
             
             <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#2ec4f1]/10 to-transparent w-full h-1/4 animate-scan-line pointer-events-none" />
             
-            {/* Mensaje de registro (si aplica) */}
             {isRegistering && registerStatusMsg && (
               <div className="absolute top-8 left-1/2 -translate-x-1/2 bg-emerald-500 text-white font-black px-6 py-3 rounded-full shadow-2xl animate-in slide-in-from-top">
                  {registerStatusMsg}
@@ -513,7 +515,6 @@ export function BiometricKiosk() {
           </>
         )}
 
-        {/* MODAL REGISTRO DE ROSTRO */}
         {isRegistering && !isCameraActive && (
           <div className="absolute inset-0 z-50 bg-slate-900/95 backdrop-blur-md flex flex-col items-center justify-center p-6 animate-in zoom-in-95">
              {registerStep === 'pin' && (
@@ -542,16 +543,13 @@ export function BiometricKiosk() {
           </div>
         )}
 
-        {/* MODAL MÁQUINA DE ESTADOS */}
         {pendingActionSelect && (
           <div className="absolute inset-0 z-40 bg-slate-900/95 backdrop-blur-md flex flex-col items-center justify-center p-6 animate-in fade-in zoom-in-95">
-            
-            {/* Header del Empleado */}
             <div className="bg-slate-800 border border-slate-700 rounded-3xl p-6 w-full max-w-md flex flex-col items-center mb-6 shadow-xl">
                <div className="w-20 h-20 bg-slate-700 rounded-full flex items-center justify-center mb-4">
                  <User className="w-10 h-10 text-slate-400" />
                </div>
-               <h2 className="text-2xl font-black text-white text-center">{pendingActionSelect.employee.nombre_completo}</h2>
+               <h2 className="text-2xl font-black text-white text-center capitalize">{getShortName(pendingActionSelect.employee.nombre_completo).toLowerCase()}</h2>
                <div className="flex gap-2 mt-2">
                  <span className="bg-[#2ec4f1]/20 text-[#2ec4f1] px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
                    Estado Actual: {currentState.replace(/_/g, ' ')}

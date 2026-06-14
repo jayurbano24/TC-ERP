@@ -3,7 +3,7 @@ import { IOrdenServicioRepository } from '../../domain/repositories/IOrdenServic
 import { OrdenServicioAggregate } from '../../domain/aggregates/OrdenServicioAggregate';
 import { PrismaClient } from '@prisma/client';
 import { injectable, inject } from 'tsyringe';
-import { OrdenServicioMapper } from './OrdenServicioMapper';
+import { OrdenServicioMapper } from '../mappers/OrdenServicioMapper';
 
 @injectable()
 export class PrismaOrdenServicioRepository

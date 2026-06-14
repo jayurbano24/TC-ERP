@@ -1,4 +1,5 @@
 import { BaseAggregate } from '../../../../shared/domain/BaseAggregate';
+import { RecepcionCreatedEvent } from '../events/RecepcionCreatedEvent';
 
 export interface EquipoProps {
   id: string;
@@ -32,15 +33,28 @@ export class OrdenServicioAggregate extends BaseAggregate<OrdenServicioProps> {
     id: string,
     tenantId: string,
     branchId: string,
-    props: OrdenServicioProps
+    tipo: 'CAC' | 'PX',
+    props: Omit<OrdenServicioProps, 'tipoRecepcion'>
   ): OrdenServicioAggregate {
-    const orden = new OrdenServicioAggregate(id, tenantId, branchId, props);
+    
+    // Reglas de negocio (CAC vs PX)
+    if (tipo === 'PX') {
+      if (!props.guiaPx || !props.transporte) {
+        throw new Error('Para recepciones PX, la guía y el transporte son obligatorios.');
+      }
+    }
+
+    const fullProps: OrdenServicioProps = {
+      ...props,
+      tipoRecepcion: tipo,
+    };
+
+    const orden = new OrdenServicioAggregate(id, tenantId, branchId, fullProps);
+    
     // Registrar Domain Event
-    orden.addDomainEvent({
-      eventName: 'RecepcionCreadaDomainEvent',
-      aggregateId: id,
-      payload: { ...props, tenantId, branchId }
-    });
+    const eventItems = [{ sku: props.equipo.numeroSerie, cantidad: 1 }]; // Dummy item mapping for now
+    orden.addDomainEvent(new RecepcionCreatedEvent(id, tipo, eventItems, tenantId, branchId));
+    
     return orden;
   }
 }

@@ -1,14 +1,17 @@
+import 'reflect-metadata';
 import { NextResponse } from 'next/server';
 import { GetRendimientoTecnicosQuery } from '../../../../modules/rrhh/application/queries/GetRendimientoTecnicosQuery';
 import { RequestContextBuilder } from '../../../../shared/context/RequestContextBuilder';
 import { FeatureFlagService } from '../../../../shared/feature-flags/FeatureFlagService';
 import prisma from '../../../../infrastructure/database/prisma/client';
 
-const query = new GetRendimientoTecnicosQuery();
-const featureFlagService = new FeatureFlagService(prisma);
+import { container } from '../../../../shared/di/container';
 
 export async function GET(request: Request) {
   try {
+    const query = new GetRendimientoTecnicosQuery();
+    const featureFlagService = container.resolve(FeatureFlagService);
+
     const { searchParams } = new URL(request.url);
     const mes = parseInt(searchParams.get('mes') || (new Date().getMonth() + 1).toString());
     const anio = parseInt(searchParams.get('anio') || new Date().getFullYear().toString());

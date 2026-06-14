@@ -1,10 +1,10 @@
 import { PrismaClient } from '@prisma/client';
 import { RequestContext } from '../context/RequestContext';
-import { injectable } from 'tsyringe';
+import { injectable, inject } from 'tsyringe';
 
 @injectable()
 export class FeatureFlagService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(@inject('PrismaClient') private readonly prisma: PrismaClient) {}
 
   async isEnabled(ctx: RequestContext, code: string): Promise<boolean> {
     // Buscar primero a nivel de branch

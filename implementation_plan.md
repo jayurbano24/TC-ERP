@@ -141,6 +141,24 @@ src/
 
 ---
 
+## 🚨 Plan de Acción Inmediato: Corrección de Infraestructura Prisma (Auditoría)
+
+Antes de continuar con el desarrollo de los hitos planificados, se ejecutará una auditoría y estabilización completa de la capa de acceso a datos, abordando de raíz el problema crítico de despliegue en Vercel detectado con Prisma.
+
+**Respuestas a las consultas sobre el schema:**
+- **¿Por qué desapareció la línea `url = env("DATABASE_URL")`?** No desapareció. Revisando el historial de git (commit `10b4d55`), el archivo fue creado desde el principio sin la propiedad `url`. Fue una omisión en el diseño inicial.
+- **¿Fue eliminada en una refactorización?** No, el archivo nació así durante el andamiaje del Monolito Modular.
+- **¿Se usa alguna característica experimental de Prisma 7?** No. El proyecto usa Prisma 7.8.0 en modo estándar. El motor lanza este error (comportamiento estricto por defecto) cuando detecta que el schema no posee una cadena de conexión incrustada y, a su vez, el desarrollador llama a `new PrismaClient()` sin proveerle opciones en tiempo de ejecución.
+
+### Pasos de Estabilización (Ejecución Prioritaria):
+1. **Corregir `schema.prisma`**: Agregar `url = env("DATABASE_URL")` al bloque `datasource db`.
+2. **Regenerar Cliente**: Ejecutar `npx prisma generate` en local para asegurar que la tipificación se alinee con las variables de entorno.
+3. **Refactorizar `client.ts`**: Mantener una inicialización limpia (`new PrismaClient()`) sin sobreescrituras innecesarias.
+4. **Limpieza de Top-Level Side Effects**: Auditar y limpiar `src/app/api/inventario/dashboard/route.ts` y todas las Rutas API / Server Actions. Instanciar repositorios y servicios estrictamente dentro del handler o función ejecutora, nunca a nivel de módulo.
+5. **Auditoría de Inyección de Dependencias**: Revisar la configuración del contenedor DI (Tsyringe) para evitar llamadas explícitas a `new Service(...)` en favor de la resolución dinámica del framework CQRS.
+
+---
+
 ## 📋 Plan de Ejecución Detallado: Fase 1 Enterprise (12 Hitos)
 
 Para garantizar la autonomía, seguridad y limpieza de la nueva arquitectura, la Fase 1 fundacional se ejecutará mediante 12 hitos secuenciales y estrictos.
@@ -293,6 +311,100 @@ El módulo de Inventario es vital porque actúa como punto de encuentro entre **
 ### Hito 28: Dashboard y UI (Strangler Fig)
 - Implementar Queries de alto rendimiento: `GetInventarioValorizadoQuery`, `GetStockCriticoQuery`.
 - Inyectar los Feature Flags (`USE_NEW_INVENTORY_MODULE`) en las pantallas actuales de `/inventario` o `/bodega` para migrar la tabla principal y los reportes.
+
+---
+
+## 🛠️ Fase 0.1: Estabilización de Build (Hotfix reflect-metadata)
+
+> [!WARNING]
+> **Bloqueante Actual:** El empaquetado estático de Vercel/Next.js falla ("Failed to collect page data") porque Tsyringe no encuentra el polyfill `reflect-metadata` al evaluar los decoradores `@injectable` en los repositorios.
+
+### 1. Dónde debe cargarse `reflect-metadata`
+En **Next.js App Router**, cada `route.ts` y `page.tsx` es tratado como un *entrypoint* independiente por Turbopack/Webpack. Para que `reflect-metadata` funcione:
+1. Debe estar en el árbol de dependencias del entrypoint.
+2. Debe ser la **primera línea importada**, antes de que cualquier otro módulo importe una clase con el decorador `@injectable()`.
+
+### 2. Propuesta de Soluciones
+
+#### Opción A: Solución Mínima (Hotfix Seguro)
+Agregar `import 'reflect-metadata';` como la **primera línea absoluta** en todos los `route.ts` existentes que interactúen directa o indirectamente con los servicios del dominio.
+- **Ventaja:** Cero impacto arquitectónico. Resuelve el build de inmediato.
+- **Desventaja:** Hay que recordar ponerlo en cada ruta nueva.
+
+#### Opción B: Solución Recomendada (Bootstrap Centralizado)
+Crear un archivo `src/shared/di/bootstrap.ts`:
+```typescript
+import 'reflect-metadata';
+import { container } from 'tsyringe';
+export { container };
+```
+Y obligar a las rutas a importar sus dependencias desde este `bootstrap.ts` en lugar de importar `tsyringe` crudo.
+- **Ventaja:** Garantiza que el polyfill se carga siempre que se llame al contenedor. Sienta las bases para el Hito 5.
+
+### 3. Alcance Explícito de Modificaciones
+
+**Archivos a Modificar (Basado en Opción A - Hotfix para pasar a verde):**
+- `src/app/api/inventario/dashboard/route.ts`
+- `src/app/api/produccion/dashboard/route.ts`
+- `src/app/api/despacho/pendientes/route.ts`
+- `src/app/api/rrhh/dashboard/route.ts`
+- `src/app/api/recepcion/route.ts` *(Ya corregido en el paso anterior)*
+
+**Archivos que NO deben modificarse:**
+- `src/infrastructure/database/prisma/client.ts` (No acoplar DB con el contenedor de DI).
+- Ningún repositorio en `src/modules/*/infrastructure/`.
+- Ningún servicio de dominio o aplicación.
+
+**Riesgos:**
+Si el `import 'reflect-metadata';` se coloca en la línea 3 (después de importar un Query o un Repository), el módulo importado se evalúa primero, disparando el decorador `@injectable()` antes del polyfill y causando un crash instantáneo en Vercel.
+
+### 4. Checklist de Ejecución
+- [x] Insertar `import 'reflect-metadata';` en la **Línea 1** de los 4 `route.ts` pendientes.
+- [x] Ejecutar `npm run build` localmente para validar.
+- [x] Confirmar que el paso *Collecting page data* finaliza en verde sin lanzar `Error: tsyringe requires a reflect polyfill`.
+
+---
+
+## 🏗️ Fase 1.1: Avanzar a Arquitectura CQRS Base
+
+> [!NOTE]
+> Tras haber congelado la infraestructura Prisma y limpiado la inyección de dependencias residual con TSyringe, el sistema está listo para dar el salto arquitectónico hacia CQRS (Command Query Responsibility Segregation). 
+
+### 1. Objetivo
+Desacoplar completamente las capas de presentación (Next.js API Routes) de la lógica de aplicación y dominio mediante el uso de **Buses de Comandos y Consultas**. Las rutas ya no resolverán directamente Casos de Uso (`container.resolve(Comando)`), sino que enviarán mensajes a un Bus centralizado.
+
+### 2. Estructura Propuesta (Nuevas Interfaces)
+Crearemos el directorio `src/shared/cqrs/` con los contratos fundamentales:
+- `ICommand` e `IQuery`: Interfaces marcador para los payloads.
+- `ICommandHandler<C, R>` e `IQueryHandler<Q, R>`: Interfaces que los módulos DDD implementarán.
+- `ICommandBus` e `IQueryBus`: Contratos para el despacho de mensajes.
+
+### 3. Implementación del Bus (TSyringe)
+Desarrollaremos un `TSyringeCommandBus` y un `TSyringeQueryBus` que:
+1. Reciba el comando (ej. `new CrearRecepcionCacCommand(payload)`).
+2. Obtenga el nombre de la clase/token.
+3. Use `container.resolve()` para instanciar el Handler dinámicamente.
+4. Ejecute el Handler devolviendo el resultado.
+
+### 4. Refactorización Inicial (Prueba de Concepto en Recepción)
+Para validar el diseño sin romper el sistema completo, refactorizaremos el módulo de Logística / Recepción:
+#### [MODIFY] `src/modules/logistica/application/commands/CrearRecepcionCacCommand.ts`
+- Se convertirá en un payload de datos puro (`export class CrearRecepcionCacCommand implements ICommand`).
+- El código de negocio se moverá a un Handler (`export class CrearRecepcionCacHandler implements ICommandHandler`).
+- Se registrará el Handler en el contenedor TSyringe.
+
+#### [MODIFY] `src/app/api/recepcion/route.ts`
+- Eliminará las referencias directas a repositorios y handlers.
+- Obtendrá el `ICommandBus` inyectado.
+- Ejecutará: `await commandBus.execute(new CrearRecepcionCacCommand(...payload))`
+
+### 5. Verification Plan
+- **Validación Estática:** Compilación limpia y sin fallos de ESLint.
+- **Validación de Runtime:** `npm run build` en verde.
+- **Validación Funcional (Opcional):** Ejecutar una prueba POST hacia `/api/recepcion` usando Postman/ThunderClient (o script curl automatizado) para garantizar que el CommandBus resuelve y ejecuta el handler.
+
+## User Review Required
+¿Apruebas la creación de las interfaces `shared/cqrs`, la implementación del Bus basado en TSyringe y la refactorización de prueba en el endpoint de Recepción? Si el patrón te parece adecuado, procederé a ejecutarlo.
 
 ---
 

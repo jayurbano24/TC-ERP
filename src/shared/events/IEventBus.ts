@@ -1,5 +1,5 @@
+import type { DomainEvent } from './DomainEvent';
+
 export interface IEventBus {
-  publish(event: any): Promise<void>;
-  publishAll(events: any[]): Promise<void>;
-  subscribe<T>(eventName: string, handler: any): void;
+  emit(event: DomainEvent): Promise<void>;
 }

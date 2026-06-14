@@ -10,6 +10,7 @@
     "postinstall": "prisma generate --schema=src/infrastructure/database/prisma/schema.prisma"
   },
   "dependencies": {
+    "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
     "@supabase/supabase-js": "^2.49.8",
     "dotenv": "^17.4.2",

@@ -1,14 +1,17 @@
+import 'reflect-metadata';
 import { NextResponse } from 'next/server';
 import { GetDespachosPendientesQuery } from '../../../../modules/despacho/application/queries/GetDespachosPendientesQuery';
 import { RequestContextBuilder } from '../../../../shared/context/RequestContextBuilder';
 import { FeatureFlagService } from '../../../../shared/feature-flags/FeatureFlagService';
 import prisma from '../../../../infrastructure/database/prisma/client';
 
-const query = new GetDespachosPendientesQuery();
-const featureFlagService = new FeatureFlagService(prisma);
+import { container } from '../../../../shared/di/container';
 
 export async function GET(request: Request) {
   try {
+    const query = new GetDespachosPendientesQuery();
+    const featureFlagService = container.resolve(FeatureFlagService);
+
     const ctx = new RequestContextBuilder()
       .withTenant('tenant-1')
       .withBranch('branch-1')

@@ -1,14 +1,18 @@
+import 'reflect-metadata';
 import { NextResponse } from 'next/server';
 import { GetProduccionDashboardQuery } from '../../../../modules/produccion/application/queries/GetProduccionDashboardQuery';
 import { RequestContextBuilder } from '../../../../shared/context/RequestContextBuilder';
 import { FeatureFlagService } from '../../../../shared/feature-flags/FeatureFlagService';
 import prisma from '../../../../infrastructure/database/prisma/client';
 
-const query = new GetProduccionDashboardQuery();
-const featureFlagService = new FeatureFlagService(prisma);
+import { QueryBus } from '../../../../modules/recepcion/application/cqrs/QueryBus';
+import { container } from '../../../../shared/di/container';
 
 export async function GET(request: Request) {
   try {
+    const queryBus = container.resolve(QueryBus);
+    const featureFlagService = container.resolve(FeatureFlagService);
+
     const ctx = new RequestContextBuilder()
       .withTenant('tenant-1')
       .withBranch('branch-1')
@@ -24,7 +28,7 @@ export async function GET(request: Request) {
       );
     }
 
-    const data = await query.execute(ctx);
+    const data = await queryBus.execute(new GetProduccionDashboardQuery(), ctx);
     
     return NextResponse.json({ success: true, data }, { status: 200 });
 

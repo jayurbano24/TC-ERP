@@ -479,6 +479,29 @@ export default function ReportesTab() {
           loading={loading}
         />
 
+        {/* Rendimiento Técnicos (CQRS) */}
+        <ReportCard 
+          title="Rendimiento Técnicos (CQRS)" 
+          desc="Equipos reparados vs fallidos en el mes actual." 
+          icon={<Briefcase className="text-emerald-500" />} 
+          onClick={async () => {
+            setLoading(true);
+            try {
+              const res = await fetch('/api/rrhh/dashboard');
+              if (res.ok) {
+                const data = await res.json();
+                downloadExcel(data.data, "Rendimiento_Tecnicos_Mes");
+              } else {
+                alert('El nuevo módulo RRHH (Feature Flag USE_NEW_RRHH_MODULE) no está activo.');
+              }
+            } catch(e) {
+              console.error(e);
+            }
+            setLoading(false);
+          }} 
+          loading={loading}
+        />
+
         {/* Próximamente */}
         <ReportCard 
           title="Vacaciones y Permisos" 

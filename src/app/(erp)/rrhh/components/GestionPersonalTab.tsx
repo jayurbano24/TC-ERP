@@ -172,6 +172,17 @@ export default function GestionPersonalTab() {
         let updated = 0;
         let failed = 0;
 
+        let maxId = 0;
+        if (allEmps) {
+          allEmps.forEach(e => {
+            const match = e.codigo_empleado?.match(/\d+/);
+            if (match) {
+              const num = parseInt(match[0], 10);
+              if (num > maxId && num < 100000) maxId = num;
+            }
+          });
+        }
+
         for (const row of data as any[]) {
           if (!row['Nombre Completo'] || row['Nombre Completo'] === 'Ejemplo') continue;
 
@@ -204,8 +215,9 @@ export default function GestionPersonalTab() {
               updated++;
             }
           } else {
-            // Insertar nuevo
-            const newCode = `EMP-M${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
+            // Insertar nuevo con código consecutivo
+            maxId++;
+            const newCode = `EMP-${maxId.toString().padStart(4, '0')}`;
             const { error } = await supabase.from('employees').insert({
               codigo_empleado: newCode,
               nombre_completo: rowName,

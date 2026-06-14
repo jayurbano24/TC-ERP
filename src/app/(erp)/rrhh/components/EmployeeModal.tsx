@@ -297,7 +297,20 @@ export default function EmployeeModal({
         const { error: updateError } = await supabase.from('employees').update(payload).eq('id', employee.id);
         error = updateError;
       } else {
-        payload.codigo_empleado = `EMP-M${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
+        // Generar código consecutivo (ej. EMP-0022)
+        const { data: allCodes } = await supabase.from('employees').select('codigo_empleado');
+        let maxId = 0;
+        if (allCodes) {
+          allCodes.forEach(c => {
+            const match = c.codigo_empleado?.match(/\d+/);
+            if (match) {
+              const num = parseInt(match[0], 10);
+              if (num > maxId && num < 100000) maxId = num; 
+            }
+          });
+        }
+        payload.codigo_empleado = `EMP-${(maxId + 1).toString().padStart(4, '0')}`;
+        
         const { error: insertError } = await supabase.from('employees').insert(payload);
         error = insertError;
       }

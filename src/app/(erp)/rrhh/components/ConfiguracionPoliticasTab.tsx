@@ -48,6 +48,7 @@ export default function ConfiguracionPoliticasTab() {
       finalValue = (e.target as HTMLInputElement).checked;
     } else if (type === 'number') {
       finalValue = parseInt(value, 10);
+      if (isNaN(finalValue)) finalValue = '';
     }
 
     setPolicies({ ...policies, [name]: finalValue });

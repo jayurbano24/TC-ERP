@@ -567,7 +567,7 @@ export default function ConfiguracionPage() {
               onClick={() => setActiveView('transportes')}
               className={`w-full flex items-center gap-3 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all ${activeView === 'transportes' ? 'bg-[#181c3a] text-white shadow-xl' : 'text-slate-400 hover:bg-slate-100'}`}
             >
-              <Truck size={14} /> Transporte Logístico
+              <Truck size={14} /> Empresas Logísticas
             </button>
             <button 
               onClick={() => setActiveView('px_providers')}

@@ -724,9 +724,52 @@ export default function DespachoPage() {
           >
             Historial de Despachos
           </button>
+          <button 
+            onClick={() => setActiveTab('cqrs' as any)}
+            className={`px-6 py-2.5 text-sm font-bold rounded-lg transition-colors flex items-center gap-2 ${(activeTab as any) === 'cqrs' ? 'bg-[#2ec4f1] text-[#181c3a] shadow-sm' : 'text-slate-500 hover:text-[#2ec4f1]'}`}
+          >
+            <Boxes className="w-4 h-4" />
+            Pendientes (CQRS Eventos)
+          </button>
         </div>
 
-        {activeTab === 'operacion' ? (
+        {(activeTab as any) === 'cqrs' ? (
+          <div className="space-y-6 animate-in fade-in">
+            <Card className="p-6">
+              <div className="flex justify-between items-center mb-6">
+                <div>
+                  <h3 className="text-xl font-bold text-slate-800">Despachos Pendientes Asíncronos</h3>
+                  <p className="text-sm text-slate-500">Ordenes creadas automáticamente al finalizar reparaciones en Taller.</p>
+                </div>
+                <Button variant="primary" onClick={async () => {
+                  try {
+                    const res = await fetch('/api/despacho/pendientes');
+                    if (res.ok) {
+                      const data = await res.json();
+                      const ws = XLSX.utils.json_to_sheet(data.data || []);
+                      const wb = XLSX.utils.book_new();
+                      XLSX.utils.book_append_sheet(wb, ws, "Despachos Pendientes");
+                      XLSX.writeFile(wb, `Despachos_CQRS_${new Date().toISOString().split('T')[0]}.xlsx`);
+                    } else {
+                      alert('El nuevo módulo Despacho (Feature Flag USE_NEW_DESPACHO_MODULE) no está activo.');
+                    }
+                  } catch(e) {
+                    console.error(e);
+                  }
+                }}>
+                  Exportar Reporte CQRS
+                </Button>
+              </div>
+              <div className="py-12 flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-[2rem] bg-slate-50/50">
+                <Truck className="w-16 h-16 text-[#2ec4f1] mb-4 opacity-50" />
+                <h4 className="font-bold text-slate-600 mb-2">Módulo en modo Strangler Fig</h4>
+                <p className="text-slate-400 text-sm max-w-md text-center">
+                  Las órdenes se están orquestando en segundo plano gracias al Event Bus. Descarga el Excel para visualizar la data segregada (Read Model).
+                </p>
+              </div>
+            </Card>
+          </div>
+        ) : activeTab === 'operacion' ? (
           <div className="space-y-10 animate-in fade-in">
         
         {showUploadSAPModal && (

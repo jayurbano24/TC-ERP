@@ -26,6 +26,10 @@ export default function TallerPage() {
   // Search State
   const [searchTerm, setSearchTerm] = useState('');
 
+  // CQRS Dashboard State (Strangler Fig)
+  const [dashboardKpis, setDashboardKpis] = useState<any>(null);
+  const [useNewDashboard, setUseNewDashboard] = useState(false);
+
   // Diagnostic Modal State
   const [isFunctionalChecklistOpen, setIsFunctionalChecklistOpen] = useState(false);
   const [isEvalResultOpen, setIsEvalResultOpen] = useState(false);
@@ -165,7 +169,21 @@ export default function TallerPage() {
 
   useEffect(() => {
     loadCatalogs();
+    checkFeatureFlag();
   }, []);
+
+  const checkFeatureFlag = async () => {
+    try {
+      const res = await fetch('/api/produccion/dashboard');
+      if (res.ok) {
+        const data = await res.json();
+        setUseNewDashboard(true);
+        setDashboardKpis(data.data.kpis);
+      }
+    } catch (e) {
+      console.error('Feature Flag CQRS Dashboard no activo');
+    }
+  };
 
   const loadCatalogs = async () => {
     const [techs, brands, models, diag, reps, rTests] = await Promise.all([
@@ -524,6 +542,29 @@ ${funcNotes || 'Ninguno evaluado'}
       }
     >
       <div className="space-y-8">
+        
+        {/* NEW CQRS DASHBOARD (Strangler Fig) */}
+        {useNewDashboard && dashboardKpis && (
+          <div className="grid grid-cols-4 gap-4 animate-rise-in">
+            <Card className="p-4 bg-[#181c3a] text-white border-2 border-[#2ec4f1] rounded-2xl">
+              <h3 className="text-[10px] font-black uppercase tracking-widest opacity-80">Diagnósticos Pendientes</h3>
+              <p className="text-3xl font-black text-[#2ec4f1] mt-2">{dashboardKpis.diagnosticosPendientes}</p>
+            </Card>
+            <Card className="p-4 bg-white border-2 border-slate-100 rounded-2xl">
+              <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Diag. En Proceso</h3>
+              <p className="text-3xl font-black text-amber-500 mt-2">{dashboardKpis.diagnosticosEnProceso}</p>
+            </Card>
+            <Card className="p-4 bg-white border-2 border-slate-100 rounded-2xl">
+              <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Reparaciones en Espera</h3>
+              <p className="text-3xl font-black text-blue-500 mt-2">{dashboardKpis.reparacionesEnEspera}</p>
+            </Card>
+            <Card className="p-4 bg-white border-2 border-slate-100 rounded-2xl">
+              <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Reparaciones Activas</h3>
+              <p className="text-3xl font-black text-emerald-500 mt-2">{dashboardKpis.reparacionesActivas}</p>
+            </Card>
+          </div>
+        )}
+
         {/* Navigation Tabs - High Contrast & Premium */}
         <div className="flex flex-wrap gap-2 p-2 bg-slate-100/50 rounded-3xl border border-slate-100">
           {tabs.map((tab) => {

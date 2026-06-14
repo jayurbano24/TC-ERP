@@ -2197,26 +2197,6 @@ export default function BackofficePage() {
               >
                 <Download size={16} /> Generar Reporte
               </button>
-
-              <div className="h-10 w-[1px] bg-slate-200 mx-2" />
-
-              <button
-                onClick={async () => {
-                  if (confirm("¿Está seguro de eliminar TODO el historial de la base de datos? Esta acción no se puede deshacer.")) {
-                    const res = await clearAllReceptions();
-                    if (res.success) {
-                      alert("Historial eliminado con éxito.");
-                      fetchHistory();
-                      fetchPending();
-                    } else {
-                      alert("Error al eliminar historial: " + res.error);
-                    }
-                  }
-                }}
-                className="flex items-center gap-3 px-6 py-4 bg-rose-50 text-rose-500 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-500 hover:text-white transition-all border border-rose-100 active:scale-95"
-              >
-                <Trash2 size={14} /> Limpiar Todo
-              </button>
             </div>
           </div>
 

@@ -2,7 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import { RequestContext } from '../../../shared/context/RequestContext';
 
 const basePrisma = new PrismaClient({
-  adapter: { url: process.env.DATABASE_URL } as any // Prisma 7 fallback config
+  // Si necesitas forzar la URL, usa datasourceUrl: process.env.DATABASE_URL
 });
 
 export function getTenantPrisma(ctx: RequestContext) {

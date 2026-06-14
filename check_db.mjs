@@ -1,25 +1,21 @@
 import { createClient } from '@supabase/supabase-js';
+import * as dotenv from 'dotenv';
+dotenv.config({ path: '.env.local' });
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://xukvydymryshksrcccku.supabase.co';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '...'; // Needs actual key but we can just use NEXT_PUBLIC_SUPABASE_ANON_KEY from .env.local
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-import * as fs from 'fs';
-const envFile = fs.readFileSync('.env.local', 'utf8');
-let key = '';
-envFile.split('\n').forEach(line => {
-  if (line.startsWith('NEXT_PUBLIC_SUPABASE_ANON_KEY=')) {
-    key = line.split('=')[1].trim();
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+async function check() {
+  const { data, error } = await supabase.from('series').select('current_status, count');
+  console.log('Error?', error);
+  // group by status
+  const { data: allSeries } = await supabase.from('series').select('current_status');
+  const counts = {};
+  for(let s of allSeries || []) {
+    counts[s.current_status] = (counts[s.current_status] || 0) + 1;
   }
-});
-
-const supabase = createClient(supabaseUrl, key);
-
-async function test() {
-  const { data, error } = await supabase
-    .from('series')
-    .select('serial_number, current_box_id')
-    .in('serial_number', ['ASDFASDF', 'ASDFASFASD', 'AASDFASDF', 'ASDFAS']);
-  console.log("Series:", data);
+  console.log('Statuses:', counts);
 }
-
-test();
+check();

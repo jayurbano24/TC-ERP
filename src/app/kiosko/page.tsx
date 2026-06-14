@@ -102,7 +102,7 @@ export default function KioskoPage() {
               </div>
 
           <h1 className="text-5xl sm:text-7xl md:text-8xl font-black text-white tracking-tighter mb-1 sm:mb-2 font-mono tabular-nums drop-shadow-2xl">
-            {time ? time.toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }) : '00:00:00'}
+            {time ? time.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '00:00:00'}
           </h1>
           <p className="text-slate-400 font-bold text-xs sm:text-sm md:text-base tracking-widest uppercase flex items-center justify-center gap-2">
             <Clock className="w-4 h-4 text-[#2ec4f1]" />

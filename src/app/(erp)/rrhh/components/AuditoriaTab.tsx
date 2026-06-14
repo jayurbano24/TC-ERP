@@ -22,7 +22,7 @@ export default function AuditoriaTab() {
     if (supabase) {
       let logsQuery = supabase
         .from('time_logs')
-        .select('*, employees(id, nombre_completo, codigo_empleado)')
+        .select('*, employees(id, nombre_completo, codigo_empleado), time_justifications(id, descripcion, resolucion)')
         .order('timestamp', { ascending: false })
         .limit(100);
 
@@ -51,6 +51,30 @@ export default function AuditoriaTab() {
     const supabase = getSupabaseBrowserClient();
     if (supabase) {
       await supabase.from('employee_absences').update({ tipo_falta: newType }).eq('id', id);
+      fetchData();
+    }
+  };
+
+  const updateJustificacion = async (id: string, oldResolucion: string, newResolucion: string) => {
+    const supabase = getSupabaseBrowserClient();
+    if (supabase) {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      // Actualiza la justificación
+      await supabase.from('time_justifications')
+        .update({ resolucion: newResolucion, aprobado_por: session?.user?.id, fecha_aprobacion: new Date().toISOString() })
+        .eq('id', id);
+
+      // Registra en la auditoría
+      await supabase.from('time_justifications_audit').insert({
+        justification_id: id,
+        usuario_id: session?.user?.id,
+        campo_modificado: 'resolucion',
+        valor_anterior: oldResolucion,
+        valor_nuevo: newResolucion,
+        motivo_cambio: 'Actualizado desde Panel de Auditoría RRHH'
+      });
+      
       fetchData();
     }
   };
@@ -166,7 +190,28 @@ export default function AuditoriaTab() {
                         {log.minutos_exceso_almuerzo > 0 && <div className="text-xs text-rose-500 font-bold">Exceso Alm {log.minutos_exceso_almuerzo}m</div>}
                         {log.minutos_salida_anticipada > 0 && <div className="text-xs text-amber-500 font-bold">Salida Ant {log.minutos_salida_anticipada}m</div>}
                         {log.es_dia_extra && <div className="text-[10px] font-black tracking-widest text-emerald-500 uppercase">Día Extra</div>}
-                        {(log.minutos_retraso_entrada === 0 && log.minutos_exceso_almuerzo === 0 && log.minutos_salida_anticipada === 0 && !log.es_dia_extra) && (
+                        
+                        {log.time_justifications && log.time_justifications.length > 0 && (
+                          <div className="mt-2 text-left border-l-2 border-slate-200 pl-2">
+                            <div className="text-[10px] text-slate-400 uppercase tracking-wider font-bold mb-1">Justificación</div>
+                            {log.time_justifications.map((just: any) => (
+                              <div key={just.id} className="mb-2">
+                                <div className="text-xs font-medium text-slate-700 italic mb-1">"{just.descripcion}"</div>
+                                <select 
+                                  value={just.resolucion || 'Pendiente'}
+                                  onChange={(e) => updateJustificacion(just.id, just.resolucion || 'Pendiente', e.target.value)}
+                                  className={`text-[10px] font-bold rounded p-1 outline-none ${just.resolucion === 'Aprobada' ? 'bg-emerald-100 text-emerald-700' : just.resolucion === 'Rechazada' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}`}
+                                >
+                                  <option value="Pendiente">Pendiente</option>
+                                  <option value="Aprobada">Aprobar</option>
+                                  <option value="Rechazada">Rechazar</option>
+                                </select>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {(log.minutos_retraso_entrada === 0 && log.minutos_exceso_almuerzo === 0 && log.minutos_salida_anticipada === 0 && !log.es_dia_extra && (!log.time_justifications || log.time_justifications.length === 0)) && (
                           <span className="text-xs text-emerald-500 font-bold tracking-widest uppercase">OK</span>
                         )}
                       </td>

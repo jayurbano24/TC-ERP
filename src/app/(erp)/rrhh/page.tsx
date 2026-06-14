@@ -9,10 +9,13 @@ import PlanillaTab from './components/PlanillaTab';
 import ObligacionesTab from './components/ObligacionesTab';
 import CatalogosTab from './components/CatalogosTab';
 import ReportesTab from './components/ReportesTab';
-import { BarChart2 } from 'lucide-react';
+import GestionJustificacionesTab from './components/GestionJustificacionesTab';
+import ConfiguracionPoliticasTab from './components/ConfiguracionPoliticasTab';
+import DashboardAsistencia from './components/DashboardAsistencia';
+import { BarChart2, CheckSquare, Settings, Activity } from 'lucide-react';
 
 export default function RRHHPage() {
-  const [activeTab, setActiveTab] = useState("gestion");
+  const [activeTab, setActiveTab] = useState("dashboard");
 
   return (
     <ModulePage
@@ -27,6 +30,13 @@ export default function RRHHPage() {
     >
       <div className="w-full mt-6">
         <div className="flex flex-wrap gap-2 bg-slate-100/50 p-1 rounded-2xl">
+          <button 
+            onClick={() => setActiveTab("dashboard")}
+            className={`flex-1 min-w-[160px] flex items-center justify-center py-2 rounded-xl font-bold gap-2 transition-all ${activeTab === 'dashboard' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            <Activity className="w-4 h-4" />
+            Live Dashboard
+          </button>
           <button 
             onClick={() => setActiveTab("gestion")}
             className={`flex-1 min-w-[160px] flex items-center justify-center py-2 rounded-xl font-bold gap-2 transition-all ${activeTab === 'gestion' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
@@ -69,15 +79,32 @@ export default function RRHHPage() {
             <BarChart2 className="w-4 h-4" />
             Reportes
           </button>
+          <button 
+            onClick={() => setActiveTab("justificaciones")}
+            className={`flex-1 min-w-[160px] flex items-center justify-center py-2 rounded-xl font-bold gap-2 transition-all ${activeTab === 'justificaciones' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            <CheckSquare className="w-4 h-4" />
+            Justificaciones
+          </button>
+          <button 
+            onClick={() => setActiveTab("politicas")}
+            className={`flex-1 min-w-[160px] flex items-center justify-center py-2 rounded-xl font-bold gap-2 transition-all ${activeTab === 'politicas' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            <Settings className="w-4 h-4" />
+            Políticas
+          </button>
         </div>
 
         <div className="mt-8">
+          {activeTab === 'dashboard' && <DashboardAsistencia />}
           {activeTab === 'gestion' && <GestionPersonalTab />}
           {activeTab === 'auditoria' && <AuditoriaTab />}
           {activeTab === 'planilla' && <PlanillaTab />}
           {activeTab === 'obligaciones' && <ObligacionesTab />}
           {activeTab === 'catalogos' && <CatalogosTab />}
           {activeTab === 'reportes' && <ReportesTab />}
+          {activeTab === 'justificaciones' && <GestionJustificacionesTab />}
+          {activeTab === 'politicas' && <ConfiguracionPoliticasTab />}
         </div>
       </div>
     </ModulePage>

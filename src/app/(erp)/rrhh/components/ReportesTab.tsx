@@ -7,9 +7,17 @@ import { FileSpreadsheet, Calendar, Clock, AlertTriangle, UserX, Briefcase, Refr
 import * as XLSX from 'xlsx';
 
 export default function ReportesTab() {
+  const getLocalDateString = () => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   const [loading, setLoading] = useState(false);
-  const [startDate, setStartDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(getLocalDateString);
+  const [endDate, setEndDate] = useState(getLocalDateString);
 
   const downloadExcel = (data: any[], filename: string) => {
     let exportData = data;
@@ -32,11 +40,22 @@ export default function ReportesTab() {
   const getLogsData = async (start: string, end: string) => {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return [];
+    
+    const [sYear, sMonth, sDay] = start.split('-').map(Number);
+    const [eYear, eMonth, eDay] = end.split('-').map(Number);
+
+    const startObj = new Date(sYear, sMonth - 1, sDay, 0, 0, 0);
+    const endObj = new Date(eYear, eMonth - 1, eDay, 23, 59, 59, 999);
+
     const { data } = await supabase
       .from('time_logs')
-      .select('*, employees(*, company_shifts(*))')
-      .gte('timestamp', `${start}T00:00:00`)
-      .lte('timestamp', `${end}T23:59:59`)
+      .select(`
+        *, 
+        employees(*, company_shifts(*)),
+        time_justifications(estado)
+      `)
+      .gte('timestamp', startObj.toISOString())
+      .lte('timestamp', endObj.toISOString())
       .order('timestamp', { ascending: true });
     return data || [];
   };
@@ -108,21 +127,144 @@ export default function ReportesTab() {
     setLoading(false);
   };
 
+  const formatSecondsHHMMSS = (segundos: number | null | undefined) => {
+    if (!segundos || segundos <= 0) return '00:00:00';
+    const h = Math.floor(segundos / 3600);
+    const m = Math.floor((segundos % 3600) / 60);
+    const s = Math.floor(segundos % 60);
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  };
+
   const handleAsistencia = async (isDiaria: boolean) => {
     setLoading(true);
     const start = isDiaria ? startDate : startDate;
-    const end = isDiaria ? startDate : endDate; // If diaria, use startDate for both to get 1 day
+    const end = isDiaria ? startDate : endDate;
     
     const logs = await getLogsData(start, end);
-    const exportData = logs.map(l => ({
-      'Fecha y Hora': new Date(l.timestamp).toLocaleString(),
-      'Día': new Date(l.timestamp).toLocaleDateString(),
-      'Hora': new Date(l.timestamp).toLocaleTimeString(),
-      'Empleado': l.employees?.nombre_completo,
-      'Código': l.employees?.codigo_empleado,
-      'Evento': l.evento_detectado,
-      'Justificación': l.justificacion || 'N/A'
-    }));
+    const exportData: any[] = [];
+    
+    // Agrupar logs por empleado para procesarlos cronológicamente
+    const logsByEmployee = new Map<string, any[]>();
+    logs.forEach(l => {
+      if (!logsByEmployee.has(l.employee_id)) logsByEmployee.set(l.employee_id, []);
+      logsByEmployee.get(l.employee_id)!.push(l);
+    });
+
+    logsByEmployee.forEach((empLogs, empId) => {
+      // Ordenar logs del empleado cronológicamente
+      empLogs.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      
+      let currentJornada: any = null;
+      let entradaReal: Date | null = null;
+      let salidaReal: Date | null = null;
+      let totalRetraso = 0;
+      let totalSalidaAnticipada = 0;
+      let totalHorasExtra = 0;
+
+      const pushCurrentJornada = () => {
+        if (currentJornada) {
+          // Cálculo Tiempo Laborado
+          if (entradaReal && salidaReal) {
+            const diffSeconds = Math.floor((salidaReal.getTime() - entradaReal.getTime()) / 1000);
+            currentJornada['Tiempo Laborado'] = formatSecondsHHMMSS(diffSeconds > 0 ? diffSeconds : 0);
+          }
+          currentJornada['Retraso'] = formatSecondsHHMMSS(totalRetraso);
+          currentJornada['Salida Anticipada'] = formatSecondsHHMMSS(totalSalidaAnticipada);
+          currentJornada['Horas Extra'] = formatSecondsHHMMSS(totalHorasExtra);
+          exportData.push(currentJornada);
+          
+          // Reset para la siguiente jornada
+          currentJornada = null;
+          entradaReal = null;
+          salidaReal = null;
+          totalRetraso = 0;
+          totalSalidaAnticipada = 0;
+          totalHorasExtra = 0;
+        }
+      };
+
+      empLogs.forEach(l => {
+        const timestampDate = new Date(l.timestamp);
+        const dayString = timestampDate.toLocaleDateString();
+        // Formato 24 Horas
+        const timeString = timestampDate.toLocaleTimeString('en-GB', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const event = l.evento_detectado;
+        const shift = l.employees?.company_shifts;
+
+        // Iniciar nueva jornada si encontramos un INGRESO o si no hay jornada activa
+        if (!currentJornada || event === 'INGRESO') {
+          pushCurrentJornada(); // Cierra la anterior si la hubiera
+          currentJornada = {
+            'Día': dayString,
+            'Empleado': l.employees?.nombre_completo,
+            'Código': l.employees?.codigo_empleado,
+            'Turno': shift?.name || 'Sin Turno',
+            'Tipo de Jornada': l.tipo_jornada || (l.es_dia_extra ? 'Descanso' : 'Laboral'),
+            'Estado': l.estado_marcacion || 'Normal',
+            'Entrada Programada': l.hora_entrada_prog || 'N/A',
+            'Entrada Real': event === 'INGRESO' ? timeString : '',
+            'Salida Programada': l.hora_salida_prog || 'N/A',
+            'Salida Real': '',
+            'Inicio Desayuno': '',
+            'Fin Desayuno': '',
+            'Inicio Almuerzo': '',
+            'Fin Almuerzo': '',
+            'Tiempo Laborado': '00:00:00',
+            'Retraso': '00:00:00',
+            'Salida Anticipada': '00:00:00',
+            'Horas Extra': '00:00:00',
+            'Justificación': '',
+            'Resolución': '',
+            'Observaciones': ''
+          };
+          if (event === 'INGRESO') entradaReal = new Date(l.timestamp);
+        } else {
+          // Asignar tiempo si no es INGRESO
+          if (event === 'SALIDA_FINAL') {
+            currentJornada['Salida Real'] = timeString;
+            salidaReal = new Date(l.timestamp);
+          } else if (event === 'SALIDA_REFACCION' || event === 'DESAYUNO_INICIO') {
+            currentJornada['Inicio Desayuno'] = timeString;
+          } else if (event === 'REGRESO_REFACCION' || event === 'DESAYUNO_FIN') {
+            currentJornada['Fin Desayuno'] = timeString;
+          } else if (event === 'SALIDA_ALMUERZO' || event === 'ALMUERZO_INICIO') {
+            currentJornada['Inicio Almuerzo'] = timeString;
+          } else if (event === 'REGRESO_ALMUERZO' || event === 'ALMUERZO_FIN') {
+            currentJornada['Fin Almuerzo'] = timeString;
+          } else if (event === 'MARCAJE_ESPECIAL') {
+            currentJornada['Observaciones'] = `Marcaje Especial a las ${timeString}`;
+          }
+        }
+
+        // Acumular métricas
+        if (l.tardanza_segundos > 0) totalRetraso += l.tardanza_segundos;
+        else if (l.minutos_retraso_entrada > 0) totalRetraso += l.minutos_retraso_entrada * 60;
+        
+        if (l.salida_anticipada_segundos > 0) totalSalidaAnticipada += l.salida_anticipada_segundos;
+        else if (l.minutos_salida_anticipada > 0) totalSalidaAnticipada += l.minutos_salida_anticipada * 60;
+        
+        if (l.horas_extra_segundos > 0) totalHorasExtra += l.horas_extra_segundos;
+        else if (l.minutos_extra > 0) totalHorasExtra += l.minutos_extra * 60;
+
+        // Justificaciones
+        if (l.justificacion) {
+          currentJornada['Justificación'] = currentJornada['Justificación'] ? `${currentJornada['Justificación']} | ${l.justificacion}` : l.justificacion;
+        }
+        const justificationArr = l.time_justifications as any[];
+        if (justificationArr && justificationArr.length > 0) {
+          currentJornada['Resolución'] = justificationArr[0].resolucion || 'Pendiente';
+        }
+
+        // Si es SALIDA_FINAL, cerramos la jornada inmediatamente
+        if (event === 'SALIDA_FINAL') {
+          pushCurrentJornada();
+        }
+      });
+
+      // Asegurar guardar cualquier jornada que quedó abierta al final
+      pushCurrentJornada();
+    });
+
     downloadExcel(exportData, isDiaria ? "Asistencia_Diaria" : "Asistencia_Mensual_Periodo");
     setLoading(false);
   };
@@ -131,13 +273,40 @@ export default function ReportesTab() {
     setLoading(true);
     const logs = await getLogsData(startDate, endDate);
     
-    const tardanzas = logs.filter(l => l.evento_detectado === 'INGRESO' && l.minutos_retraso_entrada > 0).map(l => {
+    const tardanzas = logs.filter(l => 
+      ((l.tardanza_segundos || 0) > 0) || 
+      ((l.tiempo_desayuno_segundos || 0) > 0) || 
+      ((l.tiempo_almuerzo_segundos || 0) > 0) || 
+      ((l.salida_anticipada_segundos || 0) > 0) ||
+      ((l.minutos_retraso_entrada || 0) > 0) || 
+      ((l.minutos_exceso_almuerzo || 0) > 0) || 
+      ((l.minutos_salida_anticipada || 0) > 0)
+    ).map(l => {
+      const justificationArr = l.time_justifications as any[];
+      const statusJustificacion = justificationArr && justificationArr.length > 0 ? justificationArr[0].estado : 'N/A';
+      
+      let tipoRetraso = 'Ingreso Tarde';
+      let segundos = l.tardanza_segundos || (l.minutos_retraso_entrada ? l.minutos_retraso_entrada * 60 : 0);
+      
+      if ((l.tiempo_almuerzo_segundos || 0) > 0 || (l.minutos_exceso_almuerzo || 0) > 0) {
+        tipoRetraso = 'Exceso de Almuerzo';
+        segundos = l.tiempo_almuerzo_segundos || (l.minutos_exceso_almuerzo ? l.minutos_exceso_almuerzo * 60 : 0);
+      } else if ((l.tiempo_desayuno_segundos || 0) > 0) {
+        tipoRetraso = 'Exceso de Desayuno';
+        segundos = l.tiempo_desayuno_segundos;
+      } else if ((l.salida_anticipada_segundos || 0) > 0 || (l.minutos_salida_anticipada || 0) > 0) {
+        tipoRetraso = 'Salida Anticipada';
+        segundos = l.salida_anticipada_segundos || (l.minutos_salida_anticipada ? l.minutos_salida_anticipada * 60 : 0);
+      }
+
       return {
         'Fecha': new Date(l.timestamp).toLocaleDateString(),
         'Empleado': l.employees?.nombre_completo,
         'Hora Marcaje': new Date(l.timestamp).toLocaleTimeString(),
-        'Minutos Retraso': l.minutos_retraso_entrada,
-        'Justificación': l.justificacion || 'Sin justificación'
+        'Tipo de Retraso': tipoRetraso,
+        'Tiempo Perdido': formatSecondsHHMMSS(segundos),
+        'Motivo Empleado': l.justificacion || 'Sin justificación',
+        'Estado RRHH': statusJustificacion.replace(/_/g, ' ')
       };
     });
     
@@ -149,14 +318,30 @@ export default function ReportesTab() {
     setLoading(true);
     const logs = await getLogsData(startDate, endDate);
     
-    const extras = logs.filter(l => l.evento_detectado === 'SALIDA_FINAL' && l.minutos_extra > 0).map(l => {
+    const extras = logs.filter(l => (l.horas_extra_segundos || 0) > 0 || (l.minutos_extra || 0) > 0 || l.es_dia_extra).map(l => {
+      const justificationArr = l.time_justifications as any[];
+      const statusJustificacion = justificationArr && justificationArr.length > 0 ? justificationArr[0].estado : 'N/A';
+
+      const segundos = l.horas_extra_segundos || (l.minutos_extra ? l.minutos_extra * 60 : 0);
+      let horasCalc = formatSecondsHHMMSS(segundos);
+      
+      if (l.es_dia_extra) {
+        if (segundos >= 21600) { // 6 horas
+          horasCalc = 'Pago: Día Completo (' + formatSecondsHHMMSS(segundos) + ')';
+        } else {
+          horasCalc = 'Pago: Medio Día (' + formatSecondsHHMMSS(segundos) + ')';
+        }
+      }
+
       return {
         'Fecha': new Date(l.timestamp).toLocaleDateString(),
         'Empleado': l.employees?.nombre_completo,
-        'Hora Marcaje': new Date(l.timestamp).toLocaleTimeString(),
-        'Minutos Extra': l.minutos_extra,
-        'Horas Extra Calculadas': (l.minutos_extra / 60).toFixed(2),
-        'Justificación': l.justificacion || 'N/A'
+        'Hora Salida': new Date(l.timestamp).toLocaleTimeString(),
+        'Tiempo Extra Exacto': formatSecondsHHMMSS(segundos),
+        'Cálculo de Pago': horasCalc,
+        'Día Extraordinario (Feriado/Descanso)': l.es_dia_extra ? 'SÍ' : 'NO',
+        'Motivo Reportado': l.justificacion || 'N/A',
+        'Estado Aprobación': statusJustificacion.replace(/_/g, ' ')
       };
     });
     

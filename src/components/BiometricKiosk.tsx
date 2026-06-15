@@ -46,6 +46,12 @@ export function BiometricKiosk() {
   const [specialMode, setSpecialMode] = useState(false);
   const [specialDirection, setSpecialDirection] = useState('INGRESO');
 
+  // New Biometric 2-Step Validation State
+  const [employeeInput, setEmployeeInput] = useState('');
+  const [employeeToVerify, setEmployeeToVerify] = useState<any>(null);
+  const [consecutiveMatches, setConsecutiveMatches] = useState(0);
+  const [livenessBuffer, setLivenessBuffer] = useState<any[]>([]);
+
   const [isRegistering, setIsRegistering] = useState(false);
   const [registerStep, setRegisterStep] = useState<'pin' | 'select' | 'capture'>('pin');
   const [pinCode, setPinCode] = useState('');
@@ -75,9 +81,12 @@ export function BiometricKiosk() {
       selectedRegisterEmp,
       faceData,
       pendingActionSelect,
-      pendingJustification
+      pendingJustification,
+      employeeToVerify,
+      consecutiveMatches,
+      livenessBuffer
     };
-  }, [isRegistering, registerStep, selectedRegisterEmp, faceData, pendingActionSelect, pendingJustification]);
+  }, [isRegistering, registerStep, selectedRegisterEmp, faceData, pendingActionSelect, pendingJustification, employeeToVerify, consecutiveMatches, livenessBuffer]);
 
   useEffect(() => {
     loadModels();
@@ -132,8 +141,40 @@ export function BiometricKiosk() {
     if (data) setRegisterEmployees(data);
   };
 
+  const handleVerifyCode = async () => {
+    if (!employeeInput) return;
+    setMatchStatus('verifying');
+    setStatusMessage('Buscando empleado...');
+    
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase) return;
+
+    const { data: emp, error } = await supabase
+      .from('employees')
+      .select('*')
+      .or(`codigo_empleado.eq.${employeeInput},id.eq.${employeeInput}`)
+      .single();
+
+    if (error || !emp) {
+      showError('Empleado no encontrado');
+      return;
+    }
+
+    if (!emp.face_embedding) {
+      showError('Empleado no tiene rostro registrado');
+      return;
+    }
+
+    setEmployeeToVerify(emp);
+    setMatchStatus('idle');
+    setStatusMessage('');
+    startVideo();
+  };
+
   const startVideo = () => {
     setIsCameraActive(true);
+    setConsecutiveMatches(0);
+    setLivenessBuffer([]);
     navigator.mediaDevices.getUserMedia({ video: true })
       .then((stream) => { if (videoRef.current) videoRef.current.srcObject = stream; })
       .catch((err) => console.error('Error webcam', err));
@@ -170,41 +211,75 @@ export function BiometricKiosk() {
             } else {
               setFaceStatus('ready');
             }
-
             if (refs.isRegistering && refs.registerStep === 'capture' && refs.selectedRegisterEmp) {
+               const newBuffer = [...refs.livenessBuffer, Array.from(detections.descriptor)];
+               if (newBuffer.length < 5) {
+                 setLivenessBuffer(newBuffer);
+                 setRegisterStatusMsg(`Capturando... ${newBuffer.length}/5`);
+                 return;
+               }
+               
                cooldownRef.current = true;
-               setRegisterStatusMsg('Rostro verificado, guardando datos faciales...');
+               setRegisterStatusMsg('Verificando Liveness y guardando datos...');
+               
+               const dist = faceapi.euclideanDistance(new Float32Array(newBuffer[0]), new Float32Array(newBuffer[4]));
+               if (dist < 0.01) { // Liveness check (too static)
+                 setRegisterStatusMsg('Liveness Fallido: Rostro demasiado estático (Posible Foto)');
+                 setTimeout(() => { setLivenessBuffer([]); cooldownRef.current = false; }, 3000);
+                 return;
+               }
+
                const supabase = getSupabaseBrowserClient();
                if (supabase) {
-                 await supabase.from('employees').update({ face_embedding: Array.from(detections.descriptor) }).eq('id', refs.selectedRegisterEmp.id);
-                 setRegisterStatusMsg('¡Datos faciales registrados!');
+                 await supabase.from('employees').update({ face_embedding: newBuffer }).eq('id', refs.selectedRegisterEmp.id);
+                 setRegisterStatusMsg('¡Datos faciales registrados correctamente!');
                  await fetchEmployeeEmbeddings();
                  setTimeout(() => {
-                   setIsRegistering(false); setRegisterStep('pin'); setSelectedRegisterEmp(null); stopVideo(); cooldownRef.current = false;
+                   setIsRegistering(false); setRegisterStep('pin'); setSelectedRegisterEmp(null); stopVideo(); cooldownRef.current = false; setLivenessBuffer([]);
                  }, 3000);
                }
                return;
             }
 
-            if (refs.isRegistering) return;
+            if (refs.isRegistering || !refs.employeeToVerify) return;
             
-            let bestMatch = null;
-            let bestDistance = 0.45; 
-            let closestDistance = 1.0; 
-
-            for (const emp of refs.faceData) {
-              const distance = faceapi.euclideanDistance(detections.descriptor, new Float32Array(emp.face_embedding));
-              if (distance < closestDistance) closestDistance = distance;
-              if (distance < bestDistance) { bestDistance = distance; bestMatch = emp; }
+            const emp = refs.employeeToVerify;
+            let embeddingsToTest = [];
+            if (Array.isArray(emp.face_embedding[0])) {
+               embeddingsToTest = emp.face_embedding;
+            } else {
+               embeddingsToTest = [emp.face_embedding];
             }
 
-            if (bestMatch) {
-              setFaceStatus('capturing');
-              prepareActionSelect(bestMatch);
+            let bestDistance = 1.0;
+            for (const emb of embeddingsToTest) {
+               const dist = faceapi.euclideanDistance(detections.descriptor, new Float32Array(emb));
+               if (dist < bestDistance) bestDistance = dist;
+            }
+
+            if (bestDistance <= 0.42) {
+               const newBuffer = [...refs.livenessBuffer, Array.from(detections.descriptor)];
+               if (newBuffer.length < 5) {
+                 setLivenessBuffer(newBuffer);
+                 setFaceStatus('capturing');
+                 return;
+               }
+
+               const livenessDist = faceapi.euclideanDistance(new Float32Array(newBuffer[0]), new Float32Array(newBuffer[4]));
+               if (livenessDist < 0.01) {
+                 setFaceStatus('unknown');
+                 setStatusMessage('Liveness Fallido (Mueva ligeramente la cabeza)');
+                 setLivenessBuffer([]);
+                 return;
+               }
+
+               setFaceStatus('ready');
+               prepareActionSelect(emp);
             } else if (detections.detection.score >= 0.85) {
                setFaceStatus('unknown');
-               setStatusMessage(`No coincide (Distancia: ${closestDistance.toFixed(2)})`);
-            }
+               setStatusMessage(`Rostro no coincide con empleado ${emp.codigo_empleado || emp.id.substring(0,6)}`);
+               setLivenessBuffer([]);
+            } 
           }
         } catch (err) { console.error('Error face detection', err); }
       }
@@ -445,7 +520,7 @@ export function BiometricKiosk() {
     setTimeout(() => {
       setMatchStatus('idle'); setStatusMessage(''); setPendingActionSelect(null); setPendingJustification(null);
       setSelectedReason(''); setOtherReason(''); setSpecialMode(false); setSpecialDirection('INGRESO');
-      setFaceStatus('searching');
+      setFaceStatus('searching'); setEmployeeInput(''); setEmployeeToVerify(null); setConsecutiveMatches(0); setLivenessBuffer([]);
       cooldownRef.current = false; stopVideo();
     }, ms);
   };
@@ -479,23 +554,52 @@ export function BiometricKiosk() {
 
       <div className="w-full h-[600px] bg-slate-900 relative flex items-center justify-center">
         {!isCameraActive ? (
-           <div className="flex flex-col items-center justify-center space-y-6 p-8 pb-28 text-center animate-in fade-in zoom-in-95 duration-500">
+           <div className="flex flex-col items-center justify-center space-y-6 p-8 pb-10 text-center animate-in fade-in zoom-in-95 duration-500 w-full">
               <div className="w-full max-w-md bg-slate-800/80 p-8 rounded-3xl border border-slate-700/50 backdrop-blur-md shadow-2xl flex flex-col items-center">
-                 <div className="w-24 h-24 bg-[#2ec4f1]/20 rounded-full flex items-center justify-center mb-6">
-                    <Clock className="w-12 h-12 text-[#2ec4f1]" />
-                 </div>
-                 <div className="text-center mb-4">
+                 <div className="text-center mb-6">
                    <p className="text-white font-black text-2xl tracking-wide uppercase drop-shadow-md">
                      {policies?.kiosko_mensaje_bienvenida || 'Bienvenido a Tech Corps Guatemala'}
                    </p>
                  </div>
-                 <p className="text-slate-300 text-sm font-medium leading-relaxed text-center">
-                   Presione <strong className="text-white">MARCAR</strong> para habilitar la cámara. Su estado laboral se detectará automáticamente.
+                 <p className="text-slate-300 text-sm font-medium leading-relaxed text-center mb-6">
+                   Ingrese su <strong className="text-white">Código de Empleado</strong> para verificar su identidad mediante reconocimiento facial.
                  </p>
+                 
+                 <div className="w-full relative mb-6">
+                   <input 
+                     type="text" 
+                     value={employeeInput} 
+                     onChange={(e) => setEmployeeInput(e.target.value)}
+                     onKeyDown={(e) => e.key === 'Enter' && handleVerifyCode()}
+                     placeholder="Código de Empleado"
+                     className="w-full bg-slate-900 border-2 border-[#2ec4f1]/50 focus:border-[#2ec4f1] text-white text-center text-3xl font-black tracking-widest py-4 rounded-2xl outline-none shadow-inner transition-colors"
+                     autoFocus
+                   />
+                 </div>
+
+                 {/* Numpad */}
+                 <div className="grid grid-cols-3 gap-3 w-full mb-6">
+                    {[1,2,3,4,5,6,7,8,9].map(num => (
+                      <button key={num} onClick={() => setEmployeeInput(prev => prev + num)} className="bg-slate-700 hover:bg-slate-600 text-white font-black text-2xl py-4 rounded-xl transition-colors shadow-md">
+                        {num}
+                      </button>
+                    ))}
+                    <button onClick={() => setEmployeeInput('')} className="bg-rose-500/20 hover:bg-rose-500/40 text-rose-400 font-bold text-sm uppercase py-4 rounded-xl transition-colors">
+                      Borrar
+                    </button>
+                    <button onClick={() => setEmployeeInput(prev => prev + '0')} className="bg-slate-700 hover:bg-slate-600 text-white font-black text-2xl py-4 rounded-xl transition-colors shadow-md">
+                      0
+                    </button>
+                    <button onClick={() => setEmployeeInput(prev => prev.slice(0, -1))} className="bg-slate-700 hover:bg-slate-600 text-white font-bold text-sm uppercase py-4 rounded-xl transition-colors flex items-center justify-center">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M3 12l6.414 6.414a2 2 0 001.414.586H19a2 2 0 002-2V7a2 2 0 00-2-2h-8.172a2 2 0 00-1.414.586L3 12z" /></svg>
+                    </button>
+                 </div>
+
+                 <button onClick={handleVerifyCode} disabled={!employeeInput || matchStatus === 'verifying'} className="w-full py-5 bg-[#2ec4f1] hover:bg-[#2ec4f1]/80 text-slate-950 font-black text-xl tracking-widest rounded-2xl transition-all transform hover:scale-[1.02] active:scale-95 shadow-[0_0_20px_rgba(46,196,241,0.3)] disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2">
+                   {matchStatus === 'verifying' ? <Loader2 className="w-6 h-6 animate-spin" /> : 'Siguiente'}
+                 </button>
+                 {statusMessage && <p className={`mt-4 text-sm font-bold ${matchStatus === 'error' ? 'text-rose-400' : 'text-[#2ec4f1]'}`}>{statusMessage}</p>}
               </div>
-              <button onClick={startVideo} className="px-16 py-5 bg-[#2ec4f1] hover:bg-[#2ec4f1]/80 text-slate-950 font-black text-3xl tracking-widest rounded-full transition-all transform hover:scale-105 active:scale-95 shadow-[0_0_30px_rgba(46,196,241,0.5)]">
-                MARCAR ASISTENCIA
-              </button>
            </div>
         ) : (
           <>

@@ -1,15 +1,35 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
-export async function getBespokeKPIs() {
+export async function getBespokeKPIs(timeRange: string = 'Hoy') {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return null;
 
-  const startOfDay = new Date();
-  startOfDay.setHours(0, 0, 0, 0);
-  const endOfDay = new Date();
-  endOfDay.setHours(23, 59, 59, 999);
-  const startIso = startOfDay.toISOString();
-  const endIso = endOfDay.toISOString();
+  const startOfRange = new Date();
+  const endOfRange = new Date();
+
+  if (timeRange === 'Ayer') {
+    startOfRange.setDate(startOfRange.getDate() - 1);
+    startOfRange.setHours(0, 0, 0, 0);
+    endOfRange.setDate(endOfRange.getDate() - 1);
+    endOfRange.setHours(23, 59, 59, 999);
+  } else if (timeRange === 'Esta Semana') {
+    const day = startOfRange.getDay();
+    const diff = startOfRange.getDate() - day + (day === 0 ? -6 : 1); // Lunes
+    startOfRange.setDate(diff);
+    startOfRange.setHours(0, 0, 0, 0);
+    endOfRange.setHours(23, 59, 59, 999);
+  } else if (timeRange === 'Este Mes') {
+    startOfRange.setDate(1);
+    startOfRange.setHours(0, 0, 0, 0);
+    endOfRange.setHours(23, 59, 59, 999);
+  } else {
+    // Hoy
+    startOfRange.setHours(0, 0, 0, 0);
+    endOfRange.setHours(23, 59, 59, 999);
+  }
+
+  const startIso = startOfRange.toISOString();
+  const endIso = endOfRange.toISOString();
 
   // We need users to map names
   const { data: usersData } = await supabase
@@ -39,13 +59,13 @@ export async function getBespokeKPIs() {
   };
 
   // ---- 1. Recepcion General ----
-  const { data: receptions } = await supabase.from('receptions').select('id, received_units, received_by, courier, origen_cac, created_at').gte('created_at', startIso).lte('created_at', endIso);
+  const { data: receptions } = await supabase.from('receptions').select('id, received_units, received_by, carrier, source, created_at').gte('created_at', startIso).lte('created_at', endIso);
   let cajasRecibidasHoy = receptions?.length || 0;
   let totalUnidades = receptions?.reduce((acc: number, r: any) => acc + (r.received_units || 0), 0) || 0;
-  let origenCac = receptions?.filter(r => r.origen_cac).length || 0;
+  let origenCac = receptions?.filter(r => r.source === 'cac').length || 0;
   let origenPx = cajasRecibidasHoy - origenCac;
 
-  const couriersSet = new Set(receptions?.map(r => r.courier?.trim() || 'Desconocido'));
+  const couriersSet = new Set(receptions?.map(r => r.carrier?.trim() || 'Desconocido'));
   const activeCouriers = Array.from(couriersSet).filter(Boolean);
 
   const getCouriersSummary = (isDevolucion: boolean) => {
@@ -53,7 +73,7 @@ export async function getBespokeKPIs() {
     // Pero si hubiese lógica, la aplicaríamos aquí.
     if (isDevolucion) return []; 
     return activeCouriers.map(c => {
-      const items = receptions?.filter(r => (r.courier?.trim() || 'Desconocido') === c) || [];
+      const items = receptions?.filter(r => (r.carrier?.trim() || 'Desconocido') === c) || [];
       const cajas = items.length;
       const unidades = items.reduce((a, b) => a + (b.received_units || 0), 0);
       return { courier: c, cajas, procesadasHoy: cajas, acumulada: unidades };

@@ -9,7 +9,7 @@ export type UserKPI = {
   percentage: number;
 };
 
-export async function getDailyKPIs(): Promise<UserKPI[]> {
+export async function getDailyKPIs(timeRange: string = 'Hoy'): Promise<UserKPI[]> {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return [];
 
@@ -29,14 +29,31 @@ export async function getDailyKPIs(): Promise<UserKPI[]> {
     console.warn('user_kpi_targets table might not exist yet.');
   }
 
-  // Obtener fecha de hoy inicio/fin en UTC
-  const startOfDay = new Date();
-  startOfDay.setHours(0, 0, 0, 0);
-  const endOfDay = new Date();
-  endOfDay.setHours(23, 59, 59, 999);
+  const startOfRange = new Date();
+  const endOfRange = new Date();
 
-  const startIso = startOfDay.toISOString();
-  const endIso = endOfDay.toISOString();
+  if (timeRange === 'Ayer') {
+    startOfRange.setDate(startOfRange.getDate() - 1);
+    startOfRange.setHours(0, 0, 0, 0);
+    endOfRange.setDate(endOfRange.getDate() - 1);
+    endOfRange.setHours(23, 59, 59, 999);
+  } else if (timeRange === 'Esta Semana') {
+    const day = startOfRange.getDay();
+    const diff = startOfRange.getDate() - day + (day === 0 ? -6 : 1);
+    startOfRange.setDate(diff);
+    startOfRange.setHours(0, 0, 0, 0);
+    endOfRange.setHours(23, 59, 59, 999);
+  } else if (timeRange === 'Este Mes') {
+    startOfRange.setDate(1);
+    startOfRange.setHours(0, 0, 0, 0);
+    endOfRange.setHours(23, 59, 59, 999);
+  } else {
+    startOfRange.setHours(0, 0, 0, 0);
+    endOfRange.setHours(23, 59, 59, 999);
+  }
+
+  const startIso = startOfRange.toISOString();
+  const endIso = endOfRange.toISOString();
 
   // Recepciones de hoy
   const { data: receptions } = await supabase
@@ -141,13 +158,26 @@ export type DashboardMetrics = {
   productionByBrand: { name: string; count: number }[];
 };
 
-export async function getDashboardMetrics(): Promise<DashboardMetrics> {
+export async function getDashboardMetrics(timeRange: string = 'Hoy'): Promise<DashboardMetrics> {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { totalProduction: 0, activeTechnicians: 0, errorRate: 0, productionByBrand: [] };
 
-  const startOfDay = new Date();
-  startOfDay.setHours(0, 0, 0, 0);
-  const startIso = startOfDay.toISOString();
+  const startOfRange = new Date();
+  if (timeRange === 'Ayer') {
+    startOfRange.setDate(startOfRange.getDate() - 1);
+    startOfRange.setHours(0, 0, 0, 0);
+  } else if (timeRange === 'Esta Semana') {
+    const day = startOfRange.getDay();
+    const diff = startOfRange.getDate() - day + (day === 0 ? -6 : 1);
+    startOfRange.setDate(diff);
+    startOfRange.setHours(0, 0, 0, 0);
+  } else if (timeRange === 'Este Mes') {
+    startOfRange.setDate(1);
+    startOfRange.setHours(0, 0, 0, 0);
+  } else {
+    startOfRange.setHours(0, 0, 0, 0);
+  }
+  const startIso = startOfRange.toISOString();
 
   // Total Production & Active Technicians
   const { data: jobs } = await supabase

@@ -2,8 +2,9 @@ import React from 'react';
 import { Card, Badge, Button } from '@/components/ui';
 import { Users, AlertTriangle, Calendar } from 'lucide-react';
 
-export function BackofficeKpiView({ data }: { data: any }) {
+export function BackofficeKpiView({ data, timeRange = 'Hoy' }: { data: any, timeRange?: string }) {
   if (!data) return null;
+  const timeLabel = timeRange.toUpperCase();
 
   return (
     <div className="flex flex-col gap-4 border-2 border-slate-200 rounded-xl bg-[#f9f8f4] overflow-hidden">
@@ -29,7 +30,7 @@ export function BackofficeKpiView({ data }: { data: any }) {
       {/* Main Metrics */}
       <div className="grid grid-cols-3 gap-4 px-4">
         <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Unidades registradas hoy</p>
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Unidades registradas ({timeLabel})</p>
           <p className="text-3xl font-black text-blue-600">{data.registradasHoy}</p>
         </Card>
         <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100 border-l-[3px] border-l-[#181c3a]">
@@ -42,23 +43,10 @@ export function BackofficeKpiView({ data }: { data: any }) {
         </Card>
       </div>
 
-      {/* Filters (Mocked appearance) */}
+      {/* Filters (Removed redundant date range) */}
       <div className="bg-white mx-4 rounded-xl border border-slate-200 p-4 space-y-3">
-        <span className="text-xs font-bold text-slate-400">Rango:</span>
-        <div className="flex gap-4">
-          <div className="flex-1 flex items-center border border-slate-200 rounded px-3 py-2 text-slate-500">
-            <span className="flex-1">mm/dd/aaaa</span>
-            <Calendar className="w-4 h-4" />
-          </div>
-          <span className="text-slate-400">—</span>
-          <div className="flex-1 flex items-center border border-slate-200 rounded px-3 py-2 text-slate-500">
-            <span className="flex-1">mm/dd/aaaa</span>
-            <Calendar className="w-4 h-4" />
-          </div>
-        </div>
-        <div className="flex gap-4 items-center pt-2">
-          <Button variant="outline" className="font-bold border-slate-300">Aplicar</Button>
-          <span className="text-xs font-bold text-slate-400 ml-4">Ver por:</span>
+        <div className="flex gap-4 items-center">
+          <span className="text-xs font-bold text-slate-400">Ver por:</span>
           <div className="flex gap-2">
             <Button variant="outline" className="text-xs font-bold border-[#181c3a] text-[#181c3a]">Usuario</Button>
             <Button variant="outline" className="text-xs font-bold text-slate-500">Tecnología</Button>
@@ -81,7 +69,7 @@ export function BackofficeKpiView({ data }: { data: any }) {
               <thead className="text-slate-800 border-b border-slate-200 bg-white">
                 <tr>
                   <th className="p-2 font-bold">Usuario</th>
-                  <th className="p-2 font-bold text-center">Registradas hoy</th>
+                  <th className="p-2 font-bold text-center">Registradas ({timeLabel})</th>
                   <th className="p-2 font-bold text-center">Totales</th>
                 </tr>
               </thead>
@@ -106,7 +94,7 @@ export function BackofficeKpiView({ data }: { data: any }) {
               <thead className="text-slate-800 border-b border-slate-200 bg-white">
                 <tr>
                   <th className="p-2 font-bold">Usuario</th>
-                  <th className="p-2 font-bold text-center">Registradas hoy</th>
+                  <th className="p-2 font-bold text-center">Registradas ({timeLabel})</th>
                   <th className="p-2 font-bold text-center">Totales</th>
                 </tr>
               </thead>
@@ -131,7 +119,7 @@ export function BackofficeKpiView({ data }: { data: any }) {
               <thead className="text-slate-800 border-b border-slate-200 bg-white">
                 <tr>
                   <th className="p-2 font-bold">Usuario</th>
-                  <th className="p-2 font-bold text-center">Registradas hoy</th>
+                  <th className="p-2 font-bold text-center">Registradas ({timeLabel})</th>
                   <th className="p-2 font-bold text-center">PX</th>
                   <th className="p-2 font-bold text-center">CAC</th>
                 </tr>
@@ -156,7 +144,7 @@ export function BackofficeKpiView({ data }: { data: any }) {
             <thead className="text-slate-800 border-b border-slate-200 bg-white">
               <tr>
                 <th className="p-2 font-bold">Tecnología</th>
-                <th className="p-2 font-bold text-center">Ingresada Hoy</th>
+                <th className="p-2 font-bold text-center">Ingresada ({timeLabel})</th>
                 <th className="p-2 font-bold text-center">Acumulada Esta Semana</th>
                 <th className="p-2 font-bold text-center">Acumulada este mes</th>
               </tr>

@@ -2,8 +2,9 @@ import React from 'react';
 import { Card, Badge, Button } from '@/components/ui';
 import { Warehouse, AlertTriangle, Clock } from 'lucide-react';
 
-export function BodegaKpiView({ data }: { data: any }) {
+export function BodegaKpiView({ data, timeRange = 'Hoy' }: { data: any, timeRange?: string }) {
   if (!data) return null;
+  const timeLabel = timeRange.toUpperCase();
 
   return (
     <div className="flex flex-col gap-4 border-2 border-slate-200 rounded-xl bg-[#f9f8f4] overflow-hidden">
@@ -22,23 +23,35 @@ export function BodegaKpiView({ data }: { data: any }) {
       <div className="mx-4 mt-2 px-4 py-3 bg-[#f3efe6] border border-[#e8dfc8] rounded-lg flex items-center gap-3">
         <AlertTriangle className="text-[#a48e58] w-5 h-5" />
         <span className="text-sm font-semibold text-[#665a3d]">
-          Unidades pendientes de ingresar: <span className="font-black text-[#181c3a]">{data.unidadesPendientes}</span> | Sin tecnología asignada: <span className="font-black text-[#181c3a]">{data.sinTecnologia}</span>
+          Pendientes de ingresar: <span className="font-black text-[#181c3a]">{data.pendientesIngreso}</span> | Pendientes de Recepción (desde Backoffice): <span className="font-black text-[#181c3a]">{data.pendientesRecepcion}</span>
         </span>
       </div>
 
-      {/* Main Metrics */}
-      <div className="grid grid-cols-3 gap-4 px-4">
-        <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Ingresadas a bodega</p>
-          <p className="text-3xl font-black text-emerald-600">{data.ingresadasBodega}</p>
+      {/* Main Metrics (Flow Oriented) */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 px-4">
+        <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100 border-t-[3px] border-t-emerald-600">
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 line-clamp-1">BOX recibidas ({timeLabel})</p>
+          <p className="text-2xl font-black text-emerald-600">{data.ingresadasHoy}</p>
         </Card>
-        <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100 border-l-[3px] border-l-[#181c3a]">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Pendiente de ingresar</p>
-          <p className="text-3xl font-black text-[#86754d]">{data.pendienteIngresar}</p>
+        <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100 border-t-[3px] border-t-amber-500">
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 line-clamp-1" title="Equipos pendientes de ingresar">Pendientes Ingresar</p>
+          <p className="text-2xl font-black text-amber-600">{data.pendientesIngreso}</p>
         </Card>
-        <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100 border-l-[3px] border-l-[#181c3a]">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Total en bodega</p>
-          <p className="text-3xl font-black text-[#181c3a]">{data.totalEnBodega}</p>
+        <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100 border-t-[3px] border-t-orange-500">
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 line-clamp-1" title="Pendientes de Recepción (Historial Backoffice)">Pendiente Recepción</p>
+          <p className="text-2xl font-black text-orange-600">{data.pendientesRecepcion}</p>
+        </Card>
+        <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100 border-t-[3px] border-t-blue-500">
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 line-clamp-1">Traslados</p>
+          <p className="text-2xl font-black text-blue-600">{data.traslados}</p>
+        </Card>
+        <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100 border-t-[3px] border-t-purple-500">
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 line-clamp-1">Despachos</p>
+          <p className="text-2xl font-black text-purple-600">{data.despachos}</p>
+        </Card>
+        <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100 border-t-[3px] border-t-[#181c3a]">
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 line-clamp-1">Inv. Disponible</p>
+          <p className="text-2xl font-black text-[#181c3a]">{data.inventario}</p>
         </Card>
       </div>
 

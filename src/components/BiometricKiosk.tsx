@@ -96,8 +96,8 @@ export function BiometricKiosk() {
   const fetchPolicies = async () => {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
-    const { data } = await supabase.from('hr_policies').select('*').limit(1).single();
-    if (data) setPolicies(data);
+    const { data } = await supabase.from('hr_policies_versions').select('*').eq('is_active', true).order('version', { ascending: false }).limit(1).single();
+    if (data && data.settings) setPolicies(data.settings);
   };
 
   const loadModels = async () => {
@@ -215,6 +215,7 @@ export function BiometricKiosk() {
 
   const prepareActionSelect = async (employee: any) => {
     cooldownRef.current = true;
+    stopVideo();
     setMatchStatus('verifying');
     setStatusMessage('Autenticando...');
 
@@ -239,7 +240,7 @@ export function BiometricKiosk() {
         setPendingJustification({
           action: 'MARCAJE_ESPECIAL',
           data: { employee, shift, logs },
-          options: ["Reingreso a Laborar", "Trabajo Extraordinario", "Capacitación", "Emergencia", "Comisión Externa", "Otros"]
+          options: policies?.justificaciones_marcaje_especial || ["Reingreso a Laborar", "Trabajo Extraordinario", "Capacitación", "Emergencia", "Comisión Externa", "Otros"]
         });
         setSpecialMode(false);
         return;
@@ -268,18 +269,26 @@ export function BiometricKiosk() {
     };
 
     setPendingActionSelect(null);
+    stopVideo();
 
     if (action === 'INGRESO' && (punchData.tardanza_segundos > 0 || punchData.minRetraso > 0)) {
-      setPendingJustification({ action, data: punchData, options: ["Tráfico", "Transporte público", "Cita médica", "Emergencia familiar", "Otros"] });
+      setPendingJustification({ action, data: punchData, options: policies?.justificaciones_llegada_tarde || ["Tráfico", "Transporte público", "Cita médica", "Emergencia familiar", "Otros"] });
       return;
     }
-    if ((action === 'REGRESO_REFACCION' || action === 'DESAYUNO_FIN' || action === 'REGRESO_ALMUERZO' || action === 'ALMUERZO_FIN') && 
-        (punchData.exceso_almuerzo_segundos > 0 || punchData.exceso_desayuno_segundos > 0 || punchData.minExcesoAlm > 0 || punchData.minExcesoBreak > 0)) {
-      setPendingJustification({ action, data: punchData, options: ["Atención a cliente", "Reunión", "Demora en servicio", "Problema operativo", "Otros"] });
-      return;
+    if (action === 'REGRESO_REFACCION' || action === 'DESAYUNO_FIN') {
+      if (punchData.exceso_desayuno_segundos > 0 || punchData.minExcesoBreak > 0) {
+        setPendingJustification({ action, data: punchData, options: policies?.justificaciones_exceso_desayuno || ["Atención a cliente", "Reunión", "Demora en servicio", "Problema operativo", "Otros"] });
+        return;
+      }
+    }
+    if (action === 'REGRESO_ALMUERZO' || action === 'ALMUERZO_FIN') {
+      if (punchData.exceso_almuerzo_segundos > 0 || punchData.minExcesoAlm > 0) {
+        setPendingJustification({ action, data: punchData, options: policies?.justificaciones_exceso_almuerzo || ["Atención a cliente", "Reunión", "Demora en servicio", "Problema operativo", "Otros"] });
+        return;
+      }
     }
     if (action === 'SALIDA_FINAL' && (punchData.salida_anticipada_segundos > 0 || punchData.minSalidaAnt > 0)) {
-      setPendingJustification({ action, data: punchData, options: ["Salud", "Emergencia", "Permiso autorizado", "Comisión laboral", "Otros"] });
+      setPendingJustification({ action, data: punchData, options: policies?.justificaciones_salida_anticipada || ["Salud", "Emergencia", "Permiso autorizado", "Comisión laboral", "Otros"] });
       return;
     }
 

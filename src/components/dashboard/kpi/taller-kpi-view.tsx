@@ -2,8 +2,9 @@ import React from 'react';
 import { Card, Badge } from '@/components/ui';
 import { Wrench, AlertTriangle, Search, CheckCircle, ArrowRightCircle, Activity } from 'lucide-react';
 
-export function TallerKpiView({ data }: { data: any }) {
+export function TallerKpiView({ data, timeRange = 'Hoy' }: { data: any, timeRange?: string }) {
   if (!data) return null;
+  const timeLabel = timeRange.toUpperCase();
 
   return (
     <div className="flex flex-col gap-4 border-2 border-slate-200 rounded-xl bg-[#f9f8f4] overflow-hidden">
@@ -19,7 +20,7 @@ export function TallerKpiView({ data }: { data: any }) {
           <a href="/configuracion/metas" className="flex items-center gap-2 px-4 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors">
             <Activity size={14} /> Configurar Metas
           </a>
-          <Badge className="bg-indigo-50 text-indigo-600 font-bold px-4 py-1.5">Hoy</Badge>
+          <Badge className="bg-[#181c3a] text-white font-bold px-4 py-1.5">{timeRange}</Badge>
         </div>
       </div>
 
@@ -34,23 +35,23 @@ export function TallerKpiView({ data }: { data: any }) {
       {/* Main Metrics */}
       <div className="grid grid-cols-5 gap-4 px-4">
         <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Diagnosticadas</p>
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1" title="Equipos que finalizaron diagnóstico en el rango">Diag. Procesadas ({timeLabel})</p>
           <p className="text-3xl font-black text-blue-600">{data.diagnosticadas}</p>
         </Card>
         <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100 border-l-[3px] border-l-blue-600">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Reacondicionadas</p>
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1" title="Equipos reacondicionados en el rango">Reacond. ({timeLabel})</p>
           <p className="text-3xl font-black text-blue-600">{data.reacondicionadas}</p>
         </Card>
         <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100 border-l-[3px] border-l-blue-600">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Reparadas</p>
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1" title="Equipos reparados en el rango">Reparadas ({timeLabel})</p>
           <p className="text-3xl font-black text-blue-600">{data.reparadas}</p>
         </Card>
         <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100 border-l-[3px] border-l-emerald-600">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Aprobadas CC</p>
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1" title="Equipos aprobados por CC en el rango">Aprobadas CC ({timeLabel})</p>
           <p className="text-3xl font-black text-emerald-600">{data.aprobadasCC}</p>
         </Card>
         <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100 border-l-[3px] border-l-rose-600">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Rechazadas CC</p>
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1" title="Equipos rechazados por CC en el rango">Rechazadas CC ({timeLabel})</p>
           <p className="text-3xl font-black text-rose-600">{data.rechazadasCC}</p>
         </Card>
       </div>

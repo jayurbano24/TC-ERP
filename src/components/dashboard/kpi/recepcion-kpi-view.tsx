@@ -2,8 +2,9 @@ import React from 'react';
 import { Card, Badge, Button } from '@/components/ui';
 import { Calendar, Filter, Users, AlertTriangle, Package, Truck, Layers } from 'lucide-react';
 
-export function RecepcionKpiView({ data }: { data: any }) {
+export function RecepcionKpiView({ data, timeRange = 'Hoy' }: { data: any, timeRange?: string }) {
   if (!data) return null;
+  const timeLabel = timeRange.toUpperCase();
 
   return (
     <div className="flex flex-col gap-4 border-2 border-slate-200 rounded-xl bg-[#f9f8f4] overflow-hidden">
@@ -15,7 +16,7 @@ export function RecepcionKpiView({ data }: { data: any }) {
           </div>
           <h3 className="text-lg font-black text-[#181c3a]">Recepción general</h3>
         </div>
-        <Badge className="bg-blue-50 text-blue-600 font-bold px-4 py-1">Hoy</Badge>
+        <Badge variant="blue" className="bg-slate-100 text-[#181c3a] border-none font-bold px-4">{timeLabel}</Badge>
       </div>
 
       {/* Warning Banner */}
@@ -28,21 +29,53 @@ export function RecepcionKpiView({ data }: { data: any }) {
 
       {/* Main Metrics */}
       <div className="grid grid-cols-4 gap-4 px-4">
-        <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Cajas recibidas hoy</p>
-          <p className="text-3xl font-black text-blue-600">{data.cajasRecibidasHoy}</p>
+        {/* Breakdown de Cajas Recibidas */}
+        <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100 col-span-2">
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">CAJAS RECIBIDAS ({timeLabel})</p>
+          <div className="flex items-center gap-6">
+            <div>
+              <p className="text-3xl font-black text-blue-600">{data.cajasRecibidasHoy}</p>
+              <p className="text-[10px] font-semibold text-slate-400 mt-1">TOTAL</p>
+            </div>
+            <div className="h-10 w-px bg-slate-200"></div>
+            <div className="flex gap-4">
+              <div className="text-center">
+                <p className="text-lg font-bold text-slate-700">{data.breakdown?.equipos || 0}</p>
+                <p className="text-[9px] font-semibold text-slate-500 uppercase">Equipos</p>
+              </div>
+              <div className="text-center">
+                <p className="text-lg font-bold text-slate-700">{data.breakdown?.accesorios || 0}</p>
+                <p className="text-[9px] font-semibold text-slate-500 uppercase">Accesorios</p>
+              </div>
+              <div className="text-center">
+                <p className="text-lg font-bold text-slate-700">{data.breakdown?.moviles || 0}</p>
+                <p className="text-[9px] font-semibold text-slate-500 uppercase">Móviles</p>
+              </div>
+            </div>
+          </div>
         </Card>
-        <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Total unidades</p>
+
+        {/* Total Unidades (Solo Equipos) */}
+        <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100 flex flex-col justify-center">
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 flex items-center gap-1">
+            Total unidades <span className="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-bold">Solo Equipos</span>
+          </p>
           <p className="text-3xl font-black text-blue-600">{data.totalUnidades}</p>
         </Card>
-        <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100 border-l-[3px] border-l-[#181c3a]">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Origen CAC</p>
-          <p className="text-3xl font-black text-[#181c3a]">{data.origenCac}</p>
-        </Card>
-        <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100 border-l-[3px] border-l-[#181c3a]">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Origen PX</p>
-          <p className="text-3xl font-black text-[#181c3a]">{data.origenPx}</p>
+
+        {/* Origen */}
+        <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100 border-l-[3px] border-l-[#181c3a] flex flex-col justify-center">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Origen CAC</p>
+              <p className="text-2xl font-black text-[#181c3a]">{data.origenCac}</p>
+            </div>
+            <div className="h-8 w-px bg-slate-200"></div>
+            <div className="text-right">
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Origen PX</p>
+              <p className="text-2xl font-black text-[#181c3a]">{data.origenPx}</p>
+            </div>
+          </div>
         </Card>
       </div>
 
@@ -53,7 +86,7 @@ export function RecepcionKpiView({ data }: { data: any }) {
             <tr className="border-b border-slate-200">
               <th className="py-2 px-3 font-bold text-[#181c3a] text-xs w-1/4"></th>
               <th className="py-2 px-3 font-bold text-[#181c3a] text-xs text-center border-l border-slate-200">CAJA</th>
-              <th className="py-2 px-3 font-bold text-[#181c3a] text-xs text-center border-l border-slate-200">PROCESADA HOY</th>
+              <th className="px-6 py-4 text-[10px] font-black tracking-widest text-[#181c3a] uppercase text-center w-32 border-x border-slate-100 bg-blue-50/50">PROCESADA ({timeLabel})</th>
               <th className="py-2 px-3 font-bold text-[#181c3a] text-xs text-center border-l border-slate-200">ACUMULADA</th>
               <th className="py-2 px-3 border-l border-slate-200"></th>
             </tr>

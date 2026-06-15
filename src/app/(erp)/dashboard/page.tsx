@@ -11,7 +11,7 @@ import {
   getBIData,
   getStorageData
 } from '@/lib/database/kpi';
-import { getBespokeKPIs } from '@/lib/database/bespoke-kpi';
+import { getEngineKPIs } from '@/lib/database/kpi-engine';
 import { RecepcionKpiView } from '@/components/dashboard/kpi/recepcion-kpi-view';
 import { BackofficeKpiView } from '@/components/dashboard/kpi/backoffice-kpi-view';
 import { BodegaKpiView } from '@/components/dashboard/kpi/bodega-kpi-view';
@@ -51,6 +51,7 @@ export default function GeneralDashboardPage() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [biData, setBiData] = useState<{ tech: string, condition: string, price: number, quantity: number }[]>([]);
   const [storageData, setStorageData] = useState({ ingresados: 0, despachados: 0, sinMovimiento60: 0, sinMovimiento90: 0 });
+  const [timeRange, setTimeRange] = useState('Hoy');
   
   const [sortConfig, setSortConfig] = useState<{key: string, direction: 'asc'|'desc'} | null>(null);
 
@@ -83,19 +84,19 @@ export default function GeneralDashboardPage() {
 
   useEffect(() => {
     async function fetchData() {
-      const kpiData = await getDailyKPIs();
+      const kpiData = await getDailyKPIs(timeRange);
       setKpis(kpiData);
-      const metricsData = await getDashboardMetrics();
+      const metricsData = await getDashboardMetrics(timeRange);
       setMetrics(metricsData);
-      const bData = await getBespokeKPIs();
+      const bData = await getEngineKPIs(timeRange);
       setBespokeData(bData);
-      const biInfo = await getBIData();
+      const biInfo = await getBIData(); // BI data depends on its own range logic currently, usually monthly
       setBiData(biInfo);
-      const storageInfo = await getStorageData();
+      const storageInfo = await getStorageData(); // Storage is historical, no range needed
       setStorageData(storageInfo);
     }
     fetchData();
-  }, []);
+  }, [timeRange]);
 
   const handleSaveKPI = async (userId: string) => {
     const val = parseInt(editTargetValue);
@@ -113,8 +114,13 @@ export default function GeneralDashboardPage() {
       category="Gestión"
     >
       <div className="flex justify-end gap-2 -mt-16 mb-8 relative z-10 mr-4">
-        <select className="bg-white border border-slate-200 rounded-lg px-4 py-2 text-sm font-bold text-slate-700 outline-none">
+        <select 
+          className="bg-white border border-slate-200 rounded-lg px-4 py-2 text-sm font-bold text-slate-700 outline-none"
+          value={timeRange}
+          onChange={(e) => setTimeRange(e.target.value)}
+        >
           <option>Hoy</option>
+          <option>Ayer</option>
           <option>Esta Semana</option>
           <option>Este Mes</option>
         </select>
@@ -446,11 +452,31 @@ export default function GeneralDashboardPage() {
 
         {activeTab === 'kpi' && bespokeData && (
           <div className="flex flex-col gap-8 animate-rise-in max-w-7xl mx-auto">
-            <RecepcionKpiView data={bespokeData.recepcion} />
-            <BackofficeKpiView data={bespokeData.backoffice} />
-            <BodegaKpiView data={bespokeData.bodega} />
-            <TallerKpiView data={bespokeData.taller} />
-            <SalidaKpiView data={bespokeData.salida} />
+            {/* Estado Operativo Banner */}
+            {bespokeData?.estadoOperativo && (
+              <div className="mx-4 mb-4 mt-2 px-4 py-3 bg-white border border-slate-200 shadow-sm rounded-xl flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-500 uppercase">Estado Operativo</span>
+                </div>
+                <div className="flex items-center gap-4 text-sm font-bold text-[#181c3a]">
+                  <div className="flex flex-col items-center"><span className="text-xl text-blue-600">{bespokeData.estadoOperativo.recepcion}</span><span className="text-[10px] text-slate-400">Recepción</span></div>
+                  <span className="text-slate-300">→</span>
+                  <div className="flex flex-col items-center"><span className="text-xl text-indigo-600">{bespokeData.estadoOperativo.backoffice}</span><span className="text-[10px] text-slate-400">Backoffice</span></div>
+                  <span className="text-slate-300">→</span>
+                  <div className="flex flex-col items-center"><span className="text-xl text-purple-600">{bespokeData.estadoOperativo.taller}</span><span className="text-[10px] text-slate-400">Taller</span></div>
+                  <span className="text-slate-300">→</span>
+                  <div className="flex flex-col items-center"><span className="text-xl text-emerald-600">{bespokeData.estadoOperativo.bodega}</span><span className="text-[10px] text-slate-400">Bodega</span></div>
+                  <span className="text-slate-300">→</span>
+                  <div className="flex flex-col items-center"><span className="text-xl text-orange-600">{bespokeData.estadoOperativo.despacho}</span><span className="text-[10px] text-slate-400">Despacho</span></div>
+                </div>
+              </div>
+            )}
+
+            <RecepcionKpiView data={bespokeData?.recepcion} timeRange={timeRange} />
+            <BackofficeKpiView data={bespokeData?.backoffice} timeRange={timeRange} />
+            <BodegaKpiView data={bespokeData?.bodega} timeRange={timeRange} />
+            <TallerKpiView data={bespokeData.taller} timeRange={timeRange} />
+            <SalidaKpiView data={bespokeData.salida} timeRange={timeRange} />
           </div>
         )}
 

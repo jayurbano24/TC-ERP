@@ -88,7 +88,7 @@ export default function PlanillaTab() {
         
         const bonoMetas = Number(emp.bono_metas || 0);
 
-        const neto = sueldoQuincenal + pagoExtras + bonoMetas - totalDescuentos;
+        const neto = sueldoQuincenal + pagoExtras + bonoMetas; // No se restan los descuentos por solicitud del usuario
 
         return {
           ...emp,
@@ -127,7 +127,7 @@ export default function PlanillaTab() {
       const bonifDecreto = 125.00; // Estático para quincena
       const otrosBonos = emp.pagoExtras + emp.bonoMetas;
       const totalQuincena = emp.sueldoQuincenal + bonifDecreto + otrosBonos;
-      const liquidoRecibir = totalQuincena - emp.descuentoTotal;
+      const liquidoRecibir = totalQuincena; // No se restan los descuentos por solicitud del usuario
 
       return {
         'COLABORADOR': emp.nombre_completo,

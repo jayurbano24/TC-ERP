@@ -83,11 +83,18 @@ export function useAttendanceState({ logs, shift, policies }: UseAttendanceState
     const now = new Date();
     const currentMins = now.getHours() * 60 + now.getMinutes();
 
-    const desayunoStart = shift?.ventana_desayuno_inicio ? parseInt(shift.ventana_desayuno_inicio.split(':')[0]) * 60 + parseInt(shift.ventana_desayuno_inicio.split(':')[1]) : 9 * 60;
-    const desayunoEnd = shift?.ventana_desayuno_fin ? parseInt(shift.ventana_desayuno_fin.split(':')[0]) * 60 + parseInt(shift.ventana_desayuno_fin.split(':')[1]) : 10 * 60 + 15;
+    const parseTime = (timeStr: string | undefined, defaultMins: number) => {
+      if (!timeStr) return defaultMins;
+      const parts = timeStr.split(':');
+      if (parts.length < 2) return defaultMins;
+      return parseInt(parts[0]) * 60 + parseInt(parts[1]);
+    };
+
+    const desayunoStart = shift?.ventana_desayuno_inicio ? parseTime(shift.ventana_desayuno_inicio, 9*60) : parseTime(policies?.horario_desayuno_inicio, 9*60);
+    const desayunoEnd = shift?.ventana_desayuno_fin ? parseTime(shift.ventana_desayuno_fin, 10*60+15) : parseTime(policies?.horario_desayuno_fin, 10*60+15);
     
-    const almuerzoStart = shift?.ventana_almuerzo_inicio ? parseInt(shift.ventana_almuerzo_inicio.split(':')[0]) * 60 + parseInt(shift.ventana_almuerzo_inicio.split(':')[1]) : 12 * 60;
-    const almuerzoEnd = shift?.ventana_almuerzo_fin ? parseInt(shift.ventana_almuerzo_fin.split(':')[0]) * 60 + parseInt(shift.ventana_almuerzo_fin.split(':')[1]) : 15 * 60 + 30;
+    const almuerzoStart = shift?.ventana_almuerzo_inicio ? parseTime(shift.ventana_almuerzo_inicio, 12*60) : parseTime(policies?.horario_almuerzo_inicio, 12*60);
+    const almuerzoEnd = shift?.ventana_almuerzo_fin ? parseTime(shift.ventana_almuerzo_fin, 15*60+30) : parseTime(policies?.horario_almuerzo_fin, 15*60+30);
 
     switch (currentState) {
       case 'NO_INGRESO':
@@ -95,10 +102,10 @@ export function useAttendanceState({ logs, shift, policies }: UseAttendanceState
         actions.push('INGRESO');
         break;
       case 'LABORANDO':
-        if (!yaDesayuno && currentMins >= desayunoStart && currentMins <= desayunoEnd) {
+        if (!yaDesayuno && (policies?.regla_permitir_desayuno_tarde || (currentMins >= desayunoStart && currentMins <= desayunoEnd))) {
           actions.push('SALIDA_REFACCION');
         }
-        if (!yaAlmorzo && currentMins >= almuerzoStart && currentMins <= almuerzoEnd) {
+        if (!yaAlmorzo && (policies?.regla_permitir_almuerzo_tarde || (currentMins >= almuerzoStart && currentMins <= almuerzoEnd))) {
           actions.push('SALIDA_ALMUERZO');
         }
         actions.push('SALIDA_FINAL');
@@ -140,7 +147,7 @@ export function useAttendanceState({ logs, shift, policies }: UseAttendanceState
     const tolSalida = policies?.tolerancia_salida_min ?? 10;
     const duracionDesayuno = shift?.duracion_desayuno_override ?? policies?.duracion_desayuno_min ?? 15;
     const duracionAlmuerzo = shift?.duracion_almuerzo_override ?? policies?.duracion_almuerzo_min ?? 60;
-    const maxExcesoReceso = policies?.max_exceso_receso_min ?? 5; 
+    const maxExcesoReceso = policies?.gracia_recesos_min ?? policies?.max_exceso_receso_min ?? 5; 
 
     if (action === 'INGRESO') {
       if (daySchedule) {

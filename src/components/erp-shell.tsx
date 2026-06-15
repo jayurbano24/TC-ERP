@@ -91,8 +91,8 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
             return;
           } else {
              const sessionAgeHours = (new Date().getTime() - new Date(sessionData.created_at).getTime()) / (1000 * 60 * 60);
-             if (sessionAgeHours > 5) {
-               // Sesión excedió las 5 horas
+             if (sessionAgeHours > 16) {
+               // Sesión excedió las 16 horas (turno extendido)
                await supabase.from('user_sessions').delete().eq('id', localSessionId);
                handleLogout();
                return;

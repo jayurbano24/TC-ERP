@@ -2,8 +2,9 @@ import React from 'react';
 import { Card, Badge } from '@/components/ui';
 import { Package, Truck, Clock } from 'lucide-react';
 
-export function SalidaKpiView({ data }: { data: any }) {
+export function SalidaKpiView({ data, timeRange = 'Hoy' }: { data: any, timeRange?: string }) {
   if (!data) return null;
+  const timeLabel = timeRange.toUpperCase();
 
   return (
     <div className="flex flex-col gap-4 border-2 border-slate-200 rounded-xl bg-[#f9f8f4] overflow-hidden">
@@ -21,14 +22,14 @@ export function SalidaKpiView({ data }: { data: any }) {
       {/* Warning Banner */}
       <div className="mx-4 mt-2 px-4 py-3 bg-blue-50/50 border border-blue-100 rounded-lg flex items-center gap-3">
         <span className="text-sm font-semibold text-blue-800">
-          Equipos listos para despacho: <span className="font-black text-blue-900">{data.listosDespacho}</span> | Despachados hoy: <span className="font-black text-blue-900">{data.despachadosHoy}</span>
+          Equipos listos para despacho: <span className="font-black text-blue-900">{data.listosDespacho}</span> | Despachados ({timeLabel}): <span className="font-black text-blue-900">{data.despachadosHoy}</span>
         </span>
       </div>
 
       {/* Main Metrics */}
       <div className="grid grid-cols-3 gap-4 px-4">
         <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Despachadas hoy</p>
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Despachadas ({timeLabel})</p>
           <p className="text-3xl font-black text-emerald-600">{data.despachadasHoy}</p>
         </Card>
         <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100 border-l-[3px] border-l-[#181c3a]">

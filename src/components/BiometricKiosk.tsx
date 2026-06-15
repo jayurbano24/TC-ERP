@@ -189,7 +189,7 @@ export function BiometricKiosk() {
             if (refs.isRegistering) return;
             
             let bestMatch = null;
-            let bestDistance = 0.75; 
+            let bestDistance = 0.45; 
             let closestDistance = 1.0; 
 
             for (const emp of refs.faceData) {
@@ -404,10 +404,10 @@ export function BiometricKiosk() {
       let text = 'Marcación registrada';
       if (eventToLog === 'INGRESO') text = `Bienvenido, ${shortName}`;
       if (eventToLog === 'SALIDA_FINAL') text = `Hasta pronto, ${shortName}`;
-      if (eventToLog === 'DESAYUNO_INICIO') text = `Buen provecho, ${shortName}`;
-      if (eventToLog === 'DESAYUNO_FIN') text = `Bienvenido de vuelta, ${shortName}`;
-      if (eventToLog === 'ALMUERZO_INICIO') text = `Buen provecho, ${shortName}`;
-      if (eventToLog === 'ALMUERZO_FIN') text = `Bienvenido de vuelta, ${shortName}`;
+      if (eventToLog === 'DESAYUNO_INICIO' || eventToLog === 'SALIDA_REFACCION') text = `Buen provecho, ${shortName}`;
+      if (eventToLog === 'DESAYUNO_FIN' || eventToLog === 'REGRESO_REFACCION') text = `Bienvenido de vuelta, ${shortName}`;
+      if (eventToLog === 'ALMUERZO_INICIO' || eventToLog === 'SALIDA_ALMUERZO') text = `Buen provecho, ${shortName}`;
+      if (eventToLog === 'ALMUERZO_FIN' || eventToLog === 'REGRESO_ALMUERZO') text = `Bienvenido de vuelta, ${shortName}`;
       setStatusMessage(text);
       playTTS(eventToLog, shortName);
       resetCooldown(policies?.kiosko_tiempo_bloqueo_ms || 4000);

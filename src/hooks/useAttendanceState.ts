@@ -96,18 +96,18 @@ export function useAttendanceState({ logs, shift, policies }: UseAttendanceState
         break;
       case 'LABORANDO':
         if (!yaDesayuno && currentMins >= desayunoStart && currentMins <= desayunoEnd) {
-          actions.push('DESAYUNO_INICIO');
+          actions.push('SALIDA_REFACCION');
         }
         if (!yaAlmorzo && currentMins >= almuerzoStart && currentMins <= almuerzoEnd) {
-          actions.push('ALMUERZO_INICIO');
+          actions.push('SALIDA_ALMUERZO');
         }
         actions.push('SALIDA_FINAL');
         break;
       case 'DESAYUNO':
-        actions.push('DESAYUNO_FIN');
+        actions.push('REGRESO_REFACCION');
         break;
       case 'ALMUERZO':
-        actions.push('ALMUERZO_FIN');
+        actions.push('REGRESO_ALMUERZO');
         break;
       case 'COMISION':
         break;

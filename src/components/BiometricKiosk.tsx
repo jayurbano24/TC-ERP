@@ -149,11 +149,21 @@ export function BiometricKiosk() {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
 
+    // Si el usuario ingresa "21", buscamos "21" pero también "EMP-0021"
+    const parsedNumber = parseInt(employeeInput, 10);
+    const formattedCode = employeeInput.startsWith('EMP') 
+      ? employeeInput 
+      : (!isNaN(parsedNumber) ? `EMP-${parsedNumber.toString().padStart(4, '0')}` : employeeInput);
+
     const { data: emp, error } = await supabase
       .from('employees')
       .select('*')
-      .or(`codigo_empleado.eq.${employeeInput},id.eq.${employeeInput}`)
+      .or(`codigo_empleado.eq.${employeeInput},codigo_empleado.eq.${formattedCode}`)
       .single();
+
+    if (error) {
+      console.error("Error fetching employee:", error);
+    }
 
     if (error || !emp) {
       showError('Empleado no encontrado');
@@ -552,53 +562,53 @@ export function BiometricKiosk() {
         </button>
       )}
 
-      <div className="w-full h-[600px] bg-slate-900 relative flex items-center justify-center">
+      <div className="w-full min-h-[650px] bg-slate-900 relative flex items-center justify-center py-12">
         {!isCameraActive ? (
-           <div className="flex flex-col items-center justify-center space-y-6 p-8 pb-10 text-center animate-in fade-in zoom-in-95 duration-500 w-full">
-              <div className="w-full max-w-md bg-slate-800/80 p-8 rounded-3xl border border-slate-700/50 backdrop-blur-md shadow-2xl flex flex-col items-center">
-                 <div className="text-center mb-6">
-                   <p className="text-white font-black text-2xl tracking-wide uppercase drop-shadow-md">
+           <div className="flex flex-col items-center justify-center p-4 text-center animate-in fade-in zoom-in-95 duration-500 w-full h-full">
+              <div className="w-full max-w-md bg-slate-800/80 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-md shadow-2xl flex flex-col items-center">
+                 <div className="text-center mb-3">
+                   <p className="text-white font-black text-xl tracking-wide uppercase drop-shadow-md">
                      {policies?.kiosko_mensaje_bienvenida || 'Bienvenido a Tech Corps Guatemala'}
                    </p>
                  </div>
-                 <p className="text-slate-300 text-sm font-medium leading-relaxed text-center mb-6">
-                   Ingrese su <strong className="text-white">Código de Empleado</strong> para verificar su identidad mediante reconocimiento facial.
+                 <p className="text-slate-300 text-xs font-medium leading-relaxed text-center mb-4">
+                   Ingrese su <strong className="text-white">Código de Empleado</strong> para verificar su identidad.
                  </p>
                  
-                 <div className="w-full relative mb-6">
+                 <div className="w-full relative mb-4">
                    <input 
                      type="text" 
                      value={employeeInput} 
                      onChange={(e) => setEmployeeInput(e.target.value)}
                      onKeyDown={(e) => e.key === 'Enter' && handleVerifyCode()}
-                     placeholder="Código de Empleado"
-                     className="w-full bg-slate-900 border-2 border-[#2ec4f1]/50 focus:border-[#2ec4f1] text-white text-center text-3xl font-black tracking-widest py-4 rounded-2xl outline-none shadow-inner transition-colors"
+                     placeholder="Código"
+                     className="w-full bg-slate-900 border-2 border-[#2ec4f1]/50 focus:border-[#2ec4f1] text-white text-center text-3xl font-black tracking-widest py-3 rounded-xl outline-none shadow-inner transition-colors"
                      autoFocus
                    />
                  </div>
 
                  {/* Numpad */}
-                 <div className="grid grid-cols-3 gap-3 w-full mb-6">
+                 <div className="grid grid-cols-3 gap-2 w-full mb-4">
                     {[1,2,3,4,5,6,7,8,9].map(num => (
-                      <button key={num} onClick={() => setEmployeeInput(prev => prev + num)} className="bg-slate-700 hover:bg-slate-600 text-white font-black text-2xl py-4 rounded-xl transition-colors shadow-md">
+                      <button key={num} onClick={() => setEmployeeInput(prev => prev + num)} className="bg-slate-700 hover:bg-slate-600 text-white font-black text-xl py-3 rounded-lg transition-colors shadow-sm">
                         {num}
                       </button>
                     ))}
-                    <button onClick={() => setEmployeeInput('')} className="bg-rose-500/20 hover:bg-rose-500/40 text-rose-400 font-bold text-sm uppercase py-4 rounded-xl transition-colors">
+                    <button onClick={() => setEmployeeInput('')} className="bg-rose-500/20 hover:bg-rose-500/40 text-rose-400 font-bold text-xs uppercase py-3 rounded-lg transition-colors">
                       Borrar
                     </button>
-                    <button onClick={() => setEmployeeInput(prev => prev + '0')} className="bg-slate-700 hover:bg-slate-600 text-white font-black text-2xl py-4 rounded-xl transition-colors shadow-md">
+                    <button onClick={() => setEmployeeInput(prev => prev + '0')} className="bg-slate-700 hover:bg-slate-600 text-white font-black text-xl py-3 rounded-lg transition-colors shadow-sm">
                       0
                     </button>
-                    <button onClick={() => setEmployeeInput(prev => prev.slice(0, -1))} className="bg-slate-700 hover:bg-slate-600 text-white font-bold text-sm uppercase py-4 rounded-xl transition-colors flex items-center justify-center">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M3 12l6.414 6.414a2 2 0 001.414.586H19a2 2 0 002-2V7a2 2 0 00-2-2h-8.172a2 2 0 00-1.414.586L3 12z" /></svg>
+                    <button onClick={() => setEmployeeInput(prev => prev.slice(0, -1))} className="bg-slate-700 hover:bg-slate-600 text-white font-bold text-sm uppercase py-3 rounded-lg transition-colors flex items-center justify-center">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M3 12l6.414 6.414a2 2 0 001.414.586H19a2 2 0 002-2V7a2 2 0 00-2-2h-8.172a2 2 0 00-1.414.586L3 12z" /></svg>
                     </button>
                  </div>
 
-                 <button onClick={handleVerifyCode} disabled={!employeeInput || matchStatus === 'verifying'} className="w-full py-5 bg-[#2ec4f1] hover:bg-[#2ec4f1]/80 text-slate-950 font-black text-xl tracking-widest rounded-2xl transition-all transform hover:scale-[1.02] active:scale-95 shadow-[0_0_20px_rgba(46,196,241,0.3)] disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2">
-                   {matchStatus === 'verifying' ? <Loader2 className="w-6 h-6 animate-spin" /> : 'Siguiente'}
+                 <button onClick={handleVerifyCode} disabled={!employeeInput || matchStatus === 'verifying'} className="w-full py-4 bg-[#2ec4f1] hover:bg-[#2ec4f1]/80 text-slate-950 font-black text-lg tracking-widest rounded-xl transition-all transform hover:scale-[1.02] active:scale-95 shadow-[0_0_15px_rgba(46,196,241,0.3)] disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2">
+                   {matchStatus === 'verifying' ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Siguiente'}
                  </button>
-                 {statusMessage && <p className={`mt-4 text-sm font-bold ${matchStatus === 'error' ? 'text-rose-400' : 'text-[#2ec4f1]'}`}>{statusMessage}</p>}
+                 {statusMessage && <p className={`mt-3 text-xs font-bold ${matchStatus === 'error' ? 'text-rose-400' : 'text-[#2ec4f1]'}`}>{statusMessage}</p>}
               </div>
            </div>
         ) : (

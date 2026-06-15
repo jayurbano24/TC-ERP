@@ -10,8 +10,8 @@ const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 async function main() {
-  const { data, error } = await supabase.from('series').select('*').eq('current_reception_id', '3f79d1ad-21ee-464b-b158-257d752646a5');
-  console.log(JSON.stringify(data, null, 2));
+  const { data, error } = await supabase.from('receptions').select('id, notes');
+  console.log(JSON.stringify(data?.slice(0, 10), null, 2));
 }
 
 main();

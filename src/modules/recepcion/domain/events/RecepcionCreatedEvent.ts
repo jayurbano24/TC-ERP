@@ -18,4 +18,14 @@ export class RecepcionCreatedEvent implements DomainEvent {
   ) {
     this.occurredAt = new Date();
   }
+
+  get payload() {
+    return {
+      id: this.id,
+      tipo: this.tipo,
+      items: this.items,
+      tenant: this.tenant,
+      branch: this.branch
+    };
+  }
 }

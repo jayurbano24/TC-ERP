@@ -1,12 +1,12 @@
-import { IEventHandler } from '../../../../shared/events/IEventBus';
-import { DomainEvent } from '../../../../shared/domain/BaseAggregate';
+import { IEventHandler } from '../../../../shared/events/IEventHandler';
+import { DomainEvent } from '../../../../shared/events/DomainEvent';
 import { CrearDespachoCommand } from '../commands/CrearDespachoCommand';
 import { RequestContextBuilder } from '../../../../shared/context/RequestContextBuilder';
 
-export class ReparacionFinalizadaEventHandler implements IEventHandler {
+export class ReparacionFinalizadaEventHandler implements IEventHandler<any> {
   constructor(private readonly command: CrearDespachoCommand) {}
 
-  async handle(event: DomainEvent): Promise<void> {
+  async handle(event: any): Promise<void> {
     const payload: any = event.payload;
 
     const ctx = new RequestContextBuilder()

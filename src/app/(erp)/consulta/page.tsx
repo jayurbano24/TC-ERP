@@ -118,6 +118,7 @@ export default function ConsultaPage() {
       case 'in_qc': 
       case 'in_validation': return 'CONTROL DE CALIDAD';
       case 'scrap': return 'SCRAP';
+      case 'RECEPCIONADO_BODEGA_GENERAL': return 'PENDIENTE INGRESO BODEGA GENERAL';
       default: return status.replace(/_/g, ' ').toUpperCase();
     }
   };

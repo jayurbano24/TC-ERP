@@ -3,13 +3,12 @@ import { NextResponse } from 'next/server';
 import { GetDespachosPendientesQuery } from '../../../../modules/despacho/application/queries/GetDespachosPendientesQuery';
 import { RequestContextBuilder } from '../../../../shared/context/RequestContextBuilder';
 import { FeatureFlagService } from '../../../../shared/feature-flags/FeatureFlagService';
-import prisma from '../../../../infrastructure/database/prisma/client';
 
 import { container } from '../../../../shared/di/container';
 
 export async function GET(request: Request) {
   try {
-    const query = new GetDespachosPendientesQuery();
+    const query = container.resolve(GetDespachosPendientesQuery);
     const featureFlagService = container.resolve(FeatureFlagService);
 
     const ctx = new RequestContextBuilder()

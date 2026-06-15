@@ -1,46 +1,42 @@
-import { injectable } from 'tsyringe';
+import { injectable, inject } from 'tsyringe';
 import { IQueryHandler } from '../../../../modules/recepcion/application/cqrs/IQueryHandler';
 import { GetProduccionDashboardQuery } from './GetProduccionDashboardQuery';
 import { RequestContext } from '../../../../shared/context/RequestContext';
-import { getTenantPrisma } from '../../../../infrastructure/database/prisma/client';
+import { SupabaseClient } from '@supabase/supabase-js';
 
 @injectable()
 export class GetProduccionDashboardHandler implements IQueryHandler<GetProduccionDashboardQuery, any> {
-  async execute(query: GetProduccionDashboardQuery, ctx: RequestContext): Promise<any> {
-    const prisma = getTenantPrisma(ctx);
+  constructor(
+    @inject('SupabaseClient') private readonly supabase: SupabaseClient
+  ) {}
 
-    const [
-      diagnosticosPendientes,
-      diagnosticosEnProceso,
-      reparacionesEnEspera,
-      reparacionesActivas
-    ] = await Promise.all([
-      prisma.prodDiagnostico.count({ where: { estado: 'PENDIENTE', is_deleted: false } }),
-      prisma.prodDiagnostico.count({ where: { estado: 'EN_PROCESO', is_deleted: false } }),
-      prisma.prodReparacion.count({ where: { estado: 'ESPERA_REPUESTOS', is_deleted: false } }),
-      prisma.prodReparacion.count({ where: { estado: 'REPARANDO', is_deleted: false } })
+  async execute(query: GetProduccionDashboardQuery, ctx: RequestContext): Promise<any> {
+    const tenantId = ctx.tenantId;
+
+    const [{ count: diagPendientes }, { count: diagProceso }, { count: repEspera }, { count: repActivas }] = await Promise.all([
+      this.supabase.from('prod_diagnostico').select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId).eq('estado', 'PENDIENTE').eq('is_deleted', false),
+      this.supabase.from('prod_diagnostico').select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId).eq('estado', 'EN_PROCESO').eq('is_deleted', false),
+      this.supabase.from('prod_reparacion').select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId).eq('estado', 'ESPERA_REPUESTOS').eq('is_deleted', false),
+      this.supabase.from('prod_reparacion').select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId).eq('estado', 'REPARANDO').eq('is_deleted', false),
     ]);
 
-    const ultimosDiagnosticos = await prisma.prodDiagnostico.findMany({
-      where: { estado: 'COMPLETADO', is_deleted: false },
-      orderBy: { updated_at: 'desc' },
-      take: 10,
-      select: {
-        id: true,
-        orden_logistica_id: true,
-        tecnico_id: true,
-        updated_at: true
-      }
-    });
+    const { data: ultimosDiagnosticos } = await this.supabase
+      .from('prod_diagnostico')
+      .select('id, orden_logistica_id, tecnico_id, updated_at')
+      .eq('tenant_id', tenantId)
+      .eq('estado', 'COMPLETADO')
+      .eq('is_deleted', false)
+      .order('updated_at', { ascending: false })
+      .limit(10);
 
     return {
       kpis: {
-        diagnosticosPendientes,
-        diagnosticosEnProceso,
-        reparacionesEnEspera,
-        reparacionesActivas
+        diagnosticosPendientes: diagPendientes || 0,
+        diagnosticosEnProceso: diagProceso || 0,
+        reparacionesEnEspera: repEspera || 0,
+        reparacionesActivas: repActivas || 0
       },
-      ultimosDiagnosticos
+      ultimosDiagnosticos: ultimosDiagnosticos || []
     };
   }
 }

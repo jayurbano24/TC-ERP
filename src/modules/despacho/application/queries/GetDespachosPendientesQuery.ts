@@ -1,16 +1,25 @@
-import { getTenantPrisma } from '../../../../infrastructure/database/prisma/client';
+import { SupabaseClient } from '@supabase/supabase-js';
 import { RequestContext } from '../../../../shared/context/RequestContext';
+import { injectable, inject } from 'tsyringe';
 
+@injectable()
 export class GetDespachosPendientesQuery {
+  constructor(
+    @inject('SupabaseClient') private readonly supabase: SupabaseClient
+  ) {}
+
   async execute(ctx: RequestContext) {
-    const prisma = getTenantPrisma(ctx);
+    const { data: despachos } = await this.supabase
+      .from('despacho_orden')
+      .select('*')
+      .eq('tenant_id', ctx.tenantId)
+      .eq('estado', 'PENDIENTE')
+      .eq('is_deleted', false)
+      .order('created_at', { ascending: true });
 
-    const despachos = await prisma.despachoOrden.findMany({
-      where: { estado: 'PENDIENTE', is_deleted: false },
-      orderBy: { created_at: 'asc' }
-    });
+    if (!despachos) return [];
 
-    return despachos.map(d => ({
+    return despachos.map((d: any) => ({
       id: d.id,
       reparacionId: d.reparacion_id,
       cliente: d.cliente_nombre,

@@ -1,11 +1,11 @@
 import { injectable } from 'tsyringe';
 import { IAuthProvider, AuthUser } from './IAuthProvider';
-import { createClient } from '../../lib/supabase/client';
+import { getSupabaseBrowserClient } from '../../lib/supabase/client';
 
 @injectable()
 export class SupabaseAuthProvider implements IAuthProvider {
   async getCurrentUser(): Promise<AuthUser | null> {
-    const supabase = createClient();
+    const supabase = getSupabaseBrowserClient()!;
     const { data: { user }, error } = await supabase.auth.getUser();
     
     if (error || !user) return null;
@@ -19,7 +19,7 @@ export class SupabaseAuthProvider implements IAuthProvider {
   }
 
   async signOut(): Promise<void> {
-    const supabase = createClient();
+    const supabase = getSupabaseBrowserClient()!;
     await supabase.auth.signOut();
   }
 }

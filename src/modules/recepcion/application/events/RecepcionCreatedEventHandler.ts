@@ -8,8 +8,8 @@ export class RecepcionCreatedEventHandler implements IEventHandler<RecepcionCrea
     // Aquí iría la lógica reactiva (ej: notificar por email, actualizar dashboard en tiempo real, etc)
     // Por ahora solo logueamos para verificar el funcionamiento del Event Bus.
     console.log(`[EVENT BUS] Evento procesado: ${event.eventName}`, {
-      ordenServicioId: event.ordenServicioId,
-      tipoRecepcion: event.tipoRecepcion,
+      ordenServicioId: event.id,
+      tipoRecepcion: event.tipo,
       occurredAt: event.occurredAt
     });
   }

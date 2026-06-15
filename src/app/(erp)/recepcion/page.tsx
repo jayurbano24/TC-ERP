@@ -19,17 +19,34 @@ import { receptionService } from './services/receptionService';
 import { printingService } from './services/printingService';
 import { getCarriers, getTechnologies, getBrands, getModels, getPxProviders } from '@/lib/database/config';
 import { getReceptions } from '@/lib/database/receptions';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 
 export default function ReceptionsPage() {
   const [moduleMode, setModuleMode] = useState<'cac' | 'px'>('cac');
   const [activeTab, setActiveTab] = useState<'scan' | 'history'>('scan');
   const [currentUserFullName, setCurrentUserFullName] = useState('OPERADOR_SISTEMA');
 
+  // History Tab State
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterPilot, setFilterPilot] = useState('Todos');
+  const [showTimeline, setShowTimeline] = useState<any | null>(null);
+  const [timelineActiveGuide, setTimelineActiveGuide] = useState<string | null>(null);
+
   // Load PX State
   const pxState = useReceptionPX();
   
   // Load CAC State
   const cacState = useReceptionCAC();
+
+  useEffect(() => {
+    getSupabaseBrowserClient().auth.getUser().then(({data}) => {
+      if (data?.user?.user_metadata?.full_name) {
+        setCurrentUserFullName(data.user.user_metadata.full_name);
+      } else if (data?.user?.email) {
+        setCurrentUserFullName(data.user.email.split('@')[0]);
+      }
+    });
+  }, []);
 
   // Load Scanner State
   const scannerState = useReceptionScanner();
@@ -55,58 +72,105 @@ export default function ReceptionsPage() {
         })
       });
 
-      const data = await response.json();
-      
       if (!response.ok) {
-        if (data.error === 'El nuevo módulo de recepción no está activo') {
-          // Fallback a lógica legacy si el Feature Flag está apagado
+        let errorMsg = 'Error en el servidor al procesar la recepción CAC';
+        try {
+          const errorData = await response.json();
+          errorMsg = errorData.error || errorMsg;
+        } catch {
+          const textData = await response.text();
+          errorMsg = textData || errorMsg;
+        }
+
+        if (errorMsg === 'El nuevo módulo de recepción no está activo') {
           alert('Fallback a lógica Legacy (Feature Flag OFF)');
         } else {
-          throw new Error(data.error);
+          throw new Error(errorMsg);
         }
       } else {
+        await response.json(); // Consumir body
         alert('Recepción CAC guardada con éxito mediante Arquitectura Enterprise');
         cacState.setCacScannedItems([]);
         scannerState.setIsIndustrialScanning(false);
       }
     } catch (err: any) {
-      cacState.setCacError(err.message);
+      cacState.setCacError(err.message || 'Error de conexión');
     }
   };
 
   const handleFinalizePX = async () => {
     try {
-      pxState.setPxError('');
-      // Llamamos a la API unificada
-      const response = await fetch('/api/recepcion', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tipo: 'PX',
-          payload: {
-            numeroSerie: pxState.scannedItems[0] || 'DESCONOCIDO',
-            guiaPx: pxState.guideData.guiaPx || 'S/N',
-            transporte: pxState.guideData.proveedorPx || 'PROPIO'
-          }
-        })
-      });
-
-      const data = await response.json();
-      
-      if (!response.ok) {
-        if (data.error === 'El nuevo módulo de recepción no está activo') {
-          // Fallback a lógica legacy si el Feature Flag está apagado
-          alert('Fallback a lógica Legacy (Feature Flag OFF)');
-        } else {
-          throw new Error(data.error);
-        }
-      } else {
-        alert('Recepción PX guardada con éxito mediante Arquitectura Enterprise');
-        pxState.setScannedItems([]);
-        scannerState.setIsIndustrialScanning(false);
+      if (pxState.manifestItems.length === 0) {
+        alert('No hay cajas en el manifiesto.');
+        return;
       }
+      if (pxState.scannedSeries.length === 0) {
+        alert('No hay series escaneadas.');
+        return;
+      }
+
+      // Utilizamos la lógica Legacy directamente para asegurar el ingreso a Bodega General
+      const result = await receptionService.finalizePXReception(
+        pxState.guideData,
+        pxState.manifestItems,
+        pxState.scannedSeries,
+        systemBrands,
+        systemModels,
+        currentUserFullName
+      );
+
+      if (result && result.error) {
+        throw new Error(result.error);
+      }
+
+      alert('Recepción PX guardada con éxito e ingresada a Bodega General.');
+      
+      // Limpiar formulario
+      pxState.setManifestItems([]);
+      pxState.setScannedSeries([]);
+      pxState.setGuideData({ 
+        sap: '', 
+        docReferencia: '', 
+        agencia: 'Monte Verdes', 
+        proveedorPx: '', 
+        guia: '', 
+        piloto: '', 
+        courier: '' 
+      });
+      scannerState.setIsIndustrialScanning(false);
+      
+      // Recargar el historial silenciosamente
+      const historyData = await getReceptions();
+      if (historyData) {
+        const mappedPx: any[] = [];
+        const mappedCac: any[] = [];
+        for (const row of historyData) {
+          const legacyRec = {
+            id: row.id,
+            fecha_formateada: new Date(row.created_at).toLocaleString(),
+            guide_number: row.guide_number,
+            carrier: row.carrier || '---',
+            usuario: row.received_by || 'SISTEMA',
+            received_by: row.received_by || 'SISTEMA',
+            received_units: row.received_units || 1,
+            status: row.status || 'RECEPCIONADA',
+            notes: row.notes || '',
+            sap_document: row.sap_document || '---',
+            sap_orden_servicio: row.id,
+            tipo: row.source.toUpperCase(),
+            pilot_display: row.carrier || 'OPERADOR LOGÍSTICO',
+            allGuias: row.processed_guides || []
+          };
+          if (row.source === 'px') mappedPx.push(legacyRec);
+          else mappedCac.push(legacyRec);
+        }
+        pxState.setPxRecords(mappedPx);
+        cacState.setCacRecords(mappedCac);
+      }
+
     } catch (err: any) {
-      pxState.setPxError(err.message);
+      console.error(err);
+      alert(err.message || 'Error de conexión');
     }
   };
   
@@ -144,27 +208,137 @@ export default function ReceptionsPage() {
       }
     };
     fetchConfig();
+
+    const fetchHistory = async () => {
+      try {
+        const data = await getReceptions();
+        
+        if (data) {
+          const mappedPx: any[] = [];
+          const mappedCac: any[] = [];
+          
+          for (const row of data) {
+            // Already in legacy format, but ensure proper shape for HistoryTab
+            const legacyRec = {
+              id: row.id,
+              fecha_formateada: new Date(row.created_at).toLocaleString(),
+              guide_number: row.guide_number,
+              carrier: row.carrier || '---',
+              usuario: row.received_by || 'SISTEMA',
+              received_by: row.received_by || 'SISTEMA',
+              received_units: row.received_units || 1,
+              status: row.status || 'RECEPCIONADA',
+              notes: row.notes || '',
+              sap_document: row.sap_document || '---',
+              sap_orden_servicio: row.id,
+              tipo: row.source.toUpperCase(),
+              pilot_display: row.carrier || 'OPERADOR LOGÍSTICO',
+              allGuias: row.processed_guides || []
+            };
+            
+            if (row.source === 'px') {
+              mappedPx.push(legacyRec);
+            } else {
+              mappedCac.push(legacyRec);
+            }
+          }
+          
+          pxState.setPxRecords(mappedPx);
+          cacState.setCacRecords(mappedCac);
+        }
+      } catch(err) {
+        console.error('Error fetching history', err);
+      }
+    };
+    fetchHistory();
   }, []);
 
   useEffect(() => {
-    if (pxState.currentEntry.tecnologia) {
-      const techId = systemTechnologies.find(t => t.name === pxState.currentEntry.tecnologia)?.id;
-      setFilteredBrands(systemBrands.filter(b => b.technology_id === techId));
-    } else {
-      setFilteredBrands(systemBrands);
-    }
-  }, [pxState.currentEntry.tecnologia, systemTechnologies, systemBrands]);
+    setFilteredBrands(systemBrands);
+  }, [systemBrands]);
 
   useEffect(() => {
+    let filtered = systemModels;
+    
     if (pxState.currentEntry.marca) {
       const brandId = systemBrands.find(b => b.name === pxState.currentEntry.marca)?.id;
-      setFilteredModels(systemModels.filter(m => m.brand_id === brandId));
-    } else {
-      setFilteredModels(systemModels);
+      filtered = filtered.filter(m => m.brand_id === brandId);
     }
-  }, [pxState.currentEntry.marca, systemBrands, systemModels]);
+    
+    if (pxState.currentEntry.tecnologia) {
+      const techId = systemTechnologies.find(t => t.name === pxState.currentEntry.tecnologia)?.id;
+      filtered = filtered.filter(m => m.technology_id === techId);
+    }
+    
+    setFilteredModels(filtered);
+  }, [pxState.currentEntry.marca, pxState.currentEntry.tecnologia, systemBrands, systemTechnologies, systemModels]);
+
 
   
+  const handleAddCaja = () => {
+    const { currentEntry, setManifestItems, manifestItems, setCurrentEntry, setSelectedBoxForScan } = pxState;
+    if (!currentEntry.tecnologia || !currentEntry.marca || !currentEntry.modelo || !currentEntry.totalEsperado) {
+      alert("Por favor, complete tecnología, marca, modelo y cantidad esperada.");
+      return;
+    }
+    
+    const newBoxCode = `PX-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
+    
+    setManifestItems([...manifestItems, {
+      id: Math.random().toString(36).substr(2, 9),
+      boxCode: newBoxCode,
+      ...currentEntry,
+      material: ''
+    }]);
+
+    setSelectedBoxForScan(newBoxCode);
+    
+    setCurrentEntry({
+      ...currentEntry,
+      totalEsperado: 0
+    });
+  };
+
+  const handleAddSN_PX = (e: React.FormEvent) => {
+    e.preventDefault();
+    const { selectedBoxForScan, currentScans, manifestItems, scannedSeries, setScannedSeries, setCurrentScans } = pxState;
+
+    if (!selectedBoxForScan) {
+      alert("Seleccione una caja primero.");
+      return;
+    }
+
+    const box = manifestItems.find(i => i.boxCode === selectedBoxForScan);
+    if (!box) return;
+
+    if (!currentScans[0] || currentScans[0].trim() === '') {
+      return;
+    }
+
+    const currentCount = scannedSeries.filter(s => s.boxCode === selectedBoxForScan).length;
+    if (currentCount >= box.totalEsperado) {
+      alert(`La caja ${selectedBoxForScan} ya alcanzó su capacidad de ${box.totalEsperado} equipos.`);
+      return;
+    }
+
+    setScannedSeries([
+      ...scannedSeries,
+      {
+        boxCode: selectedBoxForScan,
+        sn: currentScans[0].trim().toUpperCase(),
+        s2: currentScans[1]?.trim().toUpperCase(),
+        s3: currentScans[2]?.trim().toUpperCase(),
+        s4: currentScans[3]?.trim().toUpperCase(),
+        material: box.material
+      }
+    ]);
+
+    setCurrentScans(['', '', '', '']);
+    setTimeout(() => {
+      document.getElementById('scan-input-0')?.focus();
+    }, 10);
+  };
+
   return (
     <ModulePage
       title={moduleMode === 'px' ? "Recepción Planta Externa (PX)" : "Recepción de Carga (CAC)"}
@@ -194,7 +368,7 @@ export default function ReceptionsPage() {
       />
 
       {moduleMode === 'px' && activeTab === 'scan' && (
-        <PxReceptionTab {...pxState} {...scannerState} {...validationState} printBoxLabel={printingService.printBoxLabel} systemPxProviders={systemPxProviders} systemTechnologies={systemTechnologies} filteredBrands={filteredBrands} filteredModels={filteredModels} systemModels={systemModels} moduleMode={moduleMode} handleFinalizePX={handleFinalizePX} />
+        <PxReceptionTab {...pxState} {...scannerState} {...validationState} printBoxLabel={printingService.printBoxLabel} systemPxProviders={systemPxProviders} systemTechnologies={systemTechnologies} filteredBrands={filteredBrands} filteredModels={filteredModels} systemModels={systemModels} moduleMode={moduleMode} handleFinalizePX={handleFinalizePX} handleAddCaja={handleAddCaja} handleAddSN_PX={handleAddSN_PX} />
       )}
 
       {moduleMode === 'cac' && activeTab === 'scan' && (
@@ -206,7 +380,20 @@ export default function ReceptionsPage() {
            moduleMode={moduleMode}
            pxRecords={pxState.pxRecords}
            cacRecords={cacState.cacRecords}
-           // Pass other required state handlers here
+           searchTerm={searchTerm}
+           setSearchTerm={setSearchTerm}
+           filterPilot={filterPilot}
+           setFilterPilot={setFilterPilot}
+           showTimeline={showTimeline}
+           setShowTimeline={setShowTimeline}
+           timelineActiveGuide={timelineActiveGuide}
+           setTimelineActiveGuide={setTimelineActiveGuide}
+           setPxRecords={pxState.setPxRecords}
+           handlePrintCAC={printingService.printCACAcuse}
+           handlePrintPX={printingService.printBoxLabel}
+           handleViewPxDetails={() => {}}
+           handleDeleteHistoryCAC={() => {}}
+           handleEditHistoryCAC={() => {}}
         />
       )}
 

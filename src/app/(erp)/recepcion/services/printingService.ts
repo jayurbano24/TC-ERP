@@ -136,7 +136,7 @@ export const printingService = {
               <h1 style="margin: 10px 0 0 0; font-size: 28px; font-weight: 900; letter-spacing: -1px;">Manifiesto de Carga</h1>
             </div>
             <div style="text-align: right;">
-              <div style="font-weight: 900; color: #181c3a; font-size: 18px;">PX-${record.notes?.split('DOC Ref: ')[1]?.split('\\n')[0] || record.sap_document || 'N/A'}</div>
+              <div style="font-weight: 900; color: #181c3a; font-size: 18px;">PX-${record.notes?.split('DOC Ref: ')[1]?.split(/\\n|\n/)[0] || record.sap_document || 'N/A'}</div>
               <div style="font-size: 10px; color: #94a3b8; font-weight: bold;">SISTEMA TC-ERP</div>
             </div>
           </div>
@@ -169,10 +169,12 @@ export const printingService = {
     const operatorName = record.usuario || 'SISTEMA';
     
     // Extraer datos de las notas
-    const pilot = record.notes?.split('Piloto: ')[1]?.split('\\n')[0] || '---';
+    const pilot = record.notes?.split('Piloto: ')[1]?.split(/\\n|\n/)[0] || '---';
     const cleanNotes = (record.notes || '').split('--- LÍNEA DE TIEMPO')[0].split('Backoffice_')[0].split('Guías Procesadas:')[0];
-    const notesGuias = cleanNotes?.split('Guías: ')[1]?.split('\\n')[0]?.split(',').map((g: string) => g.trim()).filter(Boolean) || [];
-    const guias = notesGuias.length > 0 ? notesGuias : [record.guide_number];
+    const notesGuias = cleanNotes?.split('Guías: ')[1]?.split(/\\n|\n/)[0]?.split(',').map((g: string) => g.trim()).filter(Boolean) || [];
+    const guias = (record.processed_guides && record.processed_guides.length > 0) 
+      ? record.processed_guides 
+      : (notesGuias.length > 0 ? notesGuias : (record.guide_number ? [record.guide_number] : []));
 
     const guideRows = guias.map((g: string, i: number) => `
       <tr>

@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { ModulePage } from '@/components/ui/module-page';
 import { ReceptionHeader } from './components/ReceptionHeader';
 import { PxReceptionTab } from './components/PxReceptionTab';
 import { CacReceptionTab } from './components/CacReceptionTab';
@@ -37,10 +36,9 @@ export default function ReceptionsPage() {
   // TODO: Add initialization useEffects here calling receptionService
   
   return (
-    <ModulePage
-      title={moduleMode === 'px' ? "Recepción Planta Externa (PX)" : "Recepción de Carga (CAC)"}
-      category="Logística"
-      actions={
+    <div className="flex flex-col gap-6 p-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">{moduleMode === 'px' ? "Recepción Planta Externa (PX)" : "Recepción de Carga (CAC)"}</h1>
         <div className="flex bg-slate-100 p-1 rounded-xl">
           <button 
             onClick={() => setModuleMode('px')}
@@ -55,8 +53,7 @@ export default function ReceptionsPage() {
             Módulo CAC
           </button>
         </div>
-      }
-    >
+      </div>
       <ReceptionHeader 
         moduleMode={moduleMode}
         setModuleMode={setModuleMode}
@@ -81,6 +78,6 @@ export default function ReceptionsPage() {
         />
       )}
 
-    </ModulePage>
+    </div>
   );
 }

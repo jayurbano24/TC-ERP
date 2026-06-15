@@ -245,11 +245,12 @@ export default function BodegaGestionPage() {
           const main = group[0];
           
           const notes = main.receptions?.notes || '';
-          const piloto = notes.split('Piloto: ')[1]?.split('\n')[0]?.trim() || '---';
-          const agenciaCAC = notes.split('Backoffice_Agency: ')[1]?.split('\n')[0]?.trim() || main.receptions?.carrier || '---';
-          const techId = notes.split('Backoffice_Tech: ')[1]?.split('\n')[0]?.trim() || main.technology_id || '';
-          const brandId = notes.split('Backoffice_Brand: ')[1]?.split('\n')[0]?.trim() || main.brand_id || '';
-          const modelId = notes.split('Backoffice_Model: ')[1]?.split('\n')[0]?.trim() || main.model_id || '';
+          const normalizedNotes = notes.replace(/\\n/g, '\n');
+          const piloto = normalizedNotes.split('Piloto: ')[1]?.split('\n')[0]?.trim() || '---';
+          const agenciaCAC = normalizedNotes.split('Backoffice_Agency: ')[1]?.split('\n')[0]?.trim() || main.receptions?.carrier || '---';
+          const techId = normalizedNotes.split('Backoffice_Tech: ')[1]?.split('\n')[0]?.trim() || main.technology_id || '';
+          const brandId = normalizedNotes.split('Backoffice_Brand: ')[1]?.split('\n')[0]?.trim() || main.brand_id || '';
+          const modelId = normalizedNotes.split('Backoffice_Model: ')[1]?.split('\n')[0]?.trim() || main.model_id || '';
           const reentryCount = main.service_orders?.reentry_count || 1;
           const ingresoLabel = `${reentryCount}° Ingreso`;
 
@@ -269,7 +270,7 @@ export default function BodegaGestionPage() {
             agenciaCAC: agenciaCAC,
             piloto: piloto,
             guia: main.receptions?.guide_number || 'S/G',
-            recibio: main.receptions?.received_by || 'SISTEMA',
+            recibio: normalizedNotes.split('Recibido Por: ')[1]?.split('\n')[0]?.trim() || main.receptions?.received_by || 'SISTEMA',
             estatus: main.receptions?.status || 'N/A',
             ordenServicio: main.service_orders?.os_label || 'S/OS',
             ingreso: ingresoLabel,
@@ -1850,7 +1851,7 @@ export default function BodegaGestionPage() {
             <div className="p-10 max-h-[60vh] overflow-y-auto custom-scrollbar bg-white">
                <div className="relative border-l-2 border-slate-100 ml-4 space-y-10">
                   {(() => {
-                    const notes = showTimeline.notes || '';
+                    const notes = (showTimeline.notes || '').replace(/\\n/g, '\n');
                     let timelinePart = '';
                     let baseDetailsPart = notes;
                     if (notes.includes('--- LÍNEA DE TIEMPO (MATRIZ) ---')) {

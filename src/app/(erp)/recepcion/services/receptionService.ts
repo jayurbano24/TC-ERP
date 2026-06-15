@@ -1,5 +1,4 @@
 import { receptionRepository } from '../repositories/receptionRepository';
-import { DbReception } from '../types/reception.types';
 
 export const receptionService = {
   getHistory: async (source: 'cac' | 'px') => {
@@ -18,16 +17,16 @@ export const receptionService = {
   },
 
   finalizePXReception: async (guideData: any, manifestItems: any[], scannedSeries: any[], systemBrands: any[], systemModels: any[], currentUserFullName: string) => {
-    const dbEntry: DbReception = {
+    const dbEntry: any = {
       source: 'px',
       guide_number: guideData.guia || `PX-${Date.now().toString().slice(-6)}`,
       sap_document: guideData.sap || 'SIN-PEDIDO',
       carrier: guideData.proveedorPx || 'N/A',
       status: 'CLASIFICADA',
-      notes: `DOC Ref: ${guideData.docReferencia || '---'}\\nAgencia: ${guideData.proveedorPx}\\nProveedor PX: ${guideData.proveedorPx}\\nPiloto: ${guideData.piloto || '---'}\\nCourier: ${guideData.courier || '---'}\\nBackoffice_Tech: ${manifestItems[0]?.tecnologia || ''}\\nCajas: ${manifestItems.length}`,
+      notes: `DOC Ref: ${guideData.docReferencia || '---'}\nAgencia: ${guideData.proveedorPx}\nProveedor PX: ${guideData.proveedorPx}\nPiloto: ${guideData.piloto || '---'}\nCourier: ${guideData.courier || '---'}\nBackoffice_Tech: ${manifestItems[0]?.tecnologia || ''}\nCajas: ${manifestItems.length}\nRecibido Por: ${currentUserFullName}`,
       received_units: scannedSeries.length,
       expected_units: manifestItems.reduce((acc, curr) => acc + curr.totalEsperado, 0),
-      received_by: currentUserFullName
+      received_by: null
     };
 
     const boxes = manifestItems.map(item => ({

@@ -86,6 +86,27 @@ export async function updateSeriesStatus(seriesId: string, status: string) {
   await logAudit('series', seriesId, 'INGRESO A TALLER', {
     status
   });
+  return { success: true };
+}
+
+export async function transferMassiveToWorkshop(seriesIds: string[]) {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return { error: "Supabase not configured" };
+
+  const { error } = await supabase
+    .from('series')
+    .update({ current_status: 'in_workshop' })
+    .in('id', seriesIds);
+
+  if (error) return { error: error.message };
+
+  // Log audit for each
+  for (const seriesId of seriesIds) {
+    await logAudit('series', seriesId, 'TRASLADO MASIVO A TALLER', {
+      status: 'in_workshop',
+      reason: 'Movimiento Masivo desde Backoffice'
+    });
+  }
 
   return { success: true };
 }

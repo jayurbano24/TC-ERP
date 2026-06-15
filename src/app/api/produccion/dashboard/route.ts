@@ -3,7 +3,6 @@ import { NextResponse } from 'next/server';
 import { GetProduccionDashboardQuery } from '../../../../modules/produccion/application/queries/GetProduccionDashboardQuery';
 import { RequestContextBuilder } from '../../../../shared/context/RequestContextBuilder';
 import { FeatureFlagService } from '../../../../shared/feature-flags/FeatureFlagService';
-import prisma from '../../../../infrastructure/database/prisma/client';
 
 import { QueryBus } from '../../../../modules/recepcion/application/cqrs/QueryBus';
 import { container } from '../../../../shared/di/container';

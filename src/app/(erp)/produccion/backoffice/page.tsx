@@ -35,7 +35,8 @@ import {
   MapPin,
   UserCheck,
   Phone,
-  Calendar
+  Calendar,
+  Stethoscope
 } from 'lucide-react';
 import { getReceptions, createReception, updateReceptionStatus, updateProcessedGuides, addSeriesToReception, createServiceOrders, getSeriesByReceptionId, getReceptionsWithSeries, updateReception, clearAllReceptions } from '@/lib/database/receptions';
 import { testSupabaseConnection } from '@/lib/supabase/test-connection';
@@ -302,6 +303,22 @@ export default function BackofficePage() {
   const [showTimeline, setShowTimeline] = useState<any | null>(null);
   const [timelineActiveGuide, setTimelineActiveGuide] = useState<string | null>(null);
 
+  // Mass Transfer to Workshop State
+  const [showMassTransferModal, setShowMassTransferModal] = useState(false);
+  const [massTransferData, setMassTransferData] = useState({
+    techId: '',
+    brandId: '',
+    modelId: '',
+    quantity: '' as number | ''
+  });
+  const [massTransferLoading, setMassTransferLoading] = useState(false);
+  
+  // Mass Transfer Scanning State
+  const [isScanningForTransfer, setIsScanningForTransfer] = useState(false);
+  const [scannedTransferSeries, setScannedTransferSeries] = useState<string[]>([]);
+  const [currentScanInput, setCurrentScanInput] = useState('');
+  const [eligibleSeriesIdsList, setEligibleSeriesIdsList] = useState<{allIds: string[], sn: string}[]>([]);
+
   // Auto-find or Selected Agency Details
   const agencyDetails = CAC_AGENCIES.find(a => 
     a.id === selectedAgencyId ||
@@ -388,7 +405,7 @@ export default function BackofficePage() {
       const data = await getReceptions(); 
       setAllReceptions(data);
       const pending = data.filter((r: any) => 
-        r.source !== 'px' &&
+        (r.source !== 'px' || r.status === 'PENDIENTE_BACKOFFICE') &&
         r.status !== 'RECIBIDO_BACKOFFICE' && 
         r.status !== 'PROCESADO' &&
         r.status !== 'CLASIFICADA' &&
@@ -418,6 +435,10 @@ export default function BackofficePage() {
           series: rec.series ? rec.series.filter((s: any) => {
             if (s.current_box_id) return false;
             if (s.service_orders?.id && boxedOsIds.has(s.service_orders.id)) return false;
+            const cStatus = (s.current_status || '').toLowerCase().trim();
+            const shouldFilter = ['in_workshop', 'in_qc', 'in_l3', 'in_scraps', 'in_control_warehouse', 'in_central_warehouse', 'ready_to_dispatch', 'dispatched'].includes(cStatus);
+            console.log(`DEBUG_FILTER: Serie ${s.serial_number} has status: "${s.current_status}" -> cStatus: "${cStatus}" -> shouldFilter: ${shouldFilter}`);
+            if (shouldFilter) return false;
             return true;
           }) : []
         };
@@ -442,6 +463,105 @@ export default function BackofficePage() {
     }
   };
 
+  const handlePrepareMassTransfer = () => {
+    if (!massTransferData.techId || !massTransferData.brandId || !massTransferData.modelId || !massTransferData.quantity) {
+      alert("Por favor completa todos los campos.");
+      return;
+    }
+
+    const eligibleSeriesList: {allIds: string[], sn: string}[] = [];
+    for (const rec of historyReceptions) {
+      const groups = groupSeriesByEquipment(rec.series || []);
+      for (const grp of groups) {
+        const modelObj = MASTER_MODELOS.find((m: any) => m.id === grp.modelId);
+        const techId = modelObj?.tecnologiaId;
+        
+        if (techId === massTransferData.techId &&
+            grp.brandId === massTransferData.brandId &&
+            grp.modelId === massTransferData.modelId) {
+          
+          const seriesPerUnit = modelObj?.seriesCount || 1;
+          for (let i = 0; i < grp.fullSeries.length; i += seriesPerUnit) {
+            const unit = grp.fullSeries.slice(i, i + seriesPerUnit);
+            if (unit.length > 0) {
+              eligibleSeriesList.push({ 
+                allIds: unit.map(u => u.id), 
+                sn: unit[0].serial_number 
+              });
+            }
+          }
+        }
+      }
+    }
+
+    if (eligibleSeriesList.length < Number(massTransferData.quantity)) {
+      alert(`No hay suficientes equipos disponibles en la selección. Disponibles: ${eligibleSeriesList.length}`);
+      return;
+    }
+
+    setEligibleSeriesIdsList(eligibleSeriesList);
+    setScannedTransferSeries([]);
+    setCurrentScanInput('');
+    setIsScanningForTransfer(true);
+    setShowMassTransferModal(false);
+  };
+
+  const handleScanTransferSeries = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && currentScanInput.trim()) {
+      e.preventDefault();
+      if (scannedTransferSeries.length >= Number(massTransferData.quantity)) {
+        alert("Ya has alcanzado la cantidad solicitada a trasladar.");
+        return;
+      }
+      
+      const sn = currentScanInput.trim();
+      
+      if (scannedTransferSeries.includes(sn)) {
+        alert("Esta serie ya fue escaneada para traslado.");
+        setCurrentScanInput('');
+        return;
+      }
+      
+      const isEligible = eligibleSeriesIdsList.find(s => s.sn === sn);
+      if (!isEligible) {
+        alert("La serie ingresada NO corresponde a la tecnología, marca y modelo seleccionados, o no está disponible en la bandeja.");
+        setCurrentScanInput('');
+        return;
+      }
+      
+      setScannedTransferSeries([...scannedTransferSeries, sn]);
+      setCurrentScanInput('');
+    }
+  };
+
+  const handleConfirmMassTransfer = async () => {
+    if (scannedTransferSeries.length !== Number(massTransferData.quantity)) {
+      alert(`Debe escanear exactamente ${massTransferData.quantity} series.`);
+      return;
+    }
+
+    setMassTransferLoading(true);
+    try {
+      const seriesToTransfer = scannedTransferSeries.flatMap(sn => {
+        return eligibleSeriesIdsList.find(s => s.sn === sn)!.allIds;
+      });
+      
+      const { transferMassiveToWorkshop } = await import('@/lib/database/workshop');
+      const result = await transferMassiveToWorkshop(seriesToTransfer);
+      
+      if (result.error) throw new Error(result.error);
+      
+      alert(`Se trasladaron exitosamente ${seriesToTransfer.length} equipos al Taller.`);
+      setIsScanningForTransfer(false);
+      setScannedTransferSeries([]);
+      setMassTransferData({ techId: '', brandId: '', modelId: '', quantity: '' });
+      fetchHistory();
+    } catch (error: any) {
+      alert("Error en el traslado: " + error.message);
+    }
+    setMassTransferLoading(false);
+  };
+
   const handlePrintConduce = (record: any) => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
@@ -454,10 +574,12 @@ export default function BackofficePage() {
     const operatorName = record.received_by || 'SISTEMA';
     
     // Extraer datos de las notas
-    const pilot = record.notes?.split('Piloto: ')[1]?.split('\n')[0] || '---';
+    const pilot = record.notes?.split('Piloto: ')[1]?.split(/\\n|\n/)[0] || '---';
     const cleanNotes = (record.notes || '').split('--- LÍNEA DE TIEMPO')[0].split('Backoffice_')[0].split('Guías Procesadas:')[0];
-    const notesGuias = cleanNotes?.split('Guías: ')[1]?.split('\n')[0]?.split(',').map((g: string) => g.trim()).filter(Boolean) || [];
-    const guias = record.processed_guides || (notesGuias.length > 0 ? notesGuias : [record.guide_number]);
+    const notesGuias = cleanNotes?.split('Guías: ')[1]?.split(/\\n|\n/)[0]?.split(',').map((g: string) => g.trim()).filter(Boolean) || [];
+    const guias = (record.processed_guides && record.processed_guides.length > 0) 
+      ? record.processed_guides 
+      : (notesGuias.length > 0 ? notesGuias : (record.guide_number ? [record.guide_number] : []));
 
     const guideRows = guias.map((g: string, i: number) => `
       <tr>
@@ -825,7 +947,7 @@ export default function BackofficePage() {
         let finalCategory = category || 'Equipo';
         if ((receptionStep as string) === 'accessories_photos') finalCategory = 'Accesorio';
 
-        const agencyLabel = agencyObj?.name || selectedAgencyId || '';
+        const agencyLabel = agencia || agencyObj?.name || selectedAgencyId || '';
 
         // Dynamic metadata defaults for Accessories and Phones
         const defaultTech = finalCategory.toLowerCase() === 'accesorio' ? 'ACCESORIOS' : (finalCategory.toLowerCase() === 'teléfono' ? 'MÓVILES' : '');
@@ -1125,19 +1247,21 @@ export default function BackofficePage() {
 
               <div className="grid grid-cols-1 gap-4">
                 {pendingReceptions.filter(rec => !inboxSearch || rec.guide_number.toLowerCase().includes(inboxSearch.toLowerCase())).map((rec) => (
-                  <Card key={rec.id} className="overflow-hidden border-2 border-slate-100 hover:border-[#2ec4f1]/30 transition-all group p-0">
+                  <Card key={rec.id} className={`overflow-hidden border-2 transition-all group p-0 ${rec.status === 'PENDIENTE_BACKOFFICE' ? 'border-rose-400 hover:border-rose-500 shadow-[0_0_15px_rgba(244,63,94,0.15)] bg-rose-50/30' : 'border-slate-100 hover:border-[#2ec4f1]/30'}`}>
                     <div className="flex flex-col md:flex-row">
-                      <div className="md:w-56 bg-[#181c3a] p-4 text-white flex flex-col justify-between">
+                      <div className={`md:w-56 p-4 text-white flex flex-col justify-between ${rec.status === 'PENDIENTE_BACKOFFICE' ? 'bg-gradient-to-br from-rose-900 to-rose-950' : 'bg-[#181c3a]'}`}>
                         <div>
                           <div className="flex justify-between items-start mb-2">
-                            <Badge className="bg-[#2ec4f1] text-[#181c3a] border-none font-black text-[9px] uppercase">{rec.status}</Badge>
+                            <Badge className={`border-none font-black text-[9px] uppercase ${rec.status === 'PENDIENTE_BACKOFFICE' ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/20' : 'bg-[#2ec4f1] text-[#181c3a]'}`}>
+                              {rec.status === 'PENDIENTE_BACKOFFICE' ? 'REVERTIDO DE DEVOLUCIÓN' : rec.status}
+                            </Badge>
                             <Box size={20} className="text-white/20" />
                           </div>
                           <h4 className="text-lg font-black font-mono">{rec.guide_number}</h4>
                           <p className="text-[9px] text-white/40 font-bold uppercase tracking-widest mt-0.5">LOTE ID: {rec.id.substring(0,8)}</p>
                         </div>
                         <div className="mt-4 flex items-center gap-2">
-                          <Clock className="w-3 h-3 text-[#2ec4f1]" />
+                          <Clock className={`w-3 h-3 ${rec.status === 'PENDIENTE_BACKOFFICE' ? 'text-rose-400' : 'text-[#2ec4f1]'}`} />
                           <span className="text-[10px] font-bold text-white/60">{new Date(rec.created_at).toLocaleString()}</span>
                         </div>
                       </div>
@@ -2191,12 +2315,20 @@ export default function BackofficePage() {
                 </div>
               </div>
 
-              <button
-                onClick={handleExportReport}
-                className="flex items-center gap-3 px-8 h-16 bg-[#2ec4f1] text-[#181c3a] rounded-3xl text-[10px] font-black uppercase tracking-widest hover:bg-[#181c3a] hover:text-white transition-all shadow-xl shadow-[#2ec4f1]/20 active:scale-95"
-              >
-                <Download size={16} /> Generar Reporte
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleExportReport}
+                  className="flex items-center gap-3 px-8 h-16 bg-[#2ec4f1] text-[#181c3a] rounded-3xl text-[10px] font-black uppercase tracking-widest hover:bg-[#181c3a] hover:text-white transition-all shadow-xl shadow-[#2ec4f1]/20 active:scale-95"
+                >
+                  <Download size={16} /> Generar Reporte
+                </button>
+                <button
+                  onClick={() => setShowMassTransferModal(true)}
+                  className="flex items-center gap-3 px-8 h-16 bg-amber-500 text-white rounded-3xl text-[10px] font-black uppercase tracking-widest hover:bg-amber-600 transition-all shadow-xl shadow-amber-500/20 active:scale-95"
+                >
+                  <Stethoscope size={16} /> Trasladar a Taller
+                </button>
+              </div>
             </div>
           </div>
 
@@ -3350,6 +3482,159 @@ export default function BackofficePage() {
           </div>
         )}
 
-      </ModulePage>
+        {/* MODAL TRASLADO MASIVO A TALLER */}
+      {showMassTransferModal && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-[#181c3a]/80 backdrop-blur-xl p-6">
+          <Card className="w-full max-w-lg bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border-none animate-rise-in p-0">
+            <div className="bg-amber-500 p-7 text-white flex justify-between items-center">
+              <div>
+                <p className="text-[8px] font-black uppercase tracking-widest text-white/60 mb-1">Diagnóstico</p>
+                <h3 className="text-lg font-black uppercase tracking-tight">Traslado Masivo a Taller</h3>
+              </div>
+              <button onClick={() => setShowMassTransferModal(false)} className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center hover:bg-white/30 transition-all">
+                <Plus size={18} className="rotate-45" />
+              </button>
+            </div>
+            <div className="p-7 space-y-5">
+              <div>
+                <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 block mb-1">Tecnología</label>
+                <select
+                  className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[#181c3a] outline-none focus:border-amber-500 transition-all"
+                  value={massTransferData.techId}
+                  onChange={(e) => setMassTransferData(prev => ({ ...prev, techId: e.target.value, modelId: '' }))}
+                >
+                  <option value="">-- SELECCIONAR --</option>
+                  {MASTER_TECNOLOGIAS.map(t => <option key={t.id} value={t.id}>{t.nombre}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 block mb-1">Marca</label>
+                <select
+                  className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[#181c3a] outline-none focus:border-amber-500 transition-all"
+                  value={massTransferData.brandId}
+                  onChange={(e) => setMassTransferData(prev => ({ ...prev, brandId: e.target.value, modelId: '' }))}
+                >
+                  <option value="">-- SELECCIONAR --</option>
+                  {MASTER_MARCAS.map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 block mb-1">Modelo</label>
+                <select
+                  className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[#181c3a] outline-none focus:border-amber-500 transition-all"
+                  value={massTransferData.modelId}
+                  onChange={(e) => setMassTransferData(prev => ({ ...prev, modelId: e.target.value }))}
+                >
+                  <option value="">-- SELECCIONAR --</option>
+                  {MASTER_MODELOS
+                    .filter(m => (!massTransferData.techId || m.tecnologiaId === massTransferData.techId) && (!massTransferData.brandId || m.marcaId === massTransferData.brandId))
+                    .map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 block mb-1">Cantidad a Trasladar</label>
+                <input
+                  type="number"
+                  className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[#181c3a] outline-none focus:border-amber-500 transition-all"
+                  placeholder="Ej. 10"
+                  value={massTransferData.quantity}
+                  onChange={(e) => setMassTransferData(prev => ({ ...prev, quantity: e.target.value ? Number(e.target.value) : '' }))}
+                />
+              </div>
+            </div>
+            <div className="p-7 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
+              <Button variant="outline" className="h-12 px-6 rounded-2xl text-xs font-black uppercase text-slate-400 hover:text-[#181c3a]" onClick={() => setShowMassTransferModal(false)}>
+                Cancelar
+              </Button>
+              <Button
+                onClick={handlePrepareMassTransfer}
+                className="h-12 px-8 rounded-2xl text-xs font-black uppercase bg-amber-500 text-white hover:bg-amber-600 shadow-xl shadow-amber-500/20"
+              >
+                Escanear Equipos
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* MODAL ESCANEO TRASLADO */}
+      {isScanningForTransfer && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-[#181c3a]/80 backdrop-blur-xl p-6">
+          <Card className="w-full max-w-lg bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border-none animate-rise-in p-0">
+            <div className="bg-amber-500 p-7 text-white flex justify-between items-center">
+              <div>
+                <p className="text-[8px] font-black uppercase tracking-widest text-white/60 mb-1">Traslado a Taller</p>
+                <h3 className="text-lg font-black uppercase tracking-tight">Escanear Series</h3>
+              </div>
+              <button onClick={() => setIsScanningForTransfer(false)} className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center hover:bg-white/30 transition-all">
+                <Plus size={18} className="rotate-45" />
+              </button>
+            </div>
+            
+            <div className="p-7 space-y-6">
+              <div className="flex justify-between items-end">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Progreso</p>
+                  <p className="text-2xl font-black text-[#181c3a]">{scannedTransferSeries.length} <span className="text-sm text-slate-400">/ {massTransferData.quantity}</span></p>
+                </div>
+                <div className="w-full max-w-[200px] h-2 bg-slate-100 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-amber-500 transition-all duration-300"
+                    style={{ width: `${(scannedTransferSeries.length / Number(massTransferData.quantity)) * 100}%` }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-[#181c3a] block mb-2">Ingresar Serie (S/N)</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    autoFocus
+                    disabled={scannedTransferSeries.length >= Number(massTransferData.quantity)}
+                    placeholder={scannedTransferSeries.length >= Number(massTransferData.quantity) ? "Completado" : "Pistolea el código de barras..."}
+                    value={currentScanInput}
+                    onChange={e => setCurrentScanInput(e.target.value)}
+                    onKeyDown={handleScanTransferSeries}
+                    className="w-full h-14 pl-12 pr-4 bg-slate-50 border-2 border-slate-200 focus:border-amber-500 outline-none rounded-2xl font-mono text-sm text-[#181c3a] transition-all"
+                  />
+                  <Barcode className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+                </div>
+              </div>
+
+              {scannedTransferSeries.length > 0 && (
+                <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 max-h-[150px] overflow-y-auto">
+                  <div className="flex flex-wrap gap-2">
+                    {scannedTransferSeries.map((sn, i) => (
+                      <span key={i} className="inline-block px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] font-mono font-bold text-[#181c3a]">
+                        {sn}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="p-7 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
+              <Button variant="outline" className="h-12 px-6 rounded-2xl text-xs font-black uppercase text-slate-400 hover:text-[#181c3a]" onClick={() => setIsScanningForTransfer(false)}>
+                Cancelar
+              </Button>
+              <Button
+                onClick={handleConfirmMassTransfer}
+                disabled={scannedTransferSeries.length !== Number(massTransferData.quantity) || massTransferLoading}
+                className={`h-12 px-8 rounded-2xl text-xs font-black uppercase shadow-xl ${
+                  scannedTransferSeries.length === Number(massTransferData.quantity) 
+                  ? 'bg-amber-500 text-white hover:bg-amber-600 shadow-amber-500/20' 
+                  : 'bg-slate-200 text-slate-400 shadow-none'
+                }`}
+              >
+                {massTransferLoading ? "Procesando..." : "Confirmar Traslado"}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+    </ModulePage>
   );
 }

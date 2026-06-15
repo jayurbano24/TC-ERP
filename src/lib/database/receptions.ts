@@ -307,16 +307,41 @@ export async function createPxReceptionWithBoxes(
 
   if (recError) return { error: recError.message };
 
+  // Generate consecutive BOX-xxx codes
+  const { data: lastBoxes } = await supabase
+    .from('boxes')
+    .select('box_code')
+    .like('box_code', 'BOX-%');
+
+  let maxBoxNum = 0;
+  if (lastBoxes && lastBoxes.length > 0) {
+    for (const row of lastBoxes) {
+      const match = row.box_code.match(/^BOX-(\d+)$/i);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (num > maxBoxNum) maxBoxNum = num;
+      }
+    }
+  }
+
+  const uiBoxToNewBox = new Map<string, string>();
+
   // 2. Prepare boxes data
-  const boxesToInsert = boxes.map(b => ({
-    reception_id: recData.id,
-    box_code: b.box_code,
-    brand_id: b.brand_id,
-    model_id: b.model_id,
-    capacity: b.expected_units,
-    status: 'closed',
-    rack_location: 'BODEGA_CENTRAL' // Ingreso automático a Bodega Central al finalizar recepción PX
-  }));
+  const boxesToInsert = boxes.map(b => {
+    maxBoxNum++;
+    const newBoxCode = `BOX-${maxBoxNum.toString().padStart(3, '0')}`;
+    uiBoxToNewBox.set(b.box_code, newBoxCode);
+
+    return {
+      reception_id: recData.id,
+      box_code: newBoxCode,
+      brand_id: b.brand_id,
+      model_id: b.model_id,
+      capacity: b.expected_units,
+      status: 'closed',
+      rack_location: 'BODEGA_CENTRAL' // Ingreso automático a Bodega Central al finalizar recepción PX
+    };
+  });
 
   const { data: createdBoxes, error: boxError } = await supabase
     .from('boxes')
@@ -330,7 +355,8 @@ export async function createPxReceptionWithBoxes(
 
   // 3. Crear series y OS por caja — cada equipo obtiene su propia OS con código único
   for (const b of boxes) {
-    const createdBox = createdBoxes.find(cb => cb.box_code === b.box_code);
+    const newCode = uiBoxToNewBox.get(b.box_code);
+    const createdBox = createdBoxes.find(cb => cb.box_code === newCode);
     if (!createdBox) continue;
 
     const equipments = seriesByBox[b.id] || [];

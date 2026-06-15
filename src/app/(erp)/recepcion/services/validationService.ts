@@ -27,7 +27,7 @@ export const validationService = {
         info: `🚫 SERIE EN PROCESO ACTIVO\n\nLa serie "${serial}" ya está registrada en el sistema:\n` +
               `• Recepción Original: ${recGuide} (${recDate})\n` +
               `• Orden de Servicio: ${osLabel}\n` +
-              `• Estado Actual: ${currentStatus || existingSeries.current_status || 'DESCONOCIDO'}\n\n` +
+              `• Estado Actual: ${currentStatus || 'DESCONOCIDO'}\n\n` +
               `No puede ingresar nuevamente hasta que sea despachada o devuelta.`
       };
     }

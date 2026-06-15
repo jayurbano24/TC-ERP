@@ -1,36 +1,47 @@
-import { PrismaClient } from '@prisma/client';
+import { SupabaseClient } from '@supabase/supabase-js';
 import { RequestContext } from '../context/RequestContext';
 import { injectable, inject } from 'tsyringe';
 
 @injectable()
 export class FeatureFlagService {
-  constructor(@inject('PrismaClient') private readonly prisma: PrismaClient) {}
+  constructor(
+    @inject('SupabaseClient') private readonly supabase: SupabaseClient
+  ) {}
 
   async isEnabled(ctx: RequestContext, code: string): Promise<boolean> {
-    // Buscar primero a nivel de branch
-    if (ctx.branchId) {
-      const branchFlag = await this.prisma.featureFlag.findUnique({
-        where: {
-          tenant_id_branch_id_code: {
-            tenant_id: ctx.tenantId,
-            branch_id: ctx.branchId,
-            code
-          }
-        }
-      });
-      if (branchFlag) return branchFlag.is_enabled;
-    }
+    // 1. Variable de entorno como override (sin necesidad de DB)
+    //    Formato: FEATURE_FLAGS=FLAG_A,FLAG_B,FLAG_C
+    const envFlags = process.env.FEATURE_FLAGS?.split(',').map(f => f.trim()) ?? [];
+    if (envFlags.includes(code)) return true;
 
-    // Fallback a nivel de tenant (branch_id nulo)
-    // Ojo: en Prisma uniqueness con null es especial, por lo que findFirst es más seguro aquí
-    const tenantFlag = await this.prisma.featureFlag.findFirst({
-      where: {
-        tenant_id: ctx.tenantId,
-        branch_id: null,
-        code
+    // 2. Consultar Supabase con fallback graceful
+    try {
+      // Buscar flag a nivel de branch primero
+      if (ctx.branchId) {
+        const { data: branchFlag } = await this.supabase
+          .from('feature_flag')
+          .select('is_enabled')
+          .eq('tenant_id', ctx.tenantId)
+          .eq('branch_id', ctx.branchId)
+          .eq('code', code)
+          .single();
+
+        if (branchFlag) return branchFlag.is_enabled;
       }
-    });
 
-    return tenantFlag ? tenantFlag.is_enabled : false;
+      // Fallback a nivel de tenant
+      const { data: tenantFlag } = await this.supabase
+        .from('feature_flag')
+        .select('is_enabled')
+        .eq('tenant_id', ctx.tenantId)
+        .is('branch_id', null)
+        .eq('code', code)
+        .single();
+
+      return tenantFlag ? tenantFlag.is_enabled : false;
+    } catch {
+      // DB no disponible → env var ya cubrió el caso
+      return false;
+    }
   }
 }

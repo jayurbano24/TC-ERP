@@ -9,11 +9,50 @@ import { Scan, FileText, Upload, Camera, AlertCircle, Truck, Barcode, QrCode, Pe
 export const CacReceptionTab = ({ 
   cacAgency, setCacAgency, cacPilot, setCacPilot, cacCarrier, setCacCarrier, 
   transportes = [], cacTotalCajas, setCacTotalCajas, isIndustrialScanning, 
-  setIsIndustrialScanning, scanInputRef, cacScannedItems, setCacScannedItems, handleScan_CAC, 
+  setIsIndustrialScanning, scanInputRef, cacScannedItems, setCacScannedItems, 
   cacScanInput, setCacScanInput, setCacError, setIsCameraScannerOpen, 
-  isCameraScannerOpen, cacError, handleEditCACSeries, handleDeleteCACSeries, 
+  isCameraScannerOpen, cacError, 
   handleFinalizeCAC, loading 
 }: any) => {
+
+  const handleScan_CAC = (e: React.FormEvent) => {
+    e.preventDefault();
+    const val = cacScanInput.trim().toUpperCase();
+    if (!val) return;
+    
+    if (cacScannedItems.includes(val)) {
+      setCacError(`La serie ${val} ya fue escaneada.`);
+      return;
+    }
+    
+    if (cacScannedItems.length >= cacTotalCajas) {
+      setCacError(`Ya se alcanzó el total de ${cacTotalCajas} bultos.`);
+      return;
+    }
+
+    setCacScannedItems((prev: any) => [val, ...prev]);
+    setCacScanInput('');
+    setCacError('');
+    scanInputRef.current?.focus();
+  };
+
+  const handleEditCACSeries = (index: number) => {
+    const newVal = prompt("Editar serie:", cacScannedItems[index]);
+    if (newVal && newVal.trim()) {
+      const updated = [...cacScannedItems];
+      updated[index] = newVal.trim().toUpperCase();
+      setCacScannedItems(updated);
+    }
+  };
+
+  const handleDeleteCACSeries = (index: number) => {
+    if (confirm("¿Eliminar esta serie?")) {
+      const updated = [...cacScannedItems];
+      updated.splice(index, 1);
+      setCacScannedItems(updated);
+    }
+  };
+
   return (
     <>
         <div className="space-y-6 animate-rise-in">
@@ -33,21 +72,7 @@ export const CacReceptionTab = ({
                   <h3 className="text-sm font-black text-[#181c3a] uppercase tracking-widest">Paso 1: Encabezado de Recepción (Formulario)</h3>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-6 items-end">
-                  <div className="md:col-span-1">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-3 ml-1">Agencia Origen</label>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        placeholder="Nombre Agencia"
-                        value={cacAgency}
-                        onChange={e => setCacAgency(e.target.value)}
-                        className={`flex-1 h-14 px-6 bg-slate-50 border-2 rounded-2xl font-bold text-sm text-[#181c3a] outline-none transition-all shadow-sm ${!cacAgency ? 'border-rose-300 bg-rose-50/20' : 'border-slate-100 focus:border-[#2ec4f1] focus:bg-white'}`}
-                      />
-                    </div>
-                    {!cacAgency && <p className="text-[8px] font-black text-rose-500 uppercase mt-2 ml-1">Campo Requerido</p>}
-                  </div>
-
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
                   <div className="md:col-span-1">
                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-3 ml-1">Transportista / Piloto</label>
                     <div className="flex gap-2">
@@ -95,7 +120,7 @@ export const CacReceptionTab = ({
 
                   <div className="md:col-span-1">
                     <button 
-                      disabled={!cacPilot || !cacAgency || !cacCarrier || cacTotalCajas < 1}
+                      disabled={!cacPilot || !cacCarrier || cacTotalCajas < 1}
                       onClick={() => {
                         setIsIndustrialScanning(!isIndustrialScanning);
                         if (!isIndustrialScanning) {
@@ -103,7 +128,7 @@ export const CacReceptionTab = ({
                         }
                       }}
                       className={`w-full h-14 rounded-2xl flex items-center justify-center gap-3 font-black text-[10px] uppercase tracking-[0.2em] transition-all shadow-lg 
-                        ${(!cacPilot || !cacAgency || !cacCarrier || cacTotalCajas < 1) 
+                        ${(!cacPilot || !cacCarrier || cacTotalCajas < 1) 
                           ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none opacity-50' 
                           : isIndustrialScanning 
                             ? 'bg-emerald-500 text-white shadow-emerald-500/20' 

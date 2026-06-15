@@ -10,8 +10,8 @@ export class OrdenServicioMapper {
       raw.id,
       raw.tenant_id,
       raw.branch_id,
+      raw.tipo_recepcion as 'CAC' | 'PX',
       {
-        tipoRecepcion: raw.tipo_recepcion as 'CAC' | 'PX',
         estadoRecepcion: raw.estado_recepcion,
         diagnosticoInicial: raw.diagnostico_inicial,
         fallaReportada: raw.falla_reportada,

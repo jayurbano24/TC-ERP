@@ -9,12 +9,13 @@ export class EventBus implements IEventBus {
     const handlerName = `${event.eventName}Handler`;
     
     try {
-      const handler = container.resolve<any>(handlerName);
-      await handler.handle(event);
+      // Usamos resolveAll por si hay múltiples módulos suscritos al mismo evento
+      const handlers = container.resolveAll<any>(handlerName);
+      for (const handler of handlers) {
+        await handler.handle(event);
+      }
     } catch (error) {
       // Si no hay handler registrado, tsyringe lanzará un error.
-      // Por ahora, simplemente lo ignoramos o lo logueamos si no hay suscriptor.
-      // Dependiendo de la regla de negocio, podríamos no fallar si un evento no tiene handler.
       console.warn(`No handler found for event or execution failed: ${event.eventName}`, error);
     }
   }

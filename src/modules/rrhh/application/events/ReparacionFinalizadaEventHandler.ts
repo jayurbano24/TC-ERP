@@ -1,12 +1,12 @@
-import { IEventHandler } from '../../../../shared/events/IEventBus';
-import { DomainEvent } from '../../../../shared/domain/BaseAggregate';
+import { IEventHandler } from '../../../../shared/events/IEventHandler';
+import { DomainEvent } from '../../../../shared/events/DomainEvent';
 import { IRrhhRepository } from '../../domain/repositories/IRrhhRepository';
 import { RequestContextBuilder } from '../../../../shared/context/RequestContextBuilder';
 
-export class ReparacionFinalizadaEventHandler implements IEventHandler {
+export class ReparacionFinalizadaEventHandler implements IEventHandler<any> {
   constructor(private readonly repository: IRrhhRepository) {}
 
-  async handle(event: DomainEvent): Promise<void> {
+  async handle(event: any): Promise<void> {
     const payload: any = event.payload;
 
     if (!payload.tecnicoId) return;

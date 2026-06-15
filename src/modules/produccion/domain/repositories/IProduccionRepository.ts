@@ -1,6 +1,6 @@
-import { DiagnosticoAggregate } from '../../../domain/aggregates/DiagnosticoAggregate';
-import { ReparacionAggregate } from '../../../domain/aggregates/ReparacionAggregate';
-import { RequestContext } from '../../../../../shared/context/RequestContext';
+import { DiagnosticoAggregate } from '../aggregates/DiagnosticoAggregate';
+import { ReparacionAggregate } from '../aggregates/ReparacionAggregate';
+import { RequestContext } from '../../../../shared/context/RequestContext';
 
 export interface IProduccionRepository {
   saveDiagnostico(ctx: RequestContext, diagnostico: DiagnosticoAggregate): Promise<void>;

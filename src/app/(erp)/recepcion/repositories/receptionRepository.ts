@@ -1,6 +1,5 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { getReceptions, createReceptionWithSeries, createPxReceptionWithBoxes } from "@/lib/database/receptions";
-import { DbReception } from "../types/reception.types";
 import { getCarriers, getPxProviders, getTechnologies, getBrands, getModels } from "@/lib/database/config";
 
 /**

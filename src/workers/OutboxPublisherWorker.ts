@@ -1,11 +1,11 @@
+import { SupabaseClient } from '@supabase/supabase-js';
 import { IEventBus } from '../shared/events/IEventBus';
-import { PrismaClient } from '@prisma/client';
 
 export class OutboxPublisherWorker {
   private isRunning: boolean = false;
-  
+
   constructor(
-    private readonly prisma: PrismaClient,
+    private readonly supabase: SupabaseClient,
     private readonly eventBus: IEventBus,
     private readonly batchSize: number = 50,
     private readonly maxAttempts: number = 3
@@ -28,52 +28,49 @@ export class OutboxPublisherWorker {
     if (!this.isRunning) return;
 
     try {
-      // Obtener eventos pendientes o fallidos que deban reintentarse
-      const events = await this.prisma.outboxEvent.findMany({
-        where: {
-          status: { in: ['PENDING', 'FAILED'] },
-          attempts: { lt: this.maxAttempts },
-          OR: [
-            { next_retry: null },
-            { next_retry: { lte: new Date() } }
-          ]
-        },
-        take: this.batchSize,
-        orderBy: { created_at: 'asc' }
-      });
+      const now = new Date().toISOString();
 
-      if (events.length === 0) return;
+      const { data: events } = await this.supabase
+        .from('outbox_event')
+        .select('*')
+        .in('status', ['PENDING', 'FAILED'])
+        .lt('attempts', this.maxAttempts)
+        .or(`next_retry.is.null,next_retry.lte.${now}`)
+        .order('created_at', { ascending: true })
+        .limit(this.batchSize);
+
+      if (!events || events.length === 0) return;
 
       for (const event of events) {
-        await this.prisma.outboxEvent.update({
-          where: { id: event.id },
-          data: { status: 'PROCESSING' }
-        });
+        await this.supabase
+          .from('outbox_event')
+          .update({ status: 'PROCESSING' })
+          .eq('id', event.id);
 
         try {
           const payload = JSON.parse(event.payload);
-          // Reconstruir el evento (aquí se podría usar un EventFactory basado en event_name)
-          const domainEvent = { ...payload }; 
-          
-          await this.eventBus.publish(domainEvent);
+          const domainEvent = { ...payload };
 
-          await this.prisma.outboxEvent.update({
-            where: { id: event.id },
-            data: { 
-              status: 'COMPLETED', 
-              processed_at: new Date() 
-            }
-          });
+          await this.eventBus.emit(domainEvent);
+
+          await this.supabase
+            .from('outbox_event')
+            .update({ status: 'COMPLETED', processed_at: new Date().toISOString() })
+            .eq('id', event.id);
         } catch (error: any) {
-          await this.prisma.outboxEvent.update({
-            where: { id: event.id },
-            data: { 
+          const nextRetry = new Date(
+            Date.now() + 1000 * 60 * Math.pow(2, event.attempts)
+          ).toISOString();
+
+          await this.supabase
+            .from('outbox_event')
+            .update({
               status: 'FAILED',
               attempts: event.attempts + 1,
               last_error: error.message,
-              next_retry: new Date(Date.now() + 1000 * 60 * Math.pow(2, event.attempts)) // Backoff exponencial
-            }
-          });
+              next_retry: nextRetry,
+            })
+            .eq('id', event.id);
         }
       }
     } catch (error) {

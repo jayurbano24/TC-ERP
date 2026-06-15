@@ -29,14 +29,21 @@ export default function LoginPage() {
       const authData = await signInWithEmail(loginIdentifier, password);
       
       if (authData?.user?.id && authData.user.id !== 'dev-user') {
-        const res = await fetch('/api/auth/session', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: authData.user.id })
-        });
-        const sessionData = await res.json();
-        if (sessionData.sessionId) {
-          localStorage.setItem('tcerp_session_id', sessionData.sessionId);
+        try {
+          const res = await fetch('/api/auth/session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: authData.user.id })
+          });
+          const textResponse = await res.text();
+          if (textResponse.startsWith('{')) {
+            const sessionData = JSON.parse(textResponse);
+            if (sessionData.sessionId) {
+              localStorage.setItem('tcerp_session_id', sessionData.sessionId);
+            }
+          }
+        } catch (e) {
+          console.warn('Non-critical error creating session:', e);
         }
       }
 

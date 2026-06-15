@@ -223,7 +223,19 @@ export async function deleteAccessoryBox(boxId: string, boxQty: number, accessor
   const { data: userData } = await supabase.auth.getUser();
   const userId = userData?.user?.id;
 
-  // Insert adjustment movement to deduct from inventory
+  const { data, error } = await supabase
+    .from('accessory_boxes')
+    .delete()
+    .eq('id', boxId)
+    .select();
+
+  if (error) return { error: error.message };
+  
+  if (!data || data.length === 0) {
+    return { error: "La caja no existía o ya fue eliminada" };
+  }
+
+  // Insert adjustment movement to deduct from inventory only if box was deleted
   await supabase.from('accessory_movements').insert([{
     accessory_id: accessoryId,
     movement_type: 'OUT',
@@ -233,12 +245,6 @@ export async function deleteAccessoryBox(boxId: string, boxQty: number, accessor
     created_by: userId
   }]);
 
-  const { error } = await supabase
-    .from('accessory_boxes')
-    .delete()
-    .eq('id', boxId);
-
-  if (error) return { error: error.message };
   return { success: true };
 }
 
@@ -248,6 +254,22 @@ export async function updateAccessoryBox(boxId: string, accessoryId: string, old
 
   const { data: userData } = await supabase.auth.getUser();
   const userId = userData?.user?.id;
+
+  const { data, error } = await supabase
+    .from('accessory_boxes')
+    .update({ 
+      quantity: newQty,
+      location: location,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', boxId)
+    .select();
+
+  if (error) return { error: error.message };
+  
+  if (!data || data.length === 0) {
+    return { error: "La caja no existía o ya fue actualizada" };
+  }
 
   // Handle inventory adjustments if quantity changed
   const diff = newQty - oldQty;
@@ -271,16 +293,6 @@ export async function updateAccessoryBox(boxId: string, accessoryId: string, old
     }]);
   }
 
-  const { error } = await supabase
-    .from('accessory_boxes')
-    .update({ 
-      quantity: newQty,
-      location: location,
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', boxId);
-
-  if (error) return { error: error.message };
   return { success: true };
 }
 

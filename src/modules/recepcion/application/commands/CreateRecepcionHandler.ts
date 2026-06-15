@@ -39,7 +39,7 @@ export class CreateRecepcionHandler implements ICommandHandler<CreateRecepcionCo
     await this.repository.save(orden);
 
     // Emitir eventos de dominio
-    for (const event of orden.getDomainEvents()) {
+    for (const event of orden.domainEvents) {
       await this.eventBus.emit(event);
     }
     orden.clearEvents();

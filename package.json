@@ -6,8 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
-    "postinstall": "prisma generate --schema=src/infrastructure/database/prisma/schema.prisma"
+    "lint": "eslint"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",
@@ -40,8 +39,5 @@
     "prisma": "^7.8.0",
     "tailwindcss": "^4",
     "typescript": "5.9.3"
-  },
-  "prisma": {
-    "schema": "src/infrastructure/database/prisma/schema.prisma"
   }
 }

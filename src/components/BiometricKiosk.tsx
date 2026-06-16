@@ -268,21 +268,7 @@ export function BiometricKiosk() {
             }
 
             if (bestDistance <= 0.42) {
-               const newBuffer = [...refs.livenessBuffer, Array.from(detections.descriptor)];
-               if (newBuffer.length < 3) {
-                 setLivenessBuffer(newBuffer);
-                 setFaceStatus('capturing');
-                 return;
-               }
-
-               const livenessDist = faceapi.euclideanDistance(new Float32Array(newBuffer[0]), new Float32Array(newBuffer[2]));
-               if (livenessDist < 0.01) {
-                 setFaceStatus('unknown');
-                 setStatusMessage('Liveness Fallido (Mueva ligeramente la cabeza)');
-                 setLivenessBuffer([]);
-                 return;
-               }
-
+               // Aprobación instantánea con 1 solo frame exitoso (sin liveness) para máxima velocidad
                setFaceStatus('ready');
                prepareActionSelect(emp);
             } else if (detections.detection.score >= 0.85) {

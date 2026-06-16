@@ -223,16 +223,16 @@ export function BiometricKiosk() {
             }
             if (refs.isRegistering && refs.registerStep === 'capture' && refs.selectedRegisterEmp) {
                const newBuffer = [...refs.livenessBuffer, Array.from(detections.descriptor)];
-               if (newBuffer.length < 5) {
+               if (newBuffer.length < 3) {
                  setLivenessBuffer(newBuffer);
-                 setRegisterStatusMsg(`Capturando... ${newBuffer.length}/5`);
+                 setRegisterStatusMsg(`Capturando... ${newBuffer.length}/3`);
                  return;
                }
                
                cooldownRef.current = true;
                setRegisterStatusMsg('Verificando Liveness y guardando datos...');
                
-               const dist = faceapi.euclideanDistance(new Float32Array(newBuffer[0]), new Float32Array(newBuffer[4]));
+               const dist = faceapi.euclideanDistance(new Float32Array(newBuffer[0]), new Float32Array(newBuffer[2]));
                if (dist < 0.01) { // Liveness check (too static)
                  setRegisterStatusMsg('Liveness Fallido: Rostro demasiado estático (Posible Foto)');
                  setTimeout(() => { setLivenessBuffer([]); cooldownRef.current = false; }, 3000);
@@ -269,13 +269,13 @@ export function BiometricKiosk() {
 
             if (bestDistance <= 0.42) {
                const newBuffer = [...refs.livenessBuffer, Array.from(detections.descriptor)];
-               if (newBuffer.length < 5) {
+               if (newBuffer.length < 3) {
                  setLivenessBuffer(newBuffer);
                  setFaceStatus('capturing');
                  return;
                }
 
-               const livenessDist = faceapi.euclideanDistance(new Float32Array(newBuffer[0]), new Float32Array(newBuffer[4]));
+               const livenessDist = faceapi.euclideanDistance(new Float32Array(newBuffer[0]), new Float32Array(newBuffer[2]));
                if (livenessDist < 0.01) {
                  setFaceStatus('unknown');
                  setStatusMessage('Liveness Fallido (Mueva ligeramente la cabeza)');
@@ -293,7 +293,7 @@ export function BiometricKiosk() {
           }
         } catch (err) { console.error('Error face detection', err); }
       }
-    }, 1000);
+    }, 250);
 
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, [isCameraActive, isModelLoaded]);

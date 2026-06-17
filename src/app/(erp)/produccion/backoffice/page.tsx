@@ -410,7 +410,9 @@ export default function BackofficePage() {
         r.status !== 'PROCESADO' &&
         r.status !== 'CLASIFICADA' &&
         r.status !== 'DEVUELTO_A_AGENCIA' &&
-        r.status !== 'FINALIZADO'
+        r.status !== 'FINALIZADO' &&
+        r.status !== 'ELIMINADO' &&
+        r.status !== 'ELIMINADO POR BODEGA'
       );
       setPendingReceptions(pending);
     } catch (error) {

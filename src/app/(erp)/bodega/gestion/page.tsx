@@ -267,6 +267,7 @@ export default function BodegaGestionPage() {
             modelo: modelId,
             tecnologia: techId,
             origen: main.receptions?.carrier || 'Desconocida',
+            fuente: main.receptions?.source?.toUpperCase() || 'PX',
             agenciaCAC: agenciaCAC,
             piloto: piloto,
             guia: main.receptions?.guide_number || 'S/G',
@@ -782,7 +783,7 @@ export default function BodegaGestionPage() {
         }
       }
       
-      await supabase.from('boxes').delete().eq('id', realDbId);
+      await supabase.from('boxes').update({ rack_location: 'ELIMINADO' }).eq('id', realDbId);
       
       setInventory(prev => prev.filter(b => b.id !== boxId));
     } catch (err) {
@@ -1028,7 +1029,14 @@ export default function BodegaGestionPage() {
                       onClick={() => setSelectedBox(item)}
                     >
                       <td className="px-6 py-5 whitespace-nowrap">
-                        <span className="text-sm font-black text-[#181c3a] font-mono">{item.id}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-black text-[#181c3a] font-mono">{item.id}</span>
+                          {item.fuente && (
+                            <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest ${item.fuente === 'CAC' ? 'bg-[#181c3a] text-white' : 'bg-[#2ec4f1] text-[#181c3a]'}`}>
+                              {item.fuente}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-5 whitespace-nowrap">
                         <span className="text-[10px] font-bold text-slate-700">{item.fechaIngreso}</span>
@@ -1037,7 +1045,7 @@ export default function BodegaGestionPage() {
                         <span className="text-[10px] font-bold text-[#2ec4f1]">{catTecnologias.find(t => t.id === item.tecnologia)?.name || item.tecnologia || '---'}</span>
                       </td>
                       <td className="px-6 py-5">
-                        <span className="text-[10px] font-bold text-slate-700">{item.usuarioIngreso}</span>
+                        <span className="text-[10px] font-bold text-slate-700">{(item.usuarioIngreso || 'SISTEMA').split('@')[0]}</span>
                       </td>
                       <td className="px-6 py-5">
                         <div 

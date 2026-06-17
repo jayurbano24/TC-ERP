@@ -54,5 +54,26 @@ export const receptionRepository = {
       .maybeSingle();
 
     return data;
+  },
+
+  generateNextRECNumber: async () => {
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase) return 'REC-800000';
+
+    const { data } = await supabase
+      .from('receptions')
+      .select('guide_number')
+      .like('guide_number', 'REC-%')
+      .order('guide_number', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (data && data.guide_number) {
+      const currentNum = parseInt(data.guide_number.split('-')[1]);
+      if (!isNaN(currentNum)) {
+        return `REC-${currentNum + 1}`;
+      }
+    }
+    return 'REC-800000';
   }
 };

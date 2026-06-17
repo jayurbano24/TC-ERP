@@ -14,9 +14,9 @@ import { useReceptionCAC } from './hooks/useReceptionCAC';
 import { useReceptionScanner } from './hooks/useReceptionScanner';
 import { useReceptionValidation } from './hooks/useReceptionValidation';
 
-// Services
 import { receptionService } from './services/receptionService';
 import { printingService } from './services/printingService';
+import { validationService } from './services/validationService';
 import { getCarriers, getTechnologies, getBrands, getModels, getPxProviders } from '@/lib/database/config';
 import { getReceptions } from '@/lib/database/receptions';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
@@ -83,7 +83,25 @@ export default function ReceptionsPage() {
         }
 
         if (errorMsg === 'El nuevo módulo de recepción no está activo') {
-          alert('Fallback a lógica Legacy (Feature Flag OFF)');
+          const result = await receptionService.finalizeCACReception({
+            cacScannedItems: cacState.cacScannedItems,
+            cacCarrier: cacState.cacCarrier,
+            cacPilot: cacState.cacPilot,
+            cacAgency: cacState.cacAgency,
+            cacTotalCajas: cacState.cacTotalCajas
+          }, currentUserFullName);
+          
+          if (result && result.error) {
+            throw new Error(result.error);
+          }
+          
+          alert('Recepción CAC guardada con éxito e ingresada a Bodega General.');
+          cacState.setCacScannedItems([]);
+          scannerState.setIsIndustrialScanning(false);
+          cacState.setCacPilot('');
+          cacState.setCacCarrier('');
+          cacState.setCacAgency('');
+          cacState.setCacTotalCajas(0);
         } else {
           throw new Error(errorMsg);
         }
@@ -92,13 +110,20 @@ export default function ReceptionsPage() {
         alert('Recepción CAC guardada con éxito mediante Arquitectura Enterprise');
         cacState.setCacScannedItems([]);
         scannerState.setIsIndustrialScanning(false);
+        cacState.setCacPilot('');
+        cacState.setCacCarrier('');
+        cacState.setCacAgency('');
+        cacState.setCacTotalCajas(0);
       }
     } catch (err: any) {
       cacState.setCacError(err.message || 'Error de conexión');
     }
   };
 
+  const [isSubmittingPX, setIsSubmittingPX] = useState(false);
+
   const handleFinalizePX = async () => {
+    if (isSubmittingPX) return;
     try {
       if (pxState.manifestItems.length === 0) {
         alert('No hay cajas en el manifiesto.');
@@ -108,6 +133,8 @@ export default function ReceptionsPage() {
         alert('No hay series escaneadas.');
         return;
       }
+
+      setIsSubmittingPX(true);
 
       // Utilizamos la lógica Legacy directamente para asegurar el ingreso a Bodega General
       const result = await receptionService.finalizePXReception(
@@ -135,8 +162,10 @@ export default function ReceptionsPage() {
         proveedorPx: '', 
         guia: '', 
         piloto: '', 
-        courier: '' 
+        courier: '',
+        totalCajasEsperadas: 1
       });
+      pxState.setIsReceptionStarted(false);
       scannerState.setIsIndustrialScanning(false);
       
       // Recargar el historial silenciosamente
@@ -171,6 +200,8 @@ export default function ReceptionsPage() {
     } catch (err: any) {
       console.error(err);
       alert(err.message || 'Error de conexión');
+    } finally {
+      setIsSubmittingPX(false);
     }
   };
   
@@ -299,7 +330,7 @@ export default function ReceptionsPage() {
     });
   };
 
-  const handleAddSN_PX = (e: React.FormEvent) => {
+  const handleAddSN_PX = async (e: React.FormEvent) => {
     e.preventDefault();
     const { selectedBoxForScan, currentScans, manifestItems, scannedSeries, setScannedSeries, setCurrentScans } = pxState;
 
@@ -308,16 +339,53 @@ export default function ReceptionsPage() {
       return;
     }
 
-    const box = manifestItems.find(i => i.boxCode === selectedBoxForScan);
+    const box = manifestItems.find((i: any) => i.boxCode === selectedBoxForScan);
     if (!box) return;
 
     if (!currentScans[0] || currentScans[0].trim() === '') {
       return;
     }
 
-    const currentCount = scannedSeries.filter(s => s.boxCode === selectedBoxForScan).length;
+    const currentCount = scannedSeries.filter((s: any) => s.boxCode === selectedBoxForScan).length;
     if (currentCount >= box.totalEsperado) {
       alert(`La caja ${selectedBoxForScan} ya alcanzó su capacidad de ${box.totalEsperado} equipos.`);
+      return;
+    }
+
+    const serialNum = currentScans[0].trim().toUpperCase();
+
+    // 1. Validación de duplicado en UI (para todos los inputs no vacíos)
+    const validScans = currentScans.map(s => s?.trim().toUpperCase()).filter(s => s !== '');
+    
+    // a. Verificar duplicados entre los mismos inputs actuales
+    if (new Set(validScans).size !== validScans.length) {
+      alert("Ha ingresado series duplicadas en los campos de escaneo.");
+      return;
+    }
+
+    // b. Verificar duplicados contra lo ya escaneado
+    const isDuplicateInScanned = scannedSeries.some((s: any) => 
+      validScans.includes(s.sn) || 
+      validScans.includes(s.s2) || 
+      validScans.includes(s.s3) || 
+      validScans.includes(s.s4)
+    );
+
+    if (isDuplicateInScanned) {
+      alert("Una o más series ingresadas ya han sido escaneadas en esta recepción.");
+      return;
+    }
+
+    // 2. Validación de estado en Base de Datos
+    try {
+      const validation = await validationService.checkSerialInSystem(serialNum);
+      if (validation.blocked) {
+        alert(validation.info);
+        return;
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert("Error validando serie en base de datos: " + err.message);
       return;
     }
 
@@ -325,7 +393,7 @@ export default function ReceptionsPage() {
       ...scannedSeries,
       {
         boxCode: selectedBoxForScan,
-        sn: currentScans[0].trim().toUpperCase(),
+        sn: serialNum,
         s2: currentScans[1]?.trim().toUpperCase(),
         s3: currentScans[2]?.trim().toUpperCase(),
         s4: currentScans[3]?.trim().toUpperCase(),
@@ -337,6 +405,79 @@ export default function ReceptionsPage() {
     setTimeout(() => {
       document.getElementById('scan-input-0')?.focus();
     }, 10);
+  };
+
+  const handlePrintPXManifest = async (rec: any) => {
+    try {
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase) return;
+      
+      const { data: boxes, error: boxError } = await supabase
+        .from('boxes')
+        .select('*, brands(name), models(name, technologies(name))')
+        .eq('reception_id', rec.id);
+
+      if (boxError) throw boxError;
+
+      const { data: series, error: seriesError } = await supabase
+        .from('series')
+        .select('*, brands(name), models(name, technologies(name))')
+        .eq('current_reception_id', rec.id);
+
+      if (seriesError) throw seriesError;
+
+      const manifestBoxes = (boxes || []).map((b: any) => ({
+        ...b,
+        boxCode: b.box_code,
+        marca: b.brands?.name || 'N/A',
+        modelo: b.models?.name || 'N/A',
+        tecnologia: b.models?.technologies?.name || 'EQUIPO',
+        totalEsperado: b.capacity || 0
+      }));
+
+      const mappedSeries = (series || []).map((s: any) => ({
+        ...s,
+        sn: s.serial_number,
+        marca: s.brands?.name || 'N/A',
+        modelo: s.models?.name || 'N/A',
+        boxCode: boxes?.find(bx => bx.id === s.current_box_id)?.box_code || ''
+      }));
+
+      printingService.printPXManifest(rec, mappedSeries, manifestBoxes);
+    } catch (error: any) {
+      alert("Error al obtener datos para impresión: " + error.message);
+    }
+  };
+
+  const handlePrintLabelsPX = async (rec: any) => {
+    try {
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase) return;
+      
+      const { data: boxes, error: boxError } = await supabase
+        .from('boxes')
+        .select('*, brands(name), models(name, technologies(name))')
+        .eq('reception_id', rec.id);
+
+      if (boxError) throw boxError;
+      if (!boxes || boxes.length === 0) {
+        alert("No hay cajas para imprimir en esta recepción.");
+        return;
+      }
+
+      const manifestBoxes = boxes.map((b: any) => ({
+        ...b,
+        boxCode: b.box_code,
+        marca: b.brands?.name || 'N/A',
+        modelo: b.models?.name || 'N/A',
+        tecnologia: b.models?.technologies?.name || 'EQUIPO',
+        totalEsperado: b.capacity || 0
+      }));
+
+      printingService.printAllBoxLabels(manifestBoxes);
+    } catch (error: any) {
+      alert("Error al obtener datos para etiquetas: " + error.message);
+    }
   };
 
   return (
@@ -368,7 +509,7 @@ export default function ReceptionsPage() {
       />
 
       {moduleMode === 'px' && activeTab === 'scan' && (
-        <PxReceptionTab {...pxState} {...scannerState} {...validationState} printBoxLabel={printingService.printBoxLabel} systemPxProviders={systemPxProviders} systemTechnologies={systemTechnologies} filteredBrands={filteredBrands} filteredModels={filteredModels} systemModels={systemModels} moduleMode={moduleMode} handleFinalizePX={handleFinalizePX} handleAddCaja={handleAddCaja} handleAddSN_PX={handleAddSN_PX} />
+        <PxReceptionTab {...pxState} {...scannerState} {...validationState} printBoxLabel={printingService.printBoxLabel} systemPxProviders={systemPxProviders} systemTechnologies={systemTechnologies} filteredBrands={filteredBrands} filteredModels={filteredModels} systemModels={systemModels} moduleMode={moduleMode} handleFinalizePX={handleFinalizePX} isSubmittingPX={isSubmittingPX} handleAddCaja={handleAddCaja} handleAddSN_PX={handleAddSN_PX} isReceptionStarted={pxState.isReceptionStarted} setIsReceptionStarted={pxState.setIsReceptionStarted} />
       )}
 
       {moduleMode === 'cac' && activeTab === 'scan' && (
@@ -390,7 +531,8 @@ export default function ReceptionsPage() {
            setTimelineActiveGuide={setTimelineActiveGuide}
            setPxRecords={pxState.setPxRecords}
            handlePrintCAC={printingService.printCACAcuse}
-           handlePrintPX={printingService.printBoxLabel}
+           handlePrintPX={handlePrintPXManifest}
+           handlePrintLabelsPX={handlePrintLabelsPX}
            handleViewPxDetails={() => {}}
            handleDeleteHistoryCAC={async (id: string) => {
              const confirmDelete = window.confirm('¿Está seguro de eliminar esta recepción y todos sus sub-procesos asociados?');
@@ -426,8 +568,8 @@ export default function ReceptionsPage() {
                  await supabase.from('series').delete().in('id', seriesIds);
                }
                
-               // Eliminar cajas asociadas
-               await supabase.from('boxes').delete().eq('reception_id', id);
+               // Marcar cajas como eliminadas para mantener el consecutivo de IDs
+               await supabase.from('boxes').update({ rack_location: 'ELIMINADO' }).eq('reception_id', id);
 
                // Finalmente actualizar el estatus de la recepción
                const { error } = await supabase.from('receptions').update({ status: 'ELIMINADO' }).eq('id', id);

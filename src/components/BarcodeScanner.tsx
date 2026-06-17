@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from 'react';
-import { Html5QrcodeScanner } from 'html5-qrcode';
-import { Camera, X } from 'lucide-react';
-import { Button } from '@/components/ui';
+import { Html5Qrcode } from 'html5-qrcode';
+import { Camera, X, Loader2 } from 'lucide-react';
 
 interface BarcodeScannerProps {
   onScanSuccess: (decodedText: string) => void;
@@ -11,60 +10,70 @@ interface BarcodeScannerProps {
 }
 
 export default function BarcodeScanner({ onScanSuccess, onClose }: BarcodeScannerProps) {
-  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
   const [error, setError] = useState<string>('');
+  const [isInitializing, setIsInitializing] = useState(true);
 
   useEffect(() => {
-    // Evitar que se inicialice múltiple veces en strict mode
-    if (scannerRef.current) return;
+    let isMounted = true;
+    
+    const startScanner = async () => {
+      try {
+        const scanner = new Html5Qrcode("reader");
+        scannerRef.current = scanner;
 
-    try {
-      const scanner = new Html5QrcodeScanner(
-        "reader",
-        { 
-          fps: 10, 
-          qrbox: { width: 250, height: 250 },
-          aspectRatio: 1.0,
-          showTorchButtonIfSupported: true,
-        },
-        false
-      );
-
-      scannerRef.current = scanner;
-
-      scanner.render((decodedText) => {
-        // Al escanear con éxito, pausamos para evitar escaneos dobles inmediatos
-        scanner.pause(true);
-        onScanSuccess(decodedText);
+        await scanner.start(
+          { facingMode: "environment" }, // Forzar cámara trasera (principal)
+          {
+            fps: 10,
+            qrbox: { width: 250, height: 250 },
+            aspectRatio: 1.0,
+          },
+          (decodedText) => {
+            if (scannerRef.current?.isScanning) {
+              scannerRef.current.pause();
+              onScanSuccess(decodedText);
+              setTimeout(() => {
+                if (scannerRef.current?.isPaused) {
+                  scannerRef.current.resume();
+                }
+              }, 1500);
+            }
+          },
+          (errorMessage) => {
+            // Ignorar errores de "no detectado"
+          }
+        );
         
-        // Retomamos después de 1.5s
-        setTimeout(() => {
-          if (scannerRef.current) scannerRef.current.resume();
-        }, 1500);
+        if (isMounted) setIsInitializing(false);
+      } catch (err: any) {
+        console.error("Error iniciando cámara:", err);
+        if (isMounted) {
+          setError('No se pudo acceder a la cámara. Por favor verifique los permisos de su navegador.');
+          setIsInitializing(false);
+        }
+      }
+    };
 
-      }, (err) => {
-        // Ignoramos errores de "no detectado" porque se disparan en cada frame
-      });
-    } catch (e) {
-      console.error(e);
-      setError('Error al inicializar la cámara. Por favor verifique los permisos.');
-    }
+    startScanner();
 
     return () => {
-      if (scannerRef.current) {
-        scannerRef.current.clear().catch(e => console.error(e));
-        scannerRef.current = null;
+      isMounted = false;
+      if (scannerRef.current && scannerRef.current.isScanning) {
+        scannerRef.current.stop().then(() => {
+          scannerRef.current?.clear();
+        }).catch(console.error);
       }
     };
   }, [onScanSuccess]);
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex flex-col items-center justify-center p-4 animate-in fade-in zoom-in-95 duration-300">
+    <div className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-md flex flex-col items-center justify-center p-4 animate-in fade-in zoom-in-95 duration-300">
       <div className="w-full max-w-md bg-white rounded-3xl overflow-hidden shadow-2xl relative">
         <div className="bg-[#181c3a] p-4 flex justify-between items-center text-white">
           <div className="flex items-center gap-2">
             <Camera size={20} className="text-[#2ec4f1]" />
-            <h3 className="font-black uppercase tracking-widest text-sm">Escáner de Cámara</h3>
+            <h3 className="font-black uppercase tracking-widest text-sm">Escáner Automático</h3>
           </div>
           <button 
             onClick={onClose}
@@ -74,17 +83,26 @@ export default function BarcodeScanner({ onScanSuccess, onClose }: BarcodeScanne
           </button>
         </div>
         
-        <div className="p-4 bg-slate-50 relative min-h-[300px] flex items-center justify-center">
+        <div className="bg-black relative min-h-[300px] flex items-center justify-center overflow-hidden">
+          {isInitializing && !error && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-white gap-3 z-10 bg-black/50">
+              <Loader2 className="w-8 h-8 animate-spin text-[#2ec4f1]" />
+              <p className="text-xs font-bold tracking-widest uppercase animate-pulse">Iniciando Cámara...</p>
+            </div>
+          )}
+          
           {error ? (
-            <p className="text-rose-500 font-bold text-center p-6">{error}</p>
+            <div className="absolute inset-0 flex items-center justify-center bg-rose-500/10 p-6 text-center">
+              <p className="text-rose-500 font-bold text-sm">{error}</p>
+            </div>
           ) : (
-            <div id="reader" className="w-full h-full border-none" style={{ border: 'none' }}></div>
+            <div id="reader" className="w-full h-full border-none flex items-center justify-center"></div>
           )}
         </div>
         
-        <div className="bg-white p-4 border-t border-slate-100 text-center">
-          <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">
-            Apunte la cámara hacia el código de barras o QR
+        <div className="bg-white p-5 text-center border-t border-slate-100">
+          <p className="text-xs font-black uppercase text-slate-500 tracking-widest">
+            Apunte el código de barras hacia el recuadro
           </p>
         </div>
       </div>

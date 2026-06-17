@@ -435,7 +435,7 @@ export default function DespachoPage() {
     if (!supabase) return;
 
     try {
-      const { error } = await supabase.from('boxes').delete().eq('id', disp.dbId);
+      const { error } = await supabase.from('boxes').update({ rack_location: 'ELIMINADO' }).eq('id', disp.dbId);
       if (error) {
         console.error(error);
         alert('Error al eliminar la caja: ' + error.message);

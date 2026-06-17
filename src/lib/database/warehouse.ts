@@ -7,7 +7,7 @@ export async function getInventoryBoxes() {
   const { data, error } = await supabase
     .from('boxes')
     .select('*')
-    .neq('rack_location', 'DESPACHO')
+    .not('rack_location', 'in', '("DESPACHO","ELIMINADO")')
     .order('created_at', { ascending: false });
 
   if (error) {
@@ -24,7 +24,7 @@ export async function getInventoryBoxes() {
       .from('series')
       .select(`
         *,
-        receptions (guide_number, notes, carrier, received_by, status, created_at),
+        receptions (guide_number, notes, carrier, received_by, status, created_at, source),
         service_orders (id, os_label, reentry_count)
       `)
       .in('current_box_id', boxIds);
@@ -342,7 +342,7 @@ export async function getInventoryDetails() {
   const { data: warehouseBoxes, error: boxError } = await supabase
     .from("boxes")
     .select("id")
-    .neq("rack_location", "DESPACHO");
+    .not("rack_location", "in", '("DESPACHO","ELIMINADO")');
 
   if (boxError) {
     console.error("Error fetching closed boxes:", boxError);

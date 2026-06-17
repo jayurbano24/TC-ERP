@@ -329,7 +329,7 @@ export async function createPxReceptionWithBoxes(
   // 2. Prepare boxes data
   const boxesToInsert = boxes.map(b => {
     maxBoxNum++;
-    const newBoxCode = `BOX-${maxBoxNum.toString().padStart(3, '0')}`;
+    const newBoxCode = `BOX-${maxBoxNum}`;
     uiBoxToNewBox.set(b.box_code, newBoxCode);
 
     return {

@@ -1,10 +1,11 @@
 // @ts-nocheck
 import React from 'react';
-import { Search, Truck, Clock, Camera, Pencil, Printer, Trash2, Download, ClipboardList, Scan, ChevronLeft, ChevronRight, Eye, X, History } from 'lucide-react';
+import { Search, Truck, Clock, Camera, Pencil, Printer, Trash2, Download, ClipboardList, Scan, ChevronLeft, ChevronRight, Eye, X, History, Tag, Box } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { printingService } from '../services/printingService';
 
 export const HistoryTab = ({
   moduleMode,
@@ -14,17 +15,34 @@ export const HistoryTab = ({
   setSearchTerm,
   filterPilot,
   setFilterPilot,
-  handleViewPxDetails,
-  handlePrintPX,
-  handlePrintCAC,
-  handleDeleteHistoryCAC,
-  handleEditHistoryCAC,
   showTimeline,
   setShowTimeline,
   timelineActiveGuide,
   setTimelineActiveGuide,
-  setPxRecords
+  setPxRecords,
+  handlePrintCAC,
+  handlePrintPX,
+  handlePrintLabelsPX,
+  handleDeleteHistoryCAC
 }: any) => {
+
+  const [showPxDetails, setShowPxDetails] = React.useState<any>(null);
+  const [pxDetailsData, setPxDetailsData] = React.useState<any>({ boxes: [], series: [], loading: false });
+
+  const handleViewPxDetails = async (rec: any) => {
+    setShowPxDetails(rec);
+    setPxDetailsData({ boxes: [], series: [], loading: true });
+    try {
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase) return;
+      const { data: boxes } = await supabase.from('boxes').select('*, brands(name), models(name, technologies(name))').eq('reception_id', rec.id);
+      const { data: series } = await supabase.from('series').select('*').eq('current_reception_id', rec.id);
+      setPxDetailsData({ boxes: boxes || [], series: series || [], loading: false });
+    } catch (error) {
+      console.error(error);
+      setPxDetailsData({ boxes: [], series: [], loading: false });
+    }
+  };
 
   return (
     <div className="space-y-6 animate-rise-in">
@@ -153,7 +171,7 @@ export const HistoryTab = ({
                   <td className="px-6 py-5 font-bold text-slate-600 text-xs">{rec.fecha_formateada || new Date(rec.created_at).toLocaleString()}</td>
                   <td className="px-6 py-5 font-mono font-black text-[#181c3a]">{rec.sap_document || '---'}</td>
                   <td className="px-6 py-5 text-xs font-bold text-slate-500">{rec.carrier || '---'}</td>
-                  <td className="px-6 py-5 text-xs font-bold text-slate-500">{rec.received_by || 'SISTEMA'}</td>
+                  <td className="px-6 py-5 text-xs font-bold text-slate-500">{(rec.notes?.split('Recibido Por: ')?.[1]?.split('\n')?.[0]?.trim() || rec.received_by || 'SISTEMA').split('@')[0]}</td>
                   <td className="px-6 py-5 text-center font-black text-slate-800">{rec.notes?.match(/Cajas:\\s*(\\d+)/)?.[1] || 1} Cajas</td>
                   <td className="px-6 py-5 text-center font-black text-slate-800">{rec.received_units || 0} Equipos</td>
                   <td className="px-6 py-5">
@@ -185,11 +203,33 @@ export const HistoryTab = ({
                       }}>
                         <Pencil size={22} strokeWidth={2} />
                       </button>
-                      <button className="text-slate-400 hover:text-[#2ec4f1] transition-all hover:scale-110" title="Imprimir" onClick={(e) => {
+                      <button className="text-slate-400 hover:text-purple-500 transition-all hover:scale-110" title="Imprimir Etiquetas" onClick={(e) => {
+                        e.stopPropagation();
+                        handlePrintLabelsPX && handlePrintLabelsPX(rec);
+                      }}>
+                        <Tag size={22} strokeWidth={2} />
+                      </button>
+                      <button className="text-slate-400 hover:text-[#2ec4f1] transition-all hover:scale-110" title="Imprimir Conduce" onClick={(e) => {
                         e.stopPropagation();
                         handlePrintPX(rec);
                       }}>
                         <Printer size={22} strokeWidth={2} />
+                      </button>
+                      <button className="text-slate-400 hover:text-rose-500 transition-all hover:scale-110" title="Eliminar Recepción" onClick={async (e) => {
+                        e.stopPropagation();
+                        if (confirm(`¿Está seguro que desea eliminar la recepción ${rec.sap_document || rec.guide_number}?`)) {
+                          try {
+                            const supabase = getSupabaseBrowserClient();
+                            if (!supabase) return;
+                            const { error } = await supabase.from('receptions').update({ status: 'ELIMINADO POR BODEGA' }).eq('id', rec.id);
+                            if (error) throw error;
+                            setPxRecords((prev: any) => prev.map((r: any) => r.id === rec.id ? { ...r, status: 'ELIMINADO POR BODEGA' } : r));
+                          } catch (err: any) {
+                            alert("Error al eliminar: " + err.message);
+                          }
+                        }
+                      }}>
+                        <Trash2 size={22} strokeWidth={2} />
                       </button>
                     </div>
                   </td>
@@ -247,7 +287,8 @@ export const HistoryTab = ({
                       item.guide_number?.toLowerCase().includes(searchLower) ||
                       (item.pilot_display && item.pilot_display.toLowerCase().includes(searchLower));
                     const matchesPilot = filterPilot === 'Todos' || item.pilot_display === filterPilot;
-                    return matchesSearch && matchesPilot;
+                    const notEliminated = item.status !== 'ELIMINADO' && item.status !== 'ELIMINADO POR BODEGA';
+                    return matchesSearch && matchesPilot && notEliminated;
                   })
                   .map((item: any) => (
                     <tr key={item.id} className="hover:bg-blue-50/50 transition-colors border-b border-slate-100 group">
@@ -272,7 +313,7 @@ export const HistoryTab = ({
                         )}
                       </td>
                       <td className="px-6 py-4 font-black text-slate-800 text-xs uppercase">{item.pilot_display}</td>
-                      <td className="px-6 py-4 font-black text-slate-700 text-xs">{item.usuario}</td>
+                      <td className="px-6 py-4 font-black text-slate-700 text-xs">{(item.notes?.split('Recibido Por: ')?.[1]?.split('\n')?.[0]?.trim() || item.usuario || item.received_by || 'SISTEMA').split('@')[0]}</td>
                       <td className="px-6 py-4">
                         <Badge className="border-none font-black text-[9px] uppercase tracking-widest whitespace-nowrap bg-blue-50 text-blue-600">
                           {item.status || 'RECEPCIONADA'}
@@ -303,6 +344,112 @@ export const HistoryTab = ({
             </table>
           </div>
         </Card>
+      )}
+
+      {/* MODAL DETALLE PX */}
+      {showPxDetails && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#181c3a]/80 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-rise-in">
+            <div className="bg-[#181c3a] p-5 flex items-center justify-between text-white">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center">
+                  <Box className="w-5 h-5 text-[#2ec4f1]" />
+                </div>
+                <div>
+                  <h3 className="font-black tracking-widest uppercase text-sm">Detalle de Recepción PX</h3>
+                  <p className="text-[10px] text-white/50 mt-1 uppercase tracking-wider">
+                    {showPxDetails.fecha_formateada || new Date(showPxDetails.created_at).toLocaleString()} • Por: {(showPxDetails.notes?.split('Recibido Por: ')?.[1]?.split('\n')?.[0]?.trim() || showPxDetails.received_by || 'SISTEMA').split('@')[0]}
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowPxDetails(null)}
+                className="w-8 h-8 flex items-center justify-center bg-white/10 hover:bg-rose-500 rounded-lg transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto custom-scrollbar flex-1 bg-slate-50">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Doc SAP</p>
+                  <p className="font-black text-[#181c3a]">{showPxDetails.sap_document || 'N/A'}</p>
+                </div>
+                <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Proveedor</p>
+                  <p className="font-black text-[#181c3a]">{showPxDetails.carrier || 'N/A'}</p>
+                </div>
+                <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Cajas</p>
+                  <p className="font-black text-[#2ec4f1] text-lg">{pxDetailsData.boxes.length}</p>
+                </div>
+                <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Equipos</p>
+                  <p className="font-black text-emerald-500 text-lg">{pxDetailsData.series.length}</p>
+                </div>
+              </div>
+
+              {pxDetailsData.loading ? (
+                <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+                  <div className="w-8 h-8 border-4 border-[#2ec4f1] border-t-transparent rounded-full animate-spin mb-4" />
+                  <p className="text-xs font-bold uppercase tracking-widest">Cargando detalles...</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {pxDetailsData.boxes.map((box: any) => {
+                    const boxSeries = pxDetailsData.series.filter((s: any) => s.current_reception_id === showPxDetails.id);
+                    return (
+                      <Card key={box.id} className="p-0 overflow-hidden border border-slate-200 shadow-sm">
+                        <div className="bg-white p-4 border-b border-slate-100 flex items-center justify-between">
+                          <div className="flex items-center gap-4">
+                            <Badge variant="slate" className="font-black text-sm px-4 py-1.5">{box.box_code}</Badge>
+                            <div className="flex flex-col">
+                              <span className="text-[9px] text-slate-400 font-black uppercase tracking-widest leading-tight">Marca & Modelo</span>
+                              <span className="text-sm font-black text-[#181c3a]">{box.brands?.name || 'N/A'} <span className="text-slate-300 mx-1">|</span> {box.models?.name || 'N/A'}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-6">
+                            <div className="text-right">
+                              <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Capacidad</p>
+                              <p className="text-sm font-black text-[#2ec4f1]">{box.capacity} und</p>
+                            </div>
+                            <button
+                              onClick={(e) => { 
+                                e.stopPropagation(); 
+                                const mappedBox = {
+                                  ...box,
+                                  boxCode: box.box_code,
+                                  marca: box.brands?.name || 'N/A',
+                                  modelo: box.models?.name || 'N/A',
+                                  tecnologia: box.models?.technologies?.name || 'EQUIPO',
+                                  totalEsperado: box.capacity || 0
+                                };
+                                printingService.printAllBoxLabels([mappedBox]); 
+                              }}
+                              className="w-10 h-10 flex items-center justify-center bg-slate-50 hover:bg-[#181c3a] text-slate-400 hover:text-white rounded-xl transition-all shadow-sm"
+                              title="Imprimir Etiqueta Individual"
+                            >
+                              <Printer size={18} strokeWidth={2} />
+                            </button>
+                          </div>
+                        </div>
+                      </Card>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <div className="p-4 bg-white border-t border-slate-100 flex justify-end gap-3">
+              <Button onClick={() => handlePrintLabelsPX(showPxDetails)} className="bg-[#2ec4f1] hover:bg-[#25a8d1] text-white text-[10px] uppercase font-black tracking-widest rounded-lg h-10 px-6">
+                <Tag className="w-4 h-4 mr-2" /> Imprimir Etiquetas
+              </Button>
+              <Button onClick={() => setShowPxDetails(null)} className="bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] uppercase font-black tracking-widest rounded-lg h-10 px-6">
+                Cerrar
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Modal Trazabilidad iría aquí o extraído en un sub-componente */}

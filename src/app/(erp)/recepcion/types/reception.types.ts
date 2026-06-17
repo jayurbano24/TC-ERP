@@ -9,6 +9,7 @@ export interface GuideData {
   guia: string;
   piloto: string;
   courier: string;
+  totalCajasEsperadas: number;
 }
 
 export interface CurrentEntry {

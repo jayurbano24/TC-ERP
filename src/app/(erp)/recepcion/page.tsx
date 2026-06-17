@@ -58,62 +58,59 @@ export default function ReceptionsPage() {
   const handleFinalizeCAC = async () => {
     try {
       cacState.setCacError('');
-      // Llamamos a la API unificada
-      const response = await fetch('/api/recepcion', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tipo: 'CAC',
-          payload: {
-            numeroSerie: cacState.cacScannedItems[0] || 'DESCONOCIDO',
-            // En CAC, el transportista y agencia es global
-            fallaReportada: 'Recepción CAC masiva'
-          }
-        })
-      });
 
-      if (!response.ok) {
-        let errorMsg = 'Error en el servidor al procesar la recepción CAC';
-        try {
-          const errorData = await response.json();
-          errorMsg = errorData.error || errorMsg;
-        } catch {
-          const textData = await response.text();
-          errorMsg = textData || errorMsg;
-        }
+      if (cacState.cacScannedItems.length === 0) {
+        alert('No hay guías escaneadas.');
+        return;
+      }
 
-        if (errorMsg === 'El nuevo módulo de recepción no está activo') {
-          const result = await receptionService.finalizeCACReception({
-            cacScannedItems: cacState.cacScannedItems,
-            cacCarrier: cacState.cacCarrier,
-            cacPilot: cacState.cacPilot,
-            cacAgency: cacState.cacAgency,
-            cacTotalCajas: cacState.cacTotalCajas
-          }, currentUserFullName);
-          
-          if (result && result.error) {
-            throw new Error(result.error);
-          }
-          
-          alert('Recepción CAC guardada con éxito e ingresada a Bodega General.');
-          cacState.setCacScannedItems([]);
-          scannerState.setIsIndustrialScanning(false);
-          cacState.setCacPilot('');
-          cacState.setCacCarrier('');
-          cacState.setCacAgency('');
-          cacState.setCacTotalCajas(0);
-        } else {
-          throw new Error(errorMsg);
+      const result = await receptionService.finalizeCACReception({
+        cacScannedItems: cacState.cacScannedItems,
+        cacCarrier: cacState.cacCarrier,
+        cacPilot: cacState.cacPilot,
+        cacAgency: cacState.cacAgency,
+        cacTotalCajas: cacState.cacTotalCajas
+      }, currentUserFullName);
+      
+      if (result && result.error) {
+        throw new Error(result.error);
+      }
+      
+      alert('Recepción CAC guardada con éxito e ingresada a Bodega General.');
+      cacState.setCacScannedItems([]);
+      scannerState.setIsIndustrialScanning(false);
+      cacState.setCacPilot('');
+      cacState.setCacCarrier('');
+      cacState.setCacAgency('');
+      cacState.setCacTotalCajas(0);
+
+      // Recargar el historial silenciosamente
+      const historyData = await getReceptions();
+      if (historyData) {
+        const mappedPx: any[] = [];
+        const mappedCac: any[] = [];
+        for (const row of historyData) {
+          const legacyRec = {
+            id: row.id,
+            fecha_formateada: new Date(row.created_at).toLocaleString(),
+            guide_number: row.guide_number,
+            carrier: row.carrier || '---',
+            usuario: row.received_by || 'SISTEMA',
+            received_by: row.received_by || 'SISTEMA',
+            received_units: row.received_units || 1,
+            status: row.status || 'RECEPCIONADA',
+            notes: row.notes || '',
+            sap_document: row.sap_document || '---',
+            sap_orden_servicio: row.id,
+            tipo: row.source.toUpperCase(),
+            pilot_display: row.carrier || 'OPERADOR LOGÍSTICO',
+            allGuias: row.processed_guides || []
+          };
+          if (row.source === 'px') mappedPx.push(legacyRec);
+          else mappedCac.push(legacyRec);
         }
-      } else {
-        await response.json(); // Consumir body
-        alert('Recepción CAC guardada con éxito mediante Arquitectura Enterprise');
-        cacState.setCacScannedItems([]);
-        scannerState.setIsIndustrialScanning(false);
-        cacState.setCacPilot('');
-        cacState.setCacCarrier('');
-        cacState.setCacAgency('');
-        cacState.setCacTotalCajas(0);
+        pxState.setPxRecords(mappedPx);
+        cacState.setCacRecords(mappedCac);
       }
     } catch (err: any) {
       cacState.setCacError(err.message || 'Error de conexión');
@@ -480,6 +477,23 @@ export default function ReceptionsPage() {
     }
   };
 
+  const handlePrintCACWrapper = async (item: any) => {
+    let allGuias = item.allGuias || [];
+    if (allGuias.length === 0 || (allGuias.length === 1 && item.received_units > 1)) {
+      const supabase = getSupabaseBrowserClient();
+      if (supabase) {
+        const { data } = await supabase.from('series').select('serial_number').eq('current_reception_id', item.id);
+        if (data && data.length > 0) {
+          allGuias = data.map((s: any) => s.serial_number);
+        }
+      }
+    }
+    if (allGuias.length === 0 && item.guide_number) {
+      allGuias = [item.guide_number];
+    }
+    printingService.printCACAcuse({ ...item, allGuias });
+  };
+
   return (
     <ModulePage
       title={moduleMode === 'px' ? "Recepción Planta Externa (PX)" : "Recepción de Carga (CAC)"}
@@ -513,7 +527,7 @@ export default function ReceptionsPage() {
       )}
 
       {moduleMode === 'cac' && activeTab === 'scan' && (
-        <CacReceptionTab {...cacState} {...scannerState} {...validationState} handlePrintCAC={printingService.printCACAcuse} transportes={transportes} handleFinalizeCAC={handleFinalizeCAC} />
+        <CacReceptionTab {...cacState} {...scannerState} {...validationState} handlePrintCAC={handlePrintCACWrapper} transportes={transportes} handleFinalizeCAC={handleFinalizeCAC} />
       )}
 
       {activeTab === 'history' && (
@@ -530,7 +544,7 @@ export default function ReceptionsPage() {
            timelineActiveGuide={timelineActiveGuide}
            setTimelineActiveGuide={setTimelineActiveGuide}
            setPxRecords={pxState.setPxRecords}
-           handlePrintCAC={printingService.printCACAcuse}
+           handlePrintCAC={handlePrintCACWrapper}
            handlePrintPX={handlePrintPXManifest}
            handlePrintLabelsPX={handlePrintLabelsPX}
            handleViewPxDetails={() => {}}

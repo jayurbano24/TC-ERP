@@ -24,8 +24,9 @@ export async function getInventoryBoxes() {
       .from('series')
       .select(`
         *,
+        sap_status,
         receptions (guide_number, notes, carrier, received_by, status, created_at, source),
-        service_orders (id, os_label, reentry_count)
+        service_orders (id, os_label, reentry_count, sap_integration_status)
       `)
       .in('current_box_id', boxIds);
       

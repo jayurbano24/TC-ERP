@@ -22,7 +22,8 @@ export const receptionService = {
       guide_number: cacState.cacScannedItems[0] || 'DESCONOCIDO',
       carrier: cacState.cacCarrier,
       status: 'RECEPCIONADA',
-      notes: `Piloto: ${cacState.cacPilot}\nAgencia: ${cacState.cacAgency || 'N/A'}\nRecibido Por: ${currentUserFullName}`,
+      notes: `Piloto: ${cacState.cacPilot}\nAgencia: ${cacState.cacAgency || 'N/A'}\nRecibido Por: ${currentUserFullName}\nGuías: ${cacState.cacScannedItems.join(', ')}`,
+      processed_guides: [],
       received_units: cacState.cacScannedItems.length,
       expected_units: cacState.cacTotalCajas,
       received_by: null

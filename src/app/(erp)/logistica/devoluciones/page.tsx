@@ -14,11 +14,13 @@ import {
   AlertCircle,
   CheckCircle2,
   Package,
-  Loader2
+  Loader2,
+  Trash2
 } from 'lucide-react';
-import { getReturns, registerNewReturn } from '@/lib/database/returns';
+import { getReturns, registerNewReturn, processFullReceptionReturn, undoFullReceptionReturn } from '@/lib/database/returns';
 import { getReceptions } from '@/lib/database/receptions';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { getActualUserFullName } from '@/lib/auth';
 import { useEffect } from 'react';
 
 type Devolucion = {
@@ -29,6 +31,7 @@ type Devolucion = {
   fecha: string;
   estatus: 'Pendiente' | 'Procesado' | 'Rechazado';
   tecnico?: string;
+  receptionId?: string;
 };
 
 const mockDevoluciones: Devolucion[] = [
@@ -63,9 +66,63 @@ export default function DevolucionesPage() {
     category: 'BODEGA DEVOLUCIÓN' as any
   });
 
+  const [returnReceptionId, setReturnReceptionId] = useState<string | null>(null);
+  const [returnReceptionData, setReturnReceptionData] = useState<any>(null);
+  const [returnSeriesData, setReturnSeriesData] = useState<any[]>([]);
+  const [fullReturnForm, setFullReturnForm] = useState({ motivo: '', guiaSalida: '', observaciones: '' });
+
   useEffect(() => {
-    fetchReturns();
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      const recId = urlParams.get('reception_id');
+      if (recId) {
+        setReturnReceptionId(recId);
+        loadReceptionForReturn(recId);
+      } else {
+        fetchReturns();
+      }
+    }
   }, [activeCategory]);
+
+  const loadReceptionForReturn = async (id: string) => {
+    setLoading(true);
+    try {
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase) return;
+      const { data: rec } = await supabase.from('receptions').select('*').eq('id', id).single();
+      const { data: series } = await supabase.from('series').select(`
+        *,
+        models(name, technologies(name)),
+        brands(name)
+      `).eq('current_reception_id', id);
+      setReturnReceptionData(rec);
+      setReturnSeriesData(series || []);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleProcessFullReturn = async () => {
+    if (!fullReturnForm.motivo || !fullReturnForm.guiaSalida) {
+      alert("Motivo y Guía de Salida son obligatorios.");
+      return;
+    }
+    setLoading(true);
+
+    const supabase = getSupabaseBrowserClient();
+
+    const userName = getActualUserFullName();
+    const res = await processFullReceptionReturn(returnReceptionId!, fullReturnForm, userName);
+    setLoading(false);
+    if (res.error) {
+      alert("Error: " + res.error);
+    } else {
+      alert("Devolución procesada. El lote y sus equipos ahora están en la bandeja de Devoluciones pendientes.");
+      window.location.href = '/logistica/devoluciones';
+    }
+  };
 
   const fetchReturns = async () => {
     setLoading(true);
@@ -82,7 +139,8 @@ export default function DevolucionesPage() {
         estatus: r.current_status === 'DESPACHADO' ? 'Procesado' : 'Pendiente',
         dbId: r.id,
         category: (r.notes?.includes('Cat: ') ? r.notes.split('Cat: ')[1].split('\n')[0] : 'BODEGA DEVOLUCIÓN'),
-        os: r.service_orders?.os_label || '---'
+        os: r.service_orders?.os_label || '---',
+        receptionId: r.current_reception_id
       }));
 
       // 2. Obtenemos Cajas clasificadas desde Backoffice (receptions)
@@ -90,7 +148,7 @@ export default function DevolucionesPage() {
       const adaptedReceptions = receptionsData
         .filter((r: any) => {
           const notes = r.notes?.toLowerCase() || '';
-          return notes.includes('backoffice_category');
+          return notes.includes('backoffice_category') && r.status !== 'ARCHIVADO' && r.status !== 'DEVUELTO';
         })
         .flatMap((r: any) => {
           const guides = r.processed_guides?.length > 0 ? r.processed_guides : [r.guide_number];
@@ -148,7 +206,9 @@ export default function DevolucionesPage() {
                 fecha: new Date(r.created_at).toLocaleDateString(),
                 estatus: r.status === 'DESPACHADO' ? 'Procesado' : 'Pendiente',
                 dbId: r.id,
-                category: finalCat
+                category: finalCat,
+                os: '---',
+                isReception: true
              });
           }
           return rows;
@@ -241,6 +301,9 @@ export default function DevolucionesPage() {
     if (!newReturn.sn || !newReturn.originalGuide) return;
     
     setLoading(true);
+
+    const supabase = getSupabaseBrowserClient();
+
     // Agregamos la categoría a las notas para el filtrado independiente
     const payload = {
       ...newReturn,
@@ -290,6 +353,24 @@ export default function DevolucionesPage() {
   const handleUndoDevolution = async (dev?: Devolucion) => {
     const targetDev = dev || selectedDev;
     if (!targetDev) return;
+
+    if (targetDev.receptionId) {
+      if (!confirm(`Se revertirá la devolución de todos los equipos asociados a la guía del lote. ¿Está seguro de continuar?`)) return;
+      setLoading(true);
+      try {
+        const res = await undoFullReceptionReturn(targetDev.receptionId);
+        if (res.error) throw new Error(res.error);
+        alert("El lote y todos sus equipos han regresado a Clasificación.");
+        await fetchReturns();
+        setSelectedDev(null);
+      } catch (err: any) {
+        alert("Error al intentar revertir: " + err.message);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     if (!confirm(`¿Está seguro de regresar la guía ${targetDev.sn} a Clasificación (Backoffice)? Esto eliminará la devolución actual.`)) return;
     
     setLoading(true);
@@ -356,6 +437,113 @@ export default function DevolucionesPage() {
       setLoading(false);
     }
   };
+
+  const handleDeleteDevolution = async (dev: Devolucion) => {
+    if (!confirm(`¿Está seguro de OCULTAR/DESCARTAR el registro ${dev.sn}? El registro se conservará pero ya no aparecerá en esta lista.`)) return;
+    setLoading(true);
+    try {
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase) throw new Error("Supabase not configured");
+
+      if ((dev as any).isReception) {
+         if (!confirm(`Este registro representa un Lote de Devolución de Backoffice. ¿Desea descartar y ocultar todo el Lote completo?`)) {
+             setLoading(false);
+             return;
+         }
+         await supabase.from('receptions').update({ status: 'ARCHIVADO' }).eq('id', (dev as any).dbId);
+      } else {
+         if (dev.receptionId) {
+            if (!confirm(`Este equipo pertenece a un lote de devolución procesado. ¿Desea descartar TODO el lote y ocultar todos sus equipos asociados?`)) {
+                setLoading(false);
+                return;
+            }
+            await supabase.from('series').update({ current_status: 'archivado' }).eq('current_reception_id', dev.receptionId);
+            await supabase.from('receptions').update({ status: 'ARCHIVADO' }).eq('id', dev.receptionId);
+         } else {
+            await supabase.from('series').update({ current_status: 'archivado' }).eq('id', (dev as any).dbId);
+         }
+      }
+
+      alert("Registro descartado y ocultado exitosamente.");
+      await fetchReturns();
+      setSelectedDev(null);
+    } catch (e: any) {
+      alert("Error al descartar: " + e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (returnReceptionId) {
+    if (!returnReceptionData) {
+      return <div className="p-20 flex justify-center"><Loader2 className="animate-spin text-[#2ec4f1] w-10 h-10" /></div>;
+    }
+    return (
+      <ModulePage title="Procesar Devolución de Lote" subtitle="Verificación y retorno de equipos clasificados" category="Logística">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-rise-in">
+           <div className="lg:col-span-2 space-y-6">
+              <Card>
+                <h3 className="text-sm font-black uppercase tracking-widest text-[#181c3a] mb-4">Equipos del Lote ({returnSeriesData.length})</h3>
+                <div className="overflow-x-auto">
+                   <table className="w-full text-left">
+                     <thead>
+                       <tr className="bg-slate-50">
+                         <th className="p-3 text-[10px] font-black uppercase tracking-widest text-slate-400">Serie</th>
+                         <th className="p-3 text-[10px] font-black uppercase tracking-widest text-slate-400">Marca / Modelo</th>
+                         <th className="p-3 text-[10px] font-black uppercase tracking-widest text-slate-400">Estado Actual</th>
+                       </tr>
+                     </thead>
+                     <tbody className="divide-y divide-slate-100">
+                       {returnSeriesData.map(s => (
+                         <tr key={s.id} className="hover:bg-slate-50">
+                           <td className="p-3 text-sm font-bold font-mono">{s.serial_number}</td>
+                           <td className="p-3 text-xs font-medium text-slate-600">{s.brands?.name || 'S/D'} - {s.models?.name || 'S/D'}</td>
+                           <td className="p-3 text-xs"><Badge className="bg-blue-50 text-blue-600 border-none font-black text-[9px] uppercase tracking-widest">{s.current_status}</Badge></td>
+                         </tr>
+                       ))}
+                     </tbody>
+                   </table>
+                </div>
+              </Card>
+           </div>
+           <div className="space-y-6">
+              <Card className="bg-[#181c3a] text-white p-6 border-none">
+                <h3 className="text-xs font-black uppercase tracking-widest mb-4 text-[#2ec4f1]">Información de Recepción</h3>
+                <div className="space-y-3 text-sm font-medium">
+                  <p><span className="text-white/40 block text-[10px] uppercase font-black tracking-widest">Guía:</span> {returnReceptionData.guide_number}</p>
+                  <p><span className="text-white/40 block text-[10px] uppercase font-black tracking-widest">Courier:</span> {returnReceptionData.carrier || 'N/A'}</p>
+                  <p><span className="text-white/40 block text-[10px] uppercase font-black tracking-widest">Recibió:</span> {returnReceptionData.received_by || 'SISTEMA'}</p>
+                  <p><span className="text-white/40 block text-[10px] uppercase font-black tracking-widest">Estado Lote:</span> <span className="bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest">{returnReceptionData.status}</span></p>
+                </div>
+              </Card>
+              <Card className="p-6 space-y-5">
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-2">Motivo (Obligatorio)</label>
+                  <select value={fullReturnForm.motivo} onChange={e => setFullReturnForm({...fullReturnForm, motivo: e.target.value})} className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-sm text-[#181c3a] outline-none focus:border-[#2ec4f1] transition-all">
+                    <option value="">-- Seleccione un motivo --</option>
+                    {RETURN_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-2">Guía Courier Salida (Obligatorio)</label>
+                  <input value={fullReturnForm.guiaSalida} onChange={e => setFullReturnForm({...fullReturnForm, guiaSalida: e.target.value})} className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-sm text-[#181c3a] outline-none focus:border-[#2ec4f1] transition-all uppercase" placeholder="Ej. CAR-9001" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-2">Observaciones (Opcional)</label>
+                  <textarea value={fullReturnForm.observaciones} onChange={e => setFullReturnForm({...fullReturnForm, observaciones: e.target.value})} className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium text-sm text-[#181c3a] outline-none focus:border-[#2ec4f1] transition-all min-h-[100px]" placeholder="Detalles adicionales..." />
+                </div>
+                <div className="pt-4 flex flex-col gap-3">
+                  <Button variant="primary" className="w-full bg-rose-500 hover:bg-rose-600 text-white shadow-xl shadow-rose-500/20 h-14 font-black uppercase tracking-widest text-xs" disabled={loading} onClick={handleProcessFullReturn}>
+                    Confirmar Devolución ({returnSeriesData.length})
+                  </Button>
+                  <Button variant="outline" className="w-full h-12 font-black uppercase tracking-widest text-[10px]" onClick={() => window.location.href = '/produccion/backoffice'}>Cancelar y Volver</Button>
+                </div>
+              </Card>
+           </div>
+        </div>
+      </ModulePage>
+    );
+  }
 
   return (
     <ModulePage
@@ -490,6 +678,16 @@ export default function DevolucionesPage() {
                             title="Ver Detalles"
                           >
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                          </button>
+                          <button 
+                            className="w-8 h-8 flex items-center justify-center rounded-xl bg-red-50 text-red-500 hover:bg-red-600 hover:text-white transition-colors"
+                            title="Eliminar Registro"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteDevolution(dev);
+                            }}
+                          >
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
                       </td>

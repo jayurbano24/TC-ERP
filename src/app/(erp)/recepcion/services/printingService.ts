@@ -269,9 +269,11 @@ export const printingService = {
     const pilot = record.notes?.split('Piloto: ')[1]?.split(/\\n|\n/)[0] || '---';
     const cleanNotes = (record.notes || '').split('--- LÍNEA DE TIEMPO')[0].split('Backoffice_')[0].split('Guías Procesadas:')[0];
     const notesGuias = cleanNotes?.split('Guías: ')[1]?.split(/\\n|\n/)[0]?.split(',').map((g: string) => g.trim()).filter(Boolean) || [];
-    const guias = (record.processed_guides && record.processed_guides.length > 0) 
-      ? record.processed_guides 
-      : (notesGuias.length > 0 ? notesGuias : (record.guide_number ? [record.guide_number] : []));
+    const guias = (record.allGuias && record.allGuias.length > 0)
+      ? record.allGuias
+      : (record.processed_guides && record.processed_guides.length > 0) 
+        ? record.processed_guides 
+        : (notesGuias.length > 0 ? notesGuias : (record.guide_number ? [record.guide_number] : []));
 
     const guideRows = guias.map((g: string, i: number) => `
       <tr>

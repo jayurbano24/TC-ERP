@@ -30,7 +30,7 @@ export default function LoginPage() {
       
       if (authData?.user?.id && authData.user.id !== 'dev-user') {
         try {
-          const res = await fetch('/api/auth/session', {
+          const res = await fetch('/api/user-session', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ userId: authData.user.id })

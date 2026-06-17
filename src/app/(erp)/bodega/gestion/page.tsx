@@ -144,6 +144,34 @@ export default function BodegaGestionPage() {
       alert("Debes seleccionar al menos una serie para procesar.");
       return;
     }
+
+    // --- Validación de Matriz de Bloqueos SAP ---
+    const box = inventory.find(b => b.realDbId === (realDbId || boxId) || b.id === boxId);
+    if (box && box.series) {
+      let seriesToCheck = box.series;
+      if (dispatchMode === 'specific') {
+        seriesToCheck = box.series.filter((s:any) => selectedSeriesForDispatch.includes(s.sn) || selectedSeriesForDispatch.includes(s.s1));
+      }
+
+      for (const s of seriesToCheck) {
+        const sapStatus = s.sap_status || 'Pendiente Validación';
+        if (dispatchAction === 'despacho') {
+           if (sapStatus !== 'Validado SAP') {
+              alert(`⚠️ Bloqueo Operativo (Integración SAP): No se puede despachar porque el equipo ${s.sn} tiene estado "${sapStatus}". Solo se permite "Validado SAP".`);
+              return;
+           }
+        } else if (dispatchAction === 'traslado') {
+           // Taller (Diagnóstico / Reparación) no tiene bloqueos.
+           if (dispatchArea !== 'Diagnóstico' && dispatchArea !== 'Reparación') {
+             if (sapStatus === 'Sin Coincidencia' || sapStatus === 'Revisar' || sapStatus === 'Obsoleto') {
+                alert(`⚠️ Bloqueo Operativo (Integración SAP): No se puede trasladar porque el equipo ${s.sn} tiene estado "${sapStatus}". Debe ser "Validado SAP" o "Pendiente Validación".`);
+                return;
+             }
+           }
+        }
+      }
+    }
+    // ---------------------------------------------
     
     setIsDispatching(true);
     try {
@@ -275,6 +303,7 @@ export default function BodegaGestionPage() {
             estatus: main.receptions?.status || 'N/A',
             ordenServicio: main.service_orders?.os_label || 'S/OS',
             ingreso: ingresoLabel,
+            sap_status: main.service_orders?.sap_integration_status || main.sap_status || 'Pendiente Validación',
             fechaHora: main.receptions?.created_at ? new Date(main.receptions.created_at).toLocaleString() : new Date(main.created_at).toLocaleString(),
             fechaRecepcion: new Date(main.created_at).toLocaleDateString(),
             timestamp: new Date(main.created_at).toLocaleTimeString()

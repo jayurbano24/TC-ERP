@@ -241,7 +241,7 @@ export default function DespachoPage() {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
     
-    const { data: sData } = await supabase.from('series').select('*').eq('serial_number', scanSN).single();
+    const { data: sData } = await supabase.from('series').select('*, service_orders(sap_integration_status)').eq('serial_number', scanSN).single();
     if (!sData) {
       alert('Serie no encontrada.'); return;
     }
@@ -254,9 +254,10 @@ export default function DespachoPage() {
       alert('La marca o modelo del equipo no coinciden con la caja.'); return;
     }
 
-    // 1. Validar que tenga Material y Lote (Cargado desde SAP)
-    if (!sData.material || !sData.valuation) {
-      alert(`⚠️ Falla: El equipo con SN ${sData.serial_number} no tiene Material o Lote (Valoración) asignado. Debe cargar el Excel de SAP primero.`); 
+    // 1. Validar Matriz de Bloqueos SAP
+    const sapStatus = sData.service_orders?.sap_integration_status || sData.sap_status || 'Pendiente Validación';
+    if (sapStatus !== 'Validado SAP') {
+      alert(`⚠️ Bloqueo Operativo (Integración SAP): El equipo no puede ser despachado porque su estado es "${sapStatus}". Solo los equipos "Validado SAP" tienen permitido el despacho.`); 
       return;
     }
 

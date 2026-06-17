@@ -15,6 +15,7 @@ export const erpModules: ErpModule[] = [
   { id: 3, categoria: 'Producción', nombre: "Backoffice (Series)", descripcion: "Registro SN, aceptación y generación de OS.", ruta: "/produccion/backoffice" },
   { id: 9, categoria: 'Producción', nombre: "Taller Técnico", descripcion: "Diagnóstico, reparación (L3/L4) y Kitting.", ruta: "/produccion/taller" },
   { id: 15, categoria: 'Producción', nombre: "Control de Calidad", descripcion: "Validación cosmética y Power On/Off.", ruta: "/produccion/qc" },
+  { id: 16, categoria: 'Producción', nombre: "Integración SAP", descripcion: "Validación y Centro de Sincronización SAP.", ruta: "/integracion-sap" },
 
   // BODEGA
   { id: 6, categoria: 'Bodega', nombre: "Gestión de Bodega", descripcion: "Ubicación en rack, cajas homogéneas y movimientos.", ruta: "/bodega/gestion" },
@@ -64,6 +65,7 @@ export const navigationGroups = [
       { label: "Bodega", href: "/bodega/gestion", descripcion: "Racks & Stock", icon: "Warehouse" },
       { label: "Accesorios", href: "/bodega/accesorios", descripcion: "Bodega de Accesorios", icon: "Boxes" },
       { label: "Despacho", href: "/despacho", descripcion: "Salida de Equipos", icon: "Truck" },
+      { label: "Integración SAP", href: "/integracion-sap", descripcion: "Centro de Validación", icon: "Database" },
     ]
   },
   {

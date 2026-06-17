@@ -28,6 +28,29 @@ export const HistoryTab = ({
 
   const [showPxDetails, setShowPxDetails] = React.useState<any>(null);
   const [pxDetailsData, setPxDetailsData] = React.useState<any>({ boxes: [], series: [], loading: false });
+  const [filterDate, setFilterDate] = React.useState<string>('Todos');
+
+  const isDateMatch = (createdAt: string) => {
+    if (filterDate === 'Todos') return true;
+    if (!createdAt) return true;
+    const d = new Date(createdAt);
+    const now = new Date();
+    if (filterDate === 'Hoy') {
+      return d.toLocaleDateString() === now.toLocaleDateString();
+    }
+    if (filterDate === 'Mes') {
+      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    }
+    if (filterDate === 'Semana') {
+      const weekAgo = new Date();
+      weekAgo.setDate(now.getDate() - 7);
+      return d >= weekAgo;
+    }
+    if (filterDate === 'Año') {
+      return d.getFullYear() === now.getFullYear();
+    }
+    return true;
+  };
 
   const handleViewPxDetails = async (rec: any) => {
     setShowPxDetails(rec);
@@ -105,10 +128,8 @@ export const HistoryTab = ({
             </div>
           </div>
         </Card>
-      </div>
-
-      {/* BARRA DE BÚSQUEDA Y FILTROS */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+           {/* BARRA DE BÚSQUEDA Y FILTROS */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
         <div className="relative group">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-[#2ec4f1] transition-colors" />
           <input 
@@ -130,14 +151,29 @@ export const HistoryTab = ({
             <option value="Todos">{moduleMode === 'cac' ? 'Todos los Pilotos' : 'Todas las Agencias'}</option>
             {Array.from(new Set(
               moduleMode === 'cac' 
-                ? cacRecords.map((r: any) => r.notes?.split('Piloto: ')[1]?.split('\\n')[0]).filter(Boolean)
+                ? cacRecords.map((r: any) => r.notes?.split('Piloto: ')[1]?.split('\n')[0]).filter(Boolean)
                 : pxRecords.map((r: any) => r.carrier).filter(Boolean)
             )).map((option: any) => (
               <option key={option as string} value={option as string}>{option as string}</option>
             ))}
           </select>
         </div>
-      </div>
+
+        <div className="relative">
+          <Clock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <select 
+            className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-black uppercase outline-none focus:border-[#2ec4f1] appearance-none"
+            value={filterDate}
+            onChange={(e) => setFilterDate(e.target.value)}
+          >
+            <option value="Todos">Todas las Fechas</option>
+            <option value="Hoy">Hoy</option>
+            <option value="Semana">La semana pasada</option>
+            <option value="Mes">Este Mes</option>
+            <option value="Año">El año completo</option>
+          </select>
+        </div>
+      </div>     </div>
 
       {moduleMode === 'px' ? (
         <Card padding="none" className="overflow-x-auto custom-scrollbar border-none shadow-xl">
@@ -163,8 +199,9 @@ export const HistoryTab = ({
                     (rec.carrier || '').toLowerCase().includes(searchLower) ||
                     (rec.received_by || 'SISTEMA').toLowerCase().includes(searchLower);
                   const matchFilter = filterPilot === 'Todos' || rec.carrier === filterPilot;
-                  const notEliminated = rec.status !== 'ELIMINADO POR BODEGA';
-                  return matchSearch && matchFilter && notEliminated;
+                  const matchDate = isDateMatch(rec.created_at);
+                  const notEliminated = rec.status !== 'ELIMINADO POR BODEGA' && rec.status !== 'ARCHIVADO';
+                  return matchSearch && matchFilter && matchDate && notEliminated;
                 })
                 .map((rec: any) => (
                 <tr key={rec.id} className="hover:bg-slate-50 transition-colors group">
@@ -277,7 +314,13 @@ export const HistoryTab = ({
                       .split('--- LÍNEA DE TIEMPO')[0]
                       .split('Backoffice_')[0]
                       .split('Guías Procesadas:')[0];
-                    const allGuias = cleanNotesForGuias?.split('Guías: ')[1]?.split('\\n')[0]?.split(',').map((g: string) => g.trim()).filter(Boolean) || [];
+                    let allGuias = cleanNotesForGuias?.split('Guías: ')[1]?.split('\\n')[0]?.split(',').map((g: string) => g.trim()).filter(Boolean) || [];
+                    if (record.allGuias && record.allGuias.length > 0) {
+                      allGuias = record.allGuias;
+                    }
+                    if (allGuias.length === 0 && record.guide_number) {
+                      allGuias = [record.guide_number];
+                    }
                     return { ...record, allGuias };
                   })
                   .filter((item: any) => {
@@ -287,8 +330,9 @@ export const HistoryTab = ({
                       item.guide_number?.toLowerCase().includes(searchLower) ||
                       (item.pilot_display && item.pilot_display.toLowerCase().includes(searchLower));
                     const matchesPilot = filterPilot === 'Todos' || item.pilot_display === filterPilot;
-                    const notEliminated = item.status !== 'ELIMINADO' && item.status !== 'ELIMINADO POR BODEGA';
-                    return matchesSearch && matchesPilot && notEliminated;
+                    const matchDate = isDateMatch(item.created_at);
+                    const notEliminated = item.status !== 'ELIMINADO' && item.status !== 'ELIMINADO POR BODEGA' && item.status !== 'ARCHIVADO';
+                    return matchesSearch && matchesPilot && matchDate && notEliminated;
                   })
                   .map((item: any) => (
                     <tr key={item.id} className="hover:bg-blue-50/50 transition-colors border-b border-slate-100 group">
@@ -452,7 +496,141 @@ export const HistoryTab = ({
         </div>
       )}
 
-      {/* Modal Trazabilidad iría aquí o extraído en un sub-componente */}
+      {showTimeline && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#181c3a]/80 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-rise-in">
+            <div className="bg-[#181c3a] p-5 flex items-center justify-between text-white">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center">
+                  <History className="w-5 h-5 text-[#2ec4f1]" />
+                </div>
+                <div>
+                  <h3 className="font-black tracking-widest uppercase text-sm">
+                    {timelineActiveGuide ? `Trazabilidad - Guía ${timelineActiveGuide}` : 'Trazabilidad de Recepción'}
+                  </h3>
+                  <p className="text-[10px] text-white/50 mt-1 uppercase tracking-wider">
+                    Registro de movimientos TC: {showTimeline.guide_number}
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => { setShowTimeline(null); setTimelineActiveGuide(null); }}
+                className="w-8 h-8 flex items-center justify-center bg-white/10 hover:bg-rose-500 rounded-lg transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            
+            <div className="p-6 bg-slate-50">
+              <div className="relative pl-6 space-y-6">
+                <div className="absolute left-[11px] top-2 bottom-2 w-0.5 bg-slate-200" />
+                
+                <div className="relative flex items-start gap-4">
+                  <div className="absolute -left-[30px] w-6 h-6 rounded-full border-4 border-slate-50 bg-[#2ec4f1] z-10" />
+                  <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex-1">
+                    <p className="text-xs font-black uppercase tracking-widest text-[#181c3a]">Recepción Registrada</p>
+                    <p className="text-[10px] font-bold text-slate-400 mt-1">
+                      {showTimeline.fecha_formateada || (showTimeline.created_at ? new Date(showTimeline.created_at).toLocaleString() : 'Fecha no disponible')}
+                    </p>
+                    <p className="text-[11px] text-slate-500 mt-2">
+                      Recibido por: {(showTimeline.notes?.split('Recibido Por: ')?.[1]?.split('\n')?.[0]?.trim() || showTimeline.usuario || showTimeline.received_by || 'SISTEMA').split('@')[0]}
+                    </p>
+                  </div>
+                </div>
+
+                {showTimeline.allGuias && showTimeline.allGuias.length > 0 && (
+                  <div className="relative flex items-start gap-4">
+                    <div className="absolute -left-[30px] w-6 h-6 rounded-full border-4 border-slate-50 bg-slate-300 z-10" />
+                    <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex-1">
+                      <p className="text-xs font-black uppercase tracking-widest text-slate-500 mb-3">Filtrar por Guía Específica</p>
+                      <div className="flex flex-wrap gap-2">
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); setTimelineActiveGuide(null); }}
+                          className={`border rounded-md px-3 py-1.5 flex items-center justify-center transition-all ${!timelineActiveGuide ? 'bg-slate-800 border-slate-800 text-white shadow-md scale-105' : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-800'}`}
+                          title="Ver todas las guías"
+                        >
+                          <span className="font-mono text-xs font-bold">TODAS</span>
+                        </button>
+                        {showTimeline.allGuias.map((g: string, i: number) => (
+                          <button 
+                            key={i} 
+                            onClick={(e) => { e.stopPropagation(); setTimelineActiveGuide(g); }}
+                            className={`border rounded-md px-3 py-1.5 flex items-center justify-center transition-all ${timelineActiveGuide === g ? 'bg-[#2ec4f1] border-[#2ec4f1] text-white shadow-md scale-105' : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-600 hover:text-[#2ec4f1]'}`}
+                            title={`Ver detalle de movimientos para la guía ${g}`}
+                          >
+                            <span className="font-mono text-xs font-bold">{g}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Eventos Dinámicos de la Línea de Tiempo */}
+                {(() => {
+                  const notes = showTimeline.notes || '';
+                  const lines = notes.split('\n');
+                  const events = [];
+                  let inTimeline = false;
+                  for (const line of lines) {
+                    if (line.includes('--- LÍNEA DE TIEMPO')) { inTimeline = true; continue; }
+                    if (inTimeline && line.startsWith('---')) { inTimeline = false; }
+                    if (inTimeline) {
+                      const match = line.match(/^\[(.*?)\] (.*)$/);
+                      if (match) {
+                        const dateStr = match[1];
+                        const content = match[2];
+                        if (timelineActiveGuide) {
+                          const guideMatch = content.match(/\(Guía (.*?)\)/);
+                          if (guideMatch && guideMatch[1] !== timelineActiveGuide) continue;
+                        }
+                        // Skip initial reception event as it's hardcoded above
+                        if (!content.includes('RECEPCIÓN: Ingreso inicial')) {
+                           events.push({ date: dateStr, content: content });
+                        }
+                      }
+                    }
+                  }
+                  
+                  // Deduplicate identical events (sometimes appended twice in notes)
+                  const uniqueEvents = Array.from(new Map(events.map(e => [e.date + e.content, e])).values());
+
+                  return uniqueEvents.map((evt: any, i: number) => {
+                    const isClasificacion = evt.content.includes('CLASIFICACIÓN');
+                    const color = isClasificacion ? 'bg-purple-500' : 'bg-emerald-500';
+                    return (
+                      <div key={i} className="relative flex items-start gap-4">
+                        <div className={`absolute -left-[30px] w-6 h-6 rounded-full border-4 border-slate-50 ${color} z-10`} />
+                        <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex-1">
+                          <p className="text-[10px] font-bold text-slate-400 mb-1">{evt.date}</p>
+                          <p className="text-xs font-bold text-[#181c3a]">{evt.content}</p>
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+
+                <div className="relative flex items-start gap-4">
+                  <div className={`absolute -left-[30px] w-6 h-6 rounded-full border-4 border-slate-50 ${showTimeline.status !== 'RECEPCIONADA' ? 'bg-[#2ec4f1]' : 'bg-slate-200'} z-10`} />
+                  <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex-1">
+                    <p className={`text-xs font-black uppercase tracking-widest ${showTimeline.status !== 'RECEPCIONADA' ? 'text-[#181c3a]' : 'text-slate-400'}`}>Estado Final Actual</p>
+                    <Badge className={`mt-2 ${showTimeline.status !== 'RECEPCIONADA' ? 'bg-[#2ec4f1] hover:bg-[#2ec4f1]' : 'bg-slate-200 text-slate-500 hover:bg-slate-200'}`}>
+                      {showTimeline.status || 'RECEPCIONADA'}
+                    </Badge>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+            
+            <div className="p-4 bg-white border-t border-slate-100 flex justify-end">
+              <Button onClick={() => { setShowTimeline(null); setTimelineActiveGuide(null); }} className="bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] uppercase font-black tracking-widest rounded-lg h-10 px-6">
+                Cerrar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

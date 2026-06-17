@@ -8,7 +8,7 @@ import { Scan, Box, Printer, Pencil, Trash2, CheckCircle2, AlertCircle, Plus, Fi
 export const PxReceptionTab = ({ 
   guideData, setGuideData, currentEntry, setCurrentEntry, systemPxProviders, 
   systemTechnologies, filteredBrands, filteredModels, handleAddCaja, manifestItems, 
-  scannedSeries, selectedBoxForScan, setSelectedBoxForScan, printBoxLabel, 
+  scannedSeries, setScannedSeries, selectedBoxForScan, setSelectedBoxForScan, printBoxLabel, 
   setManifestItems, handleFinalizePX, handleAddSN_PX, currentScans, setCurrentScans, 
   systemModels, moduleMode 
 }: any) => {
@@ -314,6 +314,15 @@ export const PxReceptionTab = ({
                                   newScans[idx] = e.target.value;
                                   setCurrentScans(newScans);
                                 }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    if (idx < expectedScans - 1) {
+                                      e.preventDefault();
+                                      const nextInput = document.getElementById(`scan-input-${idx + 1}`);
+                                      if (nextInput) nextInput.focus();
+                                    }
+                                  }
+                                }}
                                 placeholder={`Escanear Serie ${idx + 1}...`}
                                 className="w-full h-12 px-4 bg-white border-2 border-slate-200 rounded-lg text-sm font-mono font-bold outline-none focus:border-[#2ec4f1] transition-colors shadow-inner"
                                 autoFocus={idx === 0}
@@ -401,22 +410,9 @@ export const PxReceptionTab = ({
                               .map((s: any) => (
                               <tr key={s.sn} className="hover:bg-slate-50/50 transition-colors">
                                 <td className="px-6 py-4 font-mono font-black text-[#181c3a]">
-                                  <div className="flex items-center gap-2">
+                                  <div className="flex items-center gap-2 group/s1">
                                     <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                                     {s.sn}
-                                  </div>
-                                </td>
-                                {showMulti && (
-                                  <>
-                                    <td className="px-6 py-4 font-mono text-slate-500">{s.s2 || '-'}</td>
-                                    <td className="px-6 py-4 font-mono text-slate-500">{s.s3 || '-'}</td>
-                                    <td className="px-6 py-4 font-mono text-slate-500">{s.s4 || '-'}</td>
-                                  </>
-                                )}
-                                <td className="px-6 py-4 font-mono font-bold text-slate-500">{s.material || '-'}</td>
-                                <td className="px-6 py-4 font-bold text-[#2ec4f1] text-[10px]">{s.boxCode}</td>
-                                <td className="px-6 py-4 text-right">
-                                  <div className="flex justify-end gap-1">
                                     <button 
                                       onClick={() => {
                                         const newVal = prompt("Editar Serie 1:", s.sn);
@@ -424,11 +420,72 @@ export const PxReceptionTab = ({
                                           setScannedSeries(scannedSeries.map((x: any) => x.sn === s.sn ? { ...x, sn: newVal.trim() } : x));
                                         }
                                       }}
-                                      className="p-1.5 hover:bg-[#2ec4f1]/10 rounded-lg group transition-colors"
-                                      title="Editar Serie"
+                                      className="opacity-0 group-hover/s1:opacity-100 p-1 hover:bg-slate-200 rounded text-slate-400 hover:text-[#2ec4f1] transition-all"
+                                      title="Editar Serie 1"
                                     >
-                                      <Pencil className="w-3.5 h-3.5 text-slate-300 group-hover:text-[#2ec4f1]" />
+                                      <Pencil size={12} />
                                     </button>
+                                  </div>
+                                </td>
+                                {showMulti && (
+                                  <>
+                                    <td className="px-6 py-4 font-mono text-slate-500">
+                                      <div className="flex items-center gap-2 group/s2">
+                                        <span>{s.s2 || '-'}</span>
+                                        <button 
+                                          onClick={() => {
+                                            const newVal = prompt("Editar Serie 2:", s.s2 || '');
+                                            if (newVal !== null) {
+                                              setScannedSeries(scannedSeries.map((x: any) => x.sn === s.sn ? { ...x, s2: newVal.trim() } : x));
+                                            }
+                                          }}
+                                          className="opacity-0 group-hover/s2:opacity-100 p-1 hover:bg-slate-200 rounded text-slate-400 hover:text-[#2ec4f1] transition-all"
+                                          title="Editar Serie 2"
+                                        >
+                                          <Pencil size={12} />
+                                        </button>
+                                      </div>
+                                    </td>
+                                    <td className="px-6 py-4 font-mono text-slate-500">
+                                      <div className="flex items-center gap-2 group/s3">
+                                        <span>{s.s3 || '-'}</span>
+                                        <button 
+                                          onClick={() => {
+                                            const newVal = prompt("Editar Serie 3:", s.s3 || '');
+                                            if (newVal !== null) {
+                                              setScannedSeries(scannedSeries.map((x: any) => x.sn === s.sn ? { ...x, s3: newVal.trim() } : x));
+                                            }
+                                          }}
+                                          className="opacity-0 group-hover/s3:opacity-100 p-1 hover:bg-slate-200 rounded text-slate-400 hover:text-[#2ec4f1] transition-all"
+                                          title="Editar Serie 3"
+                                        >
+                                          <Pencil size={12} />
+                                        </button>
+                                      </div>
+                                    </td>
+                                    <td className="px-6 py-4 font-mono text-slate-500">
+                                      <div className="flex items-center gap-2 group/s4">
+                                        <span>{s.s4 || '-'}</span>
+                                        <button 
+                                          onClick={() => {
+                                            const newVal = prompt("Editar Serie 4:", s.s4 || '');
+                                            if (newVal !== null) {
+                                              setScannedSeries(scannedSeries.map((x: any) => x.sn === s.sn ? { ...x, s4: newVal.trim() } : x));
+                                            }
+                                          }}
+                                          className="opacity-0 group-hover/s4:opacity-100 p-1 hover:bg-slate-200 rounded text-slate-400 hover:text-[#2ec4f1] transition-all"
+                                          title="Editar Serie 4"
+                                        >
+                                          <Pencil size={12} />
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </>
+                                )}
+                                <td className="px-6 py-4 font-mono font-bold text-slate-500">{s.material || '-'}</td>
+                                <td className="px-6 py-4 font-bold text-[#2ec4f1] text-[10px]">{s.boxCode}</td>
+                                <td className="px-6 py-4 text-right">
+                                  <div className="flex justify-end gap-1">
                                     <button 
                                       onClick={() => setScannedSeries(scannedSeries.filter(x => x.sn !== s.sn))}
                                       className="p-1.5 hover:bg-rose-50 rounded-lg group transition-colors"

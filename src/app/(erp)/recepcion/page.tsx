@@ -392,7 +392,51 @@ export default function ReceptionsPage() {
            handlePrintCAC={printingService.printCACAcuse}
            handlePrintPX={printingService.printBoxLabel}
            handleViewPxDetails={() => {}}
-           handleDeleteHistoryCAC={() => {}}
+           handleDeleteHistoryCAC={async (id: string) => {
+             const confirmDelete = window.confirm('¿Está seguro de eliminar esta recepción y todos sus sub-procesos asociados?');
+             if (!confirmDelete) return;
+             try {
+               const supabase = getSupabaseBrowserClient();
+               
+               // Buscar las series asociadas a esta recepción
+               const { data: seriesList } = await supabase.from('series').select('id').eq('current_reception_id', id);
+               
+               if (seriesList && seriesList.length > 0) {
+                 const seriesIds = seriesList.map((s: any) => s.id);
+                 
+                 // Buscar service_orders de estas series
+                 const { data: soList } = await supabase.from('service_orders').select('id').in('series_id', seriesIds);
+                 
+                 if (soList && soList.length > 0) {
+                   const soIds = soList.map((so: any) => so.id);
+                   // Eliminar tablas dependientes de service_orders
+                   await supabase.from('workshop_jobs').delete().in('service_order_id', soIds);
+                   await supabase.from('qc_checks').delete().in('service_order_id', soIds);
+                   // Si hay una tabla diagnostico
+                   await supabase.from('diagnostico').delete().in('service_order_id', soIds).catch(() => {});
+                   
+                   // Eliminar service_orders
+                   await supabase.from('service_orders').delete().in('series_id', seriesIds);
+                 }
+                 
+                 // Eliminar de box_series
+                 await supabase.from('box_series').delete().in('series_id', seriesIds);
+                 
+                 // Eliminar series
+                 await supabase.from('series').delete().in('id', seriesIds);
+               }
+               
+               // Eliminar cajas asociadas
+               await supabase.from('boxes').delete().eq('reception_id', id);
+
+               // Finalmente actualizar el estatus de la recepción
+               const { error } = await supabase.from('receptions').update({ status: 'ELIMINADO' }).eq('id', id);
+               if (error) throw error;
+               cacState.setCacRecords((prev: any[]) => prev.filter((r: any) => r.id !== id));
+             } catch (err: any) {
+               alert('Error al eliminar sub-procesos: ' + err.message);
+             }
+           }}
            handleEditHistoryCAC={() => {}}
         />
       )}

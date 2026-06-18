@@ -167,84 +167,158 @@ export default function BackofficePage() {
   const [dateFilterFrom, setDateFilterFrom] = useState('');
   const [dateFilterTo, setDateFilterTo] = useState('');
 
-  const handleExportReport = () => {
-    const from = dateFilterFrom ? new Date(dateFilterFrom) : null;
-    const to = dateFilterTo ? new Date(dateFilterTo) : null;
-    
-    if (to) to.setHours(23, 59, 59);
+  const handleExportReport = async () => {
+    // Usar la misma lógica de filtrado de la tabla UI
+    const filteredRecords = historyReceptions
+      .filter(r => {
+        if (!dateFilterFrom && !dateFilterTo) return true;
+        const d = new Date(r.created_at);
+        if (dateFilterFrom && d < new Date(dateFilterFrom + 'T00:00:00')) return false;
+        if (dateFilterTo) {
+          const to = new Date(dateFilterTo + 'T23:59:59');
+          if (d > to) return false;
+        }
+        return true;
+      })
+      .filter(r => {
+        if (!historySearch) return true;
+        const s = historySearch.toLowerCase();
+        const piloto = r.notes?.split('Piloto: ')[1]?.split('\n')[0]?.toLowerCase() || '';
+        const agencia = getAgenciaLabel(r, CAC_AGENCIES).toLowerCase();
+        const sapDoc = (r.sap_document || '').toLowerCase();
+        const matchingSeries = (r.series || []).some((ser: any) => 
+          (ser.serial_number || '').toLowerCase().includes(s)
+        );
+        return r.guide_number.toLowerCase().includes(s) || 
+               piloto.includes(s) || 
+               agencia.includes(s) ||
+               sapDoc.includes(s) ||
+               (r.carrier || '').toLowerCase().includes(s) ||
+               matchingSeries;
+      });
 
-    const filtered = historyReceptions.filter(r => {
-      const d = new Date(r.created_at);
-      if (from && d < from) return false;
-      if (to && d > to) return false;
-      
-      const notes = (r.notes || '').toLowerCase();
-      // Leer categorías desde reception_guides si están disponibles (Fase 3)
-      // Fallback a notes solo para registros históricos anteriores a la migración
-      const guideCategories: string[] = (r.reception_guides || []).map((rg: any) => (rg.category || '').toLowerCase());
-      const isAccesorio = guideCategories.some((c: string) => c === 'accesorio') || notes.includes('backoffice_category: accesorio');
-      const isTelefono = guideCategories.some((c: string) => c === 'telefono') || notes.includes('backoffice_category: teléfono') || notes.includes('backoffice_category: movil');
-      const isEquipo = guideCategories.some((c: string) => c === 'equipo') || notes.includes('backoffice_category: equipo');
-      
-      if (isAccesorio || isTelefono) return false;
-      if (isEquipo) return true;
-      if (r.series && r.series.length > 0) return true;
-      return false;
-    });
-
-    if (filtered.length === 0) {
-      alert("No hay datos en el rango de fechas seleccionado.");
+    if (filteredRecords.length === 0) {
+      alert("No hay datos que coincidan con la búsqueda o filtros actuales.");
       return;
     }
 
-    let csv = "\ufeffFecha,Guia,Piloto,Courier,Recibio,Estatus,OS,Agencia,Tecnologia,Marca,Modelo,S1,S2,S3,S4\n";
+    const rows: any[] = [];
     
-    filtered.forEach(rec => {
-      const date = new Date(rec.created_at).toLocaleDateString();
+    filteredRecords.forEach(rec => {
+      const dateObj = new Date(rec.created_at);
+      const formattedDate = `${dateObj.getDate()}-${dateObj.getMonth() + 1}-${dateObj.getFullYear()} ${dateObj.getHours().toString().padStart(2, '0')}:${dateObj.getMinutes().toString().padStart(2, '0')}`;
+      
+      const rawNotes = rec.notes || '';
+      let displayGuide = rec.guide_number;
+      if (rec.processed_guides?.length > 0) {
+         const equipoGuides = [];
+         for (const g of rec.processed_guides) {
+            const gEscaped = g.replace(/[-]/g, '\\-');
+            const guideBlockRegex = new RegExp(`\\[Guía.*?(?:${gEscaped}).*?\\][\\s\\S]*?(?=\\[Guía|$)`, 'i');
+            const guideBlockMatch = rawNotes.match(guideBlockRegex);
+            if (guideBlockMatch && guideBlockMatch[0].toLowerCase().includes('equipo')) {
+               equipoGuides.push(g);
+           }
+         }
+         if (equipoGuides.length > 0) {
+            displayGuide = Array.from(new Set(equipoGuides)).join(' / ');
+         } else {
+            displayGuide = Array.from(new Set(rec.processed_guides)).join(' / ');
+         }
+      }
+      
       const piloto = rec.notes?.split('Piloto: ')[1]?.split('\n')[0] || '---';
       const agencia = getAgenciaLabel(rec, CAC_AGENCIES);
-      const tech = (rec.notes || '').split('Backoffice_Tech: ')[1]?.split('\n')[0] || '---';
-      const brand = (rec.notes || '').split('Backoffice_Brand: ')[1]?.split('\n')[0] || '---';
-      const model = (rec.notes || '').split('Backoffice_Model: ')[1]?.split('\n')[0] || '---';
-
-      const rawNotes = rec.notes || '';
-      const guiasPart = rawNotes.split('--- DETALLES BACKOFFICE ---')[0];
-      const notesGuias = guiasPart?.split('Guías: ')[1]?.split('\n')[0]?.split(',').map((g: string) => g.trim()).filter((g: string) => g && !g.includes('-')) || [];
-      const displayGuide = notesGuias.length > 0 ? notesGuias[0] : rec.guide_number;
-
       const equipGroups = groupSeriesByEquipment(rec.series || []);
       
       if (equipGroups.length === 0) {
-        csv += `${date},${displayGuide},${piloto},${rec.carrier},${getReceiverName(rec)},${rec.status},---,"${agencia}",${tech},${brand},${model},---,---,---,---\n`;
+        const techVal = (rec.notes || '').split('Backoffice_Tech: ')[1]?.split('\n')[0] || '';
+        const brandVal = (rec.notes || '').split('Backoffice_Brand: ')[1]?.split('\n')[0] || '';
+        const modelVal = (rec.notes || '').split('Backoffice_Model: ')[1]?.split('\n')[0] || '';
+        const categoryVal = (rec.notes || '').split('Backoffice_Category: ')[1]?.split('\n')[0] || '';
+        
+        let label = rec.status === 'PENDIENTE_BACKOFFICE' ? 'EN BACKOFFICE' : rec.status;
+        if (rec.status === 'CLASIFICADA' || rec.status === 'RECIBIDO_BACKOFFICE') {
+          label = 'INGRESADO A BACKOFFICE';
+        }
+
+        rows.push({
+          'Fecha / Hora': formattedDate,
+          'No. Guía': displayGuide,
+          'Piloto': piloto,
+          'Courier': rec.carrier || '---',
+          'Recibió': getReceiverName(rec),
+          'Estatus': label,
+          'Orden de Servicio': '---',
+          'Ingreso': '---',
+          'Agencia CAC': agencia,
+          'Tecnología': techVal || (categoryVal ? (categoryVal.toLowerCase() === 'accesorio' ? 'ACCESORIOS' : 'MÓVILES') : '---'),
+          'Marca': brandVal || '---',
+          'Modelo': modelVal || (categoryVal ? (categoryVal.toLowerCase() === 'accesorio' ? 'LOTE ACCESORIOS' : 'LOTE TELÉFONOS') : 'SIN EQUIPOS REGISTRADOS'),
+          'Traslado SAP': rec.sap_document || '---',
+          'S-1': '---',
+          'S-2': '---',
+          'S-3': '---',
+          'S-4': '---'
+        });
       } else {
         equipGroups.forEach(grp => {
-          const units = [];
-          const seriesCount = MASTER_MODELOS.find(m => m.id === grp.modelId)?.seriesCount || 1;
-          for (let i = 0; i < grp.fullSeries.length; i += seriesCount) {
-            units.push(grp.fullSeries.slice(i, i + seriesCount));
+          const modelObj = MASTER_MODELOS.find(m => m.id === grp.modelId);
+          const brandObj = MASTER_MARCAS.find(b => b.id === grp.brandId);
+          const techObj = modelObj ? MASTER_TECNOLOGIAS.find(t => t.id === modelObj.tecnologiaId) : null;
+          const seriesPerUnit = modelObj?.seriesCount || 1;
+          
+          const units: any[][] = [];
+          for (let i = 0; i < grp.fullSeries.length; i += seriesPerUnit) {
+            units.push(grp.fullSeries.slice(i, i + seriesPerUnit));
           }
 
           units.forEach(unit => {
-            const os = unit[0]?.service_orders?.os_label || '---';
-            const s1 = unit[0]?.serial_number || '';
-            const s2 = unit[1]?.serial_number || '';
-            const s3 = unit[2]?.serial_number || '';
-            const s4 = unit[3]?.serial_number || '';
+            const osLabel = unit.find((u: any) => u?.service_orders?.os_label)?.service_orders?.os_label || '---';
+            const reentry = unit.find((u: any) => u?.service_orders?.reentry_count)?.service_orders?.reentry_count || 1;
+
+            let unitGuide = displayGuide;
+            if (unit[0]?.serial_number && rec.processed_guides?.length > 0) {
+              for (const g of rec.processed_guides) {
+                const gEscaped = g.replace(/[-]/g, '\\-');
+                const guideBlockRegex = new RegExp(`\\[Guía.*?(?:${gEscaped}).*?\\][\\s\\S]*?(?=\\[Guía|$)`, 'i');
+                const guideBlockMatch = rawNotes.match(guideBlockRegex);
+                if (guideBlockMatch && guideBlockMatch[0].includes(unit[0].serial_number)) {
+                  unitGuide = g;
+                  break;
+                }
+              }
+            }
             
-            csv += `${date},${displayGuide},${piloto},${rec.carrier},${getReceiverName(rec)},${rec.status},${os},"${agencia}",${tech},${brand},${model},${s1},${s2},${s3},${s4}\n`;
+            rows.push({
+              'Fecha / Hora': formattedDate,
+              'No. Guía': unitGuide,
+              'Piloto': piloto,
+              'Courier': rec.carrier || '---',
+              'Recibió': getReceiverName(rec),
+              'Estatus': 'RECIBIDO',
+              'Orden de Servicio': osLabel,
+              'Ingreso': `${reentry}° Ingreso`,
+              'Agencia CAC': agencia,
+              'Tecnología': techObj?.nombre || '---',
+              'Marca': brandObj?.nombre || '---',
+              'Modelo': modelObj?.nombre || '---',
+              'Traslado SAP': rec.sap_document || '---',
+              'S-1': unit[0]?.serial_number || '---',
+              'S-2': unit[1]?.serial_number || '---',
+              'S-3': unit[2]?.serial_number || '---',
+              'S-4': unit[3]?.serial_number || '---'
+            });
           });
         });
       }
     });
 
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `Reporte_Backoffice_${dateFilterFrom || 'inicio'}_a_${dateFilterTo || 'fin'}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const XLSX = await import('xlsx');
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Histórico');
+    XLSX.writeFile(wb, `Reporte_Backoffice_${dateFilterFrom || 'inicio'}_a_${dateFilterTo || 'fin'}.xlsx`);
   };
   const [currentGuideInput, setCurrentGuideInput] = useState('');
   const [agencia, setAgencia] = useState('');

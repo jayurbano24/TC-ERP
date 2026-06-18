@@ -36,12 +36,12 @@ export default function InventarioDetallePage() {
   };
 
   const exportToExcel = () => {
-    if (filteredItems.length === 0) {
-      alert('No hay datos para exportar.');
-      return;
-    }
+    const headers = [
+      'Fecha / Hora', 'No. Guía', 'Piloto', 'Courier', 'Recibió', 'Estatus',
+      'Orden Servicio', 'Ingreso', 'Origen', 'Agencia / Proveedor', 'Tecnología',
+      'Marca', 'Modelo', 'Caja', 'S-1', 'S-2', 'S-3', 'S-4', 'Material', 'Lote'
+    ];
 
-    const headers = ['Fecha / Hora', 'No. Guía', 'Piloto', 'Courier', 'Recibió', 'Estatus', 'Orden Servicio', 'Ingreso', 'Origen', 'Agencia / Proveedor', 'Tecnología', 'Marca', 'Modelo', 'Caja', 'S-1', 'S-2', 'S-3', 'S-4', 'Material', 'Lote'];
     const csvContent = [
       headers.join(','),
       ...filteredItems.map(i => {
@@ -66,7 +66,7 @@ export default function InventarioDetallePage() {
           i.s3 || '---',
           i.s4 || '---',
           i.material || '---',
-          i.valuation || extractField(r.notes, 'Notas') || '---'
+          i.valuation || extractField(r.notes, 'Notas') || '---',
         ].map(v => '"' + v + '"').join(',');
       })
     ].join('\n');

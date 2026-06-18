@@ -1,5 +1,7 @@
 // @ts-nocheck
-import React from 'react';
+"use client";
+import React, { useMemo } from 'react';
+import * as XLSX from 'xlsx';
 import { Search, Truck, Clock, Camera, Pencil, Printer, Trash2, Download, ClipboardList, Scan, ChevronLeft, ChevronRight, ChevronDown, Eye, X, History, Tag, Box } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -28,6 +30,43 @@ export const HistoryTab = ({
 }: any) => {
 
   const [showPxDetails, setShowPxDetails] = React.useState<any>(null);
+
+  // Export report handler
+  const handleExportReport = async () => {
+    // Prepare rows based on mode
+    const rows = moduleMode === 'px'
+      ? pxRecords.map(rec => {
+          const fecha = rec.fecha_formateada || new Date(rec.created_at).toLocaleString();
+          const cajas = rec.notes?.match(/Cajas:\\s*(\\d+)/)?.[1] || '1';
+          const equipos = rec.received_units || 0;
+          const usuario = (rec.notes?.split('Recibido Por: ')?.[1]?.split('\\n')?.[0]?.trim() || rec.received_by || 'SISTEMA').split('@')[0];
+          return { Fecha: fecha, 'Documento SAP': rec.sap_document || '---', 'Nombre Agencia PX': rec.carrier || '---', Usuario: usuario, 'Cant. Cajas': cajas, 'Cantidad Equipos': equipos, Estatus: rec.status === 'ELIMINADO POR BODEGA' ? 'ELIMINADO POR BODEGA' : 'FINALIZADO' };
+        })
+      : cacRecords.map(rec => {
+          const fecha = rec.fecha_formateada || new Date(rec.created_at).toLocaleString();
+          const guia = rec.guide_number || rec.id;
+          const piloto = rec.pilot_display || '';
+          const recibidoMatch = rec.notes?.match(/Recibido Por:\\s+([^\\n]+)/);
+          const recibido = recibidoMatch ? recibidoMatch[1].trim().split('@')[0] : (rec.usuario || rec.received_by || 'SISTEMA').split('@')[0];
+          const estatus = rec.status === 'ELIMINADO POR BODEGA' ? 'ELIMINADO POR BODEGA' : 'FINALIZADO';
+          const isSub = !!rec.notes?.match(/como parte de lote (.*?)\\./);
+          let unidades = '-';
+          if (!isSub) {
+            const allGuias = rec.allGuias || [];
+            const expected = allGuias.length > 0 ? allGuias.length : (rec.received_units || 0);
+            const processed = rec.subs && rec.subs.length ? rec.subs.filter(s => s.category).length : 0;
+            unidades = `${processed}/${expected}`;
+          }
+          return { Fecha: fecha, 'No. Recepción TC': guia, Piloto: piloto, Recibió: recibido, Estatus: estatus, Unidades: unidades };
+        });
+    // Create worksheet and workbook using XLSX
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Histórico');
+    // Trigger download
+    XLSX.writeFile(wb, `reporte_${moduleMode}.xlsx`);
+  };
+
   const [pxDetailsData, setPxDetailsData] = React.useState<any>({ boxes: [], series: [], loading: false });
   const [filterDate, setFilterDate] = React.useState<string>('Todos');
   const [expandedLots, setExpandedLots] = React.useState<Record<string, boolean>>({});
@@ -48,17 +87,55 @@ export const HistoryTab = ({
     fetchGuides();
   }, [cacRecords]);
 
+  // Filtered records based on search, pilot, date
+  const filteredPxRecords = useMemo(() =>
+    pxRecords.filter((rec: any) => {
+      const searchLower = searchTerm.toLowerCase();
+      const matchSearch = !searchTerm ||
+        (rec.sap_document || '').toLowerCase().includes(searchLower) ||
+        (rec.carrier || '').toLowerCase().includes(searchLower) ||
+        (rec.received_by || 'SISTEMA').toLowerCase().includes(searchLower);
+      const matchFilter = filterPilot === 'Todos' || rec.carrier === filterPilot;
+      const matchDate = isDateMatch(rec.created_at);
+      const notEliminated = rec.status !== 'ELIMINADO POR BODEGA' && rec.status !== 'ARCHIVADO';
+      return matchSearch && matchFilter && matchDate && notEliminated;
+    })
+  , [pxRecords, searchTerm, filterPilot, filterDate]);
+
+  const filteredCacRecords = useMemo(() =>
+    cacRecords.filter((rec: any) => {
+      const searchLower = searchTerm.toLowerCase();
+      const matchSearch = !searchTerm ||
+        (rec.guide_number?.toLowerCase().includes(searchLower)) ||
+        (rec.pilot_display?.toLowerCase().includes(searchLower)) ||
+        (rec.notes?.toLowerCase().includes(searchLower));
+      const matchFilter = filterPilot === 'Todos' || rec.pilot_display === filterPilot;
+      const matchDate = isDateMatch(rec.created_at);
+      const notEliminated = rec.status !== 'ELIMINADO' && rec.status !== 'ELIMINADO POR BODEGA' && rec.status !== 'ARCHIVADO';
+      return matchSearch && matchFilter && matchDate && notEliminated;
+    })
+  , [cacRecords, searchTerm, filterPilot, filterDate]);
+
   const toggleLot = (loteId: string) => {
     setExpandedLots(prev => ({ ...prev, [loteId]: !prev[loteId] }));
   };
 
   const isDateMatch = (createdAt: string) => {
-    if (filterDate === 'Todos') return true;
-    if (!createdAt) return true;
+    if (filterDate === 'Todos' || !createdAt) return true;
+    
     const d = new Date(createdAt);
     const now = new Date();
+    
+    // Convert both to Guatemala timezone string format for comparison
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Guatemala',
+      year: 'numeric', month: '2-digit', day: '2-digit'
+    });
+
+    const getGuateStr = (date: Date) => formatter.format(date);
+    
     if (filterDate === 'Hoy') {
-      return d.toLocaleDateString() === now.toLocaleDateString();
+      return getGuateStr(d) === getGuateStr(now);
     }
     if (filterDate === 'Mes') {
       return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
@@ -97,7 +174,7 @@ export const HistoryTab = ({
           <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Registros consolidados de auditoría</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" className="flex gap-2"><Download size={14} /> Exportar Reporte</Button>
+          <Button variant="outline" size="sm" className="flex gap-2" onClick={handleExportReport}><Download size={14} /> Exportar Reporte</Button>
         </div>
       </div>      {/* PANEL DE MÉTRICAS HOY */}
       {(() => {
@@ -302,8 +379,8 @@ export const HistoryTab = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {pxRecords
-                .filter((rec: any) => {
+              {filteredPxRecords
+                .map((rec: any) => {
                   const searchLower = searchTerm.toLowerCase();
                   const matchSearch = !searchTerm || 
                     (rec.sap_document || '').toLowerCase().includes(searchLower) ||
@@ -383,7 +460,7 @@ export const HistoryTab = ({
                   </td>
                 </tr>
               ))}
-              {pxRecords.length === 0 && (
+              {filteredPxRecords.length === 0 && (
                 <tr>
                   <td colSpan={8} className="px-6 py-10 text-center text-slate-300 italic text-[10px] font-bold uppercase tracking-widest">
                     No hay recepciones PX finalizadas
@@ -655,7 +732,7 @@ export const HistoryTab = ({
                     return rows;
                   });
                 })()}
-                {cacRecords.length === 0 && (
+                {filteredCacRecords.length === 0 && (
                   <tr>
                     <td colSpan={7} className="px-6 py-12 text-center text-slate-300 italic uppercase font-black tracking-widest">
                       No hay registros de CAC disponibles

@@ -17,7 +17,7 @@ import {
   Loader2,
   Trash2
 } from 'lucide-react';
-import { getReturns, registerNewReturn, processFullReceptionReturn, undoFullReceptionReturn } from '@/lib/database/returns';
+import { getReturns, registerNewReturn, processFullReceptionReturn, undoFullReceptionReturn, processBlockReturnBySapTransfer } from '@/lib/database/returns';
 import { getReceptions } from '@/lib/database/receptions';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { getActualUserFullName } from '@/lib/auth';
@@ -57,6 +57,7 @@ export default function DevolucionesPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showNewReturnModal, setShowNewReturnModal] = useState(false);
   const [loading, setLoading] = useState(false);
+  const isSubmittingRef = React.useRef(false);
   const [newReturn, setNewReturn] = useState({
     originalGuide: '',
     sn: '',
@@ -274,10 +275,36 @@ export default function DevolucionesPage() {
         ...newReturn,
         motivo: `${newReturn.motivo}\nCat: ${newReturn.category}`
       };
-      const { error } = await registerNewReturn(payload);
+      const result = await registerNewReturn(payload);
 
-      if (error) {
-        alert(`Error: ${error}`);
+      if (result.error) {
+        const block = result as { error: string; requiresBlockReturn?: boolean; sapTransferId?: string };
+        if (block.requiresBlockReturn && block.sapTransferId) {
+          const proceed = confirm(
+            `${block.error}\n\n¿Desea procesar la devolución en bloque de todo el Documento SAP ahora?`
+          );
+          if (proceed) {
+            const userName = (await supabase?.auth.getUser())?.data?.user?.email || 'SISTEMA';
+            const blockRes = await processBlockReturnBySapTransfer(
+              block.sapTransferId,
+              {
+                motivo: newReturn.motivo,
+                guiaSalida: newReturn.guiaSalida,
+              },
+              userName
+            );
+            if (blockRes.error) {
+              alert(blockRes.error);
+            } else {
+              await fetchReturns();
+              setShowNewReturnModal(false);
+              setNewReturn({ originalGuide: '', sn: '', cliente: '', motivo: RETURN_REASONS[0], guiaSalida: '', category: activeCategory });
+              alert(`Devolución en bloque aplicada a ${blockRes.unitsCount} equipos del mismo Documento SAP.`);
+            }
+          }
+        } else {
+          alert(result.error);
+        }
       } else {
         await fetchReturns();
         setShowNewReturnModal(false);

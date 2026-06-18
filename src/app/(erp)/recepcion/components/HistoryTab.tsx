@@ -72,6 +72,36 @@ export const HistoryTab = ({
   const [expandedLots, setExpandedLots] = React.useState<Record<string, boolean>>({});
   const [receptionGuides, setReceptionGuides] = React.useState<any[]>([]);
 
+  const isDateMatch = (createdAt: string) => {
+    if (filterDate === 'Todos' || !createdAt) return true;
+
+    const d = new Date(createdAt);
+    const now = new Date();
+
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Guatemala',
+      year: 'numeric', month: '2-digit', day: '2-digit'
+    });
+
+    const getGuateStr = (date: Date) => formatter.format(date);
+
+    if (filterDate === 'Hoy') {
+      return getGuateStr(d) === getGuateStr(now);
+    }
+    if (filterDate === 'Mes') {
+      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    }
+    if (filterDate === 'Semana') {
+      const weekAgo = new Date();
+      weekAgo.setDate(now.getDate() - 7);
+      return d >= weekAgo;
+    }
+    if (filterDate === 'Año') {
+      return d.getFullYear() === now.getFullYear();
+    }
+    return true;
+  };
+
   React.useEffect(() => {
     async function fetchGuides() {
       const supabase = getSupabaseBrowserClient();
@@ -118,37 +148,6 @@ export const HistoryTab = ({
 
   const toggleLot = (loteId: string) => {
     setExpandedLots(prev => ({ ...prev, [loteId]: !prev[loteId] }));
-  };
-
-  const isDateMatch = (createdAt: string) => {
-    if (filterDate === 'Todos' || !createdAt) return true;
-    
-    const d = new Date(createdAt);
-    const now = new Date();
-    
-    // Convert both to Guatemala timezone string format for comparison
-    const formatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'America/Guatemala',
-      year: 'numeric', month: '2-digit', day: '2-digit'
-    });
-
-    const getGuateStr = (date: Date) => formatter.format(date);
-    
-    if (filterDate === 'Hoy') {
-      return getGuateStr(d) === getGuateStr(now);
-    }
-    if (filterDate === 'Mes') {
-      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-    }
-    if (filterDate === 'Semana') {
-      const weekAgo = new Date();
-      weekAgo.setDate(now.getDate() - 7);
-      return d >= weekAgo;
-    }
-    if (filterDate === 'Año') {
-      return d.getFullYear() === now.getFullYear();
-    }
-    return true;
   };
 
   const handleViewPxDetails = async (rec: any) => {

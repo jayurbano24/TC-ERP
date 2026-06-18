@@ -1,5 +1,8 @@
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { logAdvancedAudit } from "@/lib/database/audit";
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { logAdvancedAudit } from '@/lib/database/audit';
+import { processBlockReturnBySapTransfer } from '@/lib/database/sapTransfers';
+
+export { processBlockReturnBySapTransfer };
 
 export async function getReturns() {
   const supabase = getSupabaseBrowserClient();
@@ -31,16 +34,95 @@ export async function registerNewReturn(returnEntry: any) {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: "Supabase not configured" };
 
-  // 1. Update series status to 'returned'
-  const { error } = await supabase
-    .from('series')
-    .upsert({
-      serial_number: returnEntry.sn,
-      current_status: 'returned',
-      notes: `Motivo: ${returnEntry.motivo}\nGuía Salida: ${returnEntry.guiaSalida}`
-    }, { onConflict: 'serial_number' });
+  const serialNumber = String(returnEntry.sn || '').trim();
+  if (!serialNumber) {
+    return { error: 'El número de serie es obligatorio.' };
+  }
 
-  if (error) return { error: error.message };
+    const { data: existing, error: fetchError } = await supabase
+    .from('series')
+    .select('id, serial_number, current_status, current_reception_id, service_order_id, sap_transfer_id')
+    .eq('serial_number', serialNumber)
+    .maybeSingle();
+
+  if (fetchError) return { error: fetchError.message };
+
+  if (!existing) {
+    return {
+      error: 'Serie no encontrada en el sistema. Una devolución no puede registrar equipos que no existen. Verifique el número de serie o registre el equipo mediante recepción.'
+    };
+  }
+
+  if (returnEntry.originalGuide && existing.current_reception_id) {
+    const { data: reception } = await supabase
+      .from('receptions')
+      .select('guide_number')
+      .eq('id', existing.current_reception_id)
+      .maybeSingle();
+
+    const guide = String(returnEntry.originalGuide).trim();
+    if (reception?.guide_number && reception.guide_number !== guide) {
+      return {
+        error: `La guía ingresada (${guide}) no coincide con la recepción del equipo (${reception.guide_number}).`
+      };
+    }
+  }
+
+  const prevStatus = existing.current_status;
+
+  const { error: updateError } = await supabase
+    .from('series')
+    .update({
+      current_status: 'returned',
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', existing.id);
+
+  if (updateError) return { error: updateError.message };
+
+  // Devolución en bloque obligatoria si el equipo pertenece a un Traslado SAP con más de una unidad
+  if (existing.sap_transfer_id) {
+    const { count } = await supabase
+      .from('series')
+      .select('*', { count: 'exact', head: true })
+      .eq('sap_transfer_id', existing.sap_transfer_id)
+      .eq('current_status', 'RECEPCIONADO_BODEGA_GENERAL');
+
+    if ((count || 0) > 1) {
+      const { data: sapDoc } = await supabase
+        .from('sap_transfer_documents')
+        .select('sap_document_number')
+        .eq('id', existing.sap_transfer_id)
+        .maybeSingle();
+
+      return {
+        error: `Devolución aislada no permitida. Este equipo pertenece al Documento SAP ${sapDoc?.sap_document_number || ''} con ${count} unidades. Debe procesar la devolución en bloque por documento SAP.`,
+        sapTransferId: existing.sap_transfer_id,
+        requiresBlockReturn: true,
+      };
+    }
+  }
+
+  await logAdvancedAudit({
+    module: 'Logística',
+    tableName: 'series',
+    recordId: existing.id,
+    action: 'DEVOLUCION_EQUIPO',
+    oldValues: {
+      current_status: prevStatus,
+      current_reception_id: existing.current_reception_id,
+      service_order_id: existing.service_order_id
+    },
+    newValues: {
+      current_status: 'returned',
+      current_reception_id: existing.current_reception_id,
+      service_order_id: existing.service_order_id,
+      motivo: returnEntry.motivo,
+      guiaSalida: returnEntry.guiaSalida
+    },
+    observations: `Devolución individual registrada. SN: ${serialNumber}`
+  });
+
   return { success: true };
 }
 

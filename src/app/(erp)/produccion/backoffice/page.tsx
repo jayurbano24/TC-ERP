@@ -17,6 +17,7 @@ import {
   Truck,
   Box,
   ChevronLeft,
+  ChevronRight,
   ChevronDown,
   Barcode,
   History,
@@ -37,14 +38,39 @@ import {
   Phone,
   Calendar,
   Stethoscope,
-  RotateCcw
+  RotateCcw,
+  Filter
 } from 'lucide-react';
 import { getReceptions, createReception, updateReceptionStatus, updateProcessedGuides, addSeriesToReception, createServiceOrders, getSeriesByReceptionId, getReceptionsWithSeries, updateReception, clearAllReceptions, fixMissingOS } from '@/lib/database/receptions';
+import { createOrGetSapTransfer, classifyEquipmentBatch } from '@/lib/database/sapTransfers';
+import { processBlockReturnBySapTransfer } from '@/lib/database/returns';
 import { testSupabaseConnection } from '@/lib/supabase/test-connection';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import {
   getTechnologies, getBrands, getModels, getAgencies
 } from '@/lib/database/config';
+import {
+  HISTORY_TRAY_PAGE_SIZE,
+  collectTcHistoryUnitEntries,
+  countReadyEquipmentUnits,
+  filterUnitEntriesByDate,
+  filterUnitEntriesBySearch,
+  filterUnitEntriesByTrayFilters,
+  findOrphanClassifications,
+  formatAgencyLabel,
+  formatHistoryHourLabel,
+  getBackofficeClassifierName,
+  getHistoryHourKey,
+  groupSeriesByEquipment,
+  hasActiveHistoryTrayFilters,
+  EMPTY_HISTORY_TRAY_FILTERS,
+  receptionHasTcOs,
+  resolveUnitAgencyRaw,
+  type HistoryTrayFilters,
+  type HistoryUnitEntry,
+} from './historyTrayUtils';
+import { isCourierLabel, sanitizeCacAgencyRaw } from '@/lib/cacAgencyUtils';
+import { formatDisplayDate, formatDisplayDateTime } from '@/lib/formatDisplayDate';
 
 type GuideItem = {
   id: number;
@@ -55,6 +81,14 @@ type GuideItem = {
   scannedCount: number;
   series: string[][]; // Array of units, each unit is an array of series strings
   seriesPerUnit: number;
+  sapGroupId: string;
+  /** Número de Material SAP (código SKU) — distinto al No. Documento SAP */
+  sapMaterialNumber?: string;
+};
+
+type SapTransferGroup = {
+  id: string;
+  sapDocument: string;
 };
 
 // Tipos para catálogos dinámicos (cargados desde Supabase → Configuración del Sistema)
@@ -62,6 +96,31 @@ type CatalogTech = { id: string; nombre: string; seriesCount: number };
 type CatalogBrand = { id: string; nombre: string };
 type CatalogModel = { id: string; marcaId: string; nombre: string; tecnologiaId: string; seriesCount: number; digitsPerSeries: number[] };
 type CatalogAgency = { id: string; name: string; manager: string; email: string; direccion: string };
+
+function summarizeSapGroupGuideItems(
+  groupId: string,
+  items: GuideItem[],
+  technologies: CatalogTech[]
+) {
+  const groupItems = items.filter((i) => i.sapGroupId === groupId);
+  const byTech = new Map<string, { name: string; units: number }>();
+  let totalUnits = 0;
+
+  for (const item of groupItems) {
+    const tech = technologies.find((t) => t.id === item.tipo);
+    const key = item.tipo || 'unknown';
+    const prev = byTech.get(key) || { name: tech?.nombre || '---', units: 0 };
+    prev.units += item.cantidad;
+    byTech.set(key, prev);
+    totalUnits += item.cantidad;
+  }
+
+  return {
+    techLines: Array.from(byTech.values()),
+    totalUnits,
+    itemCount: groupItems.length,
+  };
+}
 
 const compressImage = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -123,35 +182,20 @@ const getReceiverName = (rec: any) => {
   return 'SISTEMA';
 };
 
-const getAgenciaLabel = (rec: any, agencies: CatalogAgency[], guideId?: string) => {
+const getAgenciaLabel = (rec: any, agencies: CatalogAgency[], guideId?: string, unit?: any[]) => {
   if (!rec) return '---';
-  let metaAgency = '';
-  
-  if (guideId && rec.notes) {
-      const gEscaped = guideId.replace(/[-]/g, '\\-');
-      const guideBlockRegex = new RegExp(`\\[Guía.*?(?:${gEscaped}).*?\\][\\s\\S]*?(?=\\[Guía|---|$)`, 'i');
-      const match = rec.notes.match(guideBlockRegex);
-      if (match) {
-          metaAgency = match[0].split('Backoffice_Agency: ')[1]?.split('\n')[0]?.trim() || '';
-      }
-  }
-  
-  if (!metaAgency) {
-      metaAgency = (rec.notes || '').split('Backoffice_Agency: ')[1]?.split('\n')[0]?.trim() || '';
-  }
-  
-  if (metaAgency) {
-    const matched = agencies.find(a => a.name.toUpperCase() === metaAgency.toUpperCase());
-    return matched ? `${matched.id} — ${matched.name}` : metaAgency;
-  }
-  
-  const agencyInCarrier = agencies.find(a => 
-    rec.carrier?.toUpperCase().includes(a.name.toUpperCase()) ||
-    rec.carrier?.toUpperCase().includes(a.id.toUpperCase())
-  );
-  if (agencyInCarrier) return `${agencyInCarrier.id} — ${agencyInCarrier.name}`;
-  
-  return rec.carrier || 'Agencia Central';
+  const raw = guideId
+    ? resolveUnitAgencyRaw(rec, guideId, unit || [])
+    : sanitizeCacAgencyRaw(
+        (rec.reception_guides || []).find((rg: any) => rg.agency)?.agency ||
+          (rec.notes?.includes('Backoffice_Agency: ')
+            ? rec.notes.split('Backoffice_Agency: ')[1]?.split('\n')[0]?.trim()
+            : ''),
+        rec.carrier,
+        agencies
+      );
+  if (raw) return formatAgencyLabel(raw, agencies, rec?.carrier);
+  return '---';
 };
 
 export default function BackofficePage() {
@@ -167,168 +211,145 @@ export default function BackofficePage() {
   const [dateFilterFrom, setDateFilterFrom] = useState('');
   const [dateFilterTo, setDateFilterTo] = useState('');
 
-  const handleExportReport = async () => {
-    // Usar la misma lógica de filtrado de la tabla UI
-    const filteredRecords = historyReceptions
-      .filter(r => {
-        if (!dateFilterFrom && !dateFilterTo) return true;
-        const d = new Date(r.created_at);
-        if (dateFilterFrom && d < new Date(dateFilterFrom + 'T00:00:00')) return false;
-        if (dateFilterTo) {
-          const to = new Date(dateFilterTo + 'T23:59:59');
-          if (d > to) return false;
-        }
-        return true;
-      })
-      .filter(r => {
-        if (!historySearch) return true;
-        const s = historySearch.toLowerCase();
-        const piloto = r.notes?.split('Piloto: ')[1]?.split('\n')[0]?.toLowerCase() || '';
-        const agencia = getAgenciaLabel(r, CAC_AGENCIES).toLowerCase();
-        const sapDoc = (r.sap_document || '').toLowerCase();
-        const matchingSeries = (r.series || []).some((ser: any) => 
-          (ser.serial_number || '').toLowerCase().includes(s)
-        );
-        return r.guide_number.toLowerCase().includes(s) || 
-               piloto.includes(s) || 
-               agencia.includes(s) ||
-               sapDoc.includes(s) ||
-               (r.carrier || '').toLowerCase().includes(s) ||
-               matchingSeries;
-      });
+  const startProcessingReception = (rec: any) => {
+    const notes = rec.notes || '';
+    const hadFailedClassif =
+      !receptionHasTcOs(rec) &&
+      (/clasificación/i.test(notes) ||
+        /--- DETALLES BACKOFFICE ---/i.test(notes) ||
+        /Backoffice_Agency:/i.test(notes));
+    if (hadFailedClassif) {
+      alert(
+        'Esta guía tiene un ingreso anterior incompleto (trazabilidad en notas pero sin OS TC-XXX).\n' +
+          'Complete el flujo de nuevo y confirme el mensaje "✅ X equipo(s) registrado(s)" al finalizar.'
+      );
+    }
+    setActiveReception(rec);
+    setProcessedGuides(rec.processed_guides || []);
+    setReceptionStep('classification');
+  };
 
-    if (filteredRecords.length === 0) {
-      alert("No hay datos que coincidan con la búsqueda o filtros actuales.");
+  const handleExportReport = async () => {
+    const trayEntries = getHistoryTrayEntries();
+
+    if (trayEntries.length === 0) {
+      alert('No hay ingresos CAC con orden de servicio TC-XXX que coincidan con los filtros actuales.');
       return;
     }
 
     const rows: any[] = [];
-    
-    filteredRecords.forEach(rec => {
-      const dateObj = new Date(rec.created_at);
+
+    trayEntries.forEach((entry) => {
+      const rec = entry.rec;
+      const grp = entry.grp;
+      const unit = entry.unit;
+      const dateObj = new Date(entry.classifiedAtIso);
       const formattedDate = `${dateObj.getDate()}-${dateObj.getMonth() + 1}-${dateObj.getFullYear()} ${dateObj.getHours().toString().padStart(2, '0')}:${dateObj.getMinutes().toString().padStart(2, '0')}`;
-      
-      const rawNotes = rec.notes || '';
-      let displayGuide = rec.guide_number;
-      if (rec.processed_guides?.length > 0) {
-         const equipoGuides = [];
-         for (const g of rec.processed_guides) {
-            const gEscaped = g.replace(/[-]/g, '\\-');
-            const guideBlockRegex = new RegExp(`\\[Guía.*?(?:${gEscaped}).*?\\][\\s\\S]*?(?=\\[Guía|$)`, 'i');
-            const guideBlockMatch = rawNotes.match(guideBlockRegex);
-            if (guideBlockMatch && guideBlockMatch[0].toLowerCase().includes('equipo')) {
-               equipoGuides.push(g);
-           }
-         }
-         if (equipoGuides.length > 0) {
-            displayGuide = Array.from(new Set(equipoGuides)).join(' / ');
-         } else {
-            displayGuide = Array.from(new Set(rec.processed_guides)).join(' / ');
-         }
-      }
-      
       const piloto = rec.notes?.split('Piloto: ')[1]?.split('\n')[0] || '---';
-      const agencia = getAgenciaLabel(rec, CAC_AGENCIES);
-      const equipGroups = groupSeriesByEquipment(rec.series || []);
-      
-      if (equipGroups.length === 0) {
-        const techVal = (rec.notes || '').split('Backoffice_Tech: ')[1]?.split('\n')[0] || '';
-        const brandVal = (rec.notes || '').split('Backoffice_Brand: ')[1]?.split('\n')[0] || '';
-        const modelVal = (rec.notes || '').split('Backoffice_Model: ')[1]?.split('\n')[0] || '';
-        const categoryVal = (rec.notes || '').split('Backoffice_Category: ')[1]?.split('\n')[0] || '';
-        
-        let label = rec.status === 'PENDIENTE_BACKOFFICE' ? 'EN BACKOFFICE' : rec.status;
-        if (rec.status === 'CLASIFICADA' || rec.status === 'RECIBIDO_BACKOFFICE') {
-          label = 'INGRESADO A BACKOFFICE';
-        }
+      const agencia = formatAgencyLabel(entry.unitAgencyRaw, CAC_AGENCIES, entry.rec?.carrier);
+      const modelObj = MASTER_MODELOS.find((m) => m.id === grp.modelId);
+      const brandObj = MASTER_MARCAS.find((b) => b.id === grp.brandId);
+      const techObj = modelObj ? MASTER_TECNOLOGIAS.find((t) => t.id === modelObj.tecnologiaId) : null;
+      const reentry = unit.find((u: any) => u?.service_orders?.reentry_count)?.service_orders?.reentry_count || 1;
 
-        rows.push({
-          'Fecha / Hora': formattedDate,
-          'No. Guía': displayGuide,
-          'Piloto': piloto,
-          'Courier': rec.carrier || '---',
-          'Recibió': getReceiverName(rec),
-          'Estatus': label,
-          'Orden de Servicio': '---',
-          'Ingreso': '---',
-          'Agencia CAC': agencia,
-          'Tecnología': techVal || (categoryVal ? (categoryVal.toLowerCase() === 'accesorio' ? 'ACCESORIOS' : 'MÓVILES') : '---'),
-          'Marca': brandVal || '---',
-          'Modelo': modelVal || (categoryVal ? (categoryVal.toLowerCase() === 'accesorio' ? 'LOTE ACCESORIOS' : 'LOTE TELÉFONOS') : 'SIN EQUIPOS REGISTRADOS'),
-          'Traslado SAP': rec.sap_document || '---',
-          'S-1': '---',
-          'S-2': '---',
-          'S-3': '---',
-          'S-4': '---'
-        });
-      } else {
-        equipGroups.forEach(grp => {
-          const modelObj = MASTER_MODELOS.find(m => m.id === grp.modelId);
-          const brandObj = MASTER_MARCAS.find(b => b.id === grp.brandId);
-          const techObj = modelObj ? MASTER_TECNOLOGIAS.find(t => t.id === modelObj.tecnologiaId) : null;
-          const seriesPerUnit = modelObj?.seriesCount || 1;
-          
-          const units: any[][] = [];
-          for (let i = 0; i < grp.fullSeries.length; i += seriesPerUnit) {
-            units.push(grp.fullSeries.slice(i, i + seriesPerUnit));
-          }
-
-          units.forEach(unit => {
-            const osLabel = unit.find((u: any) => u?.service_orders?.os_label)?.service_orders?.os_label || '---';
-            const reentry = unit.find((u: any) => u?.service_orders?.reentry_count)?.service_orders?.reentry_count || 1;
-
-            let unitGuide = displayGuide;
-            if (unit[0]?.serial_number && rec.processed_guides?.length > 0) {
-              for (const g of rec.processed_guides) {
-                const gEscaped = g.replace(/[-]/g, '\\-');
-                const guideBlockRegex = new RegExp(`\\[Guía.*?(?:${gEscaped}).*?\\][\\s\\S]*?(?=\\[Guía|$)`, 'i');
-                const guideBlockMatch = rawNotes.match(guideBlockRegex);
-                if (guideBlockMatch && guideBlockMatch[0].includes(unit[0].serial_number)) {
-                  unitGuide = g;
-                  break;
-                }
-              }
-            }
-            
-            rows.push({
-              'Fecha / Hora': formattedDate,
-              'No. Guía': unitGuide,
-              'Piloto': piloto,
-              'Courier': rec.carrier || '---',
-              'Recibió': getReceiverName(rec),
-              'Estatus': 'RECIBIDO',
-              'Orden de Servicio': osLabel,
-              'Ingreso': `${reentry}° Ingreso`,
-              'Agencia CAC': agencia,
-              'Tecnología': techObj?.nombre || '---',
-              'Marca': brandObj?.nombre || '---',
-              'Modelo': modelObj?.nombre || '---',
-              'Traslado SAP': rec.sap_document || '---',
-              'S-1': unit[0]?.serial_number || '---',
-              'S-2': unit[1]?.serial_number || '---',
-              'S-3': unit[2]?.serial_number || '---',
-              'S-4': unit[3]?.serial_number || '---'
-            });
-          });
-        });
-      }
+      rows.push({
+        'Fecha / Hora': formattedDate,
+        'No. Guía': entry.unitGuide,
+        'Piloto': piloto,
+        'Courier': rec.carrier || '---',
+        'Recibió': getBackofficeClassifierName(rec, entry.unitGuide),
+        'Estatus': entry.unitStatusLabel,
+        'Orden de Servicio': entry.osLabel,
+        'Ingreso': `${reentry}° Ingreso`,
+        'Agencia CAC': agencia,
+        'Tecnología': techObj?.nombre || '---',
+        'Marca': brandObj?.nombre || '---',
+        'Modelo': modelObj?.nombre || '---',
+        'Documento SAP': entry.unitSap,
+        'S-1': unit[0]?.serial_number || '---',
+        'S-2': unit[1]?.serial_number || '---',
+        'S-3': unit[2]?.serial_number || '---',
+        'S-4': unit[3]?.serial_number || '---'
+      });
     });
 
     const XLSX = await import('xlsx');
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Histórico');
-    XLSX.writeFile(wb, `Reporte_Backoffice_${dateFilterFrom || 'inicio'}_a_${dateFilterTo || 'fin'}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws, 'Histórico CAC');
+    XLSX.writeFile(wb, `Reporte_CAC_TC_${dateFilterFrom || 'inicio'}_a_${dateFilterTo || 'fin'}.xlsx`);
   };
   const [currentGuideInput, setCurrentGuideInput] = useState('');
   const [agencia, setAgencia] = useState('');
   const [selectedAgencyId, setSelectedAgencyId] = useState<string>('');
   const [category, setCategory] = useState<'Equipo' | 'Accesorio' | 'Teléfono'>('Equipo');
   const [guideItems, setGuideItems] = useState<GuideItem[]>([]);
+  const [manifestPanelOpen, setManifestPanelOpen] = useState(true);
   const [returnReason, setReturnReason] = useState('');
   const [returnTracking, setReturnTracking] = useState('');
   const [returnCourier, setReturnCourier] = useState('');
   const [sapTransferNumber, setSapTransferNumber] = useState('');
+  const [sapGroups, setSapGroups] = useState<SapTransferGroup[]>([]);
+  const [activeSapGroupId, setActiveSapGroupId] = useState<string | null>(null);
+
+  const initSapGroupsForConfig = () => {
+    const firstId = `sap-${Date.now()}`;
+    setSapGroups([{ id: firstId, sapDocument: '' }]);
+    setActiveSapGroupId(firstId);
+    setSapTransferNumber('');
+    setGuideItems([]);
+    setAgencia('');
+    setSelectedAgencyId('');
+  };
+
+  const addSapGroup = () => {
+    const id = `sap-${Date.now()}`;
+    setSapGroups((prev) => [...prev, { id, sapDocument: '' }]);
+    setActiveSapGroupId(id);
+    setSapTransferNumber('');
+  };
+
+  const selectSapGroup = (groupId: string) => {
+    setActiveSapGroupId(groupId);
+    const g = sapGroups.find((x) => x.id === groupId);
+    setSapTransferNumber(g?.sapDocument || '');
+  };
+
+  const updateActiveSapDocument = (value: string) => {
+    if (!activeSapGroupId) return;
+    setSapTransferNumber(value);
+    setSapGroups((prev) =>
+      prev.map((g) => (g.id === activeSapGroupId ? { ...g, sapDocument: value } : g))
+    );
+  };
+
+  const removeSapGroup = (groupId: string) => {
+    const group = sapGroups.find((g) => g.id === groupId);
+    const itemsInGroup = guideItems.filter((i) => i.sapGroupId === groupId);
+    const label = group?.sapDocument.trim() || 'sin número';
+    const msg =
+      itemsInGroup.length > 0
+        ? `¿Eliminar Documento SAP "${label}" y sus ${itemsInGroup.length} ítem(s) del manifiesto?`
+        : `¿Eliminar Documento SAP "${label}"?`;
+    if (!window.confirm(msg)) return;
+    if (sapGroups.length <= 1) {
+      alert('Debe conservar al menos un Documento SAP en el manifiesto.');
+      return;
+    }
+    setGuideItems((prev) => prev.filter((i) => i.sapGroupId !== groupId));
+    setSapGroups((prev) => {
+      const next = prev.filter((g) => g.id !== groupId);
+      if (activeSapGroupId === groupId) {
+        const first = next[0];
+        setActiveSapGroupId(first?.id ?? null);
+        setSapTransferNumber(first?.sapDocument || '');
+      }
+      return next;
+    });
+  };
+
+  const activeSapGroup = sapGroups.find((g) => g.id === activeSapGroupId) || null;
+  const isActiveSapDocumentFilled = Boolean(activeSapGroup?.sapDocument?.trim());
   
   // Form State for new item
   const [newItem, setNewItem] = useState({ tipo: '', marca: '', modelo: '', cantidad: 0 });
@@ -346,6 +367,8 @@ export default function BackofficePage() {
   const [currentUserFullName, setCurrentUserFullName] = useState('SISTEMA');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isSubmittingRef = React.useRef(false);
+  const [canReturnToPending, setCanReturnToPending] = useState(false);
+  const [processingDateLabel, setProcessingDateLabel] = useState('');
 
   useEffect(() => {
     async function initUser() {
@@ -353,6 +376,12 @@ export default function BackofficePage() {
       setCurrentUserFullName(name);
     }
     initUser();
+  }, []);
+
+  useEffect(() => {
+    const role = localStorage.getItem('user_role');
+    setCanReturnToPending(role === 'TI' || role === 'ROOT');
+    setProcessingDateLabel(formatDisplayDate(new Date()));
   }, []);
 
   const [activeReception, setActiveReception] = useState<any>(null);
@@ -400,9 +429,11 @@ export default function BackofficePage() {
   const [editMetaSaving, setEditMetaSaving] = useState(false);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [historySearch, setHistorySearch] = useState('');
+  const [historyFilters, setHistoryFilters] = useState<HistoryTrayFilters>(EMPTY_HISTORY_TRAY_FILTERS);
+  const [historyFiltersOpen, setHistoryFiltersOpen] = useState(true);
   const [showTimeline, setShowTimeline] = useState<any | null>(null);
   const [timelineActiveGuide, setTimelineActiveGuide] = useState<string | null>(null);
-
+  const [historyPage, setHistoryPage] = useState(1);
   const handleFixMissingOS = async (recId: string, unit: any[], modelId: string, brandId: string) => {
     if (!unit || unit.length === 0) return;
     const confirmFix = window.confirm('¿Desea generar la Orden de Servicio faltante para esta unidad?');
@@ -443,12 +474,8 @@ export default function BackofficePage() {
   const [currentScanInput, setCurrentScanInput] = useState('');
   const [eligibleSeriesIdsList, setEligibleSeriesIdsList] = useState<{allIds: string[], sn: string}[]>([]);
 
-  // Auto-find or Selected Agency Details
-  const agencyDetails = CAC_AGENCIES.find(a => 
-    a.id === selectedAgencyId ||
-    activeReception?.carrier?.toUpperCase().includes(a.name.toUpperCase()) ||
-    activeReception?.carrier?.toUpperCase().includes(a.id.toUpperCase())
-  );
+  // Solo agencia seleccionada explícitamente en modal (nunca inferir desde courier)
+  const agencyDetails = CAC_AGENCIES.find((a) => a.id === selectedAgencyId);
 
   useEffect(() => {
     fetchPending();
@@ -477,14 +504,11 @@ export default function BackofficePage() {
   };
 
   useEffect(() => {
-    if (activeReception && !selectedAgencyId) {
-       const found = CAC_AGENCIES.find(a => 
-         activeReception.carrier?.toUpperCase().includes(a.name.toUpperCase()) ||
-         activeReception.carrier?.toUpperCase().includes(a.id.toUpperCase())
-       );
-       if (found) setSelectedAgencyId(found.id);
+    if (activeReception) {
+      setSelectedAgencyId('');
+      setAgencia('');
     }
-  }, [activeReception]);
+  }, [activeReception?.id]);
 
   // Expandir/Contraer filas de la tabla
   const toggleRow = (id: string) => setExpandedRows(prev => {
@@ -493,16 +517,48 @@ export default function BackofficePage() {
     return next;
   });
 
-  // Agrupa series por modelo/marca dentro de una recepción
-  const groupSeriesByEquipment = (series: any[]) => {
-    const groups = new Map<string, { modelId: string; brandId: string; fullSeries: any[] }>();
-    for (const s of series) {
-      if (!s.brand_id) continue;
-      const key = (s.model_id || '') + '|' + (s.brand_id || '');
-      if (!groups.has(key)) groups.set(key, { modelId: s.model_id, brandId: s.brand_id, fullSeries: [] });
-      groups.get(key)!.fullSeries.push(s);
-    }
-    return Array.from(groups.values());
+  const resolveSeriesPerUnit = (modelId: string) =>
+    MASTER_MODELOS.find((m) => m.id === modelId)?.seriesCount || 1;
+
+  const collectHistoryTrayEntries = () =>
+    collectTcHistoryUnitEntries(historyReceptions, resolveSeriesPerUnit);
+
+  const getHistoryTrayEntries = () =>
+    filterUnitEntriesByTrayFilters(
+      filterUnitEntriesBySearch(
+        filterUnitEntriesByDate(
+          collectHistoryTrayEntries(),
+          dateFilterFrom,
+          dateFilterTo
+        ),
+        historySearch
+      ),
+      historyFilters,
+      {
+        techIdFromModel: (modelId) => MASTER_MODELOS.find((m) => m.id === modelId)?.tecnologiaId,
+        agencyLabelFromId: (agencyId) => CAC_AGENCIES.find((a) => a.id === agencyId)?.name || '',
+      }
+    );
+
+  const historyFilterBrands = MASTER_MARCAS.filter((b) =>
+    !historyFilters.techId ||
+    MASTER_MODELOS.some((m) => m.marcaId === b.id && m.tecnologiaId === historyFilters.techId)
+  );
+
+  const historyFilterModels = MASTER_MODELOS.filter(
+    (m) =>
+      (!historyFilters.techId || m.tecnologiaId === historyFilters.techId) &&
+      (!historyFilters.brandId || m.marcaId === historyFilters.brandId)
+  );
+
+  const patchHistoryFilter = (patch: Partial<HistoryTrayFilters>) => {
+    setHistoryFilters((prev) => ({ ...prev, ...patch }));
+    setHistoryPage(1);
+  };
+
+  const clearHistoryFilters = () => {
+    setHistoryFilters(EMPTY_HISTORY_TRAY_FILTERS);
+    setHistoryPage(1);
   };
   
   useEffect(() => {
@@ -555,7 +611,7 @@ export default function BackofficePage() {
 
   const fetchHistory = async () => {
     try {
-      const data = await getReceptionsWithSeries(); 
+      const data = await getReceptionsWithSeries('cac');
       // Filtrar para mostrar únicamente registros de categoría EQUIPOS (o que contengan series y no sean accesorios/móviles)
       const filtered = data.map((rec: any) => {
         const boxedOsIds = new Set(
@@ -571,30 +627,70 @@ export default function BackofficePage() {
             if (s.service_orders?.id && boxedOsIds.has(s.service_orders.id)) return false;
             const cStatus = (s.current_status || '').toLowerCase().trim();
             const shouldFilter = ['in_workshop', 'in_qc', 'in_l3', 'in_scraps', 'in_control_warehouse', 'in_central_warehouse', 'ready_to_dispatch', 'dispatched'].includes(cStatus);
-            console.log(`DEBUG_FILTER: Serie ${s.serial_number} has status: "${s.current_status}" -> cStatus: "${cStatus}" -> shouldFilter: ${shouldFilter}`);
             if (shouldFilter) return false;
             return true;
           }) : []
         };
       }).filter((rec: any) => {
-        const notes = (rec.notes || '').toLowerCase();
-        // Leer categorías desde reception_guides si están disponibles (Fase 3)
-        // Fallback a notes para registros históricos previos a la migración
+        const notes     = (rec.notes || '').toLowerCase();
+        const recStatus = (rec.status || '').toUpperCase().trim();
+
+        // ── NIVEL 1: Exclusión incondicional — estados finales ──────────────────
+        const EXCLUDED_STATUSES = [
+          'ELIMINADO', 'ELIMINADO POR BODEGA',
+          'DEVUELTO_A_AGENCIA', 'FINALIZADO', 'PROCESADO',
+        ];
+        if (EXCLUDED_STATUSES.includes(recStatus)) return false;
+
+        // Determinar tipo de contenido desde reception_guides (Fase 3) + notes (fallback)
         const guideCategories: string[] = (rec.reception_guides || []).map((rg: any) => (rg.category || '').toLowerCase());
-        const hasAccesorio = guideCategories.some((c: string) => c === 'accesorio') || notes.includes('backoffice_category: accesorio');
-        const hasTelefono = guideCategories.some((c: string) => c === 'telefono') || notes.includes('backoffice_category: teléfono') || notes.includes('backoffice_category: movil');
-        const hasEquipo = guideCategories.some((c: string) => c === 'equipo') || notes.includes('backoffice_category: equipo');
-        
-        // We have to duplicate the grouping logic here, but it's lightweight enough.
-        let validSeriesCount = 0;
-        for (const s of (rec.series || [])) {
-          if (s.brand_id) validSeriesCount++;
+        const evidenceAccesorio = guideCategories.some((c: string) => c === 'accesorio') || notes.includes('backoffice_category: accesorio');
+        const evidenceTelefono  = guideCategories.some((c: string) => c === 'telefono')  || notes.includes('backoffice_category: teléfono') || notes.includes('backoffice_category: movil');
+        const evidenceEquipo    = guideCategories.some((c: string) => c === 'equipo')    || notes.includes('backoffice_category: equipo');
+        // Metadata explícita de equipo en notes (Backoffice_Tech / Brand / Model)
+        const hasEquipMeta =
+          notes.includes('backoffice_tech:')  ||
+          notes.includes('backoffice_brand:') ||
+          notes.includes('backoffice_model:');
+
+        // ── NIVEL 2: Exclusión por tipo — solo accesorios o solo teléfonos ──────
+        // Si sabemos que es accesorio/teléfono Y no hay evidencia de equipo → excluir.
+        if (evidenceAccesorio && !evidenceEquipo && !hasEquipMeta) return false;
+        if (evidenceTelefono  && !evidenceEquipo && !hasEquipMeta) return false;
+
+        // ── NIVEL 3: Inclusión por series válidas (comportamiento original) ──────
+        // La recepción tiene al menos 1 serie con brand_id disponible en Backoffice.
+        const validSeriesCount = (rec.series || []).filter((s: any) => !!s.brand_id).length;
+        if (validSeriesCount > 0) return true;
+
+        // ── NIVEL 4: Inclusión por evidencia de equipo en metadata ────────────
+        // Tenemos prueba directa de que la recepción contiene equipos aunque aún
+        // no se hayan generado las OS o no haya series con brand_id.
+        if (evidenceEquipo || hasEquipMeta) return true;
+
+        // ── NIVEL 5: Último recurso — status + evidencia mínima de clasificación ─
+        // Solo si el status indica que pasó por Backoffice Y hay evidencia de que
+        // hubo una clasificación real (no simplemente el status vacío).
+        const BACKOFFICE_PROCESSED_STATUSES = [
+          'CLASIFICADA',
+          'RECIBIDO_BACKOFFICE',
+          'PENDIENTE DE CLASIFICAR',
+          'EN_PROCESO_BACKOFFICE',
+        ];
+        if (BACKOFFICE_PROCESSED_STATUSES.includes(recStatus) && !evidenceAccesorio && !evidenceTelefono) {
+          const hasSeries           = (rec.series || []).length > 0;
+          const hasReceptionGuides  = (rec.reception_guides || []).length > 0;
+          const hasClassifNotes     =
+            notes.includes('guías procesadas:')      ||
+            notes.includes('--- detalles backoffice') ||
+            notes.includes('backoffice_agency:');
+          return hasSeries || hasReceptionGuides || hasClassifNotes;
         }
 
-        // Si tiene equipos sin empaquetar, se muestra en el Historial Backoffices para proceder.
-        return validSeriesCount > 0;
+        return false;
       });
       setHistoryReceptions(filtered);
+      setHistoryPage(1);
     } catch (error) {
       console.error("Error fetching history with series:", error);
     }
@@ -886,6 +982,38 @@ export default function BackofficePage() {
     }
   };
 
+  const handleSapBlockReturn = async (entry: HistoryUnitEntry) => {
+    if (!entry.sapTransferId) {
+      window.location.href = `/logistica/devoluciones?reception_id=${entry.rec.id}`;
+      return;
+    }
+
+    const unitCount = entry.unit.length;
+    const msg =
+      `Devolución en bloque por Documento SAP ${entry.unitSap}.\n` +
+      `Se revertirán TODAS las unidades asociadas a este documento SAP en la guía (no solo esta fila).\n\n¿Continuar?`;
+    if (!confirm(msg)) return;
+
+    const motivo = prompt('Motivo de la devolución:');
+    if (!motivo?.trim()) return;
+    const guiaSalida = prompt('Guía de salida / tracking:');
+    if (!guiaSalida?.trim()) return;
+
+    const res = await processBlockReturnBySapTransfer(
+      entry.sapTransferId,
+      { motivo: motivo.trim(), guiaSalida: guiaSalida.trim() },
+      currentUserFullName
+    );
+
+    if (res.error) {
+      alert(res.error);
+      return;
+    }
+
+    alert(`Devolución en bloque aplicada (${res.unitsCount ?? unitCount} equipos del Documento SAP ${entry.unitSap}).`);
+    await fetchHistory();
+  };
+
   const handleViewManifest = (rec: any) => {
     const cleanNotes = (rec.notes || '').split('--- LÍNEA DE TIEMPO')[0].split('Backoffice_')[0].split('Guías Procesadas:')[0];
     const guias = cleanNotes?.split('Guías: ')[1]?.split('\n')[0] || rec.guide_number;
@@ -896,7 +1024,13 @@ export default function BackofficePage() {
   const handleOpenEditMeta = (rec: any) => {
     setEditMetaRec(rec);
     setEditMeta({
-      agency: (rec.notes?.includes('Backoffice_Agency: ') ? rec.notes.split('Backoffice_Agency: ')[1]?.split('\n')[0]?.trim() : '') || rec.carrier || '',
+      agency: sanitizeCacAgencyRaw(
+        rec.notes?.includes('Backoffice_Agency: ')
+          ? rec.notes.split('Backoffice_Agency: ')[1]?.split('\n')[0]?.trim()
+          : '',
+        rec.carrier,
+        CAC_AGENCIES
+      ),
       tech:   (rec.notes?.includes('Backoffice_Tech: ') ? rec.notes.split('Backoffice_Tech: ')[1]?.split('\n')[0]?.trim() : ''),
       brand:  (rec.notes?.includes('Backoffice_Brand: ') ? rec.notes.split('Backoffice_Brand: ')[1]?.split('\n')[0]?.trim() : ''),
       model:  (rec.notes?.includes('Backoffice_Model: ') ? rec.notes.split('Backoffice_Model: ')[1]?.split('\n')[0]?.trim() : ''),
@@ -1021,6 +1155,10 @@ export default function BackofficePage() {
   };
 
   const addItem = () => {
+    if (!activeSapGroupId || !activeSapGroup?.sapDocument.trim()) {
+      alert('Seleccione o cree un Documento SAP antes de agregar equipos al manifiesto.');
+      return;
+    }
     console.log("addItem triggered. Current newItem:", newItem);
     if (!newItem.tipo || !newItem.marca || !newItem.modelo || newItem.cantidad <= 0) {
       const msg = `Faltan campos por completar: ${!newItem.tipo ? 'Tecnología, ' : ''}${!newItem.marca ? 'Marca, ' : ''}${!newItem.modelo ? 'Modelo, ' : ''}${newItem.cantidad <= 0 ? 'Cantidad' : ''}`;
@@ -1040,7 +1178,8 @@ export default function BackofficePage() {
       id: Date.now(), 
       series: [], 
       scannedCount: 0,
-      seriesPerUnit: seriesPerUnit
+      seriesPerUnit: seriesPerUnit,
+      sapGroupId: activeSapGroupId,
     };
     setGuideItems([...guideItems, item]);
     setNewItem({ tipo: '', marca: '', modelo: '', cantidad: 0 });
@@ -1129,7 +1268,17 @@ export default function BackofficePage() {
         let finalCategory = category || 'Equipo';
         if ((receptionStep as string) === 'accessories_photos') finalCategory = 'Accesorio';
 
-        const agencyLabel = agencia || agencyObj?.name || selectedAgencyId || '';
+        const agencyLabel = sanitizeCacAgencyRaw(
+          agencyObj?.name || selectedAgencyId,
+          activeReception?.carrier,
+          CAC_AGENCIES
+        );
+        if (!agencyLabel && isEquipment) {
+          alert('Debe seleccionar la Agencia CAC de ingreso (no es el mismo dato que el Courier).');
+          setIsSubmitting(false);
+          isSubmittingRef.current = false;
+          return;
+        }
 
         // Dynamic metadata defaults for Accessories and Phones
         const defaultTech = finalCategory.toLowerCase() === 'accesorio' ? 'ACCESORIOS' : (finalCategory.toLowerCase() === 'teléfono' ? 'MÓVILES' : '');
@@ -1167,38 +1316,220 @@ export default function BackofficePage() {
           baseNotes += `\nGuías Procesadas: ${newProcessed.join(', ')}`;
         }
 
-        const timelineEvent = `\n[${timestamp}] ${movId} | ${actionCode} | CLASIFICACIÓN (Guía ${scannedGuides.join(',')}): Movido a BODEGA: ${finalCategory.toUpperCase()} - Por: ${currentUserFullName}`;
+        const pendingTimelineEvent = `\n[${timestamp}] ${movId} | ${actionCode} | CLASIFICACIÓN (Guía ${scannedGuides.join(',')}): Movido a BODEGA: ${finalCategory.toUpperCase()} - Por: ${currentUserFullName}`;
         
         if (!timelineNotes) {
             timelineNotes = `[${new Date(activeReception.created_at).toLocaleString()}] MOV-START | REC-01 | RECEPCIÓN: Ingreso inicial al sistema en CAC.`;
         }
-        timelineNotes += timelineEvent;
 
-        detailsNotes += `\n\n[Guía ${scannedGuides.join(',')}]` +
-          `\nBackoffice_Agency: ${agencyLabel}` +
-          `\nBackoffice_Category: ${finalCategory.toLowerCase()}` +
-          (techVal ? `\nBackoffice_Tech: ${techVal}` : '') +
-          (brandVal ? `\nBackoffice_Brand: ${brandVal}` : '') +
-          (modelVal ? `\nBackoffice_Model: ${modelVal}` : '') +
-          (sapTransferNumber ? `\nBackoffice_SAP: ${sapTransferNumber}` : '') +
-          `\nMotivo Devolución: ${returnReason || 'N/A'}` +
-          `\nGuía de Envío: ${returnTracking || 'N/A'} (Logística: ${returnCourier || 'N/A'})`;
+        const sapGroupsInManifest = Array.from(
+          new Map(
+            guideItems
+              .map((item) => {
+                const g = sapGroups.find((sg) => sg.id === item.sapGroupId);
+                return g && g.sapDocument.trim() ? [g.id, g] as const : null;
+              })
+              .filter(Boolean) as [string, SapTransferGroup][]
+          ).values()
+        );
+
+        for (const sapGroup of sapGroupsInManifest) {
+          detailsNotes += `\n\n[Guía ${scannedGuides.join(',')} | SAP ${sapGroup.sapDocument}]` +
+            `\nBackoffice_Agency: ${agencyLabel}` +
+            `\nBackoffice_Category: ${finalCategory.toLowerCase()}` +
+            (techVal ? `\nBackoffice_Tech: ${techVal}` : '') +
+            (brandVal ? `\nBackoffice_Brand: ${brandVal}` : '') +
+            (modelVal ? `\nBackoffice_Model: ${modelVal}` : '') +
+            `\nBackoffice_SAP: ${sapGroup.sapDocument}` +
+            `\nMotivo Devolución: ${returnReason || 'N/A'}` +
+            `\nGuía de Envío: ${returnTracking || 'N/A'} (Logística: ${returnCourier || 'N/A'})`;
+        }
+
+        if (sapGroupsInManifest.length === 0) {
+          detailsNotes += `\n\n[Guía ${scannedGuides.join(',')}]` +
+            `\nBackoffice_Agency: ${agencyLabel}` +
+            `\nBackoffice_Category: ${finalCategory.toLowerCase()}` +
+            (techVal ? `\nBackoffice_Tech: ${techVal}` : '') +
+            (brandVal ? `\nBackoffice_Brand: ${brandVal}` : '') +
+            (modelVal ? `\nBackoffice_Model: ${modelVal}` : '') +
+            (sapTransferNumber ? `\nBackoffice_SAP: ${sapTransferNumber}` : '') +
+            `\nMotivo Devolución: ${returnReason || 'N/A'}` +
+            `\nGuía de Envío: ${returnTracking || 'N/A'} (Logística: ${returnCourier || 'N/A'})`;
+        }
 
         const allProcessed = receptionGuias.length === 0 || receptionGuias.every((g: string) => newProcessed.includes(g));
 
+        const allSapDocs = sapGroupsInManifest.map((g) => g.sapDocument).filter(Boolean);
+
+        const supabaseClient = getSupabaseBrowserClient();
+        let updatedGuideId: string | undefined = undefined;
+
+        if (supabaseClient) {
+          const primaryGuideNumber = scannedGuides[0]?.trim();
+          if (primaryGuideNumber) {
+            const { data: guideRow } = await supabaseClient
+              .from('reception_guides')
+              .select('id')
+              .eq('reception_id', activeReception.id)
+              .eq('guide_number', primaryGuideNumber)
+              .maybeSingle();
+            updatedGuideId = guideRow?.id;
+          }
+        }
+
+        // ── Crear Documento SAP + OS ANTES de marcar la recepción como clasificada ──
+        let osCreatedCount = 0;
+        let equipmentPersistError: string | null = null;
+
+        const expectedUnits =
+          isEquipment && hasItems
+            ? countReadyEquipmentUnits(guideItems)
+            : 0;
+
+        const requiredUnits =
+          isEquipment && hasItems
+            ? guideItems.reduce((sum, item) => sum + item.cantidad, 0)
+            : 0;
+
+        if (isEquipment && hasItems && requiredUnits > 0 && expectedUnits < requiredUnits) {
+          alert(
+            `Complete el pistoleo de series: ${expectedUnits}/${requiredUnits} unidades listas.\n` +
+              `Cada unidad debe tener todas sus series antes de finalizar.`
+          );
+          setIsSubmitting(false);
+          isSubmittingRef.current = false;
+          return;
+        }
+
+        if (isEquipment && hasItems) {
+          if (!updatedGuideId) {
+            equipmentPersistError = 'No se encontró reception_guide para esta guía.';
+            console.warn('[OS] Sin reception_guide_id');
+          }
+
+          const groupsToProcess = sapGroupsInManifest.length > 0
+            ? sapGroupsInManifest
+            : (sapTransferNumber.trim()
+                ? [{ id: 'legacy', sapDocument: sapTransferNumber.trim() }]
+                : []);
+
+          if (groupsToProcess.length === 0) {
+            alert('Debe registrar al menos un Documento SAP con equipos antes de finalizar.');
+            setIsSubmitting(false);
+            isSubmittingRef.current = false;
+            return;
+          }
+
+          const supabaseForUser = getSupabaseBrowserClient();
+          const { data: userData } = supabaseForUser
+            ? await supabaseForUser.auth.getUser()
+            : { data: null };
+          const registeredBy = userData?.user?.email || currentUserFullName;
+
+          for (const sapGroup of groupsToProcess) {
+            const groupItems = guideItems.filter((i) =>
+              sapGroupsInManifest.length > 0 ? i.sapGroupId === sapGroup.id : true
+            );
+
+            const allUnits = groupItems.flatMap((item) =>
+              item.series
+                .filter(
+                  (unitSerials) =>
+                    Array.isArray(unitSerials) &&
+                    unitSerials.length >= item.seriesPerUnit &&
+                    String(unitSerials[0] || '').trim()
+                )
+                .map((unitSerials) => ({
+                  main_serial: String(unitSerials[0]).trim().toUpperCase(),
+                  model_id: item.modelo,
+                  brand_id: item.marca,
+                  all_series: unitSerials.map((sn) => String(sn).trim().toUpperCase()),
+                  material: item.sapMaterialNumber?.trim() || undefined,
+                }))
+            );
+            const unitsForOS = allUnits;
+
+            if (unitsForOS.length === 0) continue;
+
+            if (updatedGuideId) {
+              const sapRes = await createOrGetSapTransfer({
+                receptionId: targetReceptionId,
+                receptionGuideId: updatedGuideId,
+                sapDocumentNumber: sapGroup.sapDocument,
+                agency: agencyLabel,
+                registeredBy,
+              });
+
+              if (sapRes.error) {
+                equipmentPersistError = sapRes.error;
+                alert(`❌ Error Documento SAP ${sapGroup.sapDocument}: ${sapRes.error}`);
+                continue;
+              }
+
+              const batchRes = await classifyEquipmentBatch({
+                receptionId: targetReceptionId,
+                sapTransferId: sapRes.data!.id,
+                units: unitsForOS,
+                registeredBy,
+              });
+
+              if (batchRes.error) {
+                equipmentPersistError = batchRes.error;
+                alert(`❌ Error al clasificar equipos (SAP ${sapGroup.sapDocument}): ${batchRes.error}`);
+              } else if (batchRes.data) {
+                osCreatedCount += batchRes.data.length;
+              }
+            } else {
+              const legacyRes = await createServiceOrders(targetReceptionId, unitsForOS, updatedGuideId);
+              if (legacyRes.error) {
+                equipmentPersistError = legacyRes.error;
+              } else if (legacyRes.data) {
+                osCreatedCount += legacyRes.data.length;
+              }
+            }
+          }
+        }
+
+        if (isEquipment && hasItems && expectedUnits > 0 && osCreatedCount === 0) {
+          alert(
+            `❌ No se guardaron equipos en la base de datos.\n` +
+              (equipmentPersistError ? `${equipmentPersistError}\n` : '') +
+              `La guía NO quedó clasificada. Verifique permisos (RLS) e intente de nuevo.`
+          );
+          setIsSubmitting(false);
+          isSubmittingRef.current = false;
+          return;
+        }
+
+        if (isEquipment && hasItems && expectedUnits > 0 && osCreatedCount < expectedUnits) {
+          alert(
+            `❌ Ingreso incompleto: ${osCreatedCount}/${expectedUnits} equipo(s) guardados.\n` +
+              (equipmentPersistError ? `${equipmentPersistError}\n` : '') +
+              `La guía NO quedó clasificada. Corrija el error e intente de nuevo.`
+          );
+          setIsSubmitting(false);
+          isSubmittingRef.current = false;
+          return;
+        }
+
+        if (isEquipment && hasItems && osCreatedCount > 0) {
+          alert(`✅ ${osCreatedCount} equipo(s) registrado(s). Aparecerán en Historial Global.`);
+          setHistorySearch(scannedGuides[0] || activeReception.guide_number || '');
+        }
+
+        timelineNotes += pendingTimelineEvent;
         const finalNotes = baseNotes +
           `\n\n--- DETALLES BACKOFFICE ---\n` + detailsNotes.trim() +
           `\n\n--- LÍNEA DE TIEMPO (MATRIZ) ---\n` + timelineNotes.trim() +
           `\n\nStatus: ${allProcessed ? 'RECIBIDO_BACKOFFICE' : 'EN_PROCESO_BACKOFFICE'}` +
           `\nPhotos: ${accessoryPhotos.join(', ')}`;
 
-        const cleanUpdate = { 
+        const cleanUpdate = {
           status: allProcessed ? 'CLASIFICADA' : 'PENDIENTE DE CLASIFICAR',
           processed_guides: newProcessed,
           notes: finalNotes,
-          // Mantenemos la evidencia en la maestra también
           evidence_url: activeReception.evidence_url || accessoryPhotos[0] || '',
-          sap_document: sapTransferNumber || activeReception.sap_document,
+          ...(allSapDocs.length === 1 ? { sap_document: allSapDocs[0] } : {}),
         };
 
         const resUpdate = await updateReception(activeReception.id, cleanUpdate);
@@ -1207,20 +1538,12 @@ export default function BackofficePage() {
           alert("❌ ERROR DE ACTUALIZACIÓN MAESTRA: " + resUpdate.error);
         }
 
-        // --- NEW LOGIC: Update reception_guides ---
-        const supabaseClient = getSupabaseBrowserClient();
-        let updatedGuideId: string | undefined = undefined;
-
-        if (!supabaseClient) {
-          console.error("Warning: No Supabase client available, skipping reception_guides update.");
-        } else {
+        if (supabaseClient) {
           const { data: userData } = await supabaseClient.auth.getUser();
           const userEmail = userData?.user?.email || currentUserFullName;
-
-          // Normalizar categoría eliminando tildes para la base de datos (telefono, devolucion, etc.)
           const dbCategory = finalCategory.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
-          const { data: updatedGuides, error: guidesUpdateError } = await supabaseClient
+          const { error: guidesUpdateError } = await supabaseClient
             .from('reception_guides')
             .update({
               category: dbCategory,
@@ -1229,35 +1552,13 @@ export default function BackofficePage() {
               classified_by: userEmail,
               classified_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
-              // Guardar motivo de devolución si aplica (Fase 3)
               ...(returnReason ? { motivo: returnReason } : {}),
             })
             .eq('reception_id', activeReception.id)
-            .in('guide_number', scannedGuides)
-            .select('id');
+            .in('guide_number', scannedGuides);
 
-          // 3. Tolerancia a fallos en el update
           if (guidesUpdateError) {
             console.error("Warning: Falló la actualización en reception_guides:", guidesUpdateError.message);
-          }
-
-          updatedGuideId = updatedGuides && updatedGuides.length > 0 ? updatedGuides[0].id : undefined;
-        }
-        // ----------------------------------------
-
-        // 3. CREAR LOS EQUIPOS (ORDENES DE SERVICIO) Y ATARLOS A LA RECEPCIÓN QUE CORRESPONDA (HIJA SI EXISTE, O MAESTRA)
-        if (isEquipment && hasItems) {
-          const unitsForOS = guideItems.flatMap(item => 
-            item.series.map(unitSerials => ({
-              main_serial: unitSerials[0], 
-              model_id: item.modelo,
-              brand_id: item.marca,
-              all_series: unitSerials
-            }))
-          ).filter(u => u.main_serial);
-
-          if (unitsForOS.length > 0) {
-            await createServiceOrders(targetReceptionId, unitsForOS, updatedGuideId);
           }
         }
       }
@@ -1268,6 +1569,9 @@ export default function BackofficePage() {
       setActiveTab('sub_accesorios');
     } else if (category === 'Teléfono') {
       setActiveTab('sub_telefonos');
+    } else if (category === 'Equipo') {
+      setActiveTab('history');
+      setHistoryPage(1);
     }
     
     setReceptionStep('completed');
@@ -1437,7 +1741,7 @@ export default function BackofficePage() {
                         </div>
                         <div className="mt-4 flex items-center gap-2">
                           <Clock className={`w-3 h-3 ${rec.status === 'PENDIENTE_BACKOFFICE' ? 'text-rose-400' : 'text-[#2ec4f1]'}`} />
-                          <span className="text-[10px] font-bold text-white/60">{new Date(rec.created_at).toLocaleString()}</span>
+                          <span className="text-[10px] font-bold text-white/60">{formatDisplayDateTime(rec.created_at)}</span>
                         </div>
                       </div>
                       <div className="flex-1 p-4 flex flex-col justify-between">
@@ -1466,7 +1770,7 @@ export default function BackofficePage() {
                             </button>
                           </div>
                           <div className="flex gap-2">
-                            <Button variant="primary" onClick={() => { setActiveReception(rec); setProcessedGuides(rec.processed_guides || []); setReceptionStep('classification'); }} className="rounded-xl bg-[#181c3a] text-white hover:bg-[#2ec4f1] transition-all font-black text-[9px] uppercase tracking-widest px-6 py-2">Procesar e Ingresar</Button>
+                            <Button variant="primary" onClick={() => startProcessingReception(rec)} className="rounded-xl bg-[#181c3a] text-white hover:bg-[#2ec4f1] transition-all font-black text-[9px] uppercase tracking-widest px-6 py-2">Procesar e Ingresar</Button>
                           </div>
                         </div>
                       </div>
@@ -1594,24 +1898,25 @@ export default function BackofficePage() {
                                   </div>
                                 ) : (
                                   <>
-                                    <Button onClick={() => { setCategory('Equipo'); setScannedGuides([guia]); setAgencia(activeReception.carrier); setReceptionStep('config'); }} className="bg-[#181c3a] hover:bg-[#2ec4f1] text-white border-none rounded-2xl px-8 py-6 font-black text-[10px] uppercase tracking-[0.2em] transition-all shadow-lg group">
+                                    <Button onClick={() => { setCategory('Equipo'); setScannedGuides([guia]); initSapGroupsForConfig(); setReceptionStep('config'); }} className="bg-[#181c3a] hover:bg-[#2ec4f1] text-white border-none rounded-2xl px-8 py-6 font-black text-[10px] uppercase tracking-[0.2em] transition-all shadow-lg group">
                                       <Monitor size={18} className="mr-3 group-hover:scale-110 transition-transform" /> Equipos
                                     </Button>
                                     <Button 
                                       onClick={() => { 
                                         setCategory('Accesorio'); 
                                         setScannedGuides([guia]); 
-                                        setAgencia(activeReception.carrier); 
+                                        setAgencia(''); 
+                                        setSelectedAgencyId('');
                                         setReceptionStep('accessories_photos' as any); 
                                       }} 
                                       className="bg-emerald-500 hover:bg-emerald-600 text-white border-none rounded-2xl px-8 py-6 font-black text-[10px] uppercase tracking-[0.2em] transition-all shadow-lg flex items-center justify-center group"
                                     >
                                       <Package size={18} className="mr-3 group-hover:scale-110 transition-transform" /> Accesorios
                                     </Button>
-                                    <Button onClick={() => { setCategory('Teléfono'); setScannedGuides([guia]); setAgencia(activeReception.carrier); setReceptionStep('sub_bodega_transfer'); }} className="bg-amber-500 hover:bg-amber-600 text-white border-none rounded-2xl px-8 py-6 font-black text-[10px] uppercase tracking-[0.2em] transition-all shadow-lg group">
+                                    <Button onClick={() => { setCategory('Teléfono'); setScannedGuides([guia]); setAgencia(''); setSelectedAgencyId(''); setReceptionStep('sub_bodega_transfer'); }} className="bg-amber-500 hover:bg-amber-600 text-white border-none rounded-2xl px-8 py-6 font-black text-[10px] uppercase tracking-[0.2em] transition-all shadow-lg group">
                                       <Radio size={18} className="mr-3 group-hover:scale-110 transition-transform" /> Teléfonos
                                     </Button>
-                                    <Button onClick={() => { setCategory('Devolución' as any); setScannedGuides([guia]); setAgencia(activeReception.carrier); setReceptionStep('return_confirmation' as any); }} className="bg-rose-500 hover:bg-rose-600 text-white border-none rounded-2xl px-8 py-6 font-black text-[10px] uppercase tracking-[0.2em] transition-all shadow-lg flex items-center justify-center group">
+                                    <Button onClick={() => { setCategory('Devolución' as any); setScannedGuides([guia]); setAgencia(''); setSelectedAgencyId(''); setReceptionStep('return_confirmation' as any); }} className="bg-rose-500 hover:bg-rose-600 text-white border-none rounded-2xl px-8 py-6 font-black text-[10px] uppercase tracking-[0.2em] transition-all shadow-lg flex items-center justify-center group">
                                       <RefreshCw size={18} className="mr-3 group-hover:scale-110 transition-transform" /> Devoluciones
                                     </Button>
                                   </>
@@ -1677,113 +1982,53 @@ export default function BackofficePage() {
                   <div className="bg-emerald-50 p-5 rounded-2xl text-emerald-500 shadow-inner"><Calendar size={28} /></div>
                   <div>
                     <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2">Fecha de Procesamiento</p>
-                    <h3 className="text-xl font-black text-[#181c3a] uppercase leading-tight">{new Date().toLocaleDateString()}</h3>
+                    <h3 className="text-xl font-black text-[#181c3a] uppercase leading-tight">{processingDateLabel || '---'}</h3>
                     <p className="text-[10px] font-bold text-slate-400 uppercase mt-2">Usuario: {activeReception.received_by || 'SISTEMA'}</p>
                   </div>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 xl:grid-cols-12 gap-8 items-start">
-                {/* SECCIÓN 1: CONFIGURACIÓN DE EQUIPOS */}
-                <Card className="xl:col-span-4 p-10 border-none shadow-2xl rounded-[2.5rem] bg-white sticky top-8">
-                  <div className="flex items-center gap-3 mb-8 border-b border-slate-100 pb-6">
-                    <div className="w-8 h-8 bg-[#181c3a] text-white rounded-xl flex items-center justify-center font-black text-xs">1</div>
-                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Definición de Manifiesto</h3>
-                  </div>
-                  
-                  <div className={`space-y-6 transition-all ${!agencyDetails ? 'opacity-50 pointer-events-none' : ''}`}>
-                    <div>
-                      <label className="text-[9px] font-black uppercase text-slate-400 mb-3 block ml-1">No. Traslado SAP (Opcional)</label>
-                      <input 
-                        type="text"
-                        className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[#181c3a] outline-none focus:border-[#2ec4f1] transition-all disabled:opacity-50" 
-                        value={sapTransferNumber}
-                        onChange={(e) => setSapTransferNumber(e.target.value)}
-                        placeholder="Ej. TR-123456"
-                        disabled={!agencyDetails}
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[9px] font-black uppercase text-slate-400 mb-3 block ml-1">Tecnología</label>
-                      <select 
-                        className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[#181c3a] outline-none focus:border-[#2ec4f1] transition-all disabled:opacity-50" 
-                        value={newItem.tipo} 
-                        onChange={(e) => setNewItem({ ...newItem, tipo: e.target.value, modelo: '' })}
-                        disabled={!agencyDetails}
-                      >
-                        <option value="">SELECCIONE TECNOLOGÍA...</option>
-                        {MASTER_TECNOLOGIAS.map(t => (
-                          <option key={t.id} value={t.id}>{t.nombre}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="text-[9px] font-black uppercase text-slate-400 mb-3 block ml-1">Marca</label>
-                      <select 
-                        className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[#181c3a] outline-none focus:border-[#2ec4f1] transition-all disabled:opacity-50" 
-                        value={newItem.marca} 
-                        onChange={(e) => setNewItem({ ...newItem, marca: e.target.value, modelo: '' })}
-                        disabled={!agencyDetails}
-                      >
-                        <option value="">SELECCIONE MARCA...</option>
-                        {availableBrandsConfig.map(m => (
-                          <option key={m.id} value={m.id}>{m.nombre}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-4">
-                      <div className="col-span-2">
-                        <label className="text-[9px] font-black uppercase text-slate-400 mb-3 block ml-1">Modelo</label>
-                        <select 
-                          className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[#181c3a] outline-none focus:border-[#2ec4f1] transition-all disabled:opacity-50" 
-                          value={newItem.modelo} 
-                          onChange={(e) => setNewItem({ ...newItem, modelo: e.target.value })}
-                          disabled={!agencyDetails || !newItem.marca || !newItem.tipo}
-                        >
-                          <option value="">{newItem.marca ? 'SELECCIONE...' : 'ELIJA MARCA...'}</option>
-                          {availableModels.map(m => (
-                            <option key={m.id} value={m.id}>{m.nombre}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="col-span-1">
-                        <label className="text-[9px] font-black uppercase text-slate-400 mb-3 block ml-1">Cant.</label>
-                        <input 
-                          type="number" 
-                          className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[#181c3a] outline-none focus:border-[#2ec4f1] transition-all disabled:opacity-50" 
-                          value={newItem.cantidad || ''} 
-                          onChange={(e) => setNewItem({ ...newItem, cantidad: parseInt(e.target.value) || 0 })} 
-                          placeholder="0" 
-                          disabled={!agencyDetails}
-                        />
-                      </div>
-                    </div>
-
-                    <Button 
-                      onClick={addItem} 
-                      disabled={!agencyDetails}
-                      className={`w-full h-16 rounded-2xl flex items-center justify-center transition-all shadow-xl font-black uppercase tracking-widest text-[10px] gap-2 ${!agencyDetails ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none' : 'bg-[#181c3a] hover:bg-[#2ec4f1] text-white'}`}
-                    >
-                      <Plus size={18} /> Agregar a la Lista
-                    </Button>
-                  </div>
-                </Card>
-
-                {/* SECCIÓN 2: LISTADO Y RESUMEN */}
-                <Card className="xl:col-span-8 p-10 border-none shadow-2xl rounded-[2.5rem] bg-white min-h-[500px] flex flex-col">
-                  <div className="flex items-center justify-between mb-8 border-b border-slate-100 pb-6">
+              <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start relative">
+                {/* SECCIÓN 2: LISTADO — prioridad izquierda, más ancho */}
+                <Card className={`${manifestPanelOpen ? 'xl:col-span-8' : 'xl:col-span-12'} p-8 xl:p-10 border-none shadow-2xl rounded-[2.5rem] bg-white min-h-[500px] flex flex-col order-1 transition-all`}>
+                  <div className="flex items-center justify-between mb-6 border-b border-slate-100 pb-4">
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 bg-[#2ec4f1] text-[#181c3a] rounded-xl flex items-center justify-center font-black text-xs">2</div>
                       <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Listado de Equipos del Conduce</h3>
                     </div>
-                    <Badge className="bg-slate-50 text-slate-400 border-none font-black text-[9px] px-4 py-1.5 uppercase tracking-widest">{guideItems.length} GRUPOS</Badge>
+                    <div className="flex items-center gap-2">
+                      {!manifestPanelOpen && (
+                        <button
+                          type="button"
+                          onClick={() => setManifestPanelOpen(true)}
+                          className="flex items-center gap-2 px-4 py-2 bg-[#181c3a] text-white rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-[#2ec4f1] hover:text-[#181c3a] transition-all"
+                        >
+                          <ChevronLeft size={14} /> Manifiesto
+                        </button>
+                      )}
+                      <Badge className="bg-slate-50 text-slate-400 border-none font-black text-[9px] px-4 py-1.5 uppercase tracking-widest">{guideItems.length} ÍTEM(S)</Badge>
+                    </div>
                   </div>
 
                   {/* TABLA DE EQUIPOS */}
                   {guideItems.length > 0 ? (
                     <div className="space-y-8">
+                      {sapGroups.filter((g) => guideItems.some((i) => i.sapGroupId === g.id)).map((sapGroup) => {
+                        const groupItems = guideItems
+                          .map((item, idx) => ({ item, idx }))
+                          .filter(({ item }) => item.sapGroupId === sapGroup.id);
+                        if (groupItems.length === 0) return null;
+                        return (
+                          <div key={sapGroup.id} className="space-y-3">
+                            <div className="flex items-center gap-3 px-4 py-3 bg-amber-50 rounded-2xl border border-amber-100">
+                              <Hash size={14} className="text-amber-600" />
+                              <span className="text-[10px] font-black uppercase tracking-widest text-amber-800">
+                                Documento SAP: {sapGroup.sapDocument || '---'}
+                              </span>
+                              <Badge className="bg-white text-amber-600 border-none text-[8px] font-black ml-auto">
+                                {groupItems.length} ítem(s)
+                              </Badge>
+                            </div>
                       <div className="overflow-x-auto rounded-2xl border border-slate-100">
                         <table className="w-full text-left">
                           <thead>
@@ -1791,7 +2036,6 @@ export default function BackofficePage() {
                               <th className="px-5 py-5 text-[9px] font-black uppercase tracking-widest text-white/90">Tecnología</th>
                               <th className="px-5 py-5 text-[9px] font-black uppercase tracking-widest text-white/90">Marca</th>
                               <th className="px-5 py-5 text-[9px] font-black uppercase tracking-widest text-white/90">Modelo</th>
-                              <th className="px-5 py-5 text-[9px] font-black uppercase tracking-widest text-white/90 text-center">Traslado SAP</th>
                               <th className="px-5 py-5 text-[9px] font-black uppercase tracking-widest text-white/90 text-center">Cantidad</th>
                               <th className="px-5 py-5 text-[9px] font-black uppercase tracking-widest text-white/90 text-center">Recibido</th>
                               <th className="px-5 py-5 text-[9px] font-black uppercase tracking-widest text-white/90 text-center">Pendiente</th>
@@ -1800,7 +2044,7 @@ export default function BackofficePage() {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-50">
-                            {guideItems.map((item, idx) => {
+                            {groupItems.map(({ item, idx }) => {
                               const techName = MASTER_TECNOLOGIAS.find(t => t.id === item.tipo)?.nombre || item.tipo;
                               const marcaName = MASTER_MARCAS.find(m => m.id === item.marca)?.nombre || item.marca;
                               const modeloName = MASTER_MODELOS.find(m => m.id === item.modelo)?.nombre || item.modelo;
@@ -1825,9 +2069,6 @@ export default function BackofficePage() {
                                   </td>
                                   <td className="px-5 py-4">
                                     <span className="text-xs font-black text-[#181c3a]">{modeloName}</span>
-                                  </td>
-                                  <td className="px-5 py-4 text-center">
-                                    <span className="font-black text-[10px] text-slate-500">{sapTransferNumber || '---'}</span>
                                   </td>
                                   <td className="px-5 py-4 text-center">
                                     <span className="font-black text-sm text-[#181c3a]">{item.cantidad}</span>
@@ -1870,6 +2111,9 @@ export default function BackofficePage() {
                           </tbody>
                         </table>
                       </div>
+                          </div>
+                        );
+                      })}
 
                       {/* ZONA DE PISTOLEO (aparece al seleccionar un item) */}
                       {selectedItemIdx !== null && guideItems[selectedItemIdx] && (() => {
@@ -1984,82 +2228,115 @@ export default function BackofficePage() {
                               </div>
                             </div>
 
-                            {/* Grid de unidades escaneadas */}
+                            {/* Tabla de unidades escaneadas — series en fila S1…S4 */}
                             {item.series.length > 0 ? (
-                              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
-                                {item.series.map((unit, uIdx) => (
-                                  <div key={uIdx} className={`bg-white p-4 rounded-2xl border-2 flex flex-col gap-2 shadow-sm group/unit transition-all ${unit.length >= item.seriesPerUnit ? 'border-emerald-200' : 'border-amber-200'}`}>
-                                    <div className="flex justify-between items-center">
-                                      <div className="flex items-center gap-2">
-                                        <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[9px] font-black ${unit.length >= item.seriesPerUnit ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
-                                          {uIdx + 1}
-                                        </div>
-                                        <span className="text-[8px] font-black text-slate-400 uppercase">
-                                          Unidad {uIdx + 1} 
-                                          {unit.length >= item.seriesPerUnit 
-                                            ? <span className="text-emerald-500 ml-1.5">✓ Completa</span>
-                                            : <span className="text-amber-500 ml-1.5">({unit.length}/{item.seriesPerUnit})</span>
-                                          }
-                                        </span>
-                                      </div>
-                                      <button 
-                                        onClick={() => {
-                                          const newItems = [...guideItems];
-                                          newItems[idx].series.splice(uIdx, 1);
-                                          newItems[idx].scannedCount = newItems[idx].series.length;
-                                          setGuideItems(newItems);
-                                        }}
-                                        className="text-slate-200 hover:text-rose-500 opacity-0 group-hover/unit:opacity-100 transition-all"
-                                      >
-                                        <Trash2 size={12} />
-                                      </button>
-                                    </div>
-                                    <div className="space-y-1.5">
-                                      {unit.map((sn, sIdx) => (
-                                        <div key={sIdx} className="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-2 group/sn">
-                                          <div className="flex items-center gap-2">
-                                            <span className="text-[8px] font-black text-slate-300 w-4">S{sIdx + 1}</span>
-                                            <span className="text-[10px] font-mono font-bold text-[#181c3a]">{sn}</span>
-                                          </div>
-                                          <div className="flex items-center gap-1 opacity-0 group-hover/sn:opacity-100 transition-all">
-                                            <button 
-                                              onClick={() => {
-                                                const currentSN = unit[sIdx];
-                                                const newSN = prompt("Editar número de serie:", currentSN);
-                                                if (newSN !== null && newSN.trim() !== "") {
-                                                  const newItems = [...guideItems];
-                                                  newItems[idx].series[uIdx][sIdx] = newSN.trim().toUpperCase();
-                                                  setGuideItems(newItems);
-                                                }
-                                              }}
-                                              className="p-1.5 text-slate-400 hover:text-[#2ec4f1] transition-colors"
-                                              title="Editar Serie"
-                                            >
-                                              <Edit3 size={10} />
-                                            </button>
-                                            <button 
-                                              onClick={() => {
-                                                if (confirm("¿Eliminar esta serie?")) {
-                                                  const newItems = [...guideItems];
-                                                  newItems[idx].series[uIdx].splice(sIdx, 1);
-                                                  if (newItems[idx].series[uIdx].length === 0) {
-                                                    newItems[idx].series.splice(uIdx, 1);
-                                                  }
-                                                  newItems[idx].scannedCount = newItems[idx].series.length;
-                                                  setGuideItems(newItems);
-                                                }
-                                              }}
-                                              className="p-1.5 text-slate-400 hover:text-rose-500 transition-colors"
-                                              title="Eliminar Serie"
-                                            >
-                                              <X size={10} />
-                                            </button>
-                                          </div>
-                                        </div>
+                              <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+                                <table className="w-full text-left min-w-[640px]">
+                                  <thead>
+                                    <tr className="bg-[#181c3a] text-white">
+                                      <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest whitespace-nowrap">Unidad</th>
+                                      {Array.from({ length: item.seriesPerUnit }, (_, i) => (
+                                        <th key={i} className="px-4 py-3 text-[9px] font-black uppercase tracking-widest whitespace-nowrap">
+                                          S{i + 1}
+                                        </th>
                                       ))}
-                                    </div>
-                                  </div>
-                                ))}
+                                      <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest whitespace-nowrap text-center">Estado</th>
+                                      <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest whitespace-nowrap text-right">Acción</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100">
+                                    {item.series.map((unit, uIdx) => {
+                                      const isComplete = unit.length >= item.seriesPerUnit;
+                                      return (
+                                        <tr
+                                          key={uIdx}
+                                          className={`group/unit transition-colors hover:bg-slate-50/80 ${isComplete ? '' : 'bg-amber-50/30'}`}
+                                        >
+                                          <td className="px-4 py-3 whitespace-nowrap">
+                                            <span className="text-[10px] font-black text-[#181c3a] uppercase">Unidad {uIdx + 1}</span>
+                                          </td>
+                                          {Array.from({ length: item.seriesPerUnit }, (_, sIdx) => {
+                                            const sn = unit[sIdx];
+                                            return (
+                                              <td key={sIdx} className="px-4 py-3 whitespace-nowrap">
+                                                {sn ? (
+                                                  <div className="flex items-center gap-2 group/sn">
+                                                    <span className="text-[8px] font-black text-slate-400 shrink-0">S{sIdx + 1}-</span>
+                                                    <span className="text-[10px] font-mono font-bold text-[#181c3a] max-w-[140px] truncate" title={sn}>
+                                                      {sn}
+                                                    </span>
+                                                    <div className="flex items-center gap-0.5 opacity-0 group-hover/sn:opacity-100 transition-all shrink-0">
+                                                      <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                          const currentSN = unit[sIdx];
+                                                          const newSN = prompt('Editar número de serie:', currentSN);
+                                                          if (newSN !== null && newSN.trim() !== '') {
+                                                            const newItems = [...guideItems];
+                                                            newItems[idx].series[uIdx][sIdx] = newSN.trim().toUpperCase();
+                                                            setGuideItems(newItems);
+                                                          }
+                                                        }}
+                                                        className="p-1 text-slate-400 hover:text-[#2ec4f1]"
+                                                        title="Editar serie"
+                                                      >
+                                                        <Edit3 size={10} />
+                                                      </button>
+                                                      <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                          if (confirm('¿Eliminar esta serie?')) {
+                                                            const newItems = [...guideItems];
+                                                            newItems[idx].series[uIdx].splice(sIdx, 1);
+                                                            if (newItems[idx].series[uIdx].length === 0) {
+                                                              newItems[idx].series.splice(uIdx, 1);
+                                                            }
+                                                            newItems[idx].scannedCount = newItems[idx].series.length;
+                                                            setGuideItems(newItems);
+                                                          }
+                                                        }}
+                                                        className="p-1 text-slate-400 hover:text-rose-500"
+                                                        title="Eliminar serie"
+                                                      >
+                                                        <X size={10} />
+                                                      </button>
+                                                    </div>
+                                                  </div>
+                                                ) : (
+                                                  <span className="text-[9px] font-bold text-slate-300 uppercase">S{sIdx + 1}- —</span>
+                                                )}
+                                              </td>
+                                            );
+                                          })}
+                                          <td className="px-4 py-3 text-center whitespace-nowrap">
+                                            {isComplete ? (
+                                              <span className="text-[8px] font-black uppercase text-emerald-600 tracking-widest">✓ Completa</span>
+                                            ) : (
+                                              <span className="text-[8px] font-black uppercase text-amber-600 tracking-widest">
+                                                {unit.length}/{item.seriesPerUnit}
+                                              </span>
+                                            )}
+                                          </td>
+                                          <td className="px-4 py-3 text-right whitespace-nowrap">
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                const newItems = [...guideItems];
+                                                newItems[idx].series.splice(uIdx, 1);
+                                                newItems[idx].scannedCount = newItems[idx].series.length;
+                                                setGuideItems(newItems);
+                                              }}
+                                              className="p-1.5 text-slate-300 hover:text-rose-500 opacity-0 group-hover/unit:opacity-100 transition-all"
+                                              title="Eliminar unidad"
+                                            >
+                                              <Trash2 size={14} />
+                                            </button>
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
                               </div>
                             ) : (
                               <p className="text-[10px] italic text-slate-300 text-center py-6">Escanee la primera serie para comenzar...</p>
@@ -2106,6 +2383,171 @@ export default function BackofficePage() {
                     })()}
                   </div>
                 </Card>
+
+                {/* SECCIÓN 1: MANIFIESTO — panel derecho compacto y colapsable */}
+                {manifestPanelOpen && (
+                  <Card className="xl:col-span-4 p-5 border-none shadow-2xl rounded-[2rem] bg-white sticky top-8 order-2 max-h-[calc(100vh-6rem)] overflow-y-auto">
+                    <div className="flex items-center justify-between gap-2 mb-4 border-b border-slate-100 pb-3">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="w-7 h-7 bg-[#181c3a] text-white rounded-lg flex items-center justify-center font-black text-[10px] shrink-0">1</div>
+                        <h3 className="text-[9px] font-black uppercase tracking-[0.15em] text-slate-400 truncate">Definición de Manifiesto</h3>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setManifestPanelOpen(false)}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-[#181c3a] hover:bg-slate-100 shrink-0"
+                        title="Ocultar panel"
+                      >
+                        <ChevronRight size={16} />
+                      </button>
+                    </div>
+
+                    <div className={`space-y-3 transition-all ${!agencyDetails ? 'opacity-50 pointer-events-none' : ''}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <label className="text-[8px] font-black uppercase text-slate-400">Documentos SAP</label>
+                        <button
+                          type="button"
+                          onClick={addSapGroup}
+                          disabled={!agencyDetails}
+                          className="flex items-center gap-1 px-2 py-1 bg-[#2ec4f1] text-[#181c3a] rounded-lg text-[7px] font-black uppercase hover:bg-[#181c3a] hover:text-white transition-all disabled:opacity-40"
+                        >
+                          <Plus size={10} /> Nuevo
+                        </button>
+                      </div>
+
+                      <div className="flex flex-wrap gap-1.5">
+                        {sapGroups.map((g, gi) => {
+                          const isActive = activeSapGroupId === g.id;
+                          const docLabel = g.sapDocument.trim() || `Doc. ${gi + 1}`;
+                          return (
+                            <div
+                              key={g.id}
+                              className={`inline-flex items-center gap-0.5 rounded-lg border pl-2 pr-0.5 py-1 ${
+                                isActive ? 'border-[#181c3a] bg-[#181c3a] text-white' : 'border-slate-200 bg-white text-slate-600'
+                              }`}
+                            >
+                              <button type="button" onClick={() => selectSapGroup(g.id)} className="text-[8px] font-black uppercase max-w-[90px] truncate">
+                                {docLabel}
+                              </button>
+                              {sapGroups.length > 1 && (
+                                <button type="button" onClick={() => removeSapGroup(g.id)} className={`p-0.5 rounded ${isActive ? 'text-white/70' : 'text-slate-400 hover:text-rose-500'}`}>
+                                  <Trash2 size={10} />
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div>
+                        <label className="text-[8px] font-black uppercase text-slate-400 mb-1 block">No. Documento SAP</label>
+                        <input
+                          type="text"
+                          className={`w-full px-3 py-2.5 bg-white border rounded-xl font-black text-[10px] text-[#181c3a] outline-none focus:border-[#2ec4f1] ${
+                            isActiveSapDocumentFilled ? 'border-slate-200' : 'border-amber-300'
+                          }`}
+                          value={sapTransferNumber}
+                          onChange={(e) => updateActiveSapDocument(e.target.value)}
+                          placeholder="SAP-0001... (requerido)"
+                          disabled={!agencyDetails || !activeSapGroupId}
+                          required
+                        />
+                        {!isActiveSapDocumentFilled && agencyDetails && (
+                          <p className="text-[7px] font-bold uppercase tracking-widest text-amber-600 mt-1">
+                            Obligatorio para habilitar Agregar
+                          </p>
+                        )}
+                      </div>
+
+                      {activeSapGroupId && (() => {
+                        const summary = summarizeSapGroupGuideItems(activeSapGroupId, guideItems, MASTER_TECNOLOGIAS);
+                        if (summary.itemCount === 0) return null;
+                        return (
+                          <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-[7px] font-black uppercase tracking-widest text-slate-500 space-y-0.5">
+                            {summary.techLines.map((line) => (
+                              <div key={line.name} className="flex justify-between">
+                                <span>{line.name}</span><span>{line.units} eq.</span>
+                              </div>
+                            ))}
+                            <div className="flex justify-between text-[#181c3a] pt-1 border-t border-slate-200">
+                              <span>Total</span><span>{summary.totalUnits} eq.</span>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <div className="col-span-2">
+                          <label className="text-[8px] font-black uppercase text-slate-400 mb-1 block">Tecnología</label>
+                          <select
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-black text-[10px] text-[#181c3a] outline-none focus:border-[#2ec4f1] disabled:opacity-50"
+                            value={newItem.tipo}
+                            onChange={(e) => setNewItem({ ...newItem, tipo: e.target.value, modelo: '' })}
+                            disabled={!agencyDetails}
+                          >
+                            <option value="">Tecnología...</option>
+                            {MASTER_TECNOLOGIAS.map((t) => (
+                              <option key={t.id} value={t.id}>{t.nombre}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="col-span-2">
+                          <label className="text-[8px] font-black uppercase text-slate-400 mb-1 block">Marca</label>
+                          <select
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-black text-[10px] text-[#181c3a] outline-none focus:border-[#2ec4f1] disabled:opacity-50"
+                            value={newItem.marca}
+                            onChange={(e) => setNewItem({ ...newItem, marca: e.target.value, modelo: '' })}
+                            disabled={!agencyDetails}
+                          >
+                            <option value="">Marca...</option>
+                            {availableBrandsConfig.map((m) => (
+                              <option key={m.id} value={m.id}>{m.nombre}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="col-span-2">
+                          <label className="text-[8px] font-black uppercase text-slate-400 mb-1 block">Modelo</label>
+                          <select
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-black text-[10px] text-[#181c3a] outline-none focus:border-[#2ec4f1] disabled:opacity-50"
+                            value={newItem.modelo}
+                            onChange={(e) => setNewItem({ ...newItem, modelo: e.target.value })}
+                            disabled={!agencyDetails || !newItem.marca || !newItem.tipo}
+                          >
+                            <option value="">{newItem.marca ? 'Modelo...' : 'Marca primero'}</option>
+                            {availableModels.map((m) => (
+                              <option key={m.id} value={m.id}>{m.nombre}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[8px] font-black uppercase text-slate-400 mb-1 block">Cant.</label>
+                          <input
+                            type="number"
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-black text-[10px] text-[#181c3a] outline-none focus:border-[#2ec4f1] disabled:opacity-50"
+                            value={newItem.cantidad || ''}
+                            onChange={(e) => setNewItem({ ...newItem, cantidad: parseInt(e.target.value) || 0 })}
+                            placeholder="0"
+                            disabled={!agencyDetails}
+                          />
+                        </div>
+                        <div className="flex items-end">
+                          <Button
+                            onClick={addItem}
+                            disabled={!agencyDetails || !isActiveSapDocumentFilled}
+                            className={`w-full h-10 rounded-xl font-black uppercase text-[8px] gap-1 ${
+                              !agencyDetails || !isActiveSapDocumentFilled
+                                ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                                : 'bg-[#181c3a] hover:bg-[#2ec4f1] text-white'
+                            }`}
+                            title={!isActiveSapDocumentFilled ? 'Ingrese el No. Documento SAP primero' : undefined}
+                          >
+                            <Plus size={14} /> Agregar
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+                )}
               </div>
             </div>
           )}
@@ -2406,7 +2848,7 @@ export default function BackofficePage() {
               <p className="text-slate-400 font-bold uppercase text-[10px] tracking-[0.3em] mb-12 text-center max-w-sm">
                 La información ha sido procesada {category === 'Accesorio' ? 'y la agencia ha sido notificada vía correo.' : 'y enviada a bodega.'}
               </p>
-              <Button variant="primary" className="bg-[#181c3a] px-12 h-16 rounded-2xl font-black uppercase text-xs" onClick={() => { fetchHistory(); setReceptionStep('classification'); setGuideItems([]); setScannedGuides([]); setAgencia(''); setReturnReason(''); setSelectedItemIdx(null); setItemSeriesInputs({}); setAccessoryPhotos([]); }}>Siguiente Caja</Button>
+              <Button variant="primary" className="bg-[#181c3a] px-12 h-16 rounded-2xl font-black uppercase text-xs" onClick={() => { fetchHistory(); setReceptionStep('classification'); setGuideItems([]); setScannedGuides([]); setAgencia(''); setReturnReason(''); setSelectedItemIdx(null); setItemSeriesInputs({}); setAccessoryPhotos([]); setSapGroups([]); setActiveSapGroupId(null); setSapTransferNumber(''); }}>Siguiente Caja</Button>
             </div>
           )}
         </div>
@@ -2416,27 +2858,18 @@ export default function BackofficePage() {
         <div className="space-y-4 animate-rise-in">
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-9 gap-4 mb-10">
             {(() => {
-              const baseDataForMetrics = historyReceptions;
-              
+              const trayEntries = getHistoryTrayEntries();
               const techCounts: Record<string, number> = {};
-              let totalGlobalUnits = 0;
+              let totalGlobalUnits = trayEntries.length;
               let unknownTechUnits = 0;
 
-              baseDataForMetrics.forEach(rec => {
-                const groups = groupSeriesByEquipment(rec.series || []);
-                groups.forEach(g => {
-                  const model = MASTER_MODELOS.find(m => m.id === g.modelId);
-                  const seriesPerUnit = model?.seriesCount || 1;
-                  const unitCount = g.fullSeries.length / seriesPerUnit;
-                  
-                  totalGlobalUnits += unitCount;
-                  
-                  if (model?.tecnologiaId) {
-                    techCounts[model.tecnologiaId] = (techCounts[model.tecnologiaId] || 0) + unitCount;
-                  } else {
-                    unknownTechUnits += unitCount;
-                  }
-                });
+              trayEntries.forEach((entry) => {
+                const model = MASTER_MODELOS.find((m) => m.id === entry.grp.modelId);
+                if (model?.tecnologiaId) {
+                  techCounts[model.tecnologiaId] = (techCounts[model.tecnologiaId] || 0) + 1;
+                } else {
+                  unknownTechUnits += 1;
+                }
               });
 
               return (
@@ -2469,10 +2902,7 @@ export default function BackofficePage() {
                   <Card className="p-6 border-none shadow-2xl bg-[#2ec4f1] rounded-[2.5rem] flex flex-col items-center justify-center text-center text-[#181c3a] h-40">
                     <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#181c3a]/30 mb-4">Órdenes (OS)</p>
                     <p className="text-6xl font-black text-[#181c3a] leading-none tracking-tighter">
-                      {baseDataForMetrics.reduce((acc, rec) => {
-                        const osSet = new Set((rec.series || []).map((s: any) => s.service_orders?.os_label).filter(Boolean));
-                        return acc + osSet.size;
-                      }, 0)}
+                      {new Set(trayEntries.map((e) => e.osLabel)).size}
                     </p>
                     <p className="text-[9px] font-black text-[#181c3a]/20 uppercase mt-4 tracking-widest">Generadas</p>
                   </Card>
@@ -2485,9 +2915,9 @@ export default function BackofficePage() {
           {/* Toolbar */}
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 px-2 mb-10">
             <div className="flex flex-col">
-              <h2 className="text-xl font-black text-[#181c3a] uppercase tracking-tight">Bandeja de Historial Global</h2>
+              <h2 className="text-xl font-black text-[#181c3a] uppercase tracking-tight">Bandeja de Historial Global — CAC</h2>
               <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mt-2">
-                {historyReceptions.length} registros totales encontrados
+                {getHistoryTrayEntries().length} equipos con OS TC-XXX · máx. {HISTORY_TRAY_PAGE_SIZE} por página · más recientes primero
               </p>
             </div>
             
@@ -2500,7 +2930,7 @@ export default function BackofficePage() {
                     type="date" 
                     className="text-[11px] font-bold text-[#181c3a] outline-none cursor-pointer" 
                     value={dateFilterFrom}
-                    onChange={(e) => setDateFilterFrom(e.target.value)}
+                    onChange={(e) => { setDateFilterFrom(e.target.value); setHistoryPage(1); }}
                   />
                 </div>
                 <div className="w-[1px] h-8 bg-slate-100" />
@@ -2510,7 +2940,7 @@ export default function BackofficePage() {
                     type="date" 
                     className="text-[11px] font-bold text-[#181c3a] outline-none cursor-pointer" 
                     value={dateFilterTo}
-                    onChange={(e) => setDateFilterTo(e.target.value)}
+                    onChange={(e) => { setDateFilterTo(e.target.value); setHistoryPage(1); }}
                   />
                 </div>
               </div>
@@ -2533,18 +2963,157 @@ export default function BackofficePage() {
           </div>
 
           <Card className="p-0 bg-white rounded-[2.5rem] shadow-2xl border-none overflow-hidden transition-all duration-500">
-            <div className="p-8 border-b border-slate-50">
-              <div className="relative group max-w-md">
-                <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300 group-focus-within:text-[#2ec4f1] transition-colors" />
-                <input 
-                  type="text" 
-                  placeholder="BUSCAR POR GUÍA, PILOTO, AGENCIA O TRASLADO SAP..."
-                  className="w-full h-14 pl-16 pr-6 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-[10px] text-[#181c3a] outline-none focus:border-[#2ec4f1] focus:bg-white transition-all uppercase tracking-widest"
-                  value={historySearch}
-                  onChange={(e) => setHistorySearch(e.target.value)}
-                />
+            <div className="p-8 border-b border-slate-50 space-y-6">
+              <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+                <div className="relative group flex-1 max-w-xl">
+                  <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300 group-focus-within:text-[#2ec4f1] transition-colors" />
+                  <input 
+                    type="text" 
+                    placeholder="BUSCAR POR SERIE, GUÍA COURIER O DOCUMENTO SAP..."
+                    className="w-full h-14 pl-16 pr-6 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-[10px] text-[#181c3a] outline-none focus:border-[#2ec4f1] focus:bg-white transition-all uppercase tracking-widest"
+                    value={historySearch}
+                    onChange={(e) => { setHistorySearch(e.target.value); setHistoryPage(1); }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setHistoryFiltersOpen((o) => !o)}
+                  className={`flex items-center gap-2 h-14 px-6 rounded-2xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
+                    historyFiltersOpen || hasActiveHistoryTrayFilters(historyFilters)
+                      ? 'border-[#181c3a] bg-[#181c3a] text-white'
+                      : 'border-slate-100 bg-slate-50 text-slate-500 hover:border-[#2ec4f1]'
+                  }`}
+                >
+                  <Filter size={16} />
+                  Filtros por columna
+                  {hasActiveHistoryTrayFilters(historyFilters) && (
+                    <span className="ml-1 px-2 py-0.5 rounded-full bg-[#2ec4f1] text-[#181c3a] text-[8px]">
+                      activos
+                    </span>
+                  )}
+                  <ChevronDown size={14} className={`transition-transform ${historyFiltersOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {hasActiveHistoryTrayFilters(historyFilters) && (
+                  <button
+                    type="button"
+                    onClick={clearHistoryFilters}
+                    className="h-14 px-5 rounded-2xl text-[10px] font-black uppercase tracking-widest text-rose-500 border-2 border-rose-100 hover:bg-rose-50 transition-all"
+                  >
+                    Limpiar filtros
+                  </button>
+                )}
               </div>
+
+              {historyFiltersOpen && (
+                <div className="rounded-2xl border-2 border-slate-100 bg-slate-50/80 p-6 space-y-5 animate-rise-in">
+                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">
+                    Catálogo — tecnología, marca, modelo y agencia
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                    <div>
+                      <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Tecnología</label>
+                      <select
+                        className="w-full h-11 px-4 bg-white border border-slate-200 rounded-xl font-black text-[10px] text-[#181c3a] uppercase outline-none focus:border-[#2ec4f1]"
+                        value={historyFilters.techId}
+                        onChange={(e) =>
+                          patchHistoryFilter({ techId: e.target.value, brandId: '', modelId: '' })
+                        }
+                      >
+                        <option value="">TODAS</option>
+                        {MASTER_TECNOLOGIAS.map((t) => (
+                          <option key={t.id} value={t.id}>{t.nombre}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Marca</label>
+                      <select
+                        className="w-full h-11 px-4 bg-white border border-slate-200 rounded-xl font-black text-[10px] text-[#181c3a] uppercase outline-none focus:border-[#2ec4f1]"
+                        value={historyFilters.brandId}
+                        onChange={(e) =>
+                          patchHistoryFilter({ brandId: e.target.value, modelId: '' })
+                        }
+                      >
+                        <option value="">TODAS</option>
+                        {historyFilterBrands.map((b) => (
+                          <option key={b.id} value={b.id}>{b.nombre}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Modelo</label>
+                      <select
+                        className="w-full h-11 px-4 bg-white border border-slate-200 rounded-xl font-black text-[10px] text-[#181c3a] uppercase outline-none focus:border-[#2ec4f1]"
+                        value={historyFilters.modelId}
+                        onChange={(e) => patchHistoryFilter({ modelId: e.target.value })}
+                      >
+                        <option value="">TODOS</option>
+                        {historyFilterModels.map((m) => (
+                          <option key={m.id} value={m.id}>{m.nombre}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Agencia CAC</label>
+                      <select
+                        className="w-full h-11 px-4 bg-white border border-slate-200 rounded-xl font-black text-[10px] text-[#181c3a] uppercase outline-none focus:border-[#2ec4f1]"
+                        value={historyFilters.agencyId}
+                        onChange={(e) => patchHistoryFilter({ agencyId: e.target.value })}
+                      >
+                        <option value="">TODAS</option>
+                        {CAC_AGENCIES.map((a) => (
+                          <option key={a.id} value={a.id}>{a.id} — {a.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400 pt-2 border-t border-slate-200">
+                    Texto por columna de la tabla
+                  </p>
+                  <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
+                    {(
+                      [
+                        ['guide', 'No. Guía'],
+                        ['pilot', 'Piloto'],
+                        ['courier', 'Courier'],
+                        ['receivedBy', 'Recibió'],
+                        ['status', 'Estatus'],
+                        ['osLabel', 'Orden de Servicio'],
+                        ['sapDocument', 'Documento SAP'],
+                      ] as const
+                    ).map(([key, label]) => (
+                      <div key={key}>
+                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 block">{label}</label>
+                        <input
+                          type="text"
+                          placeholder={`Filtrar ${label.toLowerCase()}...`}
+                          className="w-full h-10 px-3 bg-white border border-slate-200 rounded-xl font-bold text-[10px] text-[#181c3a] outline-none focus:border-[#2ec4f1] uppercase"
+                          value={historyFilters[key]}
+                          onChange={(e) => patchHistoryFilter({ [key]: e.target.value })}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
+            {(() => {
+              const orphans = findOrphanClassifications(historyReceptions, historySearch);
+              if (!historySearch.trim() || orphans.length === 0 || getHistoryTrayEntries().length > 0) return null;
+              return (
+                <div className="mx-8 mt-6 mb-2 rounded-2xl border-2 border-amber-200 bg-amber-50 px-6 py-4">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-amber-900">
+                    Ingreso incompleto — hay trazabilidad en notas pero sin orden de servicio TC-XXX
+                  </p>
+                  <p className="text-[10px] font-bold text-amber-800 mt-2 leading-relaxed">
+                    Guía(s): {orphans.map((r) => r.guide_number).join(', ')}. Estado: {orphans[0]?.status}.
+                    Vuelva a <strong>Bandeja de Entrada</strong>, reprocese la guía y confirme el mensaje
+                    &quot;✅ X equipo(s) registrado(s)&quot; al finalizar.
+                  </p>
+                </div>
+              );
+            })()}
             <div className="overflow-x-auto">
               <table className="w-full text-left min-w-[1400px]">
                 <thead>
@@ -2561,7 +3130,7 @@ export default function BackofficePage() {
                     <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap">Tecnología</th>
                     <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap">Marca</th>
                     <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap">Modelo</th>
-                    <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap">Traslado SAP</th>
+                    <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap">Documento SAP</th>
                     <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap">S-1</th>
                     <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap">S-2</th>
                     <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap">S-3</th>
@@ -2571,221 +3140,81 @@ export default function BackofficePage() {
                 </thead>
                 <tbody>
                   {(() => {
-                    const baseData = historyReceptions;
-                    
-                    const filteredRecords = baseData
-                      .filter(r => {
-                        if (!dateFilterFrom && !dateFilterTo) return true;
-                        const d = new Date(r.created_at);
-                        if (dateFilterFrom && d < new Date(dateFilterFrom)) return false;
-                        if (dateFilterTo) {
-                          const to = new Date(dateFilterTo);
-                          to.setHours(23, 59, 59);
-                          if (d > to) return false;
-                        }
-                        return true;
-                      })
-                      .filter(r => {
-                        if (!historySearch) return true;
-                        const s = historySearch.toLowerCase();
-                        const piloto = r.notes?.split('Piloto: ')[1]?.split('\n')[0]?.toLowerCase() || '';
-                        const agencia = getAgenciaLabel(r, CAC_AGENCIES).toLowerCase();
-                        const sapDoc = (r.sap_document || '').toLowerCase();
-                        const matchingSeries = (r.series || []).some((ser: any) => 
-                          (ser.serial_number || '').toLowerCase().includes(s)
-                        );
-                        return r.guide_number.toLowerCase().includes(s) || 
-                               piloto.includes(s) || 
-                               agencia.includes(s) ||
-                               sapDoc.includes(s) ||
-                               (r.carrier || '').toLowerCase().includes(s) ||
-                               matchingSeries;
-                      });
+                    const allEntries = getHistoryTrayEntries();
+                    const totalPages = Math.max(1, Math.ceil(allEntries.length / HISTORY_TRAY_PAGE_SIZE));
+                    const safePage = Math.min(historyPage, totalPages);
+                    const pagedEntries = allEntries.slice(
+                      (safePage - 1) * HISTORY_TRAY_PAGE_SIZE,
+                      safePage * HISTORY_TRAY_PAGE_SIZE
+                    );
 
-                    if (filteredRecords.length === 0) {
+                    if (allEntries.length === 0) {
                       return (
                         <tr>
-                          <td colSpan={17} className="p-12 text-center">
+                          <td colSpan={18} className="p-12 text-center">
                             <Database className="w-12 h-12 text-slate-200 mx-auto mb-4" />
-                            <p className="text-xs font-black text-slate-400 uppercase tracking-widest">No hay resultados que coincidan con la búsqueda o filtros</p>
+                            <p className="text-xs font-black text-slate-400 uppercase tracking-widest">
+                              No hay ingresos CAC con orden de servicio TC-XXX que coincidan con los filtros
+                            </p>
                           </td>
                         </tr>
                       );
                     }
 
-                    return filteredRecords.flatMap((rec, recIdx) => {
-                      const dateObj = new Date(rec.created_at);
-                      const formattedDate = `${dateObj.getDate()}-${dateObj.getMonth() + 1}-${dateObj.getFullYear()} ${dateObj.getHours().toString().padStart(2, '0')}:${dateObj.getMinutes().toString().padStart(2, '0')}`;
-                      
-                      const rawNotes = rec.notes || '';
-                      let displayGuide = rec.guide_number;
-                      if (rec.processed_guides?.length > 0) {
-                         const equipoGuides = [];
-                         for (const g of rec.processed_guides) {
-                            const gEscaped = g.replace(/[-]/g, '\\-');
-                            const guideBlockRegex = new RegExp(`\\[Guía.*?(?:${gEscaped}).*?\\][\\s\\S]*?(?=\\[Guía|$)`, 'i');
-                            const guideBlockMatch = rawNotes.match(guideBlockRegex);
-                            if (guideBlockMatch && guideBlockMatch[0].toLowerCase().includes('equipo')) {
-                               equipoGuides.push(g);
-                           }
-                         }
-                         if (equipoGuides.length > 0) {
-                            displayGuide = Array.from(new Set(equipoGuides)).join(' / ');
-                         } else {
-                            displayGuide = Array.from(new Set(rec.processed_guides)).join(' / '); // fallback
-                         }
-                      }
-                      const piloto = rec.notes?.split('Piloto: ')[1]?.split('\n')[0] || '---';
-                      
-                      const equipGroups = groupSeriesByEquipment(rec.series || []);
-                      const bandBg = recIdx % 2 === 0 ? '' : 'bg-slate-50/50';
-                      
-                      // Si no hay equipos, mostrar al menos una fila con la información de la recepción
-                      if (equipGroups.length === 0) {
-                        const techVal = (rec.notes || '').split('Backoffice_Tech: ')[1]?.split('\n')[0] || '';
-                        const brandVal = (rec.notes || '').split('Backoffice_Brand: ')[1]?.split('\n')[0] || '';
-                        const modelVal = (rec.notes || '').split('Backoffice_Model: ')[1]?.split('\n')[0] || '';
-                        const categoryVal = (rec.notes || '').split('Backoffice_Category: ')[1]?.split('\n')[0] || '';
+                    let lastHourKey = '';
+                    return pagedEntries.flatMap((entry, rowIdx) => {
+                      const rec = entry.rec;
+                      const grp = entry.grp;
+                      const unit = entry.unit;
+                      const osLabel = entry.osLabel;
+                      const gi = entry.groupIndex;
+                      const ui = entry.unitIndex;
 
-                        return [(
-                          <tr key={rec.id} className={`border-b border-slate-100 transition-colors hover:bg-blue-50/30 ${bandBg}`}>
-                            <td className="px-4 py-3 text-[11px] font-bold text-[#181c3a] whitespace-nowrap">{formattedDate}</td>
-                            <td className="px-4 py-3 whitespace-nowrap"><span className="text-[11px] font-black font-mono text-[#181c3a]">{displayGuide}</span></td>
-                            <td className="px-4 py-3 text-[11px] font-black text-slate-500 uppercase whitespace-nowrap">{piloto}</td>
-                            <td className="px-4 py-3 text-[11px] text-slate-400 uppercase whitespace-nowrap">{rec.carrier || '---'}</td>
-                            <td className="px-4 py-3 text-[11px] text-slate-500 whitespace-nowrap">{getReceiverName(rec)}</td>
-                            <td className="px-4 py-3 whitespace-nowrap">
-                              {(() => {
-                                const status = rec.status || '';
-                                let label = status === 'PENDIENTE_BACKOFFICE' ? 'EN BACKOFFICE' : status;
-                                let colorClass = 'bg-blue-50 text-blue-600';
-                                
-                                if (status === 'CLASIFICADA' || status === 'RECIBIDO_BACKOFFICE') {
-                                  label = 'INGRESADO A BACKOFFICE';
-                                  colorClass = 'bg-slate-100 text-[#181c3a]';
-                                }
-
-                                return (
-                                  <span className={`text-[9px] uppercase font-black tracking-widest px-3 py-1 rounded-full ${colorClass}`}>
-                                    {label}
-                                  </span>
-                                );
-                              })()}
-                            </td>
-                            <td className="px-4 py-3 whitespace-nowrap"><Badge className="bg-slate-50 text-slate-300 border-none font-black text-[10px] px-2 py-0.5">---</Badge></td>
-                            <td className="px-4 py-3 text-center whitespace-nowrap"><Badge className="bg-slate-50 text-slate-300 border-none font-black text-[10px] px-2 py-0.5">---</Badge></td>
-                            <td className="px-4 py-3 text-[11px] font-bold text-[#181c3a] uppercase whitespace-nowrap">{getAgenciaLabel(rec, CAC_AGENCIES)}</td>
-                            {/* Tecnología */}
-                            <td className="px-4 py-3 text-[11px] font-black text-slate-500 uppercase whitespace-nowrap">
-                              {techVal || (categoryVal ? (categoryVal.toLowerCase() === 'accesorio' ? 'ACCESORIOS' : 'MÓVILES') : '---')}
-                            </td>
-                            {/* Marca */}
-                            <td className="px-4 py-3 text-[11px] font-black text-slate-600 uppercase whitespace-nowrap">
-                              {brandVal || '---'}
-                            </td>
-                            {/* Modelo */}
-                            <td className="px-4 py-3 text-[11px] font-bold text-[#181c3a] whitespace-nowrap">
-                              {modelVal || (categoryVal ? (categoryVal.toLowerCase() === 'accesorio' ? 'LOTE ACCESORIOS' : 'LOTE TELÉFONOS') : 'SIN EQUIPOS REGISTRADOS')}
-                            </td>
-                            {/* Traslado SAP */}
-                            <td className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase whitespace-nowrap">
-                              {rec.sap_document || '---'}
-                            </td>
-                            {/* S-1 */}
-                            <td className="px-4 py-3 text-[11px] font-mono font-bold text-slate-600 whitespace-nowrap">---</td>
-                            {/* S-2 */}
-                            <td className="px-4 py-3 text-[11px] font-mono font-bold text-slate-600 whitespace-nowrap">---</td>
-                            {/* S-3 */}
-                            <td className="px-4 py-3 text-[11px] font-mono font-bold text-slate-600 whitespace-nowrap">---</td>
-                            {/* S-4 */}
-                            <td className="px-4 py-3 text-[11px] font-mono font-bold text-slate-600 whitespace-nowrap">---</td>
-                            <td className="px-4 py-3 text-right whitespace-nowrap">
-                              <div className="flex justify-end gap-1">
-                                <button 
-                                  onClick={() => window.location.href = `/logistica/devoluciones?reception_id=${rec.id}`} 
-                                  className="w-6 h-6 rounded-md bg-rose-50 flex items-center justify-center text-rose-500 hover:bg-rose-500 hover:text-white transition-all shadow-sm" 
-                                  title="Devolver Lote (Gestión Retornos)"
-                                >
-                                  <RotateCcw size={11} />
-                                </button>
-                                {typeof window !== 'undefined' && (window.localStorage.getItem('user_role') === 'TI' || window.localStorage.getItem('user_role') === 'ROOT') && (
-                                  <button 
-                                    onClick={() => handleReturnToPending(rec.id)} 
-                                    className="w-6 h-6 rounded-md bg-rose-50 flex items-center justify-center text-rose-500 hover:bg-rose-500 hover:text-white transition-all shadow-sm" 
-                                    title="Regresar a Pendiente"
-                                  >
-                                    <RefreshCw size={11} />
-                                  </button>
-                                )}
-                                <button onClick={() => setShowTimeline(rec)} className="w-6 h-6 rounded-md bg-blue-50 flex items-center justify-center text-[#2ec4f1] hover:bg-[#2ec4f1] hover:text-white transition-all shadow-sm" title="Ver Trazabilidad"><Clock size={11} /></button>
-                                <button onClick={() => handleOpenHistoryModal(rec)} className="w-6 h-6 rounded-md bg-slate-100 flex items-center justify-center text-slate-400 hover:text-[#181c3a] transition-all" title="Ver Detalle"><Eye size={11} /></button>
-                                <button 
-                                  onClick={() => { setActiveReception(rec); setProcessedGuides(rec.processed_guides || []); setReceptionStep('classification'); setActiveTab('op'); }} 
-                                  className="w-6 h-6 rounded-md bg-emerald-50 flex items-center justify-center text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all shadow-sm" 
-                                  title="Abrir en Bandeja (Reclasificar)"
-                                >
-                                  <Box size={11} />
-                                </button>
-                                <button onClick={() => handleOpenEditMeta(rec)} className="w-6 h-6 rounded-md bg-slate-100 flex items-center justify-center text-slate-400 hover:text-amber-500 transition-all" title="Editar Metadatos"><Edit2 size={11} /></button>
-                                <button onClick={() => handlePrintConduce(rec)} className="w-6 h-6 rounded-md bg-slate-100 flex items-center justify-center text-slate-400 hover:text-blue-500 transition-all" title="Imprimir PDF"><Printer size={11} /></button>
-                              </div>
+                      const hourKey = getHistoryHourKey(entry.classifiedAtIso);
+                      const hourRows: React.ReactNode[] = [];
+                      if (hourKey !== lastHourKey) {
+                        lastHourKey = hourKey;
+                        hourRows.push(
+                          <tr key={`hour-${hourKey}`} className="bg-[#2ec4f1]/10">
+                            <td colSpan={18} className="px-6 py-3 text-[10px] font-black uppercase tracking-[0.25em] text-[#181c3a]">
+                              {formatHistoryHourLabel(entry.classifiedAtIso)}
                             </td>
                           </tr>
-                        )];
+                        );
                       }
 
-                      // Si hay equipos, mapear cada unidad individualmente
-                      return equipGroups.flatMap((grp, gi) => {
-                        const modelObj = MASTER_MODELOS.find(m => m.id === grp.modelId);
-                        const brandObj = MASTER_MARCAS.find(b => b.id === grp.brandId);
-                        const techObj = modelObj ? MASTER_TECNOLOGIAS.find(t => t.id === modelObj.tecnologiaId) : null;
-                        const seriesPerUnit = modelObj?.seriesCount || 1;
-                        
-                        const units: any[][] = [];
-                        for (let i = 0; i < grp.fullSeries.length; i += seriesPerUnit) {
-                          units.push(grp.fullSeries.slice(i, i + seriesPerUnit));
-                        }
+                      const dateObj = new Date(entry.classifiedAtIso);
+                      const formattedDate = `${dateObj.getDate()}-${dateObj.getMonth() + 1}-${dateObj.getFullYear()} ${dateObj.getHours().toString().padStart(2, '0')}:${dateObj.getMinutes().toString().padStart(2, '0')}`;
+                      const piloto = rec.notes?.split('Piloto: ')[1]?.split('\n')[0] || '---';
+                      const bandBg = rowIdx % 2 === 0 ? '' : 'bg-slate-50/50';
+                      const unitGuide = entry.unitGuide;
+                      const classifierName = getBackofficeClassifierName(rec, unitGuide);
 
-                        return units.map((unit, ui) => {
-                          const osLabel = unit.find((u: any) => u?.service_orders?.os_label)?.service_orders?.os_label || '---';
-                          const reentry = unit.find((u: any) => u?.service_orders?.reentry_count)?.service_orders?.reentry_count || 1;
+                      const modelObj = MASTER_MODELOS.find(m => m.id === grp.modelId);
+                      const brandObj = MASTER_MARCAS.find(b => b.id === grp.brandId);
+                      const techObj = modelObj ? MASTER_TECNOLOGIAS.find(t => t.id === modelObj.tecnologiaId) : null;
+                      const reentry = unit.find((u: any) => u?.service_orders?.reentry_count)?.service_orders?.reentry_count || 1;
 
-                          let unitGuide = displayGuide;
-                          if (unit[0]?.serial_number && rec.processed_guides?.length > 0) {
-                            for (const g of rec.processed_guides) {
-                              const gEscaped = g.replace(/[-]/g, '\\-');
-                              const guideBlockRegex = new RegExp(`\\[Guía.*?(?:${gEscaped}).*?\\][\\s\\S]*?(?=\\[Guía|$)`, 'i');
-                              const guideBlockMatch = rawNotes.match(guideBlockRegex);
-                              if (guideBlockMatch && guideBlockMatch[0].includes(unit[0].serial_number)) {
-                                unitGuide = g;
-                                break;
-                              }
-                            }
-                          }
-
-                          return (
-                            <tr key={`${rec.id}-${gi}-${ui}`} className={`border-b border-slate-100 transition-colors hover:bg-blue-50/30 ${bandBg}`}>
+                      hourRows.push(
+                        <tr key={`${rec.id}-${gi}-${ui}`} className={`border-b border-slate-100 transition-colors hover:bg-blue-50/30 ${bandBg}`}>
                               <td className="px-4 py-3 text-[11px] font-bold text-[#181c3a] whitespace-nowrap">{formattedDate}</td>
                               <td className="px-4 py-3 whitespace-nowrap"><span className="text-[11px] font-black font-mono text-[#181c3a]">{unitGuide}</span></td>
                               <td className="px-4 py-3 text-[11px] font-black text-slate-500 uppercase whitespace-nowrap">{piloto}</td>
                               <td className="px-4 py-3 text-[11px] text-slate-400 uppercase whitespace-nowrap">{rec.carrier || '---'}</td>
-                              <td className="px-4 py-3 text-[11px] text-slate-500 whitespace-nowrap">{getReceiverName(rec)}</td>
+                              <td className="px-4 py-3 text-[11px] text-slate-500 whitespace-nowrap">{classifierName}</td>
                               <td className="px-4 py-3 whitespace-nowrap">
-                                <span className="text-[9px] uppercase font-black tracking-widest px-3 py-1 rounded-full bg-blue-50 text-blue-600">
-                                  RECIBIDO
+                                <span className={`text-[9px] uppercase font-black tracking-widest px-3 py-1 rounded-full ${
+                                  entry.unitStatus === 'RECEPCIONADO_BODEGA_GENERAL'
+                                    ? 'bg-amber-50 text-amber-700'
+                                    : entry.unitStatus === 'returned'
+                                    ? 'bg-rose-50 text-rose-600'
+                                    : 'bg-blue-50 text-blue-600'
+                                }`}>
+                                  {entry.unitStatusLabel}
                                 </span>
                               </td>
-                              <td className="px-4 py-3 whitespace-nowrap flex items-center gap-2">
+                              <td className="px-4 py-3 whitespace-nowrap">
                                 <Badge className="bg-blue-50 text-blue-600 border-none font-black text-[10px] px-2 py-0.5">{osLabel}</Badge>
-                                {osLabel === '---' && (
-                                  <button 
-                                    onClick={() => handleFixMissingOS(rec.id, unit, grp.modelId, grp.brandId)}
-                                    className="px-2 py-0.5 bg-amber-100 text-amber-700 text-[9px] font-bold rounded-md hover:bg-amber-200 transition-colors"
-                                    title="Forzar creación de Orden de Servicio"
-                                  >
-                                    GENERAR OS
-                                  </button>
-                                )}
                               </td>
                               <td className="px-4 py-3 text-center whitespace-nowrap">
                                 <Badge className={`border-none font-black text-[10px] px-2 py-0.5 ${reentry > 1 ? 'bg-amber-50 text-amber-600' : 'bg-slate-50 text-slate-400'}`}>
@@ -2793,7 +3222,7 @@ export default function BackofficePage() {
                                 </Badge>
                               </td>
                               <td className="px-4 py-3 text-[11px] font-bold text-[#181c3a] uppercase whitespace-nowrap">
-                                {getAgenciaLabel(rec, CAC_AGENCIES)}
+                                {formatAgencyLabel(entry.unitAgencyRaw, CAC_AGENCIES, rec.carrier)}
                               </td>
                               <td className="px-4 py-3 text-[11px] font-black text-slate-500 uppercase whitespace-nowrap">
                                 {techObj?.nombre || '---'}
@@ -2805,7 +3234,7 @@ export default function BackofficePage() {
                                 {modelObj?.nombre || '---'}
                               </td>
                               <td className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase whitespace-nowrap">
-                                {rec.sap_document || '---'}
+                                {entry.unitSap}
                               </td>
                               {[0, 1, 2, 3].map(si => (
                                 <td key={si} className="px-4 py-3 text-[11px] font-mono font-bold text-slate-600 whitespace-nowrap">
@@ -2815,13 +3244,13 @@ export default function BackofficePage() {
                               <td className="px-4 py-3 text-right whitespace-nowrap">
                                 <div className="flex justify-end gap-1">
                                   <button 
-                                    onClick={() => window.location.href = `/logistica/devoluciones?reception_id=${rec.id}`} 
+                                    onClick={() => handleSapBlockReturn(entry)} 
                                     className="w-6 h-6 rounded-md bg-rose-50 flex items-center justify-center text-rose-500 hover:bg-rose-500 hover:text-white transition-all shadow-sm" 
-                                    title="Devolver Lote (Gestión Retornos)"
+                                    title={entry.sapTransferId ? 'Devolver bloque SAP' : 'Devolver lote (recepción)'}
                                   >
                                     <RotateCcw size={11} />
                                   </button>
-                                  {typeof window !== 'undefined' && (window.localStorage.getItem('user_role') === 'TI' || window.localStorage.getItem('user_role') === 'ROOT') && (
+                                  {canReturnToPending && (
                                     <button 
                                       onClick={() => handleReturnToPending(rec.id)} 
                                       className="w-6 h-6 rounded-md bg-rose-50 flex items-center justify-center text-rose-500 hover:bg-rose-500 hover:text-white transition-all shadow-sm" 
@@ -2837,14 +3266,90 @@ export default function BackofficePage() {
                                 </div>
                               </td>
                             </tr>
-                            );
-                          });
-                        });
-                      });
-                    })()}
+                      );
+                      return hourRows;
+                    });
+                  })()}
                   </tbody>
               </table>
             </div>
+
+            {/* Pagination Controls */}
+            {(() => {
+              const allEntries = getHistoryTrayEntries();
+              const totalPages = Math.max(1, Math.ceil(allEntries.length / HISTORY_TRAY_PAGE_SIZE));
+              const safePage = Math.min(historyPage, totalPages);
+              const startItem = allEntries.length === 0 ? 0 : (safePage - 1) * HISTORY_TRAY_PAGE_SIZE + 1;
+              const endItem = Math.min(safePage * HISTORY_TRAY_PAGE_SIZE, allEntries.length);
+
+              if (allEntries.length === 0) return null;
+
+              return (
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-8 py-5 border-t border-slate-100">
+                  <div className="flex items-center gap-6">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                      Mostrando <span className="text-[#181c3a]">{startItem}–{endItem}</span> de <span className="text-[#181c3a]">{allEntries.length}</span> equipos CAC (TC-XXX)
+                    </p>
+                    <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest">
+                      {HISTORY_TRAY_PAGE_SIZE} por página
+                    </p>
+                  </div>
+
+                  {/* Page buttons */}
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setHistoryPage(1)}
+                      disabled={safePage === 1}
+                      className="w-8 h-8 rounded-xl flex items-center justify-center text-[10px] font-black text-slate-400 hover:bg-[#181c3a] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                      title="Primera página"
+                    >«</button>
+                    <button
+                      onClick={() => setHistoryPage(p => Math.max(1, p - 1))}
+                      disabled={safePage === 1}
+                      className="w-8 h-8 rounded-xl flex items-center justify-center text-[10px] font-black text-slate-400 hover:bg-[#181c3a] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                      title="Página anterior"
+                    >‹</button>
+
+                    {Array.from({ length: totalPages }, (_, i) => i + 1)
+                      .filter(p => p === 1 || p === totalPages || Math.abs(p - safePage) <= 2)
+                      .reduce<(number | 'gap')[]>((acc, p, idx, arr) => {
+                        if (idx > 0 && p - (arr[idx - 1] as number) > 1) acc.push('gap');
+                        acc.push(p);
+                        return acc;
+                      }, [])
+                      .map((p, idx) =>
+                        p === 'gap' ? (
+                          <span key={`gap-${idx}`} className="w-8 h-8 flex items-center justify-center text-[10px] font-black text-slate-300">…</span>
+                        ) : (
+                          <button
+                            key={p}
+                            onClick={() => setHistoryPage(p as number)}
+                            className={`w-8 h-8 rounded-xl flex items-center justify-center text-[10px] font-black transition-all ${
+                              safePage === p
+                                ? 'bg-[#181c3a] text-white shadow-lg'
+                                : 'text-slate-400 hover:bg-slate-100'
+                            }`}
+                          >{p}</button>
+                        )
+                      )
+                    }
+
+                    <button
+                      onClick={() => setHistoryPage(p => Math.min(totalPages, p + 1))}
+                      disabled={safePage === totalPages}
+                      className="w-8 h-8 rounded-xl flex items-center justify-center text-[10px] font-black text-slate-400 hover:bg-[#181c3a] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                      title="Siguiente página"
+                    >›</button>
+                    <button
+                      onClick={() => setHistoryPage(totalPages)}
+                      disabled={safePage === totalPages}
+                      className="w-8 h-8 rounded-xl flex items-center justify-center text-[10px] font-black text-slate-400 hover:bg-[#181c3a] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                      title="Última página"
+                    >»</button>
+                  </div>
+                </div>
+              );
+            })()}
           </Card>
         </div>
       )}
@@ -2960,18 +3465,7 @@ export default function BackofficePage() {
               <div className="bg-white rounded-2xl p-4 border border-slate-100">
                 <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 mb-1">Agencia CAC</p>
                 <p className="text-sm font-black text-[#181c3a] uppercase leading-tight">
-                  {(() => {
-                    const carrier = selectedHistoryReception.carrier || '';
-                    const notesAgency = selectedHistoryReception.notes?.includes('Backoffice_Agency: ') 
-                      ? selectedHistoryReception.notes.split('Backoffice_Agency: ')[1]?.split('\n')[0]?.trim() 
-                      : '';
-                    const matchedCarrier = CAC_AGENCIES.find(a =>
-                      carrier.toUpperCase().includes(a.name.toUpperCase()) ||
-                      carrier.toUpperCase() === a.id.toUpperCase() ||
-                      carrier.toUpperCase().includes(a.id.toUpperCase())
-                    );
-                    return notesAgency || (matchedCarrier ? matchedCarrier.name : carrier) || '---';
-                  })()}
+                  {getAgenciaLabel(selectedHistoryReception, CAC_AGENCIES)}
                 </p>
               </div>
               {/* Tecnología */}
@@ -3025,12 +3519,16 @@ export default function BackofficePage() {
               <div className="bg-white rounded-2xl p-4 border border-slate-100">
                 <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 mb-1">Piloto</p>
                 <p className="text-sm font-black text-[#181c3a] uppercase leading-tight">
-                  {selectedHistoryReception.notes?.split('Piloto: ')[1]?.split('\n')[0] || selectedHistoryReception.carrier || '---'}
+                  {selectedHistoryReception.notes?.split('Piloto: ')[1]?.split('\n')[0]?.trim() || '---'}
                 </p>
               </div>
             </div>
             {/* Second row: received by + status */}
-            <div className="grid grid-cols-2 gap-4 px-6 pb-4 bg-slate-50 border-b border-slate-100 shrink-0">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 px-6 pb-4 bg-slate-50 border-b border-slate-100 shrink-0">
+              <div className="bg-white rounded-2xl p-4 border border-slate-100">
+                <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 mb-1">Courier</p>
+                <p className="text-sm font-black text-[#181c3a] uppercase leading-tight">{selectedHistoryReception.carrier || '---'}</p>
+              </div>
               <div className="bg-white rounded-2xl p-4 border border-slate-100">
                 <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 mb-1">Recibido en Backoffice</p>
                 <p className="text-sm font-black text-[#181c3a] uppercase leading-tight">{selectedHistoryReception.received_by || 'SISTEMA'}</p>
@@ -3430,7 +3928,7 @@ export default function BackofficePage() {
                               <Eye className="w-4 h-4" />
                             </button>
                             <button 
-                              onClick={(e) => { e.stopPropagation(); setActiveReception(item.reception); setProcessedGuides(item.reception.processed_guides || []); setReceptionStep('classification'); setActiveTab('op'); }}
+                              onClick={(e) => { e.stopPropagation(); startProcessingReception(item.reception); setActiveTab('op'); }}
                               className="p-2 bg-emerald-50 hover:bg-emerald-500 text-emerald-500 hover:text-white rounded-lg transition-colors" title="Abrir en Bandeja (Reclasificar)">
                               <Box className="w-4 h-4" />
                             </button>

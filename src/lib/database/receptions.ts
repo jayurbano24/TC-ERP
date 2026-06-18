@@ -220,7 +220,12 @@ export async function fixMissingOS(receptionId: string, unit: { main_serial: str
   return { success: true };
 }
 
-export async function createServiceOrders(receptionId: string, units: { main_serial: string, model_id: string, brand_id: string, all_series: string[] }[], receptionGuideId?: string) {
+export async function createServiceOrders(
+  receptionId: string,
+  units: { main_serial: string; model_id: string; brand_id: string; all_series: string[] }[],
+  receptionGuideId?: string,
+  sapTransferId?: string
+) {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: "Supabase not configured" };
 
@@ -241,6 +246,7 @@ export async function createServiceOrders(receptionId: string, units: { main_ser
       .insert([{
         reception_id: receptionId,
         reception_guide_id: receptionGuideId || null,
+        sap_transfer_id: sapTransferId || null,
         model_id: unit.model_id,
         brand_id: unit.brand_id,
         main_serial: unit.main_serial,
@@ -261,6 +267,7 @@ export async function createServiceOrders(receptionId: string, units: { main_ser
         serial_number: sn,
         current_reception_id: receptionId,
         service_order_id: osData.id,
+        sap_transfer_id: sapTransferId || null,
         current_status: 'RECEPCIONADO_BODEGA_GENERAL',
         model_id: unit.model_id,
         brand_id: unit.brand_id
@@ -323,7 +330,7 @@ export async function getReceptionsWithSeries(source?: 'cac' | 'px') {
   try {
     let query = supabase
       .from('receptions')
-      .select('*, series(id, serial_number, brand_id, model_id, current_status, current_box_id, service_orders(id, os_label, reentry_count))')
+      .select('*, reception_guides(id, guide_number, category, agency, classified_at), sap_transfer_documents(id, reception_guide_id, sap_document_number, agency, status, created_at), series(id, serial_number, brand_id, model_id, current_status, current_box_id, sap_transfer_id, updated_at, service_orders(id, os_label, reentry_count, created_at, reception_guide_id, sap_transfer_id, reception_guides(guide_number, agency), sap_transfer_documents(sap_document_number, agency, status)))')
       .order('created_at', { ascending: false });
 
     if (source) {

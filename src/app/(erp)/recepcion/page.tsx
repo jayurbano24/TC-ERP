@@ -249,6 +249,7 @@ export default function ReceptionsPage() {
             // Already in legacy format, but ensure proper shape for HistoryTab
             const legacyRec = {
               id: row.id,
+              created_at: row.created_at,
               fecha_formateada: new Date(row.created_at).toLocaleString(),
               guide_number: row.guide_number,
               carrier: row.carrier || '---',
@@ -260,7 +261,7 @@ export default function ReceptionsPage() {
               sap_document: row.sap_document || '---',
               sap_orden_servicio: row.id,
               tipo: row.source.toUpperCase(),
-              pilot_display: row.carrier || 'OPERADOR LOGÍSTICO',
+              pilot_display: row.notes?.split('Piloto: ')?.[1]?.split('\n')?.[0]?.trim() || row.carrier || 'OPERADOR LOGÍSTICO',
               allGuias: row.processed_guides || []
             };
             

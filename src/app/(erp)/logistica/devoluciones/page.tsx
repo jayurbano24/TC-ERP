@@ -127,100 +127,62 @@ export default function DevolucionesPage() {
   const fetchReturns = async () => {
     setLoading(true);
     try {
-      // 1. Obtenemos series marcadas como 'returned' (individuales)
-      const seriesData = await getReturns();
-      
-      const adaptedSeries = seriesData.map((r: any) => ({
-        id: `DEV-${r.id.slice(0, 5).toUpperCase()}`,
-        sn: r.serial_number,
-        cliente: r.receptions?.guide_number || 'S/D',
-        motivo: r.notes?.split('Motivo: ')[1]?.split('\n')[0] || 'Garantía',
-        fecha: new Date(r.updated_at).toLocaleDateString(),
-        estatus: r.current_status === 'DESPACHADO' ? 'Procesado' : 'Pendiente',
-        dbId: r.id,
-        category: (r.notes?.includes('Cat: ') ? r.notes.split('Cat: ')[1].split('\n')[0] : 'BODEGA DEVOLUCIÓN'),
-        os: r.service_orders?.os_label || '---',
-        receptionId: r.current_reception_id
-      }));
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase) return;
 
-      // 2. Obtenemos Cajas clasificadas desde Backoffice (receptions)
-      const receptionsData = await getReceptions(); // Quitamos el filtro 'cac' para ver todo lo procesado
-      const adaptedReceptions = receptionsData
-        .filter((r: any) => {
-          const notes = r.notes?.toLowerCase() || '';
-          return notes.includes('backoffice_category') && r.status !== 'ARCHIVADO' && r.status !== 'DEVUELTO';
-        })
-        .flatMap((r: any) => {
-          const guides = r.processed_guides?.length > 0 ? r.processed_guides : [r.guide_number];
-          const rows = [];
+      // Query directa a reception_guides — sin regex, sin parsing de notes
+      const { data, error } = await supabase
+        .from('reception_guides')
+        .select(`
+          id,
+          guide_number,
+          category,
+          agency,
+          status,
+          classified_by,
+          classified_at,
+          motivo,
+          reception_id,
+          receptions (
+            id,
+            created_at,
+            carrier,
+            status,
+            guide_number
+          )
+        `)
+        .eq('category', 'devolucion')
+        .not('receptions.status', 'in', '("ARCHIVADO","ELIMINADO","DEVUELTO")')
+        .order('classified_at', { ascending: false });
 
-          for (const g of guides) {
-             const gEscaped = g.replace(/[-]/g, '\\-');
-             const guideBlockRegex = new RegExp(`\\[Guía.*?(?:${gEscaped}).*?\\][\\s\\S]*?(?=\\[Guía|---|$)`, 'i');
-             const guideBlockMatch = r.notes?.match(guideBlockRegex);
-             
-             let rawCat = '';
-             let rawMotivo = 'N/A';
-             let rawCarrier = r.carrier || '---';
+      if (error) {
+        console.error('Error fetching devoluciones from reception_guides:', error.message);
+        return;
+      }
 
-             if (guideBlockMatch) {
-                const block = guideBlockMatch[0];
-                const catMatch = block.match(/Backoffice_Category:[ \t]*([^\n\r]+)/i);
-                if (catMatch) rawCat = catMatch[1].trim();
+      const devolRows = (data || [])
+        .filter((rg: any) => rg.receptions) // excluir huérfanas
+        .map((rg: any) => ({
+          id: `DEV-${rg.reception_id?.slice(0, 5).toUpperCase()}-${rg.guide_number}`,
+          sn: rg.guide_number,
+          cliente: rg.agency || rg.receptions?.carrier || 'S/D',
+          motivo: rg.motivo || 'Devolución',
+          fecha: rg.classified_at
+            ? new Date(rg.classified_at).toLocaleDateString()
+            : new Date(rg.receptions?.created_at).toLocaleDateString(),
+          timestamp: rg.classified_at
+            ? new Date(rg.classified_at).getTime()
+            : new Date(rg.receptions?.created_at).getTime(),
+          estatus: rg.receptions?.status === 'DESPACHADO' ? 'Procesado' : 'Pendiente',
+          dbId: rg.id,
+          category: 'BODEGA DEVOLUCIÓN',
+          os: '---',
+          isReception: true,
+          receptionId: rg.reception_id,
+          classifiedBy: rg.classified_by,
+        }));
 
-                const motivoMatch = block.match(/Motivo Devolución:[ \t]*([^\n\r]+)/i);
-                if (motivoMatch) rawMotivo = motivoMatch[1].trim();
-                
-                const agencyMatch = block.match(/Backoffice_Agency:[ \t]*([^\n\r]+)/i);
-                if (agencyMatch && agencyMatch[1].trim() && !agencyMatch[1].includes('Backoffice_')) {
-                   rawCarrier = agencyMatch[1].trim();
-                }
-             } else {
-                const globalRegex = /--- DETALLES BACKOFFICE ---([\s\S]*?)(?:\[Guía|--- LÍNEA DE TIEMPO|$)/i;
-                const globalMatch = r.notes?.match(globalRegex);
-                const globalBlock = globalMatch ? globalMatch[1] : (r.notes || '');
-
-                const catMatch = globalBlock.match(/Backoffice_Category:[ \t]*([^\n\r]+)/i);
-                if (catMatch) rawCat = catMatch[1].trim();
-                
-                const motivoMatch = globalBlock.match(/Motivo Devolución:[ \t]*([^\n\r]+)/i);
-                if (motivoMatch) rawMotivo = motivoMatch[1].trim();
-
-                const agencyMatch = globalBlock.match(/Backoffice_Agency:[ \t]*([^\n\r]+)/i);
-                if (agencyMatch && agencyMatch[1].trim() && !agencyMatch[1].includes('Backoffice_')) {
-                   rawCarrier = agencyMatch[1].trim();
-                }
-             }
-             
-             if (!rawCat && r.notes?.toLowerCase().includes('devolución')) rawCat = 'Devolución';
-
-             let finalCat = 'BODEGA DEVOLUCIÓN';
-             if (rawCat.toLowerCase().includes('accesorio')) finalCat = 'ACCESORIOS';
-             if (rawCat.toLowerCase().includes('teléfono') || rawCat.toLowerCase().includes('movil') || rawCat.toLowerCase().includes('móvil')) finalCat = 'TELÉFONOS';
-             
-             rows.push({
-                id: `DEV-${r.id.slice(0, 5).toUpperCase()}`,
-                sn: g.split('_')[0],
-                cliente: rawCarrier,
-                motivo: rawMotivo !== 'N/A' ? rawMotivo : `Clasificado en Backoffice: ${rawCat || 'Devolución'}`,
-                fecha: new Date(r.created_at).toLocaleDateString(),
-                estatus: r.status === 'DESPACHADO' ? 'Procesado' : 'Pendiente',
-                dbId: r.id,
-                category: finalCat,
-                os: '---',
-                isReception: true
-             });
-          }
-          return rows;
-        });
-
-      // Unificamos ambos flujos
-      const allData = [...adaptedSeries, ...adaptedReceptions];
-
-      // Filtramos por la pestaña activa
-      const filtered = allData.filter((d: any) => d.category === activeCategory);
-      
-      setDevoluciones(filtered as Devolucion[]);
+      setDevoluciones(devolRows as Devolucion[]);
     } catch (err) {
       console.error("Error in fetchReturns:", err);
     } finally {
@@ -299,27 +261,33 @@ export default function DevolucionesPage() {
 
   const handleRegisterReturn = async () => {
     if (!newReturn.sn || !newReturn.originalGuide) return;
+    if (loading || isSubmittingRef.current) return;
     
+    isSubmittingRef.current = true;
     setLoading(true);
 
-    const supabase = getSupabaseBrowserClient();
+    try {
+      const supabase = getSupabaseBrowserClient();
 
-    // Agregamos la categoría a las notas para el filtrado independiente
-    const payload = {
-      ...newReturn,
-      motivo: `${newReturn.motivo}\nCat: ${newReturn.category}`
-    };
-    const { error } = await registerNewReturn(payload);
+      // Agregamos la categoría a las notas para el filtrado independiente
+      const payload = {
+        ...newReturn,
+        motivo: `${newReturn.motivo}\nCat: ${newReturn.category}`
+      };
+      const { error } = await registerNewReturn(payload);
 
-    if (error) {
-      alert(`Error: ${error}`);
-    } else {
-      await fetchReturns();
-      setShowNewReturnModal(false);
-      setNewReturn({ originalGuide: '', sn: '', cliente: '', motivo: RETURN_REASONS[0], guiaSalida: '', category: activeCategory });
-      alert("Retorno registrado exitosamente.");
+      if (error) {
+        alert(`Error: ${error}`);
+      } else {
+        await fetchReturns();
+        setShowNewReturnModal(false);
+        setNewReturn({ originalGuide: '', sn: '', cliente: '', motivo: RETURN_REASONS[0], guiaSalida: '', category: activeCategory });
+        alert("Retorno registrado exitosamente.");
+      }
+    } finally {
+      isSubmittingRef.current = false;
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleDespachoMasivo = async () => {

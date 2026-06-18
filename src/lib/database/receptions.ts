@@ -128,6 +128,41 @@ export async function createReceptionWithSeries(reception: DbReception, series: 
   return { data: recData };
 }
 
+export async function createReceptionWithGuides(reception: DbReception, guides: string[]) {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return { error: "Supabase not configured" };
+
+  // 1. Create the reception
+  const { data: recData, error: recError } = await supabase
+    .from('receptions')
+    .insert([reception])
+    .select()
+    .single();
+
+  if (recError) return { error: recError.message };
+
+  // 2. Insert guides into reception_guides
+  const guidesToInsert = guides.map(guide => ({
+    reception_id: recData.id,
+    guide_number: guide,
+    status: 'PENDIENTE'
+  }));
+
+  if (guidesToInsert.length > 0) {
+    const { error: guidesError } = await supabase
+      .from('reception_guides')
+      .upsert(guidesToInsert, { onConflict: 'reception_id,guide_number', ignoreDuplicates: true });
+
+    // 3. Tolerancia a fallos: mostramos el error en consola pero NO bloqueamos ni revertimos
+    // el retorno de la recepción maestra, ya que la recepción principal sí se creó con éxito.
+    if (guidesError) {
+      console.error("Warning: Falló la inserción en reception_guides:", guidesError.message);
+    }
+  }
+
+  return { data: recData };
+}
+
 export async function addSeriesToReception(receptionId: string, series: string[], modelId?: string, brandId?: string) {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: "Supabase not configured" };
@@ -152,7 +187,40 @@ export async function addSeriesToReception(receptionId: string, series: string[]
   return { success: true };
 }
 
-export async function createServiceOrders(receptionId: string, units: { main_serial: string, model_id: string, brand_id: string, all_series: string[] }[]) {
+export async function fixMissingOS(receptionId: string, unit: { main_serial: string, all_series: string[], model_id: string, brand_id: string }) {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return { error: "Supabase not configured" };
+
+  const { count } = await supabase.from('service_orders').select('*', { count: 'exact', head: true }).eq('main_serial', unit.main_serial);
+  const reentryCount = (count || 0) + 1;
+
+  const { data: osData, error: osError } = await supabase.from('service_orders').insert([{
+    reception_id: receptionId,
+    model_id: unit.model_id,
+    brand_id: unit.brand_id,
+    main_serial: unit.main_serial,
+    reentry_count: reentryCount,
+    status: 'INGRESADO'
+  }]).select().single();
+
+  if (osError) return { error: osError.message };
+
+  const seriesToUpsert = unit.all_series.map(sn => ({
+    serial_number: sn,
+    current_reception_id: receptionId,
+    service_order_id: osData.id,
+    current_status: 'RECEPCIONADO_BODEGA_GENERAL',
+    model_id: unit.model_id,
+    brand_id: unit.brand_id
+  }));
+
+  const { error: upsertError } = await supabase.from('series').upsert(seriesToUpsert, { onConflict: 'serial_number' });
+  if (upsertError) return { error: upsertError.message };
+
+  return { success: true };
+}
+
+export async function createServiceOrders(receptionId: string, units: { main_serial: string, model_id: string, brand_id: string, all_series: string[] }[], receptionGuideId?: string) {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: "Supabase not configured" };
 
@@ -172,6 +240,7 @@ export async function createServiceOrders(receptionId: string, units: { main_ser
       .from('service_orders')
       .insert([{
         reception_id: receptionId,
+        reception_guide_id: receptionGuideId || null,
         model_id: unit.model_id,
         brand_id: unit.brand_id,
         main_serial: unit.main_serial,

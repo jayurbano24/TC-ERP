@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React from 'react';
-import { Search, Truck, Clock, Camera, Pencil, Printer, Trash2, Download, ClipboardList, Scan, ChevronLeft, ChevronRight, Eye, X, History, Tag, Box } from 'lucide-react';
+import { Search, Truck, Clock, Camera, Pencil, Printer, Trash2, Download, ClipboardList, Scan, ChevronLeft, ChevronRight, ChevronDown, Eye, X, History, Tag, Box } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -23,12 +23,34 @@ export const HistoryTab = ({
   handlePrintCAC,
   handlePrintPX,
   handlePrintLabelsPX,
-  handleDeleteHistoryCAC
+  handleDeleteHistoryCAC,
+  handleEditHistoryCAC
 }: any) => {
 
   const [showPxDetails, setShowPxDetails] = React.useState<any>(null);
   const [pxDetailsData, setPxDetailsData] = React.useState<any>({ boxes: [], series: [], loading: false });
   const [filterDate, setFilterDate] = React.useState<string>('Todos');
+  const [expandedLots, setExpandedLots] = React.useState<Record<string, boolean>>({});
+  const [receptionGuides, setReceptionGuides] = React.useState<any[]>([]);
+
+  React.useEffect(() => {
+    async function fetchGuides() {
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase || cacRecords.length === 0) return;
+      const masterIds = cacRecords.filter((r: any) => !r.notes?.match(/como parte de lote (.*?)\./)).map((r: any) => r.id);
+      if (masterIds.length === 0) return;
+      
+      const { data } = await supabase.from('reception_guides').select('*').in('reception_id', masterIds);
+      if (data) {
+        setReceptionGuides(data);
+      }
+    }
+    fetchGuides();
+  }, [cacRecords]);
+
+  const toggleLot = (loteId: string) => {
+    setExpandedLots(prev => ({ ...prev, [loteId]: !prev[loteId] }));
+  };
 
   const isDateMatch = (createdAt: string) => {
     if (filterDate === 'Todos') return true;
@@ -77,57 +99,146 @@ export const HistoryTab = ({
         <div className="flex gap-2">
           <Button variant="outline" size="sm" className="flex gap-2"><Download size={14} /> Exportar Reporte</Button>
         </div>
-      </div>
+      </div>      {/* PANEL DE MÉTRICAS HOY */}
+      {(() => {
+        const [kpis, setKpis] = React.useState({ guiasHoy: 0, equiposHoy: 0, enEspera: 0 });
 
-      {/* PANEL DE MÉTRICAS HOY */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="p-6 border-l-4 border-l-[#2ec4f1] bg-white shadow-sm">
-          <div className="flex items-center gap-4">
-            <div className="bg-blue-50 p-3 rounded-xl text-[#2ec4f1]"><ClipboardList size={20} /></div>
-            <div>
-              <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Guías Hoy</p>
-              <h4 className="text-2xl font-black text-[#181c3a]">
-                {cacRecords
-                  .filter((r: any) => r.fecha_formateada?.includes(new Date().toLocaleDateString()))
-                  .reduce((acc: any, r: any) => {
-                    const cleanNotes = (r.notes || '').split('--- LÍNEA DE TIEMPO')[0].split('Backoffice_')[0].split('Guías Procesadas:')[0];
-                    const notesGuias = cleanNotes?.split('Guías: ')[1]?.split('\\n')[0]?.split(',').map((g: string) => g.trim()).filter(Boolean) || [];
-                    return acc + (notesGuias.length > 0 ? notesGuias.length : 1);
-                  }, 0)}
-              </h4>
-            </div>
+        React.useEffect(() => {
+          async function fetchKPIs() {
+            const supabase = getSupabaseBrowserClient();
+            if (!supabase) return;
+
+            // 1. Calcular inicio y fin del día actual en Guatemala (UTC-6) -> a UTC para la DB
+            const now = new Date();
+            // Formateador en zona horaria America/Guatemala
+            const formatter = new Intl.DateTimeFormat('en-US', {
+              timeZone: 'America/Guatemala',
+              year: 'numeric', month: '2-digit', day: '2-digit'
+            });
+            const [{ value: mo }, , { value: da }, , { value: ye }] = formatter.formatToParts(now);
+            
+            // Creamos fechas representando las 00:00:00 y 23:59:59 en UTC-6
+            // "YYYY-MM-DD T00:00:00 -06:00"
+            const startOfDayGuatemalaStr = `${ye}-${mo}-${da}T00:00:00.000-06:00`;
+            const endOfDayGuatemalaStr = `${ye}-${mo}-${da}T23:59:59.999-06:00`;
+
+            const startOfDayUtc = new Date(startOfDayGuatemalaStr).toISOString();
+            const endOfDayUtc = new Date(endOfDayGuatemalaStr).toISOString();
+
+            try {
+              // Consultar las 3 métricas
+              const [
+                { count: guiasHoyCount, error: err1 },
+                { count: equiposHoyCount, error: err2 },
+                { count: enEsperaCount, error: err3 }
+              ] = await Promise.all([
+                supabase.from('reception_guides')
+                  .select('*', { count: 'exact', head: true })
+                  .gte('created_at', startOfDayUtc)
+                  .lte('created_at', endOfDayUtc),
+
+                supabase.from('reception_guides')
+                  .select('*', { count: 'exact', head: true })
+                  .eq('category', 'equipo')
+                  .gte('classified_at', startOfDayUtc)
+                  .lte('classified_at', endOfDayUtc),
+
+                supabase.from('reception_guides')
+                  .select('*', { count: 'exact', head: true })
+                  .is('category', null)
+                  .gte('created_at', startOfDayUtc)
+                  .lte('created_at', endOfDayUtc)
+              ]);
+
+              // Validamos que ninguna haya arrojado error
+              if (!err1 && !err2 && !err3 && (guiasHoyCount! > 0 || equiposHoyCount! > 0 || enEsperaCount! > 0)) {
+                setKpis({
+                  guiasHoy: guiasHoyCount || 0,
+                  equiposHoy: equiposHoyCount || 0,
+                  enEspera: enEsperaCount || 0
+                });
+                return; // Si funcionó, salimos
+              }
+            } catch (err) {
+              console.error("Error fetching KPIs from reception_guides:", err);
+            }
+
+            // --- FALLBACK: Lógica antigua con Regex ---
+            const isSub = (r: any) => !!r.notes?.match(/como parte de lote (.*?)\./);
+            const getGuiasCount = (r: any) => {
+              if (isSub(r)) return 0;
+              const rawNotes = r.notes || '';
+              const cleanNotes = rawNotes.split('--- LÍNEA DE TIEMPO')[0].split('Backoffice_')[0].split('Guías Procesadas:')[0];
+              const notesGuias = cleanNotes.split('Guías: ')[1]?.split('\n')[0]?.split(',').map((g: string) => g.trim()).filter(Boolean) || [];
+              return notesGuias.length > 0 ? notesGuias.length : 1;
+            };
+            const getEquiposCount = (r: any) => {
+              if (isSub(r)) return r.received_units || 0;
+              if (getGuiasCount(r) > 1) return 0; 
+              return r.received_units || 0;
+            };
+
+            const guiasHoyFB = cacRecords
+              .filter((r: any) => r.fecha_formateada?.includes(new Date().toLocaleDateString()))
+              .reduce((acc: any, r: any) => acc + getGuiasCount(r), 0);
+
+            const equiposHoyFB = cacRecords
+              .filter((r: any) => r.fecha_formateada?.includes(new Date().toLocaleDateString()))
+              .reduce((acc: any, r: any) => acc + getEquiposCount(r), 0);
+
+            const pendingMasters = cacRecords.filter((r: any) => !isSub(r) && (r.status === 'RECEPCIONADA' || r.status === 'PENDIENTE DE CLASIFICAR'));
+            let enEsperaFB = 0;
+            pendingMasters.forEach((master: any) => {
+              const expected = getGuiasCount(master);
+              const uniqueProcessed = new Set(
+                cacRecords.filter((sub: any) => isSub(sub) && sub.notes?.includes(master.guide_number))
+                          .map((sub: any) => sub.guide_number)
+              ).size;
+              enEsperaFB += Math.max(0, expected - uniqueProcessed);
+            });
+
+            setKpis({
+              guiasHoy: guiasHoyFB,
+              equiposHoy: equiposHoyFB,
+              enEspera: enEsperaFB
+            });
+          }
+
+          fetchKPIs();
+        }, [cacRecords]);
+
+        return (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Card className="p-6 border-l-4 border-l-[#2ec4f1] bg-white shadow-sm">
+              <div className="flex items-center gap-4">
+                <div className="bg-blue-50 p-3 rounded-xl text-[#2ec4f1]"><ClipboardList size={20} /></div>
+                <div>
+                  <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Guías Hoy</p>
+                  <h4 className="text-2xl font-black text-[#181c3a]">{kpis.guiasHoy}</h4>
+                </div>
+              </div>
+            </Card>
+            <Card className="p-6 border-l-4 border-l-emerald-500 bg-white shadow-sm">
+              <div className="flex items-center gap-4">
+                <div className="bg-emerald-50 p-3 rounded-xl text-emerald-500"><Scan size={20} /></div>
+                <div>
+                  <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Equipos Hoy</p>
+                  <h4 className="text-2xl font-black text-[#181c3a]">{kpis.equiposHoy}</h4>
+                </div>
+              </div>
+            </Card>
+            <Card className="p-6 border-l-4 border-l-amber-500 bg-white shadow-sm">
+              <div className="flex items-center gap-4">
+                <div className="bg-amber-50 p-3 rounded-xl text-amber-500"><Clock size={20} /></div>
+                <div>
+                  <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">En Espera (Backoffice)</p>
+                  <h4 className="text-2xl font-black text-[#181c3a]">{kpis.enEspera}</h4>
+                </div>
+              </div>
+            </Card>
           </div>
-        </Card>
-        <Card className="p-6 border-l-4 border-l-emerald-500 bg-white shadow-sm">
-          <div className="flex items-center gap-4">
-            <div className="bg-emerald-50 p-3 rounded-xl text-emerald-500"><Scan size={20} /></div>
-            <div>
-              <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Equipos Hoy</p>
-              <h4 className="text-2xl font-black text-[#181c3a]">
-                {cacRecords
-                  .filter((r: any) => r.fecha_formateada?.includes(new Date().toLocaleDateString()))
-                  .reduce((acc: any, r: any) => acc + (r.received_units || 0), 0)}
-              </h4>
-            </div>
-          </div>
-        </Card>
-        <Card className="p-6 border-l-4 border-l-amber-500 bg-white shadow-sm">
-          <div className="flex items-center gap-4">
-            <div className="bg-amber-50 p-3 rounded-xl text-amber-500"><Clock size={20} /></div>
-            <div>
-              <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">En Espera (Backoffice)</p>
-              <h4 className="text-2xl font-black text-[#181c3a]">
-                {cacRecords
-                  .filter((r: any) => r.status === 'RECEPCIONADA' || r.status === 'PENDIENTE DE CLASIFICAR')
-                  .reduce((acc: any, r: any) => {
-                    const cleanNotes = (r.notes || '').split('--- LÍNEA DE TIEMPO')[0].split('Backoffice_')[0].split('Guías Procesadas:')[0];
-                    const notesGuias = cleanNotes?.split('Guías: ')[1]?.split('\\n')[0]?.split(',').map((g: string) => g.trim()).filter(Boolean) || [];
-                    return acc + (notesGuias.length > 0 ? notesGuias.length : 1);
-                  }, 0)}
-              </h4>
-            </div>
-          </div>
-        </Card>
+        );
+      })()}
            {/* BARRA DE BÚSQUEDA Y FILTROS */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
         <div className="relative group">
@@ -173,7 +284,7 @@ export const HistoryTab = ({
             <option value="Año">El año completo</option>
           </select>
         </div>
-      </div>     </div>
+      </div>
 
       {moduleMode === 'px' ? (
         <Card padding="none" className="overflow-x-auto custom-scrollbar border-none shadow-xl">
@@ -307,76 +418,243 @@ export const HistoryTab = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {cacRecords
-                  .map((record: any) => {
-                    const rawNotes = record.notes || '';
-                    const cleanNotesForGuias = rawNotes
-                      .split('--- LÍNEA DE TIEMPO')[0]
-                      .split('Backoffice_')[0]
-                      .split('Guías Procesadas:')[0];
-                    let allGuias = cleanNotesForGuias?.split('Guías: ')[1]?.split('\\n')[0]?.split(',').map((g: string) => g.trim()).filter(Boolean) || [];
-                    if (record.allGuias && record.allGuias.length > 0) {
-                      allGuias = record.allGuias;
+                {(() => {
+                  // Agrupar TODOS los registros usando la tabla receptionGuides si existe, sino regex
+                  const allGroups: Record<string, { master: any, subs: any[] }> = {};
+                  
+                  const masterRecords = cacRecords.filter((r: any) => !r.notes?.match(/como parte de lote (.*?)\./));
+
+                  masterRecords.forEach((record: any) => {
+                    const guides = receptionGuides.filter((g: any) => g.reception_id === record.id);
+                    
+                    if (guides.length === 0) {
+                      // FALLBACK a regex
+                      const rawNotes = record.notes || '';
+                      const cleanNotes = rawNotes.split('--- LÍNEA DE TIEMPO')[0].split('Backoffice_')[0].split('Guías Procesadas:')[0];
+                      const notesGuias = cleanNotes?.split('Guías: ')[1]?.split('\n')[0]?.split(',').map((g: string) => g.trim()).filter(Boolean) || [];
+                      const allGuias = notesGuias.length > 0 ? notesGuias : [record.guide_number];
+                      
+                      const subRecords = cacRecords.filter((r: any) => {
+                        const match = r.notes?.match(/como parte de lote (.*?)\./);
+                        return match && match[1].trim() === record.guide_number;
+                      });
+
+                      allGroups[record.id] = {
+                        master: { ...record, allGuias, isSub: false, isGuidesDb: false },
+                        subs: subRecords.map((s: any) => ({ ...s, allGuias: [s.guide_number], isSub: true, isGuidesDb: false }))
+                      };
+                    } else {
+                      // USAR reception_guides
+                      const allGuias = guides.map((g: any) => g.guide_number);
+                      allGroups[record.id] = {
+                        master: { ...record, allGuias, isSub: false, isGuidesDb: true },
+                        subs: guides.map((g: any) => ({
+                          ...record, // heredamos piloto etc.
+                          id: g.id,
+                          guide_number: g.guide_number,
+                          status: g.status,
+                          category: g.category,
+                          classified_by: g.classified_by,
+                          classified_at: g.classified_at,
+                          fecha_formateada: g.classified_at ? new Date(g.classified_at).toLocaleString() : '',
+                          isSub: true,
+                          isGuidesDb: true,
+                          allGuias: [g.guide_number]
+                        }))
+                      };
                     }
-                    if (allGuias.length === 0 && record.guide_number) {
-                      allGuias = [record.guide_number];
+                  });
+
+                  // Ahora aplicar los filtros a los grupos completos
+                  const filteredGroups = Object.values(allGroups).filter(group => {
+                    const itemMatches = (item: any) => {
+                      if (!item) return false;
+                      const searchLower = searchTerm.toLowerCase();
+                      const matchesSearch = !searchTerm ||
+                        item.allGuias.some((g: string) => g.toLowerCase().includes(searchLower)) ||
+                        item.guide_number?.toLowerCase().includes(searchLower) ||
+                        (item.pilot_display && item.pilot_display.toLowerCase().includes(searchLower));
+                      const matchesPilot = filterPilot === 'Todos' || item.pilot_display === filterPilot;
+                      const matchDate = isDateMatch(item.created_at);
+                      const notEliminated = item.status !== 'ELIMINADO' && item.status !== 'ELIMINADO POR BODEGA' && item.status !== 'ARCHIVADO';
+                      return matchesSearch && matchesPilot && matchDate && notEliminated;
+                    };
+
+                    const masterMatches = itemMatches(group.master);
+                    const anySubMatches = group.subs.some(itemMatches);
+                    return masterMatches || anySubMatches;
+                  });
+
+                  // Ordenar los grupos filtrados
+                  const sortedGroups = filteredGroups.sort((a, b) => {
+                    const timeA = new Date(a.master ? a.master.created_at : (a.subs[0]?.created_at || 0)).getTime();
+                    const timeB = new Date(b.master ? b.master.created_at : (b.subs[0]?.created_at || 0)).getTime();
+                    return timeB - timeA;
+                  });
+
+                  const renderItem = (item: any, isSubRow: boolean, masterItem: any, isExpanded: boolean = false, passedLoteId: string = '', hasSubs: boolean = false) => {
+                    const loteId = passedLoteId || `LOTE-${(masterItem || item).id.split('-')[0].toUpperCase()}`;
+                    const isMasterWithSubs = !isSubRow && hasSubs;
+                    const rowClass = `hover:bg-blue-50/50 transition-colors border-b border-slate-100 group ${isSubRow ? "bg-slate-50/50" : ""} ${isMasterWithSubs ? "cursor-pointer" : ""}`;
+                    const tdClass = "px-6 py-4 font-bold text-slate-800 text-xs whitespace-nowrap " + (isSubRow ? "pl-[4.5rem]" : "");
+                    const spanClass = "font-mono font-black text-sm tracking-wide " + (isSubRow ? "text-slate-500" : "text-[#2ec4f1]");
+                    
+                    let badgeClass = "border-none font-black text-[9px] uppercase tracking-widest whitespace-nowrap ";
+                    let badgeText = item.status || 'RECEPCIONADA';
+
+                    if (isSubRow && item.isGuidesDb) {
+                      if (!item.category) {
+                        badgeClass += "bg-amber-100 text-amber-600";
+                        badgeText = "PENDIENTE";
+                      } else {
+                        badgeText = item.category.toUpperCase();
+                        if (item.category === 'equipo') badgeClass += "bg-blue-100 text-blue-600";
+                        else if (item.category === 'accesorio') badgeClass += "bg-emerald-100 text-emerald-600";
+                        else if (item.category === 'telefono') badgeClass += "bg-orange-100 text-orange-600";
+                        else if (item.category === 'devolucion') badgeClass += "bg-rose-100 text-rose-600";
+                        else badgeClass += "bg-slate-100 text-slate-500";
+                      }
+                    } else {
+                      badgeClass += (isSubRow ? "bg-slate-100 text-slate-500" : "bg-blue-50 text-blue-600");
+                      if (isSubRow && !item.isGuidesDb) badgeText = item.status || 'PROCESADO';
                     }
-                    return { ...record, allGuias };
-                  })
-                  .filter((item: any) => {
-                    const searchLower = searchTerm.toLowerCase();
-                    const matchesSearch = !searchTerm ||
-                      item.allGuias.some((g: string) => g.toLowerCase().includes(searchLower)) ||
-                      item.guide_number?.toLowerCase().includes(searchLower) ||
-                      (item.pilot_display && item.pilot_display.toLowerCase().includes(searchLower));
-                    const matchesPilot = filterPilot === 'Todos' || item.pilot_display === filterPilot;
-                    const matchDate = isDateMatch(item.created_at);
-                    const notEliminated = item.status !== 'ELIMINADO' && item.status !== 'ELIMINADO POR BODEGA' && item.status !== 'ARCHIVADO';
-                    return matchesSearch && matchesPilot && matchDate && notEliminated;
-                  })
-                  .map((item: any) => (
-                    <tr key={item.id} className="hover:bg-blue-50/50 transition-colors border-b border-slate-100 group">
-                      <td className="px-6 py-4 font-bold text-slate-800 text-xs whitespace-nowrap">{item.fecha_formateada}</td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-mono font-black text-[#2ec4f1] text-sm tracking-wide">{item.guide_number}</span>
-                        </div>
-                        {item.allGuias.length > 0 && (
-                          <div className="flex flex-wrap gap-1">
-                            {item.allGuias.map((g: string, i: number) => (
-                              <button 
-                                key={i} 
-                                onClick={() => { setShowTimeline(item); setTimelineActiveGuide(g); }}
-                                className="font-mono text-[10px] font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 hover:text-[#181c3a] px-1.5 py-0.5 rounded cursor-pointer transition-colors"
-                                title={`Ver trazabilidad de la guía ${g}`}
-                              >
-                                {g}
-                              </button>
-                            ))}
+
+                    let receivedBy = 'SISTEMA';
+                    if (isSubRow) {
+                      if (item.isGuidesDb) {
+                        receivedBy = item.classified_by || 'SISTEMA';
+                      } else {
+                        const porMatch = item.notes?.match(/Por:\s+([^$|\n]+)/);
+                        if (porMatch) receivedBy = porMatch[1].trim();
+                        else receivedBy = item.usuario || item.received_by || 'SISTEMA';
+                      }
+                    } else {
+                      const reciboMatch = item.notes?.match(/Recibido Por:\s+([^\n]+)/);
+                      if (reciboMatch) receivedBy = reciboMatch[1].trim();
+                      else receivedBy = item.usuario || item.received_by || 'SISTEMA';
+                    }
+                    receivedBy = receivedBy.split('@')[0];
+
+                    let unitsDisplay;
+                    if (!isSubRow) {
+                      const groupData = allGroups[masterItem.id];
+                      if (groupData && groupData.subs.length > 0) {
+                        let processedGuidesCount = 0;
+                        if (masterItem.isGuidesDb) {
+                          processedGuidesCount = groupData.subs.filter((s: any) => s.category).length;
+                        } else {
+                          processedGuidesCount = groupData.subs.length;
+                        }
+                        
+                        const expectedGuidesCount = item.allGuias.length > 0 ? item.allGuias.length : (item.received_units || 0);
+                        const faltan = expectedGuidesCount - processedGuidesCount;
+                        unitsDisplay = (
+                          <div className="flex flex-col items-center justify-center">
+                            <div className="flex items-center">
+                              <span className="font-black text-[#181c3a]">{processedGuidesCount}</span>
+                              <span className="text-slate-400 text-[10px] mx-1">/</span>
+                              <span className="font-bold text-slate-500 text-[10px]">{expectedGuidesCount}</span>
+                              <span className="text-slate-400 text-[10px] font-bold ml-1">guías</span>
+                            </div>
+                            {faltan > 0 && <div className="text-[9px] font-black text-rose-500 mt-0.5 tracking-widest uppercase">Faltan {faltan}</div>}
+                            {faltan <= 0 && <div className="text-[9px] font-black text-emerald-500 mt-0.5 tracking-widest uppercase">Completo</div>}
                           </div>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 font-black text-slate-800 text-xs uppercase">{item.pilot_display}</td>
-                      <td className="px-6 py-4 font-black text-slate-700 text-xs">{(item.notes?.split('Recibido Por: ')?.[1]?.split('\n')?.[0]?.trim() || item.usuario || item.received_by || 'SISTEMA').split('@')[0]}</td>
-                      <td className="px-6 py-4">
-                        <Badge className="border-none font-black text-[9px] uppercase tracking-widest whitespace-nowrap bg-blue-50 text-blue-600">
-                          {item.status || 'RECEPCIONADA'}
-                        </Badge>
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        <span className="font-black text-[#181c3a]">{item.received_units || 0}</span>
-                        <span className="text-slate-400 text-[10px] font-bold ml-1">u.</span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex justify-end gap-1.5">
-                          <button onClick={() => setShowTimeline(item)} className="w-8 h-8 flex items-center justify-center bg-blue-50 text-[#2ec4f1] rounded-lg hover:bg-[#2ec4f1] hover:text-white transition-all shadow-sm"><Clock className="w-3.5 h-3.5" /></button>
-                          <button onClick={() => handleEditHistoryCAC(item.id, item.guiaIdx)} className="w-8 h-8 flex items-center justify-center bg-slate-100 text-slate-500 rounded-lg hover:bg-[#181c3a] hover:text-white transition-all shadow-sm"><Pencil className="w-3.5 h-3.5" /></button>
-                          <button onClick={() => handlePrintCAC(item)} className="w-8 h-8 flex items-center justify-center bg-slate-100 text-slate-500 rounded-lg hover:bg-[#181c3a] hover:text-white transition-all shadow-sm"><Printer className="w-3.5 h-3.5" /></button>
-                          <button onClick={() => handleDeleteHistoryCAC(item.id, item.guiaIdx)} className="w-8 h-8 flex items-center justify-center bg-slate-50 text-slate-400 rounded-lg hover:bg-rose-500 hover:text-white transition-all shadow-sm"><Trash2 className="w-3.5 h-3.5" /></button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                        );
+                      } else {
+                        const expectedGuidesCount = item.allGuias.length > 0 ? item.allGuias.length : (item.received_units || 0);
+                        unitsDisplay = (
+                          <div className="flex flex-col items-center justify-center">
+                            <div className="flex items-center">
+                              <span className="font-black text-[#181c3a]">0</span>
+                              <span className="text-slate-400 text-[10px] mx-1">/</span>
+                              <span className="font-bold text-slate-500 text-[10px]">{expectedGuidesCount}</span>
+                              <span className="text-slate-400 text-[10px] font-bold ml-1">guías</span>
+                            </div>
+                            <div className="text-[9px] font-black text-rose-500 mt-0.5 tracking-widest uppercase">Faltan {expectedGuidesCount}</div>
+                          </div>
+                        );
+                      }
+                    } else {
+                      unitsDisplay = <><span className="font-black text-slate-300">-</span></>;
+                    }
+
+                    return (
+                      <tr key={item.id} className={rowClass} onClick={isMasterWithSubs ? () => toggleLot(loteId) : undefined}>
+                        <td className={tdClass}>
+                          <div className="flex items-center">
+                            {isMasterWithSubs && (
+                              <button className="mr-2 text-slate-400 hover:text-slate-600 transition-colors focus:outline-none">
+                                {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                              </button>
+                            )}
+                            {isSubRow ? <div className="inline-block w-3 h-3 border-l-2 border-b-2 border-slate-300 rounded-bl mr-2 -translate-y-1"></div> : null}
+                            {item.fecha_formateada}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          {!isSubRow ? <div className="text-[9px] font-black uppercase text-slate-400 mb-0.5 tracking-widest">{loteId}</div> : null}
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={spanClass}>{item.guide_number}</span>
+                          </div>
+                          {item.allGuias.length > 0 && !isSubRow ? (
+                            <div className="flex flex-wrap gap-1">
+                              {item.allGuias.map((g: string, i: number) => (
+                                <button 
+                                  key={i} 
+                                  onClick={(e) => { e.stopPropagation(); setShowTimeline(item); setTimelineActiveGuide(g); }}
+                                  className="font-mono text-[10px] font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 hover:text-[#181c3a] px-1.5 py-0.5 rounded cursor-pointer transition-colors"
+                                  title={`Ver trazabilidad de la guía ${g}`}
+                                >
+                                  {g}
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
+                        </td>
+                        <td className="px-6 py-4 font-black text-slate-800 text-xs uppercase">{!isSubRow ? item.pilot_display : <span className="text-slate-300">-</span>}</td>
+                        <td className="px-6 py-4 font-black text-slate-700 text-xs uppercase">{!isSubRow ? receivedBy : <span className="text-slate-300">-</span>}</td>
+                        <td className="px-6 py-4">
+                          <Badge className={badgeClass}>
+                            {badgeText}
+                          </Badge>
+                          {isSubRow && item.classified_by && (
+                            <div className="mt-1 text-[9px] text-slate-400 font-bold leading-tight">
+                              Por: {item.classified_by.split('@')[0]}
+                              {item.classified_at && <br />}
+                              {item.classified_at && new Date(item.classified_at).toLocaleString()}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          {unitsDisplay}
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <div className="flex justify-end gap-1.5">
+                            <button onClick={(e) => { e.stopPropagation(); setShowTimeline(item); }} className="w-8 h-8 flex items-center justify-center bg-blue-50 text-[#2ec4f1] rounded-lg hover:bg-[#2ec4f1] hover:text-white transition-all shadow-sm"><Clock className="w-3.5 h-3.5" /></button>
+                            {!isSubRow ? <button onClick={(e) => { e.stopPropagation(); handleEditHistoryCAC && handleEditHistoryCAC(item.id, item.guiaIdx); }} className="w-8 h-8 flex items-center justify-center bg-slate-100 text-slate-500 rounded-lg hover:bg-[#181c3a] hover:text-white transition-all shadow-sm"><Pencil className="w-3.5 h-3.5" /></button> : null}
+                            {!isSubRow ? <button onClick={(e) => { e.stopPropagation(); handlePrintCAC && handlePrintCAC(item); }} className="w-8 h-8 flex items-center justify-center bg-slate-100 text-slate-500 rounded-lg hover:bg-[#181c3a] hover:text-white transition-all shadow-sm"><Printer className="w-3.5 h-3.5" /></button> : null}
+                            {!isSubRow ? <button onClick={(e) => { e.stopPropagation(); handleDeleteHistoryCAC && handleDeleteHistoryCAC(item.id, item.guiaIdx); }} className="w-8 h-8 flex items-center justify-center bg-slate-50 text-slate-400 rounded-lg hover:bg-rose-500 hover:text-white transition-all shadow-sm"><Trash2 className="w-3.5 h-3.5" /></button> : null}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  };
+
+                  return sortedGroups.flatMap(group => {
+                    const rows = [];
+                    if (group.master) {
+                      const loteId = `LOTE-${group.master.id.split('-')[0].toUpperCase()}`;
+                      const isExpanded = !!expandedLots[loteId];
+                      const hasSubs = group.subs && group.subs.length > 0;
+                      rows.push(renderItem(group.master, false, group.master, isExpanded, loteId, hasSubs));
+                      if (isExpanded) {
+                        group.subs.forEach(sub => rows.push(renderItem(sub, true, group.master, false, loteId, false)));
+                      }
+                    }
+
+                    return rows;
+                  });
+                })()}
                 {cacRecords.length === 0 && (
                   <tr>
                     <td colSpan={7} className="px-6 py-12 text-center text-slate-300 italic uppercase font-black tracking-widest">

@@ -1,5 +1,5 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { getReceptions, createReceptionWithSeries, createPxReceptionWithBoxes } from "@/lib/database/receptions";
+import { getReceptions, createReceptionWithSeries, createReceptionWithGuides, createPxReceptionWithBoxes } from "@/lib/database/receptions";
 import { getCarriers, getPxProviders, getTechnologies, getBrands, getModels } from "@/lib/database/config";
 
 /**
@@ -12,8 +12,8 @@ export const receptionRepository = {
     return await getReceptions(source);
   },
   
-  createCACReception: async (reception: any, series: string[]) => {
-    return await createReceptionWithSeries(reception, series);
+  createCACReception: async (reception: any, guides: string[]) => {
+    return await createReceptionWithGuides(reception, guides);
   },
 
   createPXReception: async (reception: any, boxes: any[], seriesByBox: Record<string, string[]>) => {

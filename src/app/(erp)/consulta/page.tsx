@@ -178,32 +178,56 @@ export default function ConsultaPage() {
   const bodegaFecha = bodegaLog ? formatDate(bodegaLog.changed_at) : '-';
 
   const extractAgency = (receptions: any) => {
-    // FORCE HMR
-    console.log("Extracting agency...", receptions?.source);
-    
     if (!receptions) return 'N/A';
-    
+
+    // Fase 5: leer desde reception_guides.agency (fuente de verdad)
+    if (receptions.reception_guides?.length > 0) {
+      const rg = receptions.reception_guides.find((g: any) => g.agency);
+      if (rg?.agency) return rg.agency;
+    }
+
+    // Fallback histórico: parsear notes
     if (receptions.notes) {
       const parsedAgency = receptions.notes.split('Backoffice_Agency: ')[1]?.split('\n')[0]?.trim();
       if (parsedAgency) return parsedAgency;
-      
+
       const parsedAgencia = receptions.notes.split('Agencia: ')[1]?.split('\n')[0]?.trim();
       if (parsedAgencia) return parsedAgencia;
     }
-    
+
     if (receptions.source === 'cac') return receptions.carrier || 'CENTRAL DE ATENCIÓN AL CLIENTE (CAC)';
-    
+
     return receptions.carrier || 'N/A';
   };
 
   const inferGuideFromNotes = (series: any) => {
     if (!series || !series.receptions) return 'N/A';
-    
+
+    // Fase 5: usar reception_guides.category en lugar de regex sobre notes
+    if (series.receptions.reception_guides?.length > 0) {
+      const techName = series.models?.technologies?.name?.toLowerCase() || '';
+      let targetCategory = 'equipo';
+      if (techName.includes('móvil') || techName.includes('telefono') || techName.includes('teléfono')) {
+        targetCategory = 'telefono';
+      } else if (techName.includes('accesorio')) {
+        targetCategory = 'accesorio';
+      }
+      const matchedGuide = series.receptions.reception_guides.find(
+        (rg: any) => (rg.category || '').toLowerCase() === targetCategory
+      );
+      if (matchedGuide?.guide_number) return matchedGuide.guide_number;
+
+      // Si hay un solo guide, devolver ese
+      if (series.receptions.reception_guides.length === 1) {
+        return series.receptions.reception_guides[0].guide_number;
+      }
+    }
+
+    // Fallback histórico: inferencia desde notes con regex
     if (series.receptions.source !== 'cac') return series.receptions.guide_number;
 
     const techName = series.models?.technologies?.name?.toLowerCase() || '';
     let targetCategory = '';
-    
     if (techName.includes('móvil') || techName.includes('telefono') || techName.includes('teléfono')) {
       targetCategory = 'teléfono';
     } else if (techName.includes('accesorio')) {
@@ -213,25 +237,19 @@ export default function ConsultaPage() {
     }
 
     const notes = series.receptions.notes || '';
-    
-    // Look for exact guide block
     const regex = /\[Guía (.*?)\]([\s\S]*?)(?=\[Guía|---|$)/g;
     let match;
     while ((match = regex.exec(notes)) !== null) {
       const guideName = match[1];
       const blockContent = match[2].toLowerCase();
-      
       if (blockContent.includes(`backoffice_category: ${targetCategory}`)) {
         return guideName;
       }
     }
 
-    // Fallback 1: Si solo hay una guía procesada, mostrar esa
     if (series.receptions.processed_guides?.length === 1) {
       return series.receptions.processed_guides[0];
     }
-
-    // Fallback 2: Mostrar todas (solo si no logramos inferir una exacta)
     if (series.receptions.processed_guides?.length > 0) {
       return series.receptions.processed_guides.join(', ');
     }

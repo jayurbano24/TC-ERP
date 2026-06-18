@@ -25,7 +25,16 @@ export async function getInventoryBoxes() {
       .select(`
         *,
         sap_status,
-        receptions (guide_number, notes, carrier, received_by, status, created_at, source),
+        receptions (
+          guide_number,
+          notes,
+          carrier,
+          received_by,
+          status,
+          created_at,
+          source,
+          reception_guides (guide_number, agency, category)
+        ),
         service_orders (id, os_label, reentry_count, sap_integration_status)
       `)
       .in('current_box_id', boxIds);
@@ -363,7 +372,16 @@ export async function getInventoryDetails() {
       *,
       boxes (id, box_code, status, rack_location, created_at),
       service_orders (os_label),
-      receptions (guide_number, notes, carrier, received_by, status, created_at, source),
+      receptions (
+          guide_number,
+          notes,
+          carrier,
+          received_by,
+          status,
+          created_at,
+          source,
+          reception_guides (guide_number, agency, category)
+        ),
       brands (name),
       models (name, technologies (name))
     `)

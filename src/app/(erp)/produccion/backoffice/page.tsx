@@ -39,7 +39,7 @@ import {
   Stethoscope,
   RotateCcw
 } from 'lucide-react';
-import { getReceptions, createReception, updateReceptionStatus, updateProcessedGuides, addSeriesToReception, createServiceOrders, getSeriesByReceptionId, getReceptionsWithSeries, updateReception, clearAllReceptions } from '@/lib/database/receptions';
+import { getReceptions, createReception, updateReceptionStatus, updateProcessedGuides, addSeriesToReception, createServiceOrders, getSeriesByReceptionId, getReceptionsWithSeries, updateReception, clearAllReceptions, fixMissingOS } from '@/lib/database/receptions';
 import { testSupabaseConnection } from '@/lib/supabase/test-connection';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import {
@@ -104,6 +104,25 @@ const compressImage = (file: File): Promise<string> => {
 type ReceptionStep = 'category_selection' | 'classification' | 'initial' | 'config' | 'scanning' | 'return_confirmation' | 'sub_bodega_transfer' | 'completed';
 
 // Helper function moved outside to avoid scope issues
+const getReceiverName = (rec: any) => {
+  if (!rec) return 'SISTEMA';
+  const cacReceiverMatch = rec.notes?.split('Recibido Por: ')?.[1]?.split('\n')?.[0]?.trim();
+  const cacReceiver = cacReceiverMatch ? cacReceiverMatch.split('@')[0].toUpperCase() : null;
+
+  const backofficeReceiversMatch = rec.notes?.match(/Por:\s*([^\n]+)/g);
+  let backofficeReceivers = [];
+  if (backofficeReceiversMatch) {
+    backofficeReceivers = Array.from(new Set(backofficeReceiversMatch.map((m: string) => m.replace('Por:', '').trim().toUpperCase())));
+  }
+  
+  if (backofficeReceivers.length > 0) return backofficeReceivers.join(' / ');
+  if (cacReceiver) return cacReceiver;
+  if (rec.received_by) return rec.received_by.split('@')[0].toUpperCase();
+  if (rec.usuario) return rec.usuario.split('@')[0].toUpperCase();
+  
+  return 'SISTEMA';
+};
+
 const getAgenciaLabel = (rec: any, agencies: CatalogAgency[], guideId?: string) => {
   if (!rec) return '---';
   let metaAgency = '';
@@ -160,9 +179,12 @@ export default function BackofficePage() {
       if (to && d > to) return false;
       
       const notes = (r.notes || '').toLowerCase();
-      const isAccesorio = notes.includes('backoffice_category: accesorio');
-      const isTelefono = notes.includes('backoffice_category: teléfono') || notes.includes('backoffice_category: movil');
-      const isEquipo = notes.includes('backoffice_category: equipo');
+      // Leer categorías desde reception_guides si están disponibles (Fase 3)
+      // Fallback a notes solo para registros históricos anteriores a la migración
+      const guideCategories: string[] = (r.reception_guides || []).map((rg: any) => (rg.category || '').toLowerCase());
+      const isAccesorio = guideCategories.some((c: string) => c === 'accesorio') || notes.includes('backoffice_category: accesorio');
+      const isTelefono = guideCategories.some((c: string) => c === 'telefono') || notes.includes('backoffice_category: teléfono') || notes.includes('backoffice_category: movil');
+      const isEquipo = guideCategories.some((c: string) => c === 'equipo') || notes.includes('backoffice_category: equipo');
       
       if (isAccesorio || isTelefono) return false;
       if (isEquipo) return true;
@@ -193,7 +215,7 @@ export default function BackofficePage() {
       const equipGroups = groupSeriesByEquipment(rec.series || []);
       
       if (equipGroups.length === 0) {
-        csv += `${date},${displayGuide},${piloto},${rec.carrier},${rec.received_by || 'SISTEMA'},${rec.status},---,"${agencia}",${tech},${brand},${model},---,---,---,---\n`;
+        csv += `${date},${displayGuide},${piloto},${rec.carrier},${getReceiverName(rec)},${rec.status},---,"${agencia}",${tech},${brand},${model},---,---,---,---\n`;
       } else {
         equipGroups.forEach(grp => {
           const units = [];
@@ -209,7 +231,7 @@ export default function BackofficePage() {
             const s3 = unit[2]?.serial_number || '';
             const s4 = unit[3]?.serial_number || '';
             
-            csv += `${date},${displayGuide},${piloto},${rec.carrier},${rec.received_by || 'SISTEMA'},${rec.status},${os},"${agencia}",${tech},${brand},${model},${s1},${s2},${s3},${s4}\n`;
+            csv += `${date},${displayGuide},${piloto},${rec.carrier},${getReceiverName(rec)},${rec.status},${os},"${agencia}",${tech},${brand},${model},${s1},${s2},${s3},${s4}\n`;
           });
         });
       }
@@ -248,6 +270,8 @@ export default function BackofficePage() {
   const [currentSN, setCurrentSN] = useState('');
   const [pendingReceptions, setPendingReceptions] = useState<any[]>([]);
   const [currentUserFullName, setCurrentUserFullName] = useState('SISTEMA');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmittingRef = React.useRef(false);
 
   useEffect(() => {
     async function initUser() {
@@ -304,6 +328,30 @@ export default function BackofficePage() {
   const [historySearch, setHistorySearch] = useState('');
   const [showTimeline, setShowTimeline] = useState<any | null>(null);
   const [timelineActiveGuide, setTimelineActiveGuide] = useState<string | null>(null);
+
+  const handleFixMissingOS = async (recId: string, unit: any[], modelId: string, brandId: string) => {
+    if (!unit || unit.length === 0) return;
+    const confirmFix = window.confirm('¿Desea generar la Orden de Servicio faltante para esta unidad?');
+    if (!confirmFix) return;
+
+    try {
+      const allSerials = unit.map((s: any) => s.serial_number);
+      const payload = {
+        main_serial: allSerials[0],
+        all_series: allSerials,
+        model_id: modelId,
+        brand_id: brandId
+      };
+      
+      const res = await fixMissingOS(recId, payload);
+      if (res.error) throw new Error(res.error);
+      
+      alert('✅ Orden de Servicio generada correctamente.');
+      fetchHistory(); // Recargar historial
+    } catch (err: any) {
+      alert('❌ Error al generar OS: ' + err.message);
+    }
+  };
 
   // Mass Transfer to Workshop State
   const [showMassTransferModal, setShowMassTransferModal] = useState(false);
@@ -456,9 +504,12 @@ export default function BackofficePage() {
         };
       }).filter((rec: any) => {
         const notes = (rec.notes || '').toLowerCase();
-        const isAccesorio = notes.includes('backoffice_category: accesorio');
-        const isTelefono = notes.includes('backoffice_category: teléfono') || notes.includes('backoffice_category: movil');
-        const isEquipo = notes.includes('backoffice_category: equipo');
+        // Leer categorías desde reception_guides si están disponibles (Fase 3)
+        // Fallback a notes para registros históricos previos a la migración
+        const guideCategories: string[] = (rec.reception_guides || []).map((rg: any) => (rg.category || '').toLowerCase());
+        const hasAccesorio = guideCategories.some((c: string) => c === 'accesorio') || notes.includes('backoffice_category: accesorio');
+        const hasTelefono = guideCategories.some((c: string) => c === 'telefono') || notes.includes('backoffice_category: teléfono') || notes.includes('backoffice_category: movil');
+        const hasEquipo = guideCategories.some((c: string) => c === 'equipo') || notes.includes('backoffice_category: equipo');
         
         // We have to duplicate the grouping logic here, but it's lightweight enough.
         let validSeriesCount = 0;
@@ -583,7 +634,7 @@ export default function BackofficePage() {
       ? new Date(record.created_at).getTime().toString().slice(-8)
       : Math.floor(10000000 + Math.random() * 90000000).toString();
 
-    const operatorName = record.received_by || 'SISTEMA';
+    const operatorName = getReceiverName(record);
     
     // Extraer datos de las notas
     const pilot = record.notes?.split('Piloto: ')[1]?.split(/\\n|\n/)[0] || '---';
@@ -765,7 +816,7 @@ export default function BackofficePage() {
     const cleanNotes = (rec.notes || '').split('--- LÍNEA DE TIEMPO')[0].split('Backoffice_')[0].split('Guías Procesadas:')[0];
     const guias = cleanNotes?.split('Guías: ')[1]?.split('\n')[0] || rec.guide_number;
     const piloto = rec.notes?.split('Piloto: ')[1]?.split('\n')[0] || '---';
-    alert(`📜 MANIFIESTO DE RECEPCIÓN\n\nGuías Incluidas:\n${guias}\n\nPiloto: ${piloto}\nRecibido por: ${rec.received_by || 'SISTEMA'}`);
+    alert(`📜 MANIFIESTO DE RECEPCIÓN\n\nGuías Incluidas:\n${guias}\n\nPiloto: ${piloto}\nRecibido por: ${getReceiverName(rec)}`);
   };
 
   const handleOpenEditMeta = (rec: any) => {
@@ -950,7 +1001,22 @@ export default function BackofficePage() {
     }
   };
   const completeCurrentGuides = async () => {
-    const newProcessed = [...processedGuides, ...scannedGuides];
+    if (isSubmitting || isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
+    
+    // Prevent double processing if already in processedGuides
+    if (scannedGuides.length > 0 && scannedGuides.every(g => processedGuides.includes(g))) {
+      setReceptionStep('completed');
+      isSubmittingRef.current = false;
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+    const newProcessed = Array.from(new Set([
+      ...(activeReception?.processed_guides || []), 
+      ...scannedGuides
+    ].map(g => g.trim())));
     if (activeReception?.id) {
       // Se guarda el progreso en las notas para evitar errores de columna inexistente
       const progressNotes = `\nGuías Procesadas: ${newProcessed.join(', ')}`;
@@ -1000,60 +1066,7 @@ export default function BackofficePage() {
         const brandVal = brandNameVal || defaultBrand;
         const modelVal = modelNameVal || defaultModel;
 
-        const shouldCreateSubReception = currentGuide && (
-          (activeReception.source === 'cac' && currentGuide !== mainGuide) ||
-          (!receptionGuias.includes(currentGuide) && currentGuide !== mainGuide)
-        );
-
         let targetReceptionId = activeReception.id;
-
-        // 1. SI ES UNA GUÍA INDIVIDUAL DENTRO DE UN LOTE MASIVO, CREAMOS UNA RECEPCIÓN HIJA (1 a 1)
-        if (shouldCreateSubReception) {
-          const timestamp = new Date().toLocaleString();
-          const movId = generateMovId();
-          const actionCode = finalCategory === 'Accesorio' ? 'BOD-ACC' : (finalCategory === 'Teléfono' ? 'BOD-MOV' : 'BOD-EQP');
-          const timelineEvent = `\n[${timestamp}] ${movId} | ${actionCode} | CLASIFICACIÓN (SUB-GUÍA): Movido a BODEGA: ${finalCategory.toUpperCase()} - Por: ${currentUserFullName}`;
-          
-          const pilotoLine = activeReception.notes?.split('Piloto: ')[1]?.split('\n')[0] || '';
-
-          const subNotes =
-            (pilotoLine ? `Piloto: ${pilotoLine}\n` : '') +
-            `\n\n--- DETALLES BACKOFFICE ---` +
-            `\nBackoffice_Agency: ${agencyLabel}` +
-            `\nBackoffice_Category: ${finalCategory}` +
-            (techVal ? `\nBackoffice_Tech: ${techVal}` : '') +
-            (brandVal ? `\nBackoffice_Brand: ${brandVal}` : '') +
-            (modelVal ? `\nBackoffice_Model: ${modelVal}` : '') +
-            (sapTransferNumber ? `\nBackoffice_SAP: ${sapTransferNumber}` : '') +
-            `\nMotivo Devolución: ${returnReason || 'N/A'}` +
-            `\nGuía de Envío: ${returnTracking || 'N/A'} (Logística: ${returnCourier || 'N/A'})` +
-            `\n\n--- LÍNEA DE TIEMPO (MATRIZ) ---\n` + 
-            `[${new Date(activeReception.created_at).toLocaleString()}] MOV-START | REC-01 | RECEPCIÓN: Ingreso inicial como parte de lote ${activeReception.guide_number}.` + 
-            timelineEvent;
-          
-          const totalExpected = guideItems.reduce((sum, item) => sum + (item.cantidad || 0), 0);
-          const totalReceived = guideItems.reduce((sum, item) => sum + (item.series?.length || 0), 0);
-
-          const cleanPayload = {
-            source: 'cac' as const,
-            guide_number: currentGuide,
-            carrier: activeReception.carrier || 'Desconocido',
-            notes: subNotes + `\nStatus: RECIBIDO_BACKOFFICE\nPhotos: ${accessoryPhotos.join(', ')}`,
-            evidence_url: accessoryPhotos[0] || '',
-            expected_units: isEquipment ? totalExpected : activeReception.expected_units,
-            received_units: isEquipment ? totalReceived : activeReception.received_units,
-            sap_document: sapTransferNumber || activeReception.sap_document,
-          };
-
-          const result = await createReception(cleanPayload);
-
-          if (result.error) {
-            alert("❌ ERROR AL CREAR RECEPCIÓN INDIVIDUAL: " + result.error);
-          } else {
-            targetReceptionId = result.data.id;
-            alert("✅ ¡ÉXITO! Guía " + currentGuide + " vinculada individualmente (Trazabilidad 1 a 1).");
-          }
-        }
 
         // 2. SIEMPRE ACTUALIZAR LA RECEPCIÓN MAESTRA (ej. REC-002) PARA REFLEJAR EL PROGRESO
         const timestamp = new Date().toLocaleString();
@@ -1120,6 +1133,44 @@ export default function BackofficePage() {
           alert("❌ ERROR DE ACTUALIZACIÓN MAESTRA: " + resUpdate.error);
         }
 
+        // --- NEW LOGIC: Update reception_guides ---
+        const supabaseClient = getSupabaseBrowserClient();
+        let updatedGuideId: string | undefined = undefined;
+
+        if (!supabaseClient) {
+          console.error("Warning: No Supabase client available, skipping reception_guides update.");
+        } else {
+          const { data: userData } = await supabaseClient.auth.getUser();
+          const userEmail = userData?.user?.email || currentUserFullName;
+
+          // Normalizar categoría eliminando tildes para la base de datos (telefono, devolucion, etc.)
+          const dbCategory = finalCategory.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+          const { data: updatedGuides, error: guidesUpdateError } = await supabaseClient
+            .from('reception_guides')
+            .update({
+              category: dbCategory,
+              status: 'CLASIFICADO',
+              agency: agencyLabel,
+              classified_by: userEmail,
+              classified_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+              // Guardar motivo de devolución si aplica (Fase 3)
+              ...(returnReason ? { motivo: returnReason } : {}),
+            })
+            .eq('reception_id', activeReception.id)
+            .in('guide_number', scannedGuides)
+            .select('id');
+
+          // 3. Tolerancia a fallos en el update
+          if (guidesUpdateError) {
+            console.error("Warning: Falló la actualización en reception_guides:", guidesUpdateError.message);
+          }
+
+          updatedGuideId = updatedGuides && updatedGuides.length > 0 ? updatedGuides[0].id : undefined;
+        }
+        // ----------------------------------------
+
         // 3. CREAR LOS EQUIPOS (ORDENES DE SERVICIO) Y ATARLOS A LA RECEPCIÓN QUE CORRESPONDA (HIJA SI EXISTE, O MAESTRA)
         if (isEquipment && hasItems) {
           const unitsForOS = guideItems.flatMap(item => 
@@ -1132,7 +1183,7 @@ export default function BackofficePage() {
           ).filter(u => u.main_serial);
 
           if (unitsForOS.length > 0) {
-            await createServiceOrders(targetReceptionId, unitsForOS);
+            await createServiceOrders(targetReceptionId, unitsForOS, updatedGuideId);
           }
         }
       }
@@ -1146,6 +1197,10 @@ export default function BackofficePage() {
     }
     
     setReceptionStep('completed');
+    } finally {
+      setIsSubmitting(false);
+      isSubmittingRef.current = false;
+    }
   };
 
   const handleConfirmReturn = async () => {
@@ -1960,18 +2015,18 @@ export default function BackofficePage() {
                       return (
                         <Button 
                           variant="primary" 
-                          className={`w-full h-20 rounded-[1.5rem] shadow-2xl font-black uppercase tracking-[0.2em] text-xs transition-all ${!isReady ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none' : (isAccesorio ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : 'bg-[#181c3a] hover:bg-[#2ec4f1] text-white')}`} 
+                          className={`w-full h-20 rounded-[1.5rem] shadow-2xl font-black uppercase tracking-[0.2em] text-xs transition-all ${(!isReady || isSubmitting) ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none' : (isAccesorio ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : 'bg-[#181c3a] hover:bg-[#2ec4f1] text-white')}`} 
                           onClick={async () => {
-                            if (!isReady) return;
+                            if (!isReady || isSubmitting) return;
                             if (isAccesorio) {
                               setReceptionStep('return_confirmation');
                             } else {
                               await completeCurrentGuides();
                             }
                           }} 
-                          disabled={!isReady || guideItems.length === 0}
+                          disabled={!isReady || guideItems.length === 0 || isSubmitting}
                         >
-                          {isAccesorio ? 'Finalizar y Notificar' : (isAllItemsComplete ? 'Finalizar Recepción' : 'Complete el Pistoleo de Series')}
+                          {isSubmitting ? 'Procesando...' : (isAccesorio ? 'Finalizar y Notificar' : (isAllItemsComplete ? 'Finalizar Recepción' : 'Complete el Pistoleo de Series'))}
                         </Button>
                       );
                     })()}
@@ -2180,10 +2235,11 @@ export default function BackofficePage() {
                 <div className="flex gap-4">
                   <Button variant="outline" className="flex-1 h-16 rounded-2xl font-black uppercase text-xs" onClick={() => setReceptionStep('classification')}>Cancelar</Button>
                   <Button 
-                    className="flex-[2] h-16 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl shadow-xl shadow-amber-500/20 font-black uppercase text-xs"
+                    className={`flex-[2] h-16 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl shadow-xl shadow-amber-500/20 font-black uppercase text-xs ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
                     onClick={handleConfirmReturn}
+                    disabled={isSubmitting}
                   >
-                    Confirmar y Enviar Notificación
+                    {isSubmitting ? 'Procesando...' : 'Confirmar y Enviar Notificación'}
                   </Button>
                 </div>
               </Card>
@@ -2228,7 +2284,7 @@ export default function BackofficePage() {
                       >
                         <option value="">-- Seleccionar Agencia --</option>
                         {CAC_AGENCIES.map((a: any) => (
-                          <option key={a.id} value={a.name}>{a.name} ({a.code})</option>
+                          <option key={a.id} value={a.name}>{a.name}</option>
                         ))}
                       </select>
                       <div className="absolute right-6 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
@@ -2251,18 +2307,18 @@ export default function BackofficePage() {
                 <div className="flex gap-4">
                   <Button variant="outline" className="flex-1 h-20 rounded-2xl font-black uppercase text-xs" onClick={() => setReceptionStep('classification')}>Cancelar</Button>
                    <Button 
-                    className={`flex-[2] h-20 text-white rounded-2xl shadow-2xl font-black uppercase text-xs transition-all ${!agencia ? 'bg-slate-300 cursor-not-allowed' : (category === 'Accesorio' ? 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/20' : 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/20')}`}
+                    className={`flex-[2] h-20 text-white rounded-2xl shadow-2xl font-black uppercase text-xs transition-all ${(!agencia || isSubmitting) ? 'bg-slate-300 cursor-not-allowed' : (category === 'Accesorio' ? 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/20' : 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/20')}`}
                     onClick={async () => {
-                      if (!agencia) {
-                        alert("Por favor, seleccione una agencia de origen.");
+                      if (!agencia || isSubmitting) {
+                        if (!agencia) alert("Por favor, seleccione una agencia de origen.");
                         return;
                       }
                       // Forzamos que la categoría sea la correcta antes de guardar
                       await completeCurrentGuides();
                     }}
-                    disabled={!agencia}
+                    disabled={!agencia || isSubmitting}
                   >
-                    Confirmar Envío a Sub-Bodega
+                    {isSubmitting ? 'Procesando...' : 'Confirmar Envío a Sub-Bodega'}
                   </Button>
                 </div>
               </Card>
@@ -2523,7 +2579,7 @@ export default function BackofficePage() {
                             <td className="px-4 py-3 whitespace-nowrap"><span className="text-[11px] font-black font-mono text-[#181c3a]">{displayGuide}</span></td>
                             <td className="px-4 py-3 text-[11px] font-black text-slate-500 uppercase whitespace-nowrap">{piloto}</td>
                             <td className="px-4 py-3 text-[11px] text-slate-400 uppercase whitespace-nowrap">{rec.carrier || '---'}</td>
-                            <td className="px-4 py-3 text-[11px] text-slate-500 whitespace-nowrap">{rec.received_by || 'SISTEMA'}</td>
+                            <td className="px-4 py-3 text-[11px] text-slate-500 whitespace-nowrap">{getReceiverName(rec)}</td>
                             <td className="px-4 py-3 whitespace-nowrap">
                               {(() => {
                                 const status = rec.status || '';
@@ -2617,8 +2673,8 @@ export default function BackofficePage() {
                         }
 
                         return units.map((unit, ui) => {
-                          const osLabel = unit[0]?.service_orders?.os_label || '---';
-                          const reentry = unit[0]?.service_orders?.reentry_count || 1;
+                          const osLabel = unit.find((u: any) => u?.service_orders?.os_label)?.service_orders?.os_label || '---';
+                          const reentry = unit.find((u: any) => u?.service_orders?.reentry_count)?.service_orders?.reentry_count || 1;
 
                           let unitGuide = displayGuide;
                           if (unit[0]?.serial_number && rec.processed_guides?.length > 0) {
@@ -2639,14 +2695,23 @@ export default function BackofficePage() {
                               <td className="px-4 py-3 whitespace-nowrap"><span className="text-[11px] font-black font-mono text-[#181c3a]">{unitGuide}</span></td>
                               <td className="px-4 py-3 text-[11px] font-black text-slate-500 uppercase whitespace-nowrap">{piloto}</td>
                               <td className="px-4 py-3 text-[11px] text-slate-400 uppercase whitespace-nowrap">{rec.carrier || '---'}</td>
-                              <td className="px-4 py-3 text-[11px] text-slate-500 whitespace-nowrap">{rec.received_by || 'SISTEMA'}</td>
+                              <td className="px-4 py-3 text-[11px] text-slate-500 whitespace-nowrap">{getReceiverName(rec)}</td>
                               <td className="px-4 py-3 whitespace-nowrap">
                                 <span className="text-[9px] uppercase font-black tracking-widest px-3 py-1 rounded-full bg-blue-50 text-blue-600">
                                   RECIBIDO
                                 </span>
                               </td>
-                              <td className="px-4 py-3 whitespace-nowrap">
+                              <td className="px-4 py-3 whitespace-nowrap flex items-center gap-2">
                                 <Badge className="bg-blue-50 text-blue-600 border-none font-black text-[10px] px-2 py-0.5">{osLabel}</Badge>
+                                {osLabel === '---' && (
+                                  <button 
+                                    onClick={() => handleFixMissingOS(rec.id, unit, grp.modelId, grp.brandId)}
+                                    className="px-2 py-0.5 bg-amber-100 text-amber-700 text-[9px] font-bold rounded-md hover:bg-amber-200 transition-colors"
+                                    title="Forzar creación de Orden de Servicio"
+                                  >
+                                    GENERAR OS
+                                  </button>
+                                )}
                               </td>
                               <td className="px-4 py-3 text-center whitespace-nowrap">
                                 <Badge className={`border-none font-black text-[10px] px-2 py-0.5 ${reentry > 1 ? 'bg-amber-50 text-amber-600' : 'bg-slate-50 text-slate-400'}`}>
@@ -3212,30 +3277,30 @@ export default function BackofficePage() {
                       const rows = [];
 
                       for (const g of guides) {
+                         // Leer categoría desde reception_guides (Fase 3) con fallback a notes
+                         const guideRg = (r.reception_guides || []).find((rg: any) => rg.guide_number === g);
+                         const rgCategory = (guideRg?.category || '').toLowerCase();
+                         
+                         // Fallback a notas solo si no hay registro en reception_guides
                          let isAccesorio = false;
                          let isTelefono = false;
                          
-                         const gEscaped = g.replace(/[-]/g, '\\-');
-                         const guideBlockRegex = new RegExp(`\\[Guía.*?(?:${gEscaped}).*?\\][\\s\\S]*?(?=\\[Guía|---|$)`, 'i');
-                         const guideBlockMatch = notes.match(guideBlockRegex);
-                         
-                         if (guideBlockMatch) {
-                            const block = guideBlockMatch[0].toLowerCase();
-                            isAccesorio = block.includes('backoffice_category: accesorio') || (!block.includes('backoffice_category:') && block.includes('accesorio'));
-                            isTelefono = block.includes('backoffice_category: teléfono') || block.includes('backoffice_category: movil') || (!block.includes('backoffice_category:') && (block.includes('teléfono') || block.includes('movil')));
+                         if (rgCategory) {
+                           isAccesorio = rgCategory === 'accesorio';
+                           isTelefono = rgCategory === 'telefono';
                          } else {
-                            const globalRegex = /--- DETALLES BACKOFFICE ---([\s\S]*?)(?:\[Guía|--- LÍNEA DE TIEMPO|$)/i;
-                            const globalMatch = notes.match(globalRegex);
-                            const globalBlock = globalMatch ? globalMatch[1].toLowerCase() : notes.toLowerCase();
-
-                            const hasExplicit = globalBlock.includes('backoffice_category:');
-                            if (hasExplicit) {
-                               isAccesorio = globalBlock.includes('backoffice_category: accesorio');
-                               isTelefono = globalBlock.includes('backoffice_category: teléfono') || globalBlock.includes('backoffice_category: movil');
-                            } else {
-                               isAccesorio = globalBlock.includes('accesorio');
-                               isTelefono = globalBlock.includes('teléfono') || globalBlock.includes('movil');
-                            }
+                           const notes = (r.notes || '').toLowerCase();
+                           const gEscaped = g.replace(/[-]/g, '\\-');
+                           const guideBlockRegex = new RegExp(`\\[Guía.*?(?:${gEscaped}).*?\\][\\s\\S]*?(?=\\[Guía|---|$)`, 'i');
+                           const guideBlockMatch = notes.match(guideBlockRegex);
+                           if (guideBlockMatch) {
+                             const block = guideBlockMatch[0].toLowerCase();
+                             isAccesorio = block.includes('backoffice_category: accesorio');
+                             isTelefono = block.includes('backoffice_category: teléfono') || block.includes('backoffice_category: movil');
+                           } else {
+                             isAccesorio = notes.includes('backoffice_category: accesorio');
+                             isTelefono = notes.includes('backoffice_category: teléfono') || notes.includes('backoffice_category: movil');
+                           }
                          }
 
                          let match = false;
@@ -3243,10 +3308,14 @@ export default function BackofficePage() {
                          if (activeTab === 'sub_telefonos') match = isTelefono;
 
                          if (match) {
+                           const notes = (r.notes || '');
+                           const gEscaped = g.replace(/[-]/g, '\\-');
                            const tlRegex = new RegExp(`\\[(.*?)\\].*?CLASIFICACIÓN.*?(?:${gEscaped}).*?- Por: (.*)`, 'i');
                            const tlMatch = notes.match(tlRegex);
-                           const processDate = tlMatch ? tlMatch[1] : new Date(r.created_at).toLocaleString();
-                           const processUser = tlMatch ? tlMatch[2].trim() : (r.received_by || 'SISTEMA');
+                           const processDate = guideRg?.classified_at
+                             ? new Date(guideRg.classified_at).toLocaleString()
+                             : (tlMatch ? tlMatch[1] : new Date(r.created_at).toLocaleString());
+                           const processUser = guideRg?.classified_by || (tlMatch ? tlMatch[2].trim() : (r.received_by || 'SISTEMA'));
 
                            rows.push({
                              id: r.id + '-' + g,
@@ -3315,16 +3384,17 @@ export default function BackofficePage() {
                     ))}
                   {allReceptions.filter(r => {
                     if (r.status === 'ARCHIVADO') return false;
+                    // Leer categoría desde reception_guides (Fase 3) con fallback a notes
+                    const guideCategories: string[] = (r.reception_guides || []).map((rg: any) => (rg.category || '').toLowerCase());
                     const notes = (r.notes || '').toLowerCase();
-                    const hasExplicitCategory = notes.includes('backoffice_category:');
-                    
+
                     if (activeTab === 'sub_accesorios') {
-                      if (hasExplicitCategory) return notes.includes('backoffice_category: accesorio');
-                      return notes.includes('accesorio');
+                      if (guideCategories.length > 0) return guideCategories.some((c: string) => c === 'accesorio');
+                      return notes.includes('backoffice_category: accesorio') || notes.includes('accesorio');
                     }
                     if (activeTab === 'sub_telefonos') {
-                      if (hasExplicitCategory) return notes.includes('backoffice_category: teléfono') || notes.includes('backoffice_category: movil');
-                      return notes.includes('teléfono') || notes.includes('movil');
+                      if (guideCategories.length > 0) return guideCategories.some((c: string) => c === 'telefono');
+                      return notes.includes('backoffice_category: teléfono') || notes.includes('backoffice_category: movil') || notes.includes('teléfono') || notes.includes('movil');
                     }
                     return false;
                   }).length === 0 && (

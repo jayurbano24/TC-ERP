@@ -275,10 +275,16 @@ export default function BodegaGestionPage() {
           const notes = main.receptions?.notes || '';
           const normalizedNotes = notes.replace(/\\n/g, '\n');
           const piloto = normalizedNotes.split('Piloto: ')[1]?.split('\n')[0]?.trim() || '---';
-          const agenciaCAC = normalizedNotes.split('Backoffice_Agency: ')[1]?.split('\n')[0]?.trim() || main.receptions?.carrier || '---';
-          const techId = normalizedNotes.split('Backoffice_Tech: ')[1]?.split('\n')[0]?.trim() || main.technology_id || '';
-          const brandId = normalizedNotes.split('Backoffice_Brand: ')[1]?.split('\n')[0]?.trim() || main.brand_id || '';
-          const modelId = normalizedNotes.split('Backoffice_Model: ')[1]?.split('\n')[0]?.trim() || main.model_id || '';
+          // Agencia: usar reception_guides.agency si está disponible (Fase 4), fallback a notes
+          const receptionGuide = (main.receptions?.reception_guides || []).find((rg: any) => rg.guide_number === main.receptions?.guide_number);
+          const agenciaCAC = receptionGuide?.agency
+            || normalizedNotes.split('Backoffice_Agency: ')[1]?.split('\n')[0]?.trim()
+            || main.receptions?.carrier
+            || '---';
+          // Tech/Brand/Model vienen directo de la serie (fuente de verdad principal)
+          const techId = main.technology_id || normalizedNotes.split('Backoffice_Tech: ')[1]?.split('\n')[0]?.trim() || '';
+          const brandId = main.brand_id || normalizedNotes.split('Backoffice_Brand: ')[1]?.split('\n')[0]?.trim() || '';
+          const modelId = main.model_id || normalizedNotes.split('Backoffice_Model: ')[1]?.split('\n')[0]?.trim() || '';
           const reentryCount = main.service_orders?.reentry_count || 1;
           const ingresoLabel = `${reentryCount}° Ingreso`;
 
@@ -475,12 +481,19 @@ export default function BodegaGestionPage() {
       siblingSeries = [mainSeries.serial_number];
     }
 
-    // Parsear metadatos de Backoffice de las notas de recepcion
+    // Parsear metadatos — agencia desde reception_guides.agency si disponible (Fase 4)
     const notes = mainSeries.receptions?.notes || '';
     const piloto = notes.split('Piloto: ')[1]?.split('\n')[0]?.trim() || '---';
-    const agenciaCAC = notes.split('Backoffice_Agency: ')[1]?.split('\n')[0]?.trim() || mainSeries.receptions?.carrier || '---';
+    // Buscar el reception_guide correspondiente a esta guía
+    const receptionGuide = (mainSeries.receptions?.reception_guides || []).find(
+      (rg: any) => rg.guide_number === mainSeries.receptions?.guide_number
+    );
+    const agenciaCAC = receptionGuide?.agency
+      || notes.split('Backoffice_Agency: ')[1]?.split('\n')[0]?.trim()
+      || mainSeries.receptions?.carrier
+      || '---';
 
-    // Resolver IDs de catálogo a nombres legibles usando los catálogos cargados
+    // Resolver IDs de catálogo — vienen de la serie directamente, notas solo como fallback
     const trueModelId = mainSeries.model_id;
     const trueBrandId = mainSeries.brand_id;
     const modelRecord = catModelos.find(m => m.id === trueModelId);
@@ -723,15 +736,21 @@ export default function BodegaGestionPage() {
       siblingSeries = [mainSeries.serial_number];
     }
 
-    // Parsear metadatos de Backoffice de las notas de recepcion
+    // Parsear metadatos — agencia desde reception_guides.agency si disponible (Fase 4)
     const notes = mainSeries.receptions?.notes || '';
     const piloto = notes.split('Piloto: ')[1]?.split('\n')[0]?.trim() || '---';
-    const agenciaCAC = notes.split('Backoffice_Agency: ')[1]?.split('\n')[0]?.trim() || mainSeries.receptions?.carrier || '---';
+    const receptionGuide2 = (mainSeries.receptions?.reception_guides || []).find(
+      (rg: any) => rg.guide_number === mainSeries.receptions?.guide_number
+    );
+    const agenciaCAC = receptionGuide2?.agency
+      || notes.split('Backoffice_Agency: ')[1]?.split('\n')[0]?.trim()
+      || mainSeries.receptions?.carrier
+      || '---';
 
     // Resolver IDs de catálogo a nombres legibles usando los catálogos cargados
-    const techId = notes.split('Backoffice_Tech: ')[1]?.split('\n')[0]?.trim() || mainSeries.technology_id || '';
-    const brandId = notes.split('Backoffice_Brand: ')[1]?.split('\n')[0]?.trim() || mainSeries.brand_id || '';
-    const modelId = notes.split('Backoffice_Model: ')[1]?.split('\n')[0]?.trim() || mainSeries.model_id || '';
+    const techId = mainSeries.technology_id || notes.split('Backoffice_Tech: ')[1]?.split('\n')[0]?.trim() || '';
+    const brandId = mainSeries.brand_id || notes.split('Backoffice_Brand: ')[1]?.split('\n')[0]?.trim() || '';
+    const modelId = mainSeries.model_id || notes.split('Backoffice_Model: ')[1]?.split('\n')[0]?.trim() || '';
 
     // Buscar nombre legible en catálogos cargados
     const tecnologiaBO = catTecnologias.find(t => t.id === techId)?.name || techId || 'EQUIPO';
@@ -1508,7 +1527,9 @@ export default function BodegaGestionPage() {
         )}
 
         {/* Modal Detalle / Cierre de Caja (Ingreso Inteligente) */}
-        {selectedBox && (
+        {selectedBox && (() => {
+          const uniqueEquipmentsCount = new Set(selectedBox.series?.map((s: any) => s.service_orders?.id || s.serial_number)).size;
+          return (
           <div className="fixed inset-0 z-50 flex items-center justify-end bg-[#181c3a]/40 backdrop-blur-sm">
             <div className="w-[95vw] max-w-none h-full bg-white shadow-2xl animate-slide-in-right flex flex-col">
               <div className="bg-[#181c3a] p-8 text-white relative overflow-hidden">
@@ -1543,13 +1564,13 @@ export default function BodegaGestionPage() {
                       <div className="flex justify-between items-end mb-4">
                         <span className="text-[10px] font-black uppercase tracking-widest text-white/40 leading-none">Progreso Caja</span>
                         <span className="text-2xl font-black text-[#2ec4f1] leading-none">
-                          {selectedBox.series.length} <span className="text-sm text-white/20">/ {selectedBox.cantidad}</span>
+                          {uniqueEquipmentsCount} <span className="text-sm text-white/20">/ {selectedBox.cantidad}</span>
                         </span>
                       </div>
                       <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
                         <div 
                           className="h-full bg-[#2ec4f1] transition-all duration-500"
-                          style={{ width: `${(selectedBox.series.length / selectedBox.cantidad) * 100}%` }}
+                          style={{ width: `${(uniqueEquipmentsCount / selectedBox.cantidad) * 100}%` }}
                         />
                       </div>
                     </div>
@@ -1563,7 +1584,7 @@ export default function BodegaGestionPage() {
 
               <div className="flex-1 overflow-y-auto p-8 space-y-8 bg-slate-50/30">
                 {/* Ocultar sección de escaneo si la caja ya está llena */}
-                {selectedBox.series.length < selectedBox.cantidad && (
+                {uniqueEquipmentsCount < selectedBox.cantidad && (
                   <>
                     {/* Buscador Inteligente */}
                     <div className="space-y-4">
@@ -1767,7 +1788,8 @@ export default function BodegaGestionPage() {
               </div>
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* Modal Transferencia Masiva */}
         {showTransferModal && (

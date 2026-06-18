@@ -40,7 +40,15 @@ export async function searchSeriesDetailed(filters: { os?: string, imei?: string
   // Usamos left joins para traer todo
   let query = supabase.from('series').select(`
     *,
-    receptions:current_reception_id (source, guide_number, sap_document, carrier, notes, processed_guides),
+    receptions:current_reception_id (
+      source,
+      guide_number,
+      sap_document,
+      carrier,
+      notes,
+      processed_guides,
+      reception_guides (guide_number, agency, category)
+    ),
     boxes:current_box_id (box_code, rack_location),
     service_orders:service_order_id (os_label, os_number),
     brands:brand_id (name),

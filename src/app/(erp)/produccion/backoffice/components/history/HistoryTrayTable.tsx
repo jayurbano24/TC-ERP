@@ -14,6 +14,7 @@ import { HistoryTrayTableRow, type HistoryTrayRowActions } from './HistoryTrayTa
 
 type Props = HistoryTrayRowActions & {
   allEntries: HistoryUnitEntry[];
+  emptyMessage?: string;
   historyPage: number;
   setHistoryPage: React.Dispatch<React.SetStateAction<number>>;
   historyLoadError: string | null;
@@ -26,6 +27,7 @@ type Props = HistoryTrayRowActions & {
 
 export function HistoryTrayTable({
   allEntries,
+  emptyMessage = 'No hay ingresos CAC con orden de servicio TC-XXX que coincidan con los filtros',
   historyPage,
   setHistoryPage,
   historyLoadError,
@@ -89,28 +91,28 @@ export function HistoryTrayTable({
 
   return (
     <>
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto erp-table-wrap">
         <table className="w-full text-left min-w-[1400px]">
           <thead>
-            <tr className="bg-[#181c3a] text-white">
-              <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap">Fecha / Hora</th>
-              <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap">No. Guía</th>
-              <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap">Piloto</th>
-              <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap">Courier</th>
-              <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap">Recibió</th>
-              <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap">Estatus</th>
-              <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap">Orden de Servicio</th>
-              <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap">Ingreso</th>
-              <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap">Agencia CAC</th>
-              <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap">Tecnología</th>
-              <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap">Marca</th>
-              <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap">Modelo</th>
-              <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap">Documento SAP</th>
-              <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap">S-1</th>
-              <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap">S-2</th>
-              <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap">S-3</th>
-              <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap">S-4</th>
-              <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-right">Acción</th>
+            <tr className="bg-slate-50 border-b border-slate-100">
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">Fecha / Hora</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">No. Guía</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">Piloto</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">Courier</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">Recibió</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">Estatus</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">Orden de Servicio</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">Ingreso</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">Agencia CAC</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">Tecnología</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">Marca</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">Modelo</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">Documento SAP</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">S-1</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">S-2</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">S-3</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">S-4</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500 text-right">Acción</th>
             </tr>
           </thead>
           <tbody>
@@ -118,10 +120,8 @@ export function HistoryTrayTable({
               <tr>
                 <td colSpan={18} className="p-12 text-center">
                   <Database className="w-12 h-12 text-slate-200 mx-auto mb-4" />
-                  <p className="text-xs font-black text-slate-400 uppercase tracking-widest">
-                    {historyLoadError
-                      ? 'No se pudo cargar el historial. Use Reintentar arriba.'
-                      : 'No hay ingresos CAC con orden de servicio TC-XXX que coincidan con los filtros'}
+                  <p className="text-xs font-black text-slate-400 uppercase tracking-widest max-w-lg mx-auto leading-relaxed">
+                    {emptyMessage}
                   </p>
                 </td>
               </tr>

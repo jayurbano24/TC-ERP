@@ -27,6 +27,7 @@ export default function BackofficePageClient() {
     setHistoryPage,
     fetchHistory,
     getHistoryTrayEntries,
+    getUnfilteredHistoryTrayEntries,
     historyFilterBrands,
     historyFilterModels,
     patchHistoryFilter,
@@ -143,6 +144,7 @@ export default function BackofficePageClient() {
           setHistoryPage={setHistoryPage}
           fetchHistory={fetchHistory}
           getHistoryTrayEntries={getHistoryTrayEntries}
+          getUnfilteredHistoryTrayEntries={getUnfilteredHistoryTrayEntries}
           historyFilterBrands={historyFilterBrands}
           historyFilterModels={historyFilterModels}
           patchHistoryFilter={patchHistoryFilter}

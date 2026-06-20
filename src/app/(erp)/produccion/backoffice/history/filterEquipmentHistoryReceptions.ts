@@ -1,36 +1,18 @@
-/** Filtra recepciones CAC para la bandeja de historial de equipos (excluye accesorios/teléfonos y estados finales). */
+/** Filtra recepciones CAC para la bandeja de historial de equipos (excluye accesorios/teléfonos y estados finales de recepción). */
 export function filterEquipmentHistoryReceptions(data: any[]): any[] {
-  const filtered = data
-    .map((rec: any) => {
-      const boxedOsIds = new Set(
-        (rec.series || [])
-          .filter((s: any) => s.current_box_id && s.service_orders?.id)
-          .map((s: any) => s.service_orders.id)
-      );
+  /** Estados de serie que no deben aparecer en historial global (salida definitiva). */
+  const EXCLUDED_SERIES_STATUSES = new Set(['in_scraps', 'dispatched']);
 
-      return {
-        ...rec,
-        series: rec.series
-          ? rec.series.filter((s: any) => {
-              if (s.current_box_id) return false;
-              if (s.service_orders?.id && boxedOsIds.has(s.service_orders.id)) return false;
-              const cStatus = (s.current_status || '').toLowerCase().trim();
-              const shouldFilter = [
-                'in_workshop',
-                'in_qc',
-                'in_l3',
-                'in_scraps',
-                'in_control_warehouse',
-                'in_central_warehouse',
-                'ready_to_dispatch',
-                'dispatched',
-              ].includes(cStatus);
-              if (shouldFilter) return false;
-              return true;
-            })
-          : [],
-      };
-    })
+  const filtered = data
+    .map((rec: any) => ({
+      ...rec,
+      series: (rec.series || []).filter((s: any) => {
+        if (!s.brand_id) return false;
+        const cStatus = (s.current_status || '').toLowerCase().trim();
+        if (EXCLUDED_SERIES_STATUSES.has(cStatus)) return false;
+        return true;
+      }),
+    }))
     .filter((rec: any) => {
       const notes = (rec.notes || '').toLowerCase();
       const recStatus = (rec.status || '').toUpperCase().trim();

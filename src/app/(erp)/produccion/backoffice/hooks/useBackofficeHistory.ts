@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useRef, useState } from 'react';
-import { getReceptionsWithSeries } from '@/lib/database/receptions';
 import {
   collectTcHistoryUnitEntries,
   filterUnitEntriesByDate,
@@ -10,8 +9,16 @@ import {
   EMPTY_HISTORY_TRAY_FILTERS,
   type HistoryTrayFilters,
 } from '../historyTrayUtils';
-import { filterEquipmentHistoryReceptions } from '../history/filterEquipmentHistoryReceptions';
 import type { CatalogAgency, CatalogBrand, CatalogModel } from '../types';
+
+async function fetchCacHistoryFromApi(): Promise<any[]> {
+  const res = await fetch('/api/backoffice/cac-history', { cache: 'no-store' });
+  const payload = await res.json();
+  if (!res.ok) {
+    throw new Error(payload?.error || 'Error al cargar el historial CAC');
+  }
+  return Array.isArray(payload) ? payload : [];
+}
 
 type Catalogs = {
   CAC_AGENCIES: CatalogAgency[];
@@ -31,7 +38,7 @@ export function useBackofficeHistory(
   const [historyReceptions, setHistoryReceptions] = useState<any[]>([]);
   const [historySearch, setHistorySearch] = useState('');
   const [historyFilters, setHistoryFilters] = useState<HistoryTrayFilters>(EMPTY_HISTORY_TRAY_FILTERS);
-  const [historyFiltersOpen, setHistoryFiltersOpen] = useState(true);
+  const [historyFiltersOpen, setHistoryFiltersOpen] = useState(false);
   const [historyPage, setHistoryPage] = useState(1);
 
   const fetchHistory = useCallback(async (opts?: { silent?: boolean }) => {
@@ -39,9 +46,9 @@ export function useBackofficeHistory(
     if (!opts?.silent) setHistoryLoading(true);
     setHistoryLoadError(null);
     try {
-      const data = await getReceptionsWithSeries('cac');
+      const data = await fetchCacHistoryFromApi();
       if (fetchId !== historyFetchIdRef.current) return;
-      setHistoryReceptions(filterEquipmentHistoryReceptions(data));
+      setHistoryReceptions(data);
       setHistoryPage(1);
       setHistoryLoadError(null);
     } catch (error: any) {
@@ -84,6 +91,11 @@ export function useBackofficeHistory(
     ]
   );
 
+  const getUnfilteredHistoryTrayEntries = useCallback(
+    () => collectHistoryTrayEntries(),
+    [collectHistoryTrayEntries]
+  );
+
   const historyFilterBrands = catalogs.MASTER_MARCAS.filter((b) =>
     !historyFilters.techId ||
     catalogs.MASTER_MODELOS.some((m) => m.marcaId === b.id && m.tecnologiaId === historyFilters.techId)
@@ -118,6 +130,7 @@ export function useBackofficeHistory(
     setHistoryPage,
     fetchHistory,
     getHistoryTrayEntries,
+    getUnfilteredHistoryTrayEntries,
     historyFilterBrands,
     historyFilterModels,
     patchHistoryFilter,

@@ -27,6 +27,7 @@ type Props = {
   setHistoryPage: React.Dispatch<React.SetStateAction<number>>;
   fetchHistory: (opts?: { silent?: boolean }) => Promise<void>;
   getHistoryTrayEntries: () => HistoryUnitEntry[];
+  getUnfilteredHistoryTrayEntries: () => HistoryUnitEntry[];
   historyFilterBrands: CatalogBrand[];
   historyFilterModels: CatalogModel[];
   patchHistoryFilter: (patch: Partial<HistoryTrayFilters>) => void;
@@ -63,6 +64,7 @@ export function HistoryTab({
   setHistoryPage,
   fetchHistory,
   getHistoryTrayEntries,
+  getUnfilteredHistoryTrayEntries,
   historyFilterBrands,
   historyFilterModels,
   patchHistoryFilter,
@@ -86,13 +88,26 @@ export function HistoryTab({
   onPrintConduce,
 }: Props) {
   const trayEntries = getHistoryTrayEntries();
+  const totalTcEntries = getUnfilteredHistoryTrayEntries();
+  const hasUserFilters =
+    Boolean(historySearch.trim() || dateFilterFrom || dateFilterTo || hasActiveHistoryTrayFilters(historyFilters));
+
+  const emptyMessage = historyLoadError
+    ? 'No se pudo cargar el historial. Use Reintentar arriba.'
+    : totalTcEntries.length === 0
+      ? 'No hay equipos CAC clasificados con orden TC-XXX. Procese recepciones desde Bandeja de Entrada.'
+      : hasUserFilters && trayEntries.length === 0
+        ? 'Ningún registro coincide con los filtros activos. Limpie búsqueda, fechas o filtros por columna.'
+        : 'No hay ingresos CAC con orden de servicio TC-XXX que coincidan con los filtros';
   const orphans =
     historySearch.trim() && trayEntries.length === 0
       ? findOrphanClassifications(historyReceptions as Parameters<typeof findOrphanClassifications>[0], historySearch)
       : [];
 
+  const showInitialLoader = historyLoading && historyReceptions.length === 0 && !historyLoadError;
+
   return (
-    <div className="space-y-4 animate-rise-in">
+    <div className="space-y-4">
       {historyLoadError && (
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
           <div>
@@ -109,13 +124,15 @@ export function HistoryTab({
         </div>
       )}
 
-      {historyLoading && historyReceptions.length === 0 && !historyLoadError && (
-        <div className="py-12 text-center bg-white rounded-3xl border border-slate-100">
+      {showInitialLoader && (
+        <div className="py-16 text-center bg-white rounded-2xl border border-slate-100">
           <RefreshCw className="w-10 h-10 mx-auto mb-4 text-[#2ec4f1] animate-spin" />
           <p className="text-sm font-black text-slate-400 uppercase tracking-widest">Cargando historial...</p>
         </div>
       )}
 
+      {!showInitialLoader && (
+        <>
       <HistoryStatsGrid
         trayEntries={trayEntries}
         MASTER_TECNOLOGIAS={MASTER_TECNOLOGIAS}
@@ -208,6 +225,7 @@ export function HistoryTab({
 
         <HistoryTrayTable
           allEntries={trayEntries}
+          emptyMessage={emptyMessage}
           historyPage={historyPage}
           setHistoryPage={setHistoryPage}
           historyLoadError={historyLoadError}
@@ -224,6 +242,8 @@ export function HistoryTab({
           onPrintConduce={onPrintConduce}
         />
       </Card>
+        </>
+      )}
     </div>
   );
 }

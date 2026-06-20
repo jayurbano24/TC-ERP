@@ -594,31 +594,49 @@ export async function updateReception(id: string, updates: Partial<DbReception>)
   return { success: true };
 }
 
+export const RECEPTIONS_WITH_SERIES_SELECT =
+  '*, reception_guides(id, guide_number, category, agency, classified_at), sap_transfer_documents(id, reception_guide_id, sap_document_number, agency, status, created_at), series(id, serial_number, brand_id, model_id, current_status, current_box_id, sap_transfer_id, service_order_id, created_at, updated_at, service_orders(id, os_label, main_serial, reentry_count, created_at, reception_guide_id, sap_transfer_id, reception_guides(id, guide_number, agency)))';
+
+/** Select más ligero para bandeja historial CAC (sin join anidado reception_guides en service_orders). */
+export const CAC_HISTORY_SELECT =
+  '*, reception_guides(id, guide_number, category, agency, classified_at), sap_transfer_documents(id, reception_guide_id, sap_document_number, agency, status, created_at), series(id, serial_number, brand_id, model_id, current_status, current_box_id, sap_transfer_id, service_order_id, created_at, updated_at, service_orders(id, os_label, main_serial, reentry_count, created_at, reception_guide_id, sap_transfer_id))';
+
+export async function queryCacHistoryReceptions(supabase: { from: (table: string) => any }) {
+  const { data, error } = await supabase
+    .from('receptions')
+    .select(CAC_HISTORY_SELECT)
+    .eq('source', 'cac')
+    .order('created_at', { ascending: false })
+    .limit(300);
+
+  if (error) throw new Error(error.message);
+  return data || [];
+}
+
+export async function queryReceptionsWithSeries(
+  supabase: { from: (table: string) => any },
+  source?: 'cac' | 'px'
+) {
+  let query = supabase
+    .from('receptions')
+    .select(RECEPTIONS_WITH_SERIES_SELECT)
+    .order('created_at', { ascending: false })
+    .limit(300);
+
+  if (source) {
+    query = query.eq('source', source);
+  }
+
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+  return data || [];
+}
+
 export async function getReceptionsWithSeries(source?: 'cac' | 'px') {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return [];
 
-  return withRetry(async () => {
-    let query = supabase
-      .from('receptions')
-      .select(
-        '*, reception_guides(id, guide_number, category, agency, classified_at), sap_transfer_documents(id, reception_guide_id, sap_document_number, agency, status, created_at), series(id, serial_number, brand_id, model_id, current_status, current_box_id, sap_transfer_id, service_order_id, created_at, updated_at, service_orders(id, os_label, main_serial, reentry_count, created_at, reception_guide_id, sap_transfer_id, reception_guides(id, guide_number, agency)))'
-      )
-      .order('created_at', { ascending: false })
-      .limit(300);
-
-    if (source) {
-      query = query.eq('source', source);
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    return data || [];
-  }).catch((err) => {
+  return withRetry(async () => queryReceptionsWithSeries(supabase, source)).catch((err) => {
     console.error("Error in getReceptionsWithSeries:", err);
     throw new Error(formatFetchError(err, 'Error al cargar el historial'));
   });

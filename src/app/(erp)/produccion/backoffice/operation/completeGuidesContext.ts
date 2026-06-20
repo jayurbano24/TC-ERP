@@ -1,0 +1,43 @@
+'use client';
+
+import type React from 'react';
+import type { BackofficeTab, CatalogAgency, CatalogBrand, CatalogModel, CatalogTech, GuideItem, ReceptionStep, SapTransferGroup } from '../types';
+
+export type CompleteGuidesContext = {
+  isSubmitting: boolean;
+  isSubmittingRef: React.MutableRefObject<boolean>;
+  setIsSubmitting: React.Dispatch<React.SetStateAction<boolean>>;
+  scannedGuides: string[];
+  processedGuides: string[];
+  setProcessedGuides: React.Dispatch<React.SetStateAction<string[]>>;
+  activeReception: {
+    id: string;
+    status: string;
+    guide_number: string;
+    notes?: string;
+    carrier?: string;
+    created_at: string;
+    processed_guides?: string[];
+    evidence_url?: string;
+  } | null;
+  category: 'Equipo' | 'Accesorio' | 'Teléfono';
+  receptionStep: ReceptionStep;
+  guideItems: GuideItem[];
+  sapGroups: SapTransferGroup[];
+  sapTransferNumber: string;
+  selectedAgencyId: string;
+  returnReason: string;
+  returnTracking: string;
+  returnCourier: string;
+  accessoryPhotos: string[];
+  CAC_AGENCIES: CatalogAgency[];
+  MASTER_TECNOLOGIAS: CatalogTech[];
+  MASTER_MARCAS: CatalogBrand[];
+  MASTER_MODELOS: CatalogModel[];
+  currentUserFullName: string;
+  setReceptionStep: React.Dispatch<React.SetStateAction<ReceptionStep>>;
+  setActiveTab: React.Dispatch<React.SetStateAction<BackofficeTab>>;
+  setHistorySearch: React.Dispatch<React.SetStateAction<string>>;
+  setHistoryPage: React.Dispatch<React.SetStateAction<number>>;
+  fetchHistory: (opts?: { silent?: boolean }) => Promise<void>;
+};

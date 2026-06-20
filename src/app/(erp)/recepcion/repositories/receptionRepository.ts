@@ -1,5 +1,5 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { getReceptions, createReceptionWithSeries, createReceptionWithGuides, createPxReceptionWithBoxes } from "@/lib/database/receptions";
+import { getReceptions, createReceptionWithSeries, createReceptionWithGuides, createPxReceptionWithBoxes, resolveUniquePxGuideNumber, generateNextPxGuideNumber, isPxGuideNumberAvailable, findActivePxReceptionBySapDocument, findActivePxReceptionByDocReference, validatePxHeaderUniqueness, validatePxScannedSeriesForFinalize } from "@/lib/database/receptions";
 import { getCarriers, getPxProviders, getTechnologies, getBrands, getModels } from "@/lib/database/config";
 
 /**
@@ -34,21 +34,39 @@ export const receptionRepository = {
 
     const { data } = await supabase
       .from('series')
-      .select('id, serial_number, current_reception_id, receptions:current_reception_id(guide_number, created_at)')
+      .select('id, serial_number, current_status, current_reception_id, service_order_id, receptions:current_reception_id(guide_number, created_at, status, source, sap_document)')
       .eq('serial_number', serial.toUpperCase())
       .maybeSingle();
 
     return data;
   },
 
-  getLatestServiceOrder: async (seriesId: string) => {
+  getLatestServiceOrder: async (seriesId: string, mainSerial?: string) => {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return null;
+
+    const { data: series } = await supabase
+      .from('series')
+      .select('service_order_id, serial_number')
+      .eq('id', seriesId)
+      .maybeSingle();
+
+    if (series?.service_order_id) {
+      const { data: linked } = await supabase
+        .from('service_orders')
+        .select('os_label, status, reentry_count')
+        .eq('id', series.service_order_id)
+        .maybeSingle();
+      if (linked) return linked;
+    }
+
+    const main = (mainSerial || series?.serial_number || '').trim().toUpperCase();
+    if (!main) return null;
 
     const { data } = await supabase
       .from('service_orders')
       .select('os_label, status, reentry_count')
-      .eq('series_id', seriesId)
+      .eq('main_serial', main)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -56,24 +74,17 @@ export const receptionRepository = {
     return data;
   },
 
-  generateNextRECNumber: async () => {
-    const supabase = getSupabaseBrowserClient();
-    if (!supabase) return 'REC-800000';
+  generateNextRECNumber: async () => generateNextPxGuideNumber(),
 
-    const { data } = await supabase
-      .from('receptions')
-      .select('guide_number')
-      .like('guide_number', 'REC-%')
-      .order('guide_number', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+  resolveUniquePxGuideNumber,
 
-    if (data && data.guide_number) {
-      const currentNum = parseInt(data.guide_number.split('-')[1]);
-      if (!isNaN(currentNum)) {
-        return `REC-${currentNum + 1}`;
-      }
-    }
-    return 'REC-800000';
-  }
+  isPxGuideNumberAvailable,
+
+  findActivePxReceptionBySapDocument,
+
+  findActivePxReceptionByDocReference,
+
+  validatePxHeaderUniqueness,
+
+  validatePxScannedSeriesForFinalize,
 };

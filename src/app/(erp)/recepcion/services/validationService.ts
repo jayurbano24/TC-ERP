@@ -10,25 +10,49 @@ export const validationService = {
     const existingSeries = await receptionRepository.checkSerialExists(serial);
     if (!existingSeries) return { blocked: false, info: '' };
 
-    const latestOS = await receptionRepository.getLatestServiceOrder(existingSeries.id);
+    const reception = existingSeries.receptions as any;
+    const recStatus = String(reception?.status || '').toUpperCase();
+    const inactiveReception = ['ELIMINADO POR BODEGA', 'ELIMINADO', 'ARCHIVADO', 'DEVUELTO'].includes(
+      recStatus
+    );
 
-    // Estados que permiten re-ingreso
+    const seriesStatus = String(existingSeries.current_status || '').toLowerCase();
+    const activeInInventory = [
+      'recepcionado_bodega_general',
+      'in_central_warehouse',
+      'clasificada',
+      'received',
+    ].includes(seriesStatus);
+
+    const latestOS = await receptionRepository.getLatestServiceOrder(
+      existingSeries.id,
+      existingSeries.serial_number
+    );
+
     const exitedStatuses = ['DESPACHADO', 'ENTREGADO', 'SALIDA', 'DEVUELTO'];
     const currentStatus = (latestOS?.status || '').toUpperCase();
 
-    if (!latestOS || !exitedStatuses.some(s => currentStatus.includes(s))) {
-      const reception = existingSeries.receptions as any;
+    if (
+      !inactiveReception &&
+      activeInInventory &&
+      (!latestOS || !exitedStatuses.some((s) => currentStatus.includes(s)))
+    ) {
       const recGuide = reception?.guide_number || 'N/A';
-      const recDate = reception?.created_at ? new Date(reception.created_at).toLocaleDateString() : '';
-      const osLabel = latestOS?.os_label || 'NO ASIGNADA (En Bodega/Recepción)';
+      const recSap = reception?.sap_document || '---';
+      const recDate = reception?.created_at
+        ? new Date(reception.created_at).toLocaleDateString()
+        : '';
+      const osLabel = latestOS?.os_label || 'SIN OS';
 
       return {
         blocked: true,
-        info: `🚫 SERIE EN PROCESO ACTIVO\n\nLa serie "${serial}" ya está registrada en el sistema:\n` +
-              `• Recepción Original: ${recGuide} (${recDate})\n` +
-              `• Orden de Servicio: ${osLabel}\n` +
-              `• Estado Actual: ${currentStatus || 'DESCONOCIDO'}\n\n` +
-              `No puede ingresar nuevamente hasta que sea despachada o devuelta.`
+        info:
+          `🚫 SERIE EN PROCESO ACTIVO\n\nLa serie "${serial}" ya está registrada:\n` +
+          `• Recepción: ${recGuide} (${recDate})\n` +
+          `• Pedido SAP: ${recSap}\n` +
+          `• Orden de Servicio: ${osLabel}\n` +
+          `• Estado serie: ${existingSeries.current_status || 'DESCONOCIDO'}\n\n` +
+          `No puede ingresar nuevamente hasta eliminar la recepción duplicada o despachar/devolver el equipo.`,
       };
     }
 

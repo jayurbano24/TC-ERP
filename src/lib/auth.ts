@@ -16,6 +16,9 @@ export async function signInWithEmail(identifier: string, password: string) {
     (normalizedIdentifier === 'admin@tcerp.local' && password === 'admin123');
 
   if (isDevAdmin) {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('tcerp_dev_session', JSON.stringify({ email: normalizedIdentifier, role: 'ADMINISTRADOR' }));
+    }
     return { user: { id: 'dev-user', email: normalizedIdentifier }, session: null };
   }
 

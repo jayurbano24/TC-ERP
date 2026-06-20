@@ -31,7 +31,7 @@ import {
   Truck,
   PackageMinus
 } from 'lucide-react';
-import { getInventoryBoxes, transferBoxesToArea, createBoxWithSeries, addSeriesToBox, dispatchBoxFromWarehouse, dispatchSpecificSeries, transferSpecificSeriesToArea } from '@/lib/database/warehouse';
+import { getInventoryBoxes, transferBoxesToArea, createBoxWithSeries, addSeriesToBox, dispatchBoxFromWarehouse, dispatchSpecificSeries, transferSpecificSeriesToArea, canScanSeriesIntoWarehouse, resolveBoxDisplayStatus } from '@/lib/database/warehouse';
 import { getTechnologies, getBrands, getModels } from '@/lib/database/config';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { useEffect } from 'react';
@@ -334,6 +334,9 @@ export default function BodegaGestionPage() {
         }
       }
 
+      const unitCount = seriesList.length;
+      const capacity = b.capacity || 0;
+
       return {
         id: b.box_code || b.id,
         realDbId: b.id,
@@ -342,14 +345,16 @@ export default function BodegaGestionPage() {
         area: areaLabel,
         marca: b.brand_id || 'N/A',
         modelo: b.model_id || 'N/A',
-        cantidad: b.capacity || 0,
-        status: 'Full',
+        cantidad: capacity,
+        unitCount,
+        status: resolveBoxDisplayStatus(unitCount, capacity),
         series: seriesList,
         fechaIngreso: new Date(b.created_at || Date.now()).toLocaleString(),
         tecnologia: seriesList.length > 0 ? seriesList[0].tecnologia : '---',
         usuarioIngreso: seriesList.length > 0 ? seriesList[0].recibio : 'Admin User'
       };
-    }).filter((box: any) => box.area === 'Bodega Central');
+    })
+      .filter((box: any) => box.area === 'Bodega Central' && box.unitCount > 0);
 
     setInventory(dataFromDb);
     setLoading(false);
@@ -380,6 +385,12 @@ export default function BodegaGestionPage() {
 
     if (tempSerials.length === 0) {
       alert("⚠️ Debe escanear al menos una serie para poder guardar la caja.");
+      setLoading(false);
+      return;
+    }
+
+    if (!tempSerials[0]?.reception_id) {
+      alert("⚠️ La serie escaneada no tiene recepción de origen. Verifique clasificación en Backoffice.");
       setLoading(false);
       return;
     }
@@ -454,15 +465,20 @@ export default function BodegaGestionPage() {
       return;
     }
 
-    // Validar que el equipo haya sido procesado en Backoffice
-    const isReceivedInBackoffice = mainSeries.receptions && 
-      (mainSeries.receptions.status === 'PROCESADO' || 
-       mainSeries.receptions.status === 'RECIBIDO_BACKOFFICE' || 
-       mainSeries.receptions.status === 'RECIBIDO' ||
-       mainSeries.service_orders?.id);
-    
-    if (!isReceivedInBackoffice) {
-      alert(`⚠️ El equipo con serie ${currentSN} no ha sido Recibido en Backoffice.\nEstatus actual de Recepción: ${mainSeries.receptions?.status || 'SIN RECEPCIÓN'}.\nNo puede ser ingresado al Almacén.`);
+    // Validar elegibilidad: Backoffice clasificado o PX ya ingresado
+    const ingresoGate = canScanSeriesIntoWarehouse(
+      mainSeries.receptions,
+      !!mainSeries.service_orders?.id,
+      mainSeries.current_status
+    );
+    if (!ingresoGate.ok) {
+      if (ingresoGate.reason === 'already_ingresado') {
+        alert(`⚠️ La serie ${currentSN} ya está ingresada en Bodega General.`);
+      } else {
+        alert(
+          `⚠️ El equipo con serie ${currentSN} no está listo para ingreso a almacén.\nEstatus recepción: ${mainSeries.receptions?.status || 'SIN RECEPCIÓN'}\nEstatus serie: ${mainSeries.current_status || 'N/A'}.`
+        );
+      }
       return;
     }
 
@@ -709,15 +725,20 @@ export default function BodegaGestionPage() {
       return;
     }
 
-    // Validar que el equipo haya sido procesado en Backoffice
-    const isReceivedInBackoffice = mainSeries.receptions && 
-      (mainSeries.receptions.status === 'PROCESADO' || 
-       mainSeries.receptions.status === 'RECIBIDO_BACKOFFICE' || 
-       mainSeries.receptions.status === 'RECIBIDO' ||
-       mainSeries.service_orders?.id);
-    
-    if (!isReceivedInBackoffice) {
-      alert(`⚠️ El equipo con serie ${currentSN} no ha sido Recibido en Backoffice.\nEstatus actual de Recepción: ${mainSeries.receptions?.status || 'SIN RECEPCIÓN'}.\nNo puede ser ingresado al Almacén.`);
+    // Validar elegibilidad: Backoffice clasificado o PX ya ingresado
+    const ingresoGate = canScanSeriesIntoWarehouse(
+      mainSeries.receptions,
+      !!mainSeries.service_orders?.id,
+      mainSeries.current_status
+    );
+    if (!ingresoGate.ok) {
+      if (ingresoGate.reason === 'already_ingresado') {
+        alert(`⚠️ La serie ${currentSN} ya está ingresada en Bodega General.`);
+      } else {
+        alert(
+          `⚠️ El equipo con serie ${currentSN} no está listo para ingreso a almacén.\nEstatus recepción: ${mainSeries.receptions?.status || 'SIN RECEPCIÓN'}\nEstatus serie: ${mainSeries.current_status || 'N/A'}.`
+        );
+      }
       return;
     }
 
@@ -977,7 +998,7 @@ export default function BodegaGestionPage() {
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Cajas Completas</p>
                 <h3 className="text-2xl font-black text-[#181c3a]">
-                  {inventory.filter(b => b.status === 'Full' || (b.series?.length >= (b.capacidad || 50))).length}
+                  {inventory.filter(b => b.status === 'Full').length}
                 </h3>
               </div>
             </div>
@@ -990,7 +1011,7 @@ export default function BodegaGestionPage() {
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Cajas en Proceso</p>
                 <h3 className="text-2xl font-black text-[#181c3a]">
-                  {inventory.filter(b => b.status !== 'Full' && (b.series?.length < (b.capacidad || 50))).length}
+                  {inventory.filter(b => b.status === 'Parcial').length}
                 </h3>
               </div>
             </div>
@@ -1054,9 +1075,9 @@ export default function BodegaGestionPage() {
                   {inventory.filter(item => {
                     if (filterTech && item.tecnologia !== filterTech) return false;
                     
-                    const isFull = item.status === 'Full' || (item.series?.length >= (item.capacidad || 50));
+                    const isFull = item.status === 'Full';
                     if (filterStatus === 'Full' && !isFull) return false;
-                    if (filterStatus === 'Partial' && isFull) return false;
+                    if (filterStatus === 'Partial' && item.status !== 'Parcial') return false;
 
                     if (!searchTerm) return true;
                     const term = searchTerm.toLowerCase();
@@ -1158,14 +1179,17 @@ export default function BodegaGestionPage() {
                           <div className="w-16 h-2 bg-slate-100 rounded-full overflow-hidden">
                             <div 
                               className={`h-full ${item.status === 'Full' ? 'bg-[#2ec4f1]' : 'bg-amber-400'}`} 
-                              style={{ width: `${Math.min((item.cantidad / 50) * 100, 100)}%` }}
+                              style={{ width: `${Math.min(((item.unitCount || item.series?.length || 0) / Math.max(item.cantidad || 1, 1)) * 100, 100)}%` }}
                             />
                           </div>
-                          <span className="text-xs font-bold text-slate-700">{item.cantidad}</span>
+                          <span className="text-xs font-bold text-slate-700">
+                            {item.unitCount ?? item.series?.length ?? 0}
+                            {item.cantidad ? ` / ${item.cantidad}` : ''}
+                          </span>
                         </div>
                       </td>
                       <td className="px-6 py-5">
-                        <Badge variant={item.status === 'Full' ? 'green' : 'yellow'}>{item.status}</Badge>
+                        <Badge variant={item.status === 'Full' ? 'green' : item.status === 'Parcial' ? 'yellow' : 'default'}>{item.status}</Badge>
                       </td>
                       <td className="px-6 py-5 text-right">
                         <div className="flex items-center justify-end gap-4 transition-opacity">
@@ -1764,12 +1788,27 @@ export default function BodegaGestionPage() {
                                       
                                       const supabase = getSupabaseBrowserClient();
                                       if (supabase) {
-                                        await supabase.from('series').update({ current_box_id: null, current_status: 'received' }).in('serial_number', seriesToRemove);
+                                        await supabase.from('series').update({ current_box_id: null, current_status: 'RECEPCIONADO_BODEGA_GENERAL' }).in('serial_number', seriesToRemove);
                                       }
 
-                                      const updatedBox = { ...selectedBox, series: selectedBox.series.filter((s: any) => s.sn !== (item.sn || item.s1)) };
-                                      setSelectedBox(updatedBox);
-                                      setInventory(inventory.map(inv => inv.id === selectedBox.id ? updatedBox : inv));
+                                      const updatedSeries = selectedBox.series.filter((s: any) => s.sn !== (item.sn || item.s1));
+                                      const updatedBox = {
+                                        ...selectedBox,
+                                        series: updatedSeries,
+                                        unitCount: updatedSeries.length,
+                                        status: resolveBoxDisplayStatus(updatedSeries.length, selectedBox.cantidad),
+                                      };
+
+                                      if (updatedSeries.length === 0) {
+                                        if (supabase && selectedBox.realDbId) {
+                                          await supabase.from('boxes').update({ rack_location: 'ELIMINADO' }).eq('id', selectedBox.realDbId);
+                                        }
+                                        setSelectedBox(null);
+                                        setInventory(inventory.filter((inv) => inv.id !== selectedBox.id));
+                                      } else {
+                                        setSelectedBox(updatedBox);
+                                        setInventory(inventory.map((inv) => (inv.id === selectedBox.id ? updatedBox : inv)));
+                                      }
                                     }
                                   }}
                                   className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-500 rounded-lg transition-colors ml-1"

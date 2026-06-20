@@ -1,5 +1,50 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
+const WAREHOUSE_READY_RECEPTION_STATUSES = new Set([
+  'CLASIFICADA',
+  'PROCESADO',
+  'RECIBIDO_BACKOFFICE',
+  'RECIBIDO',
+  'PENDIENTE DE CLASIFICAR',
+  'PENDIENTE_CLASIFICAR',
+]);
+
+/** Reception classified (Backoffice or PX) and eligible for physical warehouse scan. */
+export function isReceptionReadyForWarehouseIngreso(
+  reception: { status?: string | null; source?: string | null } | null | undefined,
+  hasServiceOrder: boolean
+): boolean {
+  if (!reception) return false;
+  if (hasServiceOrder) return true;
+  const status = (reception.status || '').trim();
+  return WAREHOUSE_READY_RECEPTION_STATUSES.has(status);
+}
+
+export function isSeriesPendingWarehouseIngreso(seriesStatus?: string | null): boolean {
+  return seriesStatus === 'RECEPCIONADO_BODEGA_GENERAL';
+}
+
+export function isSeriesInCentralWarehouse(seriesStatus?: string | null): boolean {
+  return seriesStatus === 'in_central_warehouse';
+}
+
+export function canScanSeriesIntoWarehouse(
+  reception: { status?: string | null; source?: string | null } | null | undefined,
+  hasServiceOrder: boolean,
+  seriesStatus?: string | null
+): { ok: true } | { ok: false; reason: 'already_ingresado' | 'not_ready' } {
+  if (isSeriesInCentralWarehouse(seriesStatus)) {
+    return { ok: false, reason: 'already_ingresado' };
+  }
+  if (
+    isReceptionReadyForWarehouseIngreso(reception, hasServiceOrder) ||
+    isSeriesPendingWarehouseIngreso(seriesStatus)
+  ) {
+    return { ok: true };
+  }
+  return { ok: false, reason: 'not_ready' };
+}
+
 export async function getInventoryBoxes() {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return [];
@@ -51,16 +96,23 @@ export async function getInventoryBoxes() {
   })) };
 }
 
+export function resolveBoxDisplayStatus(seriesCount: number, capacity: number): 'Vacía' | 'Parcial' | 'Full' {
+  if (seriesCount <= 0) return 'Vacía';
+  if (capacity > 0 && seriesCount >= capacity) return 'Full';
+  return 'Parcial';
+}
+
 export async function createBoxWithSeries(boxData: any, seriesNumbers: string[]) {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: "Supabase not configured" };
 
-  // 0. Fallback for reception_id if missing (to prevent not-null constraint errors)
+  const uniqueSeries = [...new Set((seriesNumbers || []).map((s) => s?.trim()).filter(Boolean))];
+  if (uniqueSeries.length === 0) {
+    return { error: 'No se puede crear una caja sin series escaneadas.' };
+  }
+
   if (!boxData.reception_id) {
-    const { data: recData } = await supabase.from('receptions').select('id').limit(1).single();
-    if (recData) {
-      boxData.reception_id = recData.id;
-    }
+    return { error: 'Falta la recepción de origen para crear la caja.' };
   }
 
   // 1. Create the box
@@ -73,15 +125,24 @@ export async function createBoxWithSeries(boxData: any, seriesNumbers: string[])
   if (boxError) return { error: boxError.message };
 
   // 2. Link series to this box and update their status
-  const { error: seriesError } = await supabase
+  const { data: linked, error: seriesError } = await supabase
     .from('series')
     .update({ 
       current_box_id: box.id,
       current_status: 'in_central_warehouse'
     })
-    .in('serial_number', seriesNumbers);
+    .in('serial_number', uniqueSeries)
+    .select('id');
 
-  if (seriesError) return { error: seriesError.message };
+  if (seriesError) {
+    await supabase.from('boxes').update({ rack_location: 'ELIMINADO' }).eq('id', box.id);
+    return { error: seriesError.message };
+  }
+
+  if (!linked?.length) {
+    await supabase.from('boxes').update({ rack_location: 'ELIMINADO' }).eq('id', box.id);
+    return { error: 'Ninguna serie válida pudo vincularse a la caja. Verifique que estén clasificadas en Backoffice.' };
+  }
 
   return { data: box };
 }

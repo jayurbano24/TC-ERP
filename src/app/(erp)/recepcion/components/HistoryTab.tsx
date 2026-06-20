@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { printingService } from '../services/printingService';
+import { groupPxSeriesByEquipment } from '../utils/pxSeriesUtils';
 
 export const HistoryTab = ({
   moduleMode,
@@ -26,6 +27,7 @@ export const HistoryTab = ({
   handlePrintPX,
   handlePrintLabelsPX,
   handleDeleteHistoryCAC,
+  handleDeleteHistoryPX,
   handleEditHistoryCAC
 }: any) => {
 
@@ -67,7 +69,7 @@ export const HistoryTab = ({
     XLSX.writeFile(wb, `reporte_${moduleMode}.xlsx`);
   };
 
-  const [pxDetailsData, setPxDetailsData] = React.useState<any>({ boxes: [], series: [], loading: false });
+  const [pxDetailsData, setPxDetailsData] = React.useState<any>({ boxes: [], equipments: [], loading: false });
   const [filterDate, setFilterDate] = React.useState<string>('Todos');
   const [expandedLots, setExpandedLots] = React.useState<Record<string, boolean>>({});
   const [receptionGuides, setReceptionGuides] = React.useState<any[]>([]);
@@ -117,34 +119,67 @@ export const HistoryTab = ({
     fetchGuides();
   }, [cacRecords]);
 
-  // Filtered records based on search, pilot, date
-  const filteredPxRecords = useMemo(() =>
-    pxRecords.filter((rec: any) => {
+  const pxRowKey = (rec: any, index: number) =>
+    `px-${rec.id || 'noid'}-${rec.created_at || index}-${rec.sap_document || rec.guide_number || index}`;
+
+  const filteredPxRecords = useMemo(() => {
+    const seenIds = new Set<string>();
+    return pxRecords.filter((rec: any) => {
       const searchLower = searchTerm.toLowerCase();
-      const matchSearch = !searchTerm ||
+      const matchSearch =
+        !searchTerm ||
         (rec.sap_document || '').toLowerCase().includes(searchLower) ||
+        (rec.guide_number || '').toLowerCase().includes(searchLower) ||
         (rec.carrier || '').toLowerCase().includes(searchLower) ||
         (rec.received_by || 'SISTEMA').toLowerCase().includes(searchLower);
       const matchFilter = filterPilot === 'Todos' || rec.carrier === filterPilot;
       const matchDate = isDateMatch(rec.created_at);
-      const notEliminated = rec.status !== 'ELIMINADO POR BODEGA' && rec.status !== 'ARCHIVADO';
-      return matchSearch && matchFilter && matchDate && notEliminated;
-    })
-  , [pxRecords, searchTerm, filterPilot, filterDate]);
+      const notEliminated =
+        rec.status !== 'ELIMINADO POR BODEGA' && rec.status !== 'ARCHIVADO';
+      if (!matchSearch || !matchFilter || !matchDate || !notEliminated) return false;
+      if (!rec.id) return true;
+      if (seenIds.has(rec.id)) return false;
+      seenIds.add(rec.id);
+      return true;
+    });
+  }, [pxRecords, searchTerm, filterPilot, filterDate]);
 
-  const filteredCacRecords = useMemo(() =>
-    cacRecords.filter((rec: any) => {
-      const searchLower = searchTerm.toLowerCase();
-      const matchSearch = !searchTerm ||
-        (rec.guide_number?.toLowerCase().includes(searchLower)) ||
-        (rec.pilot_display?.toLowerCase().includes(searchLower)) ||
-        (rec.notes?.toLowerCase().includes(searchLower));
-      const matchFilter = filterPilot === 'Todos' || rec.pilot_display === filterPilot;
-      const matchDate = isDateMatch(rec.created_at);
-      const notEliminated = rec.status !== 'ELIMINADO' && rec.status !== 'ELIMINADO POR BODEGA' && rec.status !== 'ARCHIVADO';
-      return matchSearch && matchFilter && matchDate && notEliminated;
-    })
-  , [cacRecords, searchTerm, filterPilot, filterDate]);
+  const duplicatePxSapDocuments = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const rec of filteredPxRecords) {
+      const sap = String(rec.sap_document || '').trim();
+      if (!sap || sap === '---' || sap === 'SIN-PEDIDO') continue;
+      counts.set(sap, (counts.get(sap) || 0) + 1);
+    }
+    return new Set(
+      [...counts.entries()].filter(([, n]) => n > 1).map(([sap]) => sap)
+    );
+  }, [filteredPxRecords]);
+
+  const parsePxCajasCount = (rec: any) => {
+    const fromNotes = rec.notes?.match(/Cajas:\s*(\d+)/i)?.[1];
+    return fromNotes ? parseInt(fromNotes, 10) : 1;
+  };
+
+  const filteredCacRecords = useMemo(
+    () =>
+      cacRecords.filter((rec: any) => {
+        const searchLower = searchTerm.toLowerCase();
+        const matchSearch =
+          !searchTerm ||
+          rec.guide_number?.toLowerCase().includes(searchLower) ||
+          rec.pilot_display?.toLowerCase().includes(searchLower) ||
+          rec.notes?.toLowerCase().includes(searchLower);
+        const matchFilter = filterPilot === 'Todos' || rec.pilot_display === filterPilot;
+        const matchDate = isDateMatch(rec.created_at);
+        const notEliminated =
+          rec.status !== 'ELIMINADO' &&
+          rec.status !== 'ELIMINADO POR BODEGA' &&
+          rec.status !== 'ARCHIVADO';
+        return matchSearch && matchFilter && matchDate && notEliminated;
+      }),
+    [cacRecords, searchTerm, filterPilot, filterDate]
+  );
 
   const toggleLot = (loteId: string) => {
     setExpandedLots(prev => ({ ...prev, [loteId]: !prev[loteId] }));
@@ -152,16 +187,30 @@ export const HistoryTab = ({
 
   const handleViewPxDetails = async (rec: any) => {
     setShowPxDetails(rec);
-    setPxDetailsData({ boxes: [], series: [], loading: true });
+    setPxDetailsData({ boxes: [], equipments: [], loading: true });
     try {
       const supabase = getSupabaseBrowserClient();
       if (!supabase) return;
-      const { data: boxes } = await supabase.from('boxes').select('*, brands(name), models(name, technologies(name))').eq('reception_id', rec.id);
-      const { data: series } = await supabase.from('series').select('*').eq('current_reception_id', rec.id);
-      setPxDetailsData({ boxes: boxes || [], series: series || [], loading: false });
+      const { data: boxes } = await supabase
+        .from('boxes')
+        .select('*, brands(name), models(name, technologies(name))')
+        .eq('reception_id', rec.id);
+      const { data: series } = await supabase
+        .from('series')
+        .select('serial_number, service_order_id, current_box_id, material')
+        .eq('current_reception_id', rec.id);
+      const { data: serviceOrders } = await supabase
+        .from('service_orders')
+        .select('id, main_serial')
+        .eq('reception_id', rec.id);
+
+      const boxCodeById = Object.fromEntries((boxes || []).map((b: any) => [b.id, b.box_code]));
+      const equipments = groupPxSeriesByEquipment(series || [], serviceOrders || [], boxCodeById);
+
+      setPxDetailsData({ boxes: boxes || [], equipments, loading: false });
     } catch (error) {
       console.error(error);
-      setPxDetailsData({ boxes: [], series: [], loading: false });
+      setPxDetailsData({ boxes: [], equipments: [], loading: false });
     }
   };
 
@@ -368,6 +417,7 @@ export const HistoryTab = ({
             <thead className="bg-[#181c3a] text-white/40 text-[10px] font-black uppercase tracking-widest">
               <tr>
                 <th className="px-6 py-4">Fecha / Hora</th>
+                <th className="px-6 py-4">No. REC</th>
                 <th className="px-6 py-4">Documento SAP</th>
                 <th className="px-6 py-4">Nombre Agencia PX</th>
                 <th className="px-6 py-4">Usuario</th>
@@ -378,29 +428,31 @@ export const HistoryTab = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredPxRecords
-                .map((rec: any) => {
-                  const searchLower = searchTerm.toLowerCase();
-                  const matchSearch = !searchTerm || 
-                    (rec.sap_document || '').toLowerCase().includes(searchLower) ||
-                    (rec.carrier || '').toLowerCase().includes(searchLower) ||
-                    (rec.received_by || 'SISTEMA').toLowerCase().includes(searchLower);
-                  const matchFilter = filterPilot === 'Todos' || rec.carrier === filterPilot;
-                  const matchDate = isDateMatch(rec.created_at);
-                  const notEliminated = rec.status !== 'ELIMINADO POR BODEGA' && rec.status !== 'ARCHIVADO';
-                  return matchSearch && matchFilter && matchDate && notEliminated;
-                })
-                .map((rec: any) => (
-                <tr key={rec.id} className="hover:bg-slate-50 transition-colors group">
+              {filteredPxRecords.map((rec: any, rowIndex: number) => {
+                const sap = String(rec.sap_document || '').trim();
+                const isDuplicateSap = sap && duplicatePxSapDocuments.has(sap);
+                return (
+                <tr
+                  key={pxRowKey(rec, rowIndex)}
+                  className={`hover:bg-slate-50 transition-colors group ${isDuplicateSap ? 'bg-amber-50/60' : ''}`}
+                >
                   <td className="px-6 py-5 font-bold text-slate-600 text-xs">{rec.fecha_formateada || new Date(rec.created_at).toLocaleString()}</td>
-                  <td className="px-6 py-5 font-mono font-black text-[#181c3a]">{rec.sap_document || '---'}</td>
+                  <td className="px-6 py-5 font-mono font-black text-[#2ec4f1]">{rec.guide_number || '---'}</td>
+                  <td className="px-6 py-5">
+                    <span className="font-mono font-black text-[#181c3a]">{rec.sap_document || '---'}</span>
+                    {isDuplicateSap && (
+                      <span className="block text-[9px] font-black uppercase tracking-widest text-amber-600 mt-1">
+                        Pedido duplicado
+                      </span>
+                    )}
+                  </td>
                   <td className="px-6 py-5 text-xs font-bold text-slate-500">{rec.carrier || '---'}</td>
                   <td className="px-6 py-5 text-xs font-bold text-slate-500">{(rec.notes?.split('Recibido Por: ')?.[1]?.split('\n')?.[0]?.trim() || rec.received_by || 'SISTEMA').split('@')[0]}</td>
-                  <td className="px-6 py-5 text-center font-black text-slate-800">{rec.notes?.match(/Cajas:\\s*(\\d+)/)?.[1] || 1} Cajas</td>
+                  <td className="px-6 py-5 text-center font-black text-slate-800">{parsePxCajasCount(rec)} Cajas</td>
                   <td className="px-6 py-5 text-center font-black text-slate-800">{rec.received_units || 0} Equipos</td>
                   <td className="px-6 py-5">
-                    <Badge className={`border-none font-black text-[9px] ${rec.status === 'ELIMINADO POR BODEGA' ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'}`}>
-                      {rec.status === 'ELIMINADO POR BODEGA' ? 'ELIMINADO POR BODEGA' : 'FINALIZADO'}
+                    <Badge className={`border-none font-black text-[9px] ${rec.status === 'ELIMINADO POR BODEGA' ? 'bg-rose-50 text-rose-600' : isDuplicateSap ? 'bg-amber-100 text-amber-700' : 'bg-emerald-50 text-emerald-600'}`}>
+                      {rec.status === 'ELIMINADO POR BODEGA' ? 'ELIMINADO POR BODEGA' : isDuplicateSap ? 'REVISAR DUPLICADO' : 'FINALIZADO'}
                     </Badge>
                   </td>
                   <td className="px-6 py-5 text-right">
@@ -441,8 +493,12 @@ export const HistoryTab = ({
                       </button>
                       <button className="text-slate-400 hover:text-rose-500 transition-all hover:scale-110" title="Eliminar Recepción" onClick={async (e) => {
                         e.stopPropagation();
-                        if (confirm(`¿Está seguro que desea eliminar la recepción ${rec.sap_document || rec.guide_number}?`)) {
+                        if (confirm(`¿Eliminar la recepción ${rec.guide_number || rec.sap_document}? (${rec.received_units || 0} equipos)`)) {
                           try {
+                            if (handleDeleteHistoryPX) {
+                              await handleDeleteHistoryPX(rec.id);
+                              return;
+                            }
                             const supabase = getSupabaseBrowserClient();
                             if (!supabase) return;
                             const { error } = await supabase.from('receptions').update({ status: 'ELIMINADO POR BODEGA' }).eq('id', rec.id);
@@ -458,10 +514,11 @@ export const HistoryTab = ({
                     </div>
                   </td>
                 </tr>
-              ))}
+              );
+              })}
               {filteredPxRecords.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-6 py-10 text-center text-slate-300 italic text-[10px] font-bold uppercase tracking-widest">
+                  <td colSpan={9} className="px-6 py-10 text-center text-slate-300 italic text-[10px] font-bold uppercase tracking-widest">
                     No hay recepciones PX finalizadas
                   </td>
                 </tr>
@@ -655,7 +712,11 @@ export const HistoryTab = ({
                     }
 
                     return (
-                      <tr key={item.id} className={rowClass} onClick={isMasterWithSubs ? () => toggleLot(loteId) : undefined}>
+                      <tr
+                        key={`cac-${isSubRow ? 'sub' : 'master'}-${item.id}-${item.guide_number || ''}-${masterItem?.id || ''}`}
+                        className={rowClass}
+                        onClick={isMasterWithSubs ? () => toggleLot(loteId) : undefined}
+                      >
                         <td className={tdClass}>
                           <div className="flex items-center">
                             {isMasterWithSubs && (
@@ -784,7 +845,7 @@ export const HistoryTab = ({
                 </div>
                 <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Equipos</p>
-                  <p className="font-black text-emerald-500 text-lg">{pxDetailsData.series.length}</p>
+                  <p className="font-black text-emerald-500 text-lg">{pxDetailsData.equipments.length}</p>
                 </div>
               </div>
 
@@ -796,7 +857,9 @@ export const HistoryTab = ({
               ) : (
                 <div className="space-y-6">
                   {pxDetailsData.boxes.map((box: any) => {
-                    const boxSeries = pxDetailsData.series.filter((s: any) => s.current_reception_id === showPxDetails.id);
+                    const boxEquipments = pxDetailsData.equipments.filter(
+                      (eq: any) => eq.current_box_id === box.id
+                    );
                     return (
                       <Card key={box.id} className="p-0 overflow-hidden border border-slate-200 shadow-sm">
                         <div className="bg-white p-4 border-b border-slate-100 flex items-center justify-between">
@@ -809,8 +872,8 @@ export const HistoryTab = ({
                           </div>
                           <div className="flex items-center gap-6">
                             <div className="text-right">
-                              <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Capacidad</p>
-                              <p className="text-sm font-black text-[#2ec4f1]">{box.capacity} und</p>
+                              <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Escaneados</p>
+                              <p className="text-sm font-black text-emerald-500">{boxEquipments.length} / {box.capacity} und</p>
                             </div>
                             <button
                               onClick={(e) => { 
@@ -832,6 +895,30 @@ export const HistoryTab = ({
                             </button>
                           </div>
                         </div>
+                        {boxEquipments.length > 0 && (
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-left text-xs">
+                              <thead className="bg-slate-50 text-[10px] uppercase font-black text-slate-400">
+                                <tr>
+                                  <th className="px-4 py-2">Serie principal</th>
+                                  <th className="px-4 py-2">Serie 2</th>
+                                  <th className="px-4 py-2">Serie 3</th>
+                                  <th className="px-4 py-2">Serie 4</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {boxEquipments.map((eq: any) => (
+                                  <tr key={eq.service_order_id || eq.sn} className="border-t border-slate-100">
+                                    <td className="px-4 py-2 font-mono font-bold text-[#181c3a]">{eq.sn}</td>
+                                    <td className="px-4 py-2 font-mono text-slate-500">{eq.s2 || '-'}</td>
+                                    <td className="px-4 py-2 font-mono text-slate-500">{eq.s3 || '-'}</td>
+                                    <td className="px-4 py-2 font-mono text-slate-500">{eq.s4 || '-'}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
                       </Card>
                     );
                   })}

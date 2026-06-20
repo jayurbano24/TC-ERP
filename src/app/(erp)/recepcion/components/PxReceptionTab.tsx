@@ -2,29 +2,225 @@ import React, { useState } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { Scan, Box, Printer, Pencil, Trash2, CheckCircle2, AlertCircle, Plus, FileText, ArrowRight, ArrowLeft, X, LayoutGrid } from 'lucide-react';
+import { Scan, Box, Pencil, Trash2, CheckCircle2, Plus, FileText, ArrowRight, ArrowLeft, Lock, LockOpen } from 'lucide-react';
+import {
+  canClosePxBox,
+  getPxActiveBoxCodes,
+  getPxBoxStats,
+  validatePxFinalizeReadiness,
+} from '../utils/pxBoxUtils';
 
 export const PxReceptionTab = ({ 
   guideData, setGuideData, currentEntry, setCurrentEntry, systemPxProviders, 
   systemTechnologies, filteredBrands, filteredModels, handleAddCaja, manifestItems, 
   scannedSeries, setScannedSeries, selectedBoxForScan, setSelectedBoxForScan, printBoxLabel, 
   setManifestItems, handleFinalizePX, handleAddSN_PX, currentScans, setCurrentScans, 
-  systemModels, moduleMode, isReceptionStarted, setIsReceptionStarted, isSubmittingPX
+  systemModels, moduleMode, isReceptionStarted, setIsReceptionStarted, isSubmittingPX,
+  closedBoxes, setClosedBoxes, lastSavedAt
 }: any) => {
 
   const [activeBoxNum, setActiveBoxNum] = useState<number>(1);
   const [viewMode, setViewMode] = useState<'dashboard' | 'box_detail'>('dashboard');
+  const [isEditingHeader, setIsEditingHeader] = useState(false);
+  const [headerDraft, setHeaderDraft] = useState<any>(null);
+  const [headerFieldErrors, setHeaderFieldErrors] = useState<{ sap?: string; docReferencia?: string }>({});
+  const [isCheckingHeader, setIsCheckingHeader] = useState(false);
+
+  const workInProgress =
+    manifestItems.length > 0 || scannedSeries.length > 0;
+
+  const checkHeaderFields = async (sap: string, docReferencia: string, showAlert = false) => {
+    setIsCheckingHeader(true);
+    try {
+      const { receptionRepository } = await import('../repositories/receptionRepository');
+      const result = await receptionRepository.validatePxHeaderUniqueness(sap, docReferencia);
+      if (!result.ok) {
+        setHeaderFieldErrors({ [result.field]: result.message });
+        if (showAlert) alert(result.message);
+        return false;
+      }
+      setHeaderFieldErrors({});
+      return true;
+    } catch (e) {
+      console.error(e);
+      const message = 'No se pudo verificar duplicados. Verifique conexión e intente de nuevo.';
+      if (showAlert) alert(message);
+      return false;
+    } finally {
+      setIsCheckingHeader(false);
+    }
+  };
+
+  const headerHasBlockingErrors =
+    Boolean(headerFieldErrors.sap || headerFieldErrors.docReferencia);
+
+  const renderHeaderFields = () => (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="space-y-2">
+        <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Número de Pedido *</label>
+        <input
+          type="text"
+          placeholder="Ej: 8000XXXX"
+          className={`w-full h-12 bg-slate-50 border-2 rounded-xl px-4 text-sm font-bold outline-none transition-all ${
+            headerFieldErrors.sap
+              ? 'border-rose-400 bg-rose-50 focus:border-rose-500'
+              : 'border-slate-100 focus:border-[#2ec4f1]'
+          }`}
+          value={guideData.sap}
+          onChange={(e) => {
+            setGuideData({ ...guideData, sap: e.target.value });
+            if (headerFieldErrors.sap) {
+              setHeaderFieldErrors((prev) => ({ ...prev, sap: undefined }));
+            }
+          }}
+          onBlur={() => {
+            if (guideData.sap?.trim() || guideData.docReferencia?.trim()) {
+              void checkHeaderFields(guideData.sap, guideData.docReferencia);
+            }
+          }}
+        />
+        {headerFieldErrors.sap && (
+          <p className="text-[11px] font-bold text-rose-600 leading-snug">{headerFieldErrors.sap}</p>
+        )}
+      </div>
+      <div className="space-y-2">
+        <label className="text-xs font-black text-slate-400 uppercase tracking-widest">DOC Referencia</label>
+        <input
+          type="text"
+          placeholder="Ej: REF-1234"
+          className={`w-full h-12 bg-slate-50 border-2 rounded-xl px-4 text-sm font-bold outline-none transition-all ${
+            headerFieldErrors.docReferencia
+              ? 'border-rose-400 bg-rose-50 focus:border-rose-500'
+              : 'border-slate-100 focus:border-[#2ec4f1]'
+          }`}
+          value={guideData.docReferencia}
+          onChange={(e) => {
+            setGuideData({ ...guideData, docReferencia: e.target.value });
+            if (headerFieldErrors.docReferencia) {
+              setHeaderFieldErrors((prev) => ({ ...prev, docReferencia: undefined }));
+            }
+          }}
+          onBlur={() => {
+            if (guideData.docReferencia?.trim() || guideData.sap?.trim()) {
+              void checkHeaderFields(guideData.sap, guideData.docReferencia);
+            }
+          }}
+        />
+        {headerFieldErrors.docReferencia && (
+          <p className="text-[11px] font-bold text-rose-600 leading-snug">{headerFieldErrors.docReferencia}</p>
+        )}
+      </div>
+      <div className="space-y-2">
+        <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Proveedor PX *</label>
+        <select
+          className="w-full h-12 bg-slate-50 border-2 border-slate-100 rounded-xl px-4 text-sm font-bold outline-none focus:border-[#2ec4f1] transition-all appearance-none"
+          value={guideData.proveedorPx}
+          onChange={(e) => setGuideData({ ...guideData, proveedorPx: e.target.value })}
+        >
+          <option value="">Seleccione...</option>
+          {systemPxProviders.map((p: any) => (
+            <option key={p.id} value={p.name}>{p.name}</option>
+          ))}
+        </select>
+      </div>
+      <div className="space-y-2">
+        <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Cantidad Total Cajas (Aprox)</label>
+        <input
+          type="number"
+          min="1"
+          className="w-full h-12 bg-slate-50 border-2 border-slate-100 rounded-xl px-4 text-sm font-bold outline-none focus:border-[#2ec4f1] transition-all"
+          value={guideData.totalCajasEsperadas || 1}
+          onChange={(e) =>
+            setGuideData({ ...guideData, totalCajasEsperadas: parseInt(e.target.value) || 1 })
+          }
+        />
+      </div>
+    </div>
+  );
+
+  const openHeaderEdit = () => {
+    setHeaderDraft({ ...guideData });
+    setHeaderFieldErrors({});
+    setIsEditingHeader(true);
+  };
+
+  const saveHeaderEdit = async () => {
+    if (!guideData.sap || !guideData.proveedorPx) {
+      alert('Por favor complete al menos el Número de Pedido y Proveedor PX');
+      return;
+    }
+    const isValid = await checkHeaderFields(guideData.sap, guideData.docReferencia, true);
+    if (!isValid) return;
+    setIsEditingHeader(false);
+    setHeaderDraft(null);
+  };
+
+  const cancelHeaderEdit = () => {
+    if (headerDraft) setGuideData(headerDraft);
+    setIsEditingHeader(false);
+    setHeaderDraft(null);
+  };
+
+  const handleAbandonReception = () => {
+    if (
+      workInProgress &&
+      !window.confirm(
+        '¿Abandonar esta recepción? Se perderán todas las cajas y series escaneadas.'
+      )
+    ) {
+      return;
+    }
+    setManifestItems([]);
+    setScannedSeries([]);
+    setClosedBoxes([]);
+    setSelectedBoxForScan(null);
+    setGuideData({
+      sap: '',
+      docReferencia: '',
+      agencia: guideData.agencia || 'Monte Verdes',
+      proveedorPx: guideData.proveedorPx || '',
+      guia: '',
+      piloto: '',
+      courier: '',
+      totalCajasEsperadas: 1,
+    });
+    setIsReceptionStarted(false);
+    setIsEditingHeader(false);
+    setHeaderDraft(null);
+    setViewMode('dashboard');
+    try {
+      localStorage.removeItem('tc_erp_px_reception_state');
+    } catch {
+      /* ignore */
+    }
+  };
 
   // Funciones locales para el nuevo flujo
-  const handleStartReception = () => {
+  const handleStartReception = async () => {
     if (!guideData.sap || !guideData.proveedorPx) {
       alert("Por favor complete al menos el Número de Pedido y Proveedor PX");
       return;
     }
-    setIsReceptionStarted(true);
-    setViewMode('dashboard');
-    // Si no hay cajas, creamos la primera caja vacía lógicamente en la UI
-    // Pero en el nuevo flujo de Dashboard, podemos simplemente dejar que el usuario cree la caja 1 desde el Dashboard.
+    const isValid = await checkHeaderFields(guideData.sap, guideData.docReferencia, true);
+    if (!isValid) return;
+    try {
+      const { receptionRepository } = await import('../repositories/receptionRepository');
+      let recNumber = guideData.guia?.trim();
+      if (!recNumber) {
+        recNumber = await receptionRepository.resolveUniquePxGuideNumber();
+      } else {
+        const available = await receptionRepository.isPxGuideNumberAvailable(recNumber);
+        if (!available) {
+          recNumber = await receptionRepository.resolveUniquePxGuideNumber();
+        }
+      }
+      setGuideData({ ...guideData, guia: recNumber });
+      setIsReceptionStarted(true);
+      setViewMode('dashboard');
+    } catch (e) {
+      console.error(e);
+      alert('No se pudo asignar número de recepción (REC). Verifique conexión e intente de nuevo.');
+    }
   };
 
   const handleCreateNewBox = () => {
@@ -56,13 +252,81 @@ export const PxReceptionTab = ({
     setViewMode('box_detail');
   };
 
+  const handleEditBox = (boxCode: string) => {
+    handleEnterBox(boxCode);
+  };
+
+  const handleDeleteBox = (boxCode: string) => {
+    if (closedBoxes.includes(boxCode)) {
+      alert('No puede eliminar una caja cerrada. Reábrala primero si necesita modificarla.');
+      return;
+    }
+    const lotsInBox = manifestItems.filter((i: any) => i.boxCode === boxCode).length;
+    const seriesInBox = scannedSeries.filter((s: any) => s.boxCode === boxCode).length;
+    const message =
+      lotsInBox > 0 || seriesInBox > 0
+        ? `¿Eliminar ${boxCode}? Se quitarán ${lotsInBox} lote(s) y ${seriesInBox} equipo(s) escaneado(s).`
+        : `¿Eliminar la caja vacía ${boxCode}?`;
+    if (!window.confirm(message)) return;
+
+    setManifestItems(manifestItems.filter((i: any) => i.boxCode !== boxCode));
+    setScannedSeries(scannedSeries.filter((s: any) => s.boxCode !== boxCode));
+    setClosedBoxes(closedBoxes.filter((b: string) => b !== boxCode));
+    if (selectedBoxForScan === boxCode) {
+      setSelectedBoxForScan(null);
+      setViewMode('dashboard');
+    }
+  };
+
+  const handleBackToDashboard = () => {
+    if (selectedBoxForScan) {
+      const stats = getPxBoxStats(selectedBoxForScan, manifestItems, scannedSeries);
+      if (stats.isEmpty) {
+        setSelectedBoxForScan(null);
+      }
+    }
+    setViewMode('dashboard');
+  };
+
+  const handleCloseBox = (boxCode: string) => {
+    const check = canClosePxBox(boxCode, manifestItems, scannedSeries);
+    if (!check.ok) {
+      alert(check.reason);
+      return;
+    }
+    if (
+      !window.confirm(
+        `¿Cerrar ${boxCode}?\n\nLos datos quedan guardados en este navegador. No podrá editar la caja hasta reabrirla.`
+      )
+    ) {
+      return;
+    }
+    setClosedBoxes([...new Set([...closedBoxes, boxCode])]);
+    setViewMode('dashboard');
+    setSelectedBoxForScan(null);
+  };
+
+  const handleReopenBox = (boxCode: string) => {
+    if (
+      !window.confirm(
+        `¿Reabrir ${boxCode}?\n\nPodrá volver a editar lotes y series. Debe cerrarla nuevamente antes de finalizar la recepción.`
+      )
+    ) {
+      return;
+    }
+    setClosedBoxes(closedBoxes.filter((b: string) => b !== boxCode));
+  };
+
   const handleAddLotToActiveBox = () => {
+    const targetBoxCode = selectedBoxForScan || `CAJA-${activeBoxNum}`;
+    if (closedBoxes.includes(targetBoxCode)) {
+      alert('Esta caja está cerrada. Reábrala para agregar lotes.');
+      return;
+    }
     if (!currentEntry.tecnologia || !currentEntry.marca || !currentEntry.modelo || !currentEntry.totalEsperado) {
       alert("Por favor, complete tecnología, marca, modelo y cantidad esperada para este lote.");
       return;
     }
-    
-    const targetBoxCode = selectedBoxForScan || `CAJA-${activeBoxNum}`;
 
     setManifestItems([...manifestItems, {
       id: Math.random().toString(36).substr(2, 9),
@@ -79,21 +343,18 @@ export const PxReceptionTab = ({
     });
   };
 
-  // Agrupar manifestItems por Caja para la vista
-  const boxesMap = new Map();
+  const boxesMap = new Map<string, any[]>();
   manifestItems.forEach((item: any) => {
     if (!boxesMap.has(item.boxCode)) {
       boxesMap.set(item.boxCode, []);
     }
-    boxesMap.get(item.boxCode).push(item);
+    boxesMap.get(item.boxCode)!.push(item);
   });
-  const uniqueBoxes = Array.from(boxesMap.keys());
-
-  // Agregar la caja actualmente seleccionada a la lista si es nueva y aún no tiene items
-  if (selectedBoxForScan && !boxesMap.has(selectedBoxForScan)) {
-    uniqueBoxes.push(selectedBoxForScan);
-    boxesMap.set(selectedBoxForScan, []);
-  }
+  const activeBoxCodes = getPxActiveBoxCodes(manifestItems, scannedSeries);
+  const finalizeCheck = validatePxFinalizeReadiness(manifestItems, scannedSeries, closedBoxes);
+  const canFinalize = finalizeCheck.ok;
+  const openBoxCount = activeBoxCodes.filter((b) => !closedBoxes.includes(b)).length;
+  const closedBoxCount = activeBoxCodes.filter((b) => closedBoxes.includes(b)).length;
 
   // Si no ha iniciado, mostrar PASO 1
   if (!isReceptionStarted) {
@@ -111,62 +372,42 @@ export const PxReceptionTab = ({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-2">
-                <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Número de Pedido *</label>
-                <input 
-                  type="text" 
-                  placeholder="Ej: 8000XXXX"
-                  className="w-full h-12 bg-slate-50 border-2 border-slate-100 rounded-xl px-4 text-sm font-bold outline-none focus:border-[#2ec4f1] transition-all"
-                  value={guideData.sap}
-                  onChange={(e) => setGuideData({...guideData, sap: e.target.value})}
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-black text-slate-400 uppercase tracking-widest">DOC Referencia</label>
-                <input 
-                  type="text" 
-                  placeholder="Ej: REF-1234"
-                  className="w-full h-12 bg-slate-50 border-2 border-slate-100 rounded-xl px-4 text-sm font-bold outline-none focus:border-[#2ec4f1] transition-all"
-                  value={guideData.docReferencia}
-                  onChange={(e) => setGuideData({...guideData, docReferencia: e.target.value})}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Proveedor PX *</label>
-                <select 
-                  className="w-full h-12 bg-slate-50 border-2 border-slate-100 rounded-xl px-4 text-sm font-bold outline-none focus:border-[#2ec4f1] transition-all appearance-none"
-                  value={guideData.proveedorPx}
-                  onChange={(e) => setGuideData({...guideData, proveedorPx: e.target.value})}
-                >
-                  <option value="">Seleccione...</option>
-                  {systemPxProviders.map((p: any) => (
-                    <option key={p.id} value={p.name}>{p.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Cantidad Total Cajas (Aprox)</label>
-                <input 
-                  type="number" 
-                  min="1"
-                  className="w-full h-12 bg-slate-50 border-2 border-slate-100 rounded-xl px-4 text-sm font-bold outline-none focus:border-[#2ec4f1] transition-all"
-                  value={guideData.totalCajasEsperadas || 1}
-                  onChange={(e) => setGuideData({...guideData, totalCajasEsperadas: parseInt(e.target.value) || 1})}
-                />
-              </div>
-
-
+            <div className="space-y-6">
+              {workInProgress && (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
+                  <p className="text-[11px] font-black uppercase tracking-widest text-amber-700">
+                    Recepción en progreso — se conservará al continuar
+                  </p>
+                  <p className="text-xs font-bold text-amber-800 mt-1">
+                    {manifestItems.length} lote(s) en manifiesto · {scannedSeries.length} equipo(s) escaneado(s)
+                    {guideData.guia ? ` · REC: ${guideData.guia}` : ''}
+                  </p>
+                </div>
+              )}
+              {renderHeaderFields()}
             </div>
 
-            <div className="pt-6 border-t border-slate-100 flex justify-end">
-              <Button 
+            <div className="pt-6 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              {workInProgress && (
+                <button
+                  type="button"
+                  onClick={handleAbandonReception}
+                  className="text-[10px] font-black uppercase tracking-widest text-rose-500 hover:text-rose-600"
+                >
+                  Abandonar recepción y empezar de cero
+                </button>
+              )}
+              <Button
                 onClick={handleStartReception}
-                className="bg-[#181c3a] hover:bg-[#252b57] text-white h-14 px-8 font-black text-xs uppercase tracking-widest shadow-xl shadow-[#181c3a]/20 rounded-2xl flex items-center gap-3"
+                disabled={isCheckingHeader || headerHasBlockingErrors}
+                className="bg-[#181c3a] hover:bg-[#252b57] text-white h-14 px-8 font-black text-xs uppercase tracking-widest shadow-xl shadow-[#181c3a]/20 rounded-2xl flex items-center gap-3 sm:ml-auto disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Iniciar Recepción <ArrowRight className="w-5 h-5" />
+                {isCheckingHeader
+                  ? 'Verificando...'
+                  : workInProgress
+                    ? 'Continuar recepción'
+                    : 'Iniciar Recepción'}{' '}
+                <ArrowRight className="w-5 h-5" />
               </Button>
             </div>
           </div>
@@ -179,6 +420,52 @@ export const PxReceptionTab = ({
   // PASO 2: VISTA DASHBOARD DE CAJAS
   // ==========================================
   if (viewMode === 'dashboard') {
+    if (isEditingHeader) {
+      return (
+        <div className="max-w-3xl mx-auto animate-rise-in mt-4 space-y-6">
+          <Card className="border-l-4 border-l-amber-400 shadow-2xl">
+            <div className="p-8 space-y-6">
+              <div>
+                <h2 className="text-xl font-black text-[#181c3a] uppercase tracking-widest">Editar cabecera</h2>
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">
+                  Las cajas y series escaneadas no se borran
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4">
+                <p className="text-[11px] font-black uppercase tracking-widest text-emerald-700">
+                  Trabajo conservado
+                </p>
+                <p className="text-xs font-bold text-emerald-800 mt-1">
+                  {manifestItems.length} lote(s) · {scannedSeries.length} equipo(s) escaneado(s)
+                  {guideData.guia ? ` · REC: ${guideData.guia}` : ''}
+                </p>
+              </div>
+
+              {renderHeaderFields()}
+
+              <div className="pt-4 border-t border-slate-100 flex flex-wrap gap-3 justify-end">
+                <Button
+                  variant="outline"
+                  onClick={cancelHeaderEdit}
+                  className="font-black text-[11px] uppercase tracking-widest"
+                >
+                  Volver sin cambios
+                </Button>
+                <Button
+                  onClick={saveHeaderEdit}
+                  disabled={isCheckingHeader || headerHasBlockingErrors}
+                  className="bg-[#181c3a] hover:bg-[#252b57] text-white font-black text-[11px] uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isCheckingHeader ? 'Verificando...' : 'Guardar cabecera'}
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-8 animate-rise-in">
         
@@ -197,22 +484,41 @@ export const PxReceptionTab = ({
                 <span>•</span>
                 <span>Fecha: {new Date().toLocaleDateString('es-ES')}</span>
                 <span>•</span>
-                <span>REC: {guideData.guia || 'AUTOGENERADO'}</span>
+                <span>REC: {guideData.guia || 'Asignando...'}</span>
               </div>
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <Button 
-              variant="outline" 
-              onClick={() => setIsReceptionStarted(false)}
-              className="border-none text-slate-500 hover:text-rose-500 hover:bg-rose-50 font-black text-[11px] uppercase tracking-widest"
+            {lastSavedAt && (
+              <span className="hidden lg:inline text-[10px] font-bold text-emerald-600 uppercase tracking-widest">
+                Autoguardado {new Date(lastSavedAt).toLocaleTimeString('es-ES')} · {scannedSeries.length} series
+              </span>
+            )}
+            <Button
+              variant="outline"
+              onClick={openHeaderEdit}
+              className="border-none text-slate-500 hover:text-[#2ec4f1] hover:bg-[#2ec4f1]/10 font-black text-[11px] uppercase tracking-widest"
             >
-              <X className="w-4 h-4 mr-1" /> Cancelar / Volver a Cabecera
+              <Pencil className="w-4 h-4 mr-1" /> Editar cabecera
             </Button>
+            <button
+              type="button"
+              onClick={handleAbandonReception}
+              className="text-[10px] font-black uppercase tracking-widest text-rose-400 hover:text-rose-600 px-2"
+            >
+              Abandonar
+            </button>
             <Button 
               variant="primary" 
-              onClick={handleFinalizePX}
-              disabled={uniqueBoxes.length === 0 || scannedSeries.length === 0 || isSubmittingPX}
+              onClick={() => {
+                if (!canFinalize) {
+                  alert(!finalizeCheck.ok ? finalizeCheck.reason : 'Complete y cierre todas las cajas antes de finalizar.');
+                  return;
+                }
+                handleFinalizePX();
+              }}
+              disabled={!canFinalize || isSubmittingPX}
+              title={!finalizeCheck.ok ? finalizeCheck.reason : 'Enviar cajas cerradas a Bodega Central'}
               className="bg-emerald-500 hover:bg-emerald-600 text-white h-12 px-6 font-black text-[11px] uppercase tracking-widest shadow-xl shadow-emerald-500/20 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <CheckCircle2 className="w-4 h-4 mr-2" /> {isSubmittingPX ? 'Guardando...' : 'Finalizar Recepción'}
@@ -220,15 +526,29 @@ export const PxReceptionTab = ({
           </div>
         </div>
 
+        {!canFinalize && activeBoxCodes.length > 0 && (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-3">
+            <p className="text-[11px] font-black uppercase tracking-widest text-amber-800">
+              Para finalizar: complete cada caja, ciérrela con &quot;Cerrar caja&quot;, y luego use Finalizar Recepción.
+            </p>
+            {!finalizeCheck.ok && (
+              <p className="text-xs font-bold text-amber-700 mt-1">{finalizeCheck.reason}</p>
+            )}
+          </div>
+        )}
+
         {/* Resumen Global */}
         <div className="flex flex-col md:flex-row gap-6">
           <Card className="p-6 border-l-4 border-l-[#2ec4f1] shadow-md w-full md:max-w-xs flex flex-col justify-between">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Cajas Abiertas</h3>
+              <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Cajas en Proceso</h3>
               <Box className="w-5 h-5 text-[#2ec4f1]" />
             </div>
             <div>
-              <span className="text-4xl font-black text-[#181c3a]">{uniqueBoxes.length}</span>
+              <span className="text-4xl font-black text-[#181c3a]">{activeBoxCodes.length}</span>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
+                {closedBoxCount} cerrada(s) · {openBoxCount} abierta(s)
+              </p>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
                 De {guideData.totalCajasEsperadas} esperadas
               </p>
@@ -251,57 +571,63 @@ export const PxReceptionTab = ({
 
             <div className="bg-slate-50 p-6 rounded-xl border border-slate-100 h-full overflow-y-auto max-h-[500px]">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
-                {uniqueBoxes.length === 0 && (
+                {activeBoxCodes.length === 0 && (
                   <div className="col-span-full py-20 text-center bg-white rounded-2xl border-2 border-dashed border-slate-200">
                     <Box className="w-12 h-12 text-slate-200 mx-auto mb-4" />
-                    <h4 className="text-sm font-black text-slate-400 uppercase tracking-widest">Aún no hay cajas creadas</h4>
-                    <p className="text-[11px] text-slate-400 mt-2">Haz clic en Nueva Caja para comenzar a escanear.</p>
+                    <h4 className="text-sm font-black text-slate-400 uppercase tracking-widest">Aún no hay cajas con equipos</h4>
+                    <p className="text-[11px] text-slate-400 mt-2">Haz clic en Nueva Caja, agrega un lote y escanea series.</p>
                   </div>
                 )}
             
-            {uniqueBoxes.map((boxCode: string) => {
-              const boxItems = boxesMap.get(boxCode) || [];
-              const totalExpected = boxItems.reduce((acc: number, item: any) => acc + item.totalEsperado, 0);
-              const received = scannedSeries.filter((s: any) => s.boxCode === boxCode).length;
-              const isComplete = received >= totalExpected && totalExpected > 0;
+            {activeBoxCodes.map((boxCode: string) => {
+              const stats = getPxBoxStats(boxCode, manifestItems, scannedSeries);
+              const boxItems = stats.lots;
+              const { totalExpected, received, isComplete } = stats;
+              const isClosed = closedBoxes.includes(boxCode);
               
-              // Unique models in the box
               const uniqueModels = Array.from(new Set(boxItems.map((i: any) => `${i.marca} ${i.modelo}`)));
 
               return (
-                <Card key={boxCode} className={`p-0 overflow-hidden shadow hover:shadow-md transition-all border-l-4 ${isComplete ? 'border-l-[#181c3a]' : totalExpected === 0 ? 'border-l-amber-400' : 'border-l-[#2ec4f1]'}`}>
+                <Card key={boxCode} className={`p-0 overflow-hidden shadow hover:shadow-md transition-all border-l-4 ${isClosed ? 'border-l-emerald-500' : isComplete ? 'border-l-[#181c3a]' : 'border-l-[#2ec4f1]'}`}>
                   <div className="p-3 flex justify-between items-start border-b border-slate-50">
                     <div>
-                      <h4 className="text-sm font-black text-[#181c3a] leading-none">{boxCode}</h4>
-                      <div className="mt-1.5 space-y-0.5">
-                        {uniqueModels.length > 0 ? uniqueModels.map((m: string, idx: number) => (
-                          <p key={idx} className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{m}</p>
-                        )) : (
-                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest italic">Caja Vacía</p>
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-sm font-black text-[#181c3a] leading-none">{boxCode}</h4>
+                        {isClosed && (
+                          <Badge className="bg-emerald-100 text-emerald-700 border-none text-[8px] font-black uppercase px-1.5 py-0">
+                            <Lock className="w-2.5 h-2.5 mr-0.5 inline" /> Cerrada
+                          </Badge>
                         )}
                       </div>
+                      <div className="mt-1.5 space-y-0.5">
+                        {uniqueModels.map((m: string, idx: number) => (
+                          <p key={idx} className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{m}</p>
+                        ))}
+                      </div>
                     </div>
-                    <div className="flex gap-2">
-                      <button onClick={() => handleEditBox(boxCode)} className="text-slate-300 hover:text-[#2ec4f1] transition-colors"><Pencil className="w-3 h-3" /></button>
-                      <button onClick={() => handleDeleteBox(boxCode)} className="text-slate-300 hover:text-rose-500 transition-colors"><Trash2 className="w-3 h-3" /></button>
-                    </div>
+                    {!isClosed && (
+                      <div className="flex gap-2">
+                        <button onClick={() => handleEditBox(boxCode)} className="text-slate-300 hover:text-[#2ec4f1] transition-colors"><Pencil className="w-3 h-3" /></button>
+                        <button onClick={() => handleDeleteBox(boxCode)} className="text-slate-300 hover:text-rose-500 transition-colors"><Trash2 className="w-3 h-3" /></button>
+                      </div>
+                    )}
                   </div>
                   <div className="bg-slate-50/50 p-3">
                     <div className="flex justify-between items-center mb-3">
                       <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Items: {received} / {totalExpected}</span>
-                      {isComplete && <CheckCircle2 className="w-3.5 h-3.5 text-[#181c3a]" />}
+                      {isClosed ? <Lock className="w-3.5 h-3.5 text-emerald-500" /> : isComplete && <CheckCircle2 className="w-3.5 h-3.5 text-[#181c3a]" />}
                     </div>
                     <Button 
                       onClick={() => handleEnterBox(boxCode)}
                       className={`w-full font-black text-[9px] uppercase tracking-widest h-8 transition-colors ${
-                        totalExpected === 0 
-                          ? 'bg-amber-400 hover:bg-amber-500 text-white shadow-sm shadow-amber-400/20' // Vacia
+                        isClosed
+                          ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm shadow-emerald-500/20'
                           : isComplete 
-                            ? 'bg-[#181c3a] hover:bg-[#252b57] text-white shadow-sm shadow-[#181c3a]/20' // Llena
-                            : 'bg-[#2ec4f1] hover:bg-[#1fb3e0] text-white shadow-sm shadow-[#2ec4f1]/20' // Parcial
+                            ? 'bg-[#181c3a] hover:bg-[#252b57] text-white shadow-sm shadow-[#181c3a]/20'
+                            : 'bg-[#2ec4f1] hover:bg-[#1fb3e0] text-white shadow-sm shadow-[#2ec4f1]/20'
                       }`}
                     >
-                      Continuar Armado <ArrowRight className="w-3 h-3 ml-1" />
+                      {isClosed ? 'Ver caja cerrada' : isComplete ? 'Revisar y cerrar' : 'Continuar armado'} <ArrowRight className="w-3 h-3 ml-1" />
                     </Button>
                   </div>
                 </Card>
@@ -318,23 +644,75 @@ export const PxReceptionTab = ({
   // ==========================================
   // PASO 2: VISTA DETALLE DE CAJA (ARMADO)
   // ==========================================
-  const targetBox = selectedBoxForScan || activeBoxCode;
+  const targetBox = selectedBoxForScan || '';
+  if (!targetBox) {
+    return (
+      <div className="space-y-6 animate-rise-in">
+        <Button
+          variant="outline"
+          onClick={handleBackToDashboard}
+          className="border-none text-slate-500 hover:text-[#181c3a] font-black text-[11px] uppercase tracking-widest"
+        >
+          <ArrowLeft className="w-4 h-4 mr-2" /> Volver a Cajas Activas
+        </Button>
+        <p className="text-sm font-bold text-slate-400">Seleccione una caja para continuar.</p>
+      </div>
+    );
+  }
+
   const boxItems = boxesMap.get(targetBox) || [];
-  const totalExpected = boxItems.reduce((acc: number, item: any) => acc + item.totalEsperado, 0);
-  const received = scannedSeries.filter((s: any) => s.boxCode === targetBox).length;
+  const boxStats = getPxBoxStats(targetBox, manifestItems, scannedSeries);
+  const totalExpected = boxStats.totalExpected;
+  const received = boxStats.received;
+  const isBoxComplete = boxStats.isComplete;
+  const isBoxClosed = closedBoxes.includes(targetBox);
   const progressPct = totalExpected > 0 ? Math.min(100, Math.round((received / totalExpected) * 100)) : 0;
+  const canClose = canClosePxBox(targetBox, manifestItems, scannedSeries).ok;
 
   return (
     <div className="space-y-6 animate-rise-in">
-      <div className="flex items-center gap-4 mb-2">
+      <div className="flex flex-wrap items-center gap-4 mb-2">
         <Button 
           variant="outline" 
-          onClick={() => setViewMode('dashboard')}
+          onClick={handleBackToDashboard}
           className="border-none text-slate-500 hover:text-[#181c3a] hover:bg-slate-100 font-black text-[11px] uppercase tracking-widest h-10 px-4"
         >
           <ArrowLeft className="w-4 h-4 mr-2" /> Volver a Cajas Activas
         </Button>
+        {lastSavedAt && (
+          <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">
+            Autoguardado {new Date(lastSavedAt).toLocaleTimeString('es-ES')} · {scannedSeries.length} series totales
+          </span>
+        )}
+        {isBoxClosed ? (
+          <Button
+            variant="outline"
+            onClick={() => handleReopenBox(targetBox)}
+            className="ml-auto border-amber-200 text-amber-700 hover:bg-amber-50 font-black text-[10px] uppercase tracking-widest h-10"
+          >
+            <LockOpen className="w-4 h-4 mr-2" /> Reabrir caja
+          </Button>
+        ) : canClose ? (
+          <Button
+            onClick={() => handleCloseBox(targetBox)}
+            className="ml-auto bg-emerald-500 hover:bg-emerald-600 text-white font-black text-[10px] uppercase tracking-widest h-10 shadow-lg shadow-emerald-500/20"
+          >
+            <Lock className="w-4 h-4 mr-2" /> Cerrar caja
+          </Button>
+        ) : null}
       </div>
+
+      {isBoxClosed && (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 flex items-center gap-3">
+          <Lock className="w-5 h-5 text-emerald-600 shrink-0" />
+          <div>
+            <p className="text-[11px] font-black uppercase tracking-widest text-emerald-800">Caja cerrada — solo lectura</p>
+            <p className="text-xs font-bold text-emerald-700 mt-1">
+              Los {received} equipos están guardados localmente. Reabra la caja solo si necesita corregir algo antes de finalizar la recepción.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="grid lg:grid-cols-12 gap-8">
         
@@ -350,6 +728,7 @@ export const PxReceptionTab = ({
             </div>
 
             <div className="p-5 space-y-6 bg-slate-50">
+              {!isBoxClosed && (
               <div className="space-y-4">
                 <h4 className="text-[11px] font-black text-[#181c3a] uppercase tracking-widest border-b border-slate-200 pb-2">Agregar Lote a {targetBox}</h4>
                 
@@ -417,6 +796,7 @@ export const PxReceptionTab = ({
                   </Button>
                 </div>
               </div>
+              )}
 
               {/* Lotes Agregados */}
               <div className="pt-4 border-t border-slate-200">
@@ -454,7 +834,14 @@ export const PxReceptionTab = ({
                 <div className="mb-6 flex justify-between items-center">
                   <h3 className="text-[13px] font-black text-[#181c3a] uppercase tracking-widest">Escáner de Series</h3>
                 </div>
-                <form onSubmit={handleAddSN_PX} className="flex flex-col gap-5">
+                <form onSubmit={(e) => {
+                  if (isBoxClosed) {
+                    e.preventDefault();
+                    alert('Esta caja está cerrada. Reábrala para escanear más equipos.');
+                    return;
+                  }
+                  handleAddSN_PX(e);
+                }} className="flex flex-col gap-5">
                   {(() => {
                     const lastItem = boxItems[boxItems.length - 1];
                     const expectedScans = lastItem ? (systemModels.find((m: any) => m.name === lastItem.modelo)?.series_count || (lastItem.tecnologia === 'EMTA' ? 4 : 1)) : 1;
@@ -500,8 +887,8 @@ export const PxReceptionTab = ({
                                 }}
                                 placeholder={`Escanear Serie ${idx + 1}...`}
                                 className={`w-full h-12 px-4 bg-white border-2 rounded-lg text-sm font-mono font-bold outline-none transition-colors shadow-inner uppercase ${isDuplicate ? 'border-rose-500 text-rose-600 focus:border-rose-500 bg-rose-50' : 'border-slate-200 focus:border-[#2ec4f1]'}`}
-                                autoFocus={idx === 0}
-                                disabled={boxItems.length === 0}
+                                autoFocus={idx === 0 && !isBoxClosed}
+                                disabled={boxItems.length === 0 || isBoxClosed}
                               />
                               {isDuplicate && (
                                 <span className="text-[10px] text-rose-500 font-bold absolute -bottom-4 left-0">
@@ -516,10 +903,10 @@ export const PxReceptionTab = ({
                   })()}
                   <Button 
                     type="submit" 
-                    disabled={boxItems.length === 0}
+                    disabled={boxItems.length === 0 || isBoxClosed}
                     className="w-full h-12 bg-[#181c3a] hover:bg-[#252b57] text-white text-[11px] uppercase tracking-widest font-black rounded-lg mt-2 shadow-lg shadow-[#181c3a]/20 disabled:opacity-50"
                   >
-                    Registrar Equipo (Enter)
+                    {isBoxClosed ? 'Caja cerrada' : 'Registrar Equipo (Enter)'}
                   </Button>
                 </form>
               </Card>
@@ -601,6 +988,7 @@ export const PxReceptionTab = ({
                                 </>
                               )}
                               <td className="px-6 py-4 text-right">
+                                {!isBoxClosed && (
                                 <div className="flex justify-end gap-1">
                                   <button 
                                     onClick={() => setScannedSeries(scannedSeries.filter((x: any) => x.sn !== s.sn))}
@@ -610,6 +998,7 @@ export const PxReceptionTab = ({
                                     <Trash2 className="w-3.5 h-3.5 text-slate-300 group-hover:text-rose-500" />
                                   </button>
                                 </div>
+                                )}
                               </td>
                             </tr>
                           ))}

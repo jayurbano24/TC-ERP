@@ -59,9 +59,21 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     async function loadUser() {
+      const devRaw = typeof window !== 'undefined' ? localStorage.getItem('tcerp_dev_session') : null;
       const supabase = getSupabaseBrowserClient();
-      if (!supabase) return;
-      const { data: { session } } = await supabase.auth.getSession();
+      const session = supabase ? (await supabase.auth.getSession()).data.session : null;
+      if (!session?.user && devRaw) {
+        try {
+          const dev = JSON.parse(devRaw);
+          setCurrentUser({ id: 'dev-user', email: dev.email, full_name: 'Dev Admin', role: dev.role || 'ADMINISTRADOR', role_id: null });
+          setUserPermissions([{ is_admin: true }]);
+          return;
+        } catch { /* ignore */ }
+      }
+      if (!supabase) {
+        if (!session?.user) router.push('/');
+        return;
+      }
       
       if (session?.user) {
         // Validación Avanzada de Sesión (Single PC + 5 Horas)
@@ -145,6 +157,7 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
       await supabase.auth.signOut();
     }
     localStorage.removeItem('tcerp_session_id');
+    localStorage.removeItem('tcerp_dev_session');
     router.push('/');
   };
 

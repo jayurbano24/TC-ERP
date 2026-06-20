@@ -33,7 +33,30 @@ export const receptionService = {
 
   finalizePXReception: async (guideData: any, manifestItems: any[], scannedSeries: any[], systemBrands: any[], systemModels: any[], currentUserFullName: string) => {
 
-    const nextGuideNumber = await receptionRepository.generateNextRECNumber();
+    const headerCheck = await receptionRepository.validatePxHeaderUniqueness(
+      guideData.sap || '',
+      guideData.docReferencia || ''
+    );
+    if (!headerCheck.ok) {
+      return { error: headerCheck.message };
+    }
+
+    const explicitGuide = guideData.guia?.trim();
+    if (explicitGuide) {
+      const available = await receptionRepository.isPxGuideNumberAvailable(explicitGuide);
+      if (!available) {
+        return {
+          error: `El número de recepción ${explicitGuide} ya está registrado. Deje el campo REC vacío para autogenerar uno nuevo o use otro número.`,
+        };
+      }
+    }
+
+    const guideNumber = await receptionRepository.resolveUniquePxGuideNumber(explicitGuide || undefined);
+
+    const seriesValidation = await receptionRepository.validatePxScannedSeriesForFinalize(scannedSeries);
+    if (seriesValidation.error) {
+      return { error: seriesValidation.error };
+    }
 
     const uniqueBoxesMap = new Map<string, any>();
     for (const item of manifestItems) {
@@ -53,7 +76,7 @@ export const receptionService = {
 
     const dbEntry: any = {
       source: 'px',
-      guide_number: guideData.guia || nextGuideNumber,
+      guide_number: guideNumber,
       sap_document: guideData.sap || 'SIN-PEDIDO',
       carrier: guideData.proveedorPx || 'N/A',
       status: 'CLASIFICADA',

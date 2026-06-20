@@ -10,6 +10,7 @@ import { HistoryTab } from './components/HistoryTab';
 
 // Hooks
 import { useReceptionPX } from './hooks/useReceptionPX';
+import { validatePxFinalizeReadiness } from './utils/pxBoxUtils';
 import { useReceptionCAC } from './hooks/useReceptionCAC';
 import { useReceptionScanner } from './hooks/useReceptionScanner';
 import { useReceptionValidation } from './hooks/useReceptionValidation';
@@ -18,8 +19,9 @@ import { receptionService } from './services/receptionService';
 import { printingService } from './services/printingService';
 import { validationService } from './services/validationService';
 import { getCarriers, getTechnologies, getBrands, getModels, getPxProviders } from '@/lib/database/config';
-import { getReceptions } from '@/lib/database/receptions';
+import { getReceptions, deletePxReceptionCascade } from '@/lib/database/receptions';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { groupPxSeriesByEquipment } from './utils/pxSeriesUtils';
 
 export default function ReceptionsPage() {
   const [moduleMode, setModuleMode] = useState<'cac' | 'px'>('cac');
@@ -46,6 +48,11 @@ export default function ReceptionsPage() {
         setCurrentUserFullName(data.user.email.split('@')[0]);
       }
     });
+  }, []);
+
+  useEffect(() => {
+    const mode = new URLSearchParams(window.location.search).get('mode');
+    if (mode === 'px' || mode === 'cac') setModuleMode(mode);
   }, []);
 
   // Load Scanner State
@@ -76,7 +83,7 @@ export default function ReceptionsPage() {
         throw new Error(result.error);
       }
       
-      alert('Recepción CAC guardada con éxito e ingresada a Bodega General.');
+      alert('Recepción CAC guardada. Pendiente de clasificación en Backoffice.');
       cacState.setCacScannedItems([]);
       scannerState.setIsIndustrialScanning(false);
       cacState.setCacPilot('');
@@ -122,12 +129,21 @@ export default function ReceptionsPage() {
   const handleFinalizePX = async () => {
     if (isSubmittingPX) return;
     try {
-      if (pxState.manifestItems.length === 0) {
-        alert('No hay cajas en el manifiesto.');
+      const readiness = validatePxFinalizeReadiness(
+        pxState.manifestItems,
+        pxState.scannedSeries,
+        pxState.closedBoxes
+      );
+      if (!readiness.ok) {
+        alert(readiness.reason);
         return;
       }
-      if (pxState.scannedSeries.length === 0) {
-        alert('No hay series escaneadas.');
+
+      if (
+        !window.confirm(
+          `¿Finalizar recepción PX?\n\nSe enviarán ${readiness.boxCodes.length} caja(s) con ${pxState.scannedSeries.length} equipos a Bodega Central.\n\nNo podrá editar esta recepción después.`
+        )
+      ) {
         return;
       }
 
@@ -147,11 +163,18 @@ export default function ReceptionsPage() {
         throw new Error(result.error);
       }
 
-      alert('Recepción PX guardada con éxito e ingresada a Bodega General.');
+      alert('Recepción PX finalizada. Equipos ingresados a Bodega Central (cajas BOX-xxx).');
       
+      try {
+        localStorage.removeItem('tc_erp_px_reception_state');
+      } catch {
+        /* ignore */
+      }
+
       // Limpiar formulario
       pxState.setManifestItems([]);
       pxState.setScannedSeries([]);
+      pxState.setClosedBoxes([]);
       pxState.setGuideData({ 
         sap: '', 
         docReferencia: '', 
@@ -376,10 +399,12 @@ export default function ReceptionsPage() {
 
     // 2. Validación de estado en Base de Datos
     try {
-      const validation = await validationService.checkSerialInSystem(serialNum);
-      if (validation.blocked) {
-        alert(validation.info);
-        return;
+      for (const scan of validScans) {
+        const validation = await validationService.checkSerialInSystem(scan);
+        if (validation.blocked) {
+          alert(validation.info);
+          return;
+        }
       }
     } catch (err: any) {
       console.error(err);
@@ -419,10 +444,18 @@ export default function ReceptionsPage() {
 
       const { data: series, error: seriesError } = await supabase
         .from('series')
-        .select('*, brands(name), models(name, technologies(name))')
+        .select('serial_number, service_order_id, current_box_id, material')
         .eq('current_reception_id', rec.id);
 
       if (seriesError) throw seriesError;
+
+      const { data: serviceOrders } = await supabase
+        .from('service_orders')
+        .select('id, main_serial')
+        .eq('reception_id', rec.id);
+
+      const boxCodeById = Object.fromEntries((boxes || []).map((b: any) => [b.id, b.box_code]));
+      const mappedSeries = groupPxSeriesByEquipment(series || [], serviceOrders || [], boxCodeById);
 
       const manifestBoxes = (boxes || []).map((b: any) => ({
         ...b,
@@ -431,14 +464,6 @@ export default function ReceptionsPage() {
         modelo: b.models?.name || 'N/A',
         tecnologia: b.models?.technologies?.name || 'EQUIPO',
         totalEsperado: b.capacity || 0
-      }));
-
-      const mappedSeries = (series || []).map((s: any) => ({
-        ...s,
-        sn: s.serial_number,
-        marca: s.brands?.name || 'N/A',
-        modelo: s.models?.name || 'N/A',
-        boxCode: boxes?.find(bx => bx.id === s.current_box_id)?.box_code || ''
       }));
 
       printingService.printPXManifest(rec, mappedSeries, manifestBoxes);
@@ -549,6 +574,15 @@ export default function ReceptionsPage() {
            handlePrintPX={handlePrintPXManifest}
            handlePrintLabelsPX={handlePrintLabelsPX}
            handleViewPxDetails={() => {}}
+           handleDeleteHistoryPX={async (id: string) => {
+             try {
+               const result = await deletePxReceptionCascade(id);
+               if (result?.error) throw new Error(result.error);
+               pxState.setPxRecords((prev: any[]) => prev.filter((r: any) => r.id !== id));
+             } catch (err: any) {
+               alert('Error al eliminar recepción PX: ' + err.message);
+             }
+           }}
            handleDeleteHistoryCAC={async (id: string) => {
              const confirmDelete = window.confirm('¿Está seguro de eliminar esta recepción y todos sus sub-procesos asociados?');
              if (!confirmDelete) return;

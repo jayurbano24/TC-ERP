@@ -8,14 +8,14 @@ export default function LogisticaPage() {
       title: 'Recepción CAC',
       description: 'Ingreso de guías y evidencia fotográfica.',
       stats: '46 guías hoy',
-      href: '/recepcion/cac',
+      href: '/recepcion?mode=cac',
     },
     {
       id: 'px',
       title: 'Recepción PX',
       description: 'Procesamiento de bultos desde planta externa.',
       stats: '128 bultos hoy',
-      href: '/recepcion/px',
+      href: '/recepcion?mode=px',
     }
   ];
 

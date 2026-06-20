@@ -17,7 +17,7 @@ import {
   Loader2,
   Trash2
 } from 'lucide-react';
-import { getReturns, registerNewReturn, processFullReceptionReturn, undoFullReceptionReturn, processBlockReturnBySapTransfer } from '@/lib/database/returns';
+import { getReturns, registerNewReturn, processFullReceptionReturn, undoFullReceptionReturn, processBlockReturnBySapTransfer, getSapBlockReturnRows } from '@/lib/database/returns';
 import { getReceptions } from '@/lib/database/receptions';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { getActualUserFullName } from '@/lib/auth';
@@ -183,7 +183,13 @@ export default function DevolucionesPage() {
           classifiedBy: rg.classified_by,
         }));
 
-      setDevoluciones(devolRows as Devolucion[]);
+      const sapBlockRows = await getSapBlockReturnRows();
+
+      const merged = [...devolRows, ...sapBlockRows].sort(
+        (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
+      );
+
+      setDevoluciones(merged as Devolucion[]);
     } catch (err) {
       console.error("Error in fetchReturns:", err);
     } finally {

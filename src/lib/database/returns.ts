@@ -4,6 +4,106 @@ import { processBlockReturnBySapTransfer } from '@/lib/database/sapTransfers';
 
 export { processBlockReturnBySapTransfer };
 
+function isAtomicFullReceptionReturnEnabled(): boolean {
+  if (process.env.NEXT_PUBLIC_USE_ATOMIC_FULL_RECEPTION_RETURN === 'true') return true;
+  const flags =
+    process.env.NEXT_PUBLIC_FEATURE_FLAGS?.split(',').map((f) => f.trim()) ?? [];
+  return flags.includes('USE_ATOMIC_FULL_RECEPTION_RETURN');
+}
+
+function formatReturnNetworkError(err: unknown, fallback: string): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
+    return 'No se pudo conectar con el servidor. Verifique su conexión e intente de nuevo.';
+  }
+  return msg || fallback;
+}
+
+/** Filas para módulo Logística → Devoluciones (equipos devueltos por bloque SAP) */
+export async function getSapBlockReturnRows() {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return [];
+
+  const { data: seriesList, error } = await supabase
+    .from('series')
+    .select(`
+      id,
+      serial_number,
+      notes,
+      updated_at,
+      service_order_id,
+      sap_transfer_id,
+      service_orders ( os_label ),
+      sap_transfer_documents (
+        id,
+        sap_document_number,
+        status,
+        reception_id,
+        reception_guides ( guide_number, agency )
+      ),
+      receptions:current_reception_id ( guide_number, carrier, created_at )
+    `)
+    .eq('current_status', 'returned')
+    .not('sap_transfer_id', 'is', null)
+    .order('updated_at', { ascending: false });
+
+  if (error || !seriesList?.length) return [];
+
+  const seenOs = new Set<string>();
+  const rows: Array<{
+    id: string;
+    sn: string;
+    cliente: string;
+    motivo: string;
+    fecha: string;
+    timestamp: number;
+    estatus: 'Pendiente' | 'Procesado';
+    os: string;
+    sapDocument: string;
+    receptionId?: string;
+    category: string;
+    isSapBlock: boolean;
+  }> = [];
+
+  for (const s of seriesList as any[]) {
+    const sapDoc = Array.isArray(s.sap_transfer_documents)
+      ? s.sap_transfer_documents[0]
+      : s.sap_transfer_documents;
+    if (sapDoc?.status !== 'DEVUELTO_BLOQUE') continue;
+
+    const osId = s.service_order_id as string | null;
+    if (osId && seenOs.has(osId)) continue;
+    if (osId) seenOs.add(osId);
+
+    const notes = String(s.notes || '');
+    const motivoMatch = notes.match(/Motivo:\s*([^\n]+)/);
+    const guide =
+      sapDoc?.reception_guides?.guide_number ||
+      s.receptions?.guide_number ||
+      '---';
+
+    rows.push({
+      id: `SAP-BLK-${osId || s.id}`,
+      sn: s.serial_number || guide,
+      cliente:
+        sapDoc?.reception_guides?.agency ||
+        s.receptions?.carrier ||
+        'S/D',
+      motivo: motivoMatch?.[1]?.trim() || `Devolución bloque SAP ${sapDoc?.sap_document_number || ''}`,
+      fecha: new Date(s.updated_at).toLocaleDateString(),
+      timestamp: new Date(s.updated_at).getTime(),
+      estatus: 'Pendiente',
+      os: s.service_orders?.os_label || '---',
+      sapDocument: sapDoc?.sap_document_number || '---',
+      receptionId: sapDoc?.reception_id,
+      category: 'DEVOLUCIÓN SAP BLOQUE',
+      isSapBlock: true,
+    });
+  }
+
+  return rows;
+}
+
 export async function getReturns() {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return [];
@@ -70,25 +170,27 @@ export async function registerNewReturn(returnEntry: any) {
 
   const prevStatus = existing.current_status;
 
-  const { error: updateError } = await supabase
-    .from('series')
-    .update({
-      current_status: 'returned',
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', existing.id);
+  if (existing.current_status !== 'RECEPCIONADO_BODEGA_GENERAL') {
+    return {
+      error: `El equipo no está en estado Pendiente de Ingreso a Bodega General (estado actual: ${existing.current_status}).`,
+    };
+  }
 
-  if (updateError) return { error: updateError.message };
-
-  // Devolución en bloque obligatoria si el equipo pertenece a un Traslado SAP con más de una unidad
+  // Bloque obligatorio ANTES de mutar — misma regla que devolución aislada
   if (existing.sap_transfer_id) {
-    const { count } = await supabase
+    const { data: pendingSeries, error: pendingError } = await supabase
       .from('series')
-      .select('*', { count: 'exact', head: true })
+      .select('service_order_id')
       .eq('sap_transfer_id', existing.sap_transfer_id)
       .eq('current_status', 'RECEPCIONADO_BODEGA_GENERAL');
 
-    if ((count || 0) > 1) {
+    if (pendingError) return { error: pendingError.message };
+
+    const pendingOsCount = new Set(
+      (pendingSeries || []).map((s) => s.service_order_id).filter(Boolean)
+    ).size;
+
+    if (pendingOsCount > 1) {
       const { data: sapDoc } = await supabase
         .from('sap_transfer_documents')
         .select('sap_document_number')
@@ -96,10 +198,46 @@ export async function registerNewReturn(returnEntry: any) {
         .maybeSingle();
 
       return {
-        error: `Devolución aislada no permitida. Este equipo pertenece al Documento SAP ${sapDoc?.sap_document_number || ''} con ${count} unidades. Debe procesar la devolución en bloque por documento SAP.`,
+        error: `Devolución aislada no permitida. Este equipo pertenece al Documento SAP ${sapDoc?.sap_document_number || ''} con ${pendingOsCount} equipos. Debe procesar la devolución en bloque por documento SAP.`,
         sapTransferId: existing.sap_transfer_id,
         requiresBlockReturn: true,
       };
+    }
+  }
+
+  const returnNote = `--- DEVOLUCIÓN ---\nMotivo: ${returnEntry.motivo}\nGuía Salida: ${returnEntry.guiaSalida}\nCat: ${returnEntry.category || 'BODEGA DEVOLUCIÓN'}\nFecha: ${new Date().toLocaleString()}`;
+
+  const { error: updateError } = await supabase
+    .from('series')
+    .update({
+      current_status: 'returned',
+      notes: returnNote,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', existing.id);
+
+  if (updateError) return { error: updateError.message };
+
+  if (existing.service_order_id) {
+    await supabase
+      .from('service_orders')
+      .update({ status: 'DEVUELTO' })
+      .eq('id', existing.service_order_id);
+  }
+
+  // Devolución individual permitida (1 solo equipo en el documento SAP)
+  if (existing.sap_transfer_id) {
+    const { count: remaining } = await supabase
+      .from('series')
+      .select('*', { count: 'exact', head: true })
+      .eq('sap_transfer_id', existing.sap_transfer_id)
+      .eq('current_status', 'RECEPCIONADO_BODEGA_GENERAL');
+
+    if ((remaining || 0) === 0) {
+      await supabase
+        .from('sap_transfer_documents')
+        .update({ status: 'DEVUELTO_BLOQUE', updated_at: new Date().toISOString() })
+        .eq('id', existing.sap_transfer_id);
     }
   }
 
@@ -127,8 +265,89 @@ export async function registerNewReturn(returnEntry: any) {
 }
 
 export async function processFullReceptionReturn(
-  receptionId: string, 
-  formData: { motivo: string, guiaSalida: string, observaciones: string },
+  receptionId: string,
+  formData: { motivo: string; guiaSalida: string; observaciones: string },
+  currentUserFullName: string
+) {
+  if (isAtomicFullReceptionReturnEnabled()) {
+    return processFullReceptionReturnRpc(receptionId, formData, currentUserFullName);
+  }
+  return processFullReceptionReturnLegacy(receptionId, formData, currentUserFullName);
+}
+
+async function processFullReceptionReturnRpc(
+  receptionId: string,
+  formData: { motivo: string; guiaSalida: string; observaciones: string },
+  currentUserFullName: string
+) {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return { error: 'Supabase not configured' };
+
+  try {
+    const { data, error } = await supabase.rpc('full_reception_return_tx', {
+      p_reception_id: receptionId,
+      p_motivo: formData.motivo,
+      p_guia_salida: formData.guiaSalida,
+      p_user: currentUserFullName,
+      p_observaciones: formData.observaciones?.trim() || null,
+    });
+
+    if (error) return { error: error.message };
+
+    const payload = (data || {}) as {
+      series_count?: number;
+      reception_id?: string;
+      guide_number?: string;
+    };
+
+    const { data: seriesList } = await supabase
+      .from('series')
+      .select('id')
+      .eq('current_reception_id', receptionId)
+      .eq('current_status', 'returned');
+
+    const seriesIds = (seriesList || []).map((s) => s.id);
+
+    await Promise.allSettled(
+      seriesIds.map((seriesId) =>
+        logAdvancedAudit({
+          module: 'Logística',
+          tableName: 'series',
+          recordId: seriesId,
+          action: 'DEVOLUCION_EQUIPO',
+          newValues: {
+            status: 'returned',
+            motivo: formData.motivo,
+            guiaSalida: formData.guiaSalida,
+            atomic: true,
+          },
+          observations: `Equipo devuelto forzosamente junto con su lote. Motivo: ${formData.motivo}`,
+        })
+      )
+    );
+
+    await logAdvancedAudit({
+      module: 'Logística',
+      tableName: 'receptions',
+      recordId: receptionId,
+      action: 'DEVOLUCION_LOTE',
+      newValues: {
+        status: 'DEVUELTO',
+        series_count: payload.series_count ?? seriesIds.length,
+        atomic: true,
+      },
+      observations: `Lote devuelto completo (atómico, ${payload.series_count ?? seriesIds.length} equipos). Motivo: ${formData.motivo}`,
+    });
+
+    return { success: true };
+  } catch (err) {
+    return { error: formatReturnNetworkError(err, 'Error en devolución de lote.') };
+  }
+}
+
+async function processFullReceptionReturnLegacy(
+  receptionId: string,
+  formData: { motivo: string; guiaSalida: string; observaciones: string },
   currentUserFullName: string
 ) {
   const supabase = getSupabaseBrowserClient();

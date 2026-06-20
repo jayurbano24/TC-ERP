@@ -13,7 +13,9 @@ import { HistoryTrayPagination } from './HistoryTrayPagination';
 import { HistoryTrayTableRow, type HistoryTrayRowActions } from './HistoryTrayTableRow';
 
 type Props = HistoryTrayRowActions & {
-  allEntries: HistoryUnitEntry[];
+  pageEntries: HistoryUnitEntry[];
+  totalCount: number;
+  totalPages: number;
   emptyMessage?: string;
   historyPage: number;
   setHistoryPage: React.Dispatch<React.SetStateAction<number>>;
@@ -26,7 +28,9 @@ type Props = HistoryTrayRowActions & {
 };
 
 export function HistoryTrayTable({
-  allEntries,
+  pageEntries,
+  totalCount,
+  totalPages,
   emptyMessage = 'No hay ingresos CAC con orden de servicio TC-XXX que coincidan con los filtros',
   historyPage,
   setHistoryPage,
@@ -43,18 +47,13 @@ export function HistoryTrayTable({
   onOpenEditMeta,
   onPrintConduce,
 }: Props) {
-  const totalPages = Math.max(1, Math.ceil(allEntries.length / HISTORY_TRAY_PAGE_SIZE));
   const safePage = Math.min(historyPage, totalPages);
-  const pagedEntries = allEntries.slice(
-    (safePage - 1) * HISTORY_TRAY_PAGE_SIZE,
-    safePage * HISTORY_TRAY_PAGE_SIZE
-  );
-  const startItem = allEntries.length === 0 ? 0 : (safePage - 1) * HISTORY_TRAY_PAGE_SIZE + 1;
-  const endItem = Math.min(safePage * HISTORY_TRAY_PAGE_SIZE, allEntries.length);
+  const startItem = totalCount === 0 ? 0 : (safePage - 1) * HISTORY_TRAY_PAGE_SIZE + 1;
+  const endItem = Math.min(safePage * HISTORY_TRAY_PAGE_SIZE, totalCount);
 
   let lastHourKey = '';
 
-  const rows = pagedEntries.flatMap((entry, rowIdx) => {
+  const rows = pageEntries.flatMap((entry, rowIdx) => {
     const hourKey = getHistoryHourKey(entry.classifiedAtIso);
     const hourRows: React.ReactNode[] = [];
     if (hourKey !== lastHourKey) {
@@ -116,7 +115,7 @@ export function HistoryTrayTable({
             </tr>
           </thead>
           <tbody>
-            {allEntries.length === 0 ? (
+            {totalCount === 0 ? (
               <tr>
                 <td colSpan={18} className="p-12 text-center">
                   <Database className="w-12 h-12 text-slate-200 mx-auto mb-4" />
@@ -133,7 +132,7 @@ export function HistoryTrayTable({
       </div>
 
       <HistoryTrayPagination
-        totalCount={allEntries.length}
+        totalCount={totalCount}
         safePage={safePage}
         totalPages={totalPages}
         startItem={startItem}

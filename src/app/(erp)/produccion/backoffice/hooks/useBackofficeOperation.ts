@@ -53,6 +53,9 @@ export function useBackofficeOperation() {
     historyLoadError,
     historyLoading,
     historyReceptions,
+    totalCount,
+    totalPages,
+    historyStats,
     historySearch,
     setHistorySearch,
     historyFilters,
@@ -61,6 +64,7 @@ export function useBackofficeOperation() {
     historyPage,
     setHistoryPage,
     fetchHistory,
+    fetchExportEntries,
     getHistoryTrayEntries,
     getUnfilteredHistoryTrayEntries,
     historyFilterBrands,
@@ -70,7 +74,8 @@ export function useBackofficeOperation() {
   } = useBackofficeHistory(
     { CAC_AGENCIES, MASTER_MARCAS, MASTER_MODELOS, resolveSeriesPerUnit },
     dateFilterFrom,
-    dateFilterTo
+    dateFilterTo,
+    activeTab === 'history'
   );
 
   const inbox = useBackofficeInbox({
@@ -105,7 +110,7 @@ export function useBackofficeOperation() {
   });
 
   const historyActions = useBackofficeHistoryActions({
-    getHistoryTrayEntries,
+    fetchExportEntries,
     catalogs: { CAC_AGENCIES, MASTER_TECNOLOGIAS, MASTER_MARCAS, MASTER_MODELOS },
     dateFilterFrom,
     dateFilterTo,
@@ -273,6 +278,9 @@ export function useBackofficeOperation() {
     historyLoadError,
     historyLoading,
     historyReceptions,
+    totalCount,
+    totalPages,
+    historyStats,
     historySearch,
     setHistorySearch,
     historyFilters,

@@ -17,7 +17,9 @@ export default function BackofficePageClient() {
     operationCtx,
     historyLoadError,
     historyLoading,
-    historyReceptions,
+    historyStats,
+    totalCount,
+    totalPages,
     historySearch,
     setHistorySearch,
     historyFilters,
@@ -134,7 +136,9 @@ export default function BackofficePageClient() {
         <HistoryTab
           historyLoadError={historyLoadError}
           historyLoading={historyLoading}
-          historyReceptions={historyReceptions}
+          historyStats={historyStats}
+          totalCount={totalCount}
+          totalPages={totalPages}
           historySearch={historySearch}
           setHistorySearch={setHistorySearch}
           historyFilters={historyFilters}
@@ -144,7 +148,6 @@ export default function BackofficePageClient() {
           setHistoryPage={setHistoryPage}
           fetchHistory={fetchHistory}
           getHistoryTrayEntries={getHistoryTrayEntries}
-          getUnfilteredHistoryTrayEntries={getUnfilteredHistoryTrayEntries}
           historyFilterBrands={historyFilterBrands}
           historyFilterModels={historyFilterModels}
           patchHistoryFilter={patchHistoryFilter}

@@ -8,7 +8,7 @@ import type { HistoryUnitEntry } from '../historyTrayUtils';
 import type { CatalogAgency, CatalogBrand, CatalogModel, CatalogTech } from '../types';
 
 type Params = {
-  getHistoryTrayEntries: () => HistoryUnitEntry[];
+  fetchExportEntries: () => Promise<HistoryUnitEntry[]>;
   catalogs: {
     CAC_AGENCIES: CatalogAgency[];
     MASTER_TECNOLOGIAS: CatalogTech[];
@@ -23,7 +23,7 @@ type Params = {
 };
 
 export function useBackofficeHistoryActions({
-  getHistoryTrayEntries,
+  fetchExportEntries,
   catalogs,
   dateFilterFrom,
   dateFilterTo,
@@ -31,9 +31,15 @@ export function useBackofficeHistoryActions({
   fetchHistory,
   currentUserFullName,
 }: Params) {
-  const handleExportReport = useCallback(() => {
-    void exportHistoryReport(getHistoryTrayEntries(), catalogs, dateFilterFrom, dateFilterTo);
-  }, [catalogs, dateFilterFrom, dateFilterTo, getHistoryTrayEntries]);
+  const handleExportReport = useCallback(async () => {
+    try {
+      const entries = await fetchExportEntries();
+      await exportHistoryReport(entries, catalogs, dateFilterFrom, dateFilterTo);
+    } catch (err) {
+      console.error(err);
+      alert(err instanceof Error ? err.message : 'Error al exportar el reporte.');
+    }
+  }, [catalogs, dateFilterFrom, dateFilterTo, fetchExportEntries]);
 
   const handleReturnToPending = useCallback(
     async (receptionId: string) => {

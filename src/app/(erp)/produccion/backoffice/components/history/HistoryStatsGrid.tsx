@@ -1,34 +1,21 @@
 'use client';
 
 import { Card } from '@/components/ui';
-import type { HistoryUnitEntry } from '../../historyTrayUtils';
-import type { CatalogModel, CatalogTech } from '../../types';
+import type { CacTrayStatsResponse } from '@/lib/backoffice/cacTrayTypes';
+import type { CatalogTech } from '../../types';
 
 type Props = {
-  trayEntries: HistoryUnitEntry[];
+  stats: CacTrayStatsResponse;
   MASTER_TECNOLOGIAS: CatalogTech[];
-  MASTER_MODELOS: CatalogModel[];
 };
 
-export function HistoryStatsGrid({ trayEntries, MASTER_TECNOLOGIAS, MASTER_MODELOS }: Props) {
-  const techCounts: Record<string, number> = {};
-  let unknownTechUnits = 0;
-
-  trayEntries.forEach((entry) => {
-    const model = MASTER_MODELOS.find((m) => m.id === entry.grp.modelId);
-    if (model?.tecnologiaId) {
-      techCounts[model.tecnologiaId] = (techCounts[model.tecnologiaId] || 0) + 1;
-    } else {
-      unknownTechUnits += 1;
-    }
-  });
-
-  const totalGlobalUnits = trayEntries.length;
+export function HistoryStatsGrid({ stats, MASTER_TECNOLOGIAS }: Props) {
+  const unknownTechUnits = stats.byTechId['__unknown__'] || 0;
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-9 gap-4 mb-10">
       {MASTER_TECNOLOGIAS.map((tech) => {
-        const count = Math.ceil(techCounts[tech.id] || 0);
+        const count = stats.byTechId[tech.id] || 0;
         return (
           <Card
             key={tech.id}
@@ -53,7 +40,7 @@ export function HistoryStatsGrid({ trayEntries, MASTER_TECNOLOGIAS, MASTER_MODEL
             SIN TECNOLOGÍA
           </p>
           <p className="text-5xl font-black text-rose-500 group-hover:text-white leading-none tracking-tighter">
-            {Math.ceil(unknownTechUnits)}
+            {unknownTechUnits}
           </p>
           <p className="text-[9px] font-black text-rose-200 group-hover:text-white/50 uppercase mt-4 tracking-widest">
             Revisar Modelos
@@ -66,7 +53,7 @@ export function HistoryStatsGrid({ trayEntries, MASTER_TECNOLOGIAS, MASTER_MODEL
           Total Global
         </p>
         <p className="text-5xl font-black text-[#181c3a] group-hover:text-[#2ec4f1] leading-none tracking-tighter">
-          {Math.ceil(totalGlobalUnits)}
+          {stats.total}
         </p>
         <p className="text-[9px] font-black text-slate-300 group-hover:text-white/20 uppercase mt-4 tracking-widest">
           Unidades
@@ -75,9 +62,7 @@ export function HistoryStatsGrid({ trayEntries, MASTER_TECNOLOGIAS, MASTER_MODEL
 
       <Card className="p-6 border-none shadow-2xl bg-[#2ec4f1] rounded-[2.5rem] flex flex-col items-center justify-center text-center text-[#181c3a] h-40">
         <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#181c3a]/30 mb-4">Órdenes (OS)</p>
-        <p className="text-6xl font-black text-[#181c3a] leading-none tracking-tighter">
-          {new Set(trayEntries.map((e) => e.osLabel)).size}
-        </p>
+        <p className="text-6xl font-black text-[#181c3a] leading-none tracking-tighter">{stats.total}</p>
         <p className="text-[9px] font-black text-[#181c3a]/20 uppercase mt-4 tracking-widest">Generadas</p>
       </Card>
     </div>

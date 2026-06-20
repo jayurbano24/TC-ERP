@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
-import { groupSeriesIntoEquipmentUnits } from '../../history/equipmentGrouping';
 import type { MassTransferForm } from '../../components/modals/MassTransferModal';
 import type { CatalogBrand, CatalogModel } from '../../types';
 
@@ -47,7 +46,7 @@ export function useMassTransferModal({
     [MASTER_MARCAS, MASTER_MODELOS, massTransferData.techId]
   );
 
-  const handlePrepareMassTransfer = useCallback(() => {
+  const handlePrepareMassTransfer = useCallback(async () => {
     if (
       !massTransferData.techId ||
       !massTransferData.brandId ||
@@ -58,39 +57,40 @@ export function useMassTransferModal({
       return;
     }
 
-    const eligibleSeriesList: EligibleSeries[] = [];
-    for (const rec of historyReceptions as { series?: unknown[] }[]) {
-      const units = groupSeriesIntoEquipmentUnits(rec.series || [], resolveSeriesPerUnit);
-      for (const { modelId, brandId, unit } of units) {
-        const modelObj = MASTER_MODELOS.find((m) => m.id === modelId);
-        const techId = modelObj?.tecnologiaId;
-        if (
-          techId === massTransferData.techId &&
-          brandId === massTransferData.brandId &&
-          modelId === massTransferData.modelId &&
-          unit.length > 0
-        ) {
-          eligibleSeriesList.push({
-            allIds: unit.map((u: { id: string }) => u.id),
-            sn: unit[0].serial_number,
-          });
-        }
+    try {
+      const params = new URLSearchParams({
+        techId: massTransferData.techId,
+        brandId: massTransferData.brandId,
+        modelId: massTransferData.modelId,
+      });
+      const res = await fetch(`/api/backoffice/cac-history/transfer-eligible?${params}`, {
+        cache: 'no-store',
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload?.error || 'Error al consultar equipos');
+
+      const eligibleSeriesList = (payload.items || []).map((item: { seriesIds: string[]; sn: string }) => ({
+        allIds: item.seriesIds,
+        sn: item.sn,
+      }));
+
+      if (eligibleSeriesList.length < Number(massTransferData.quantity)) {
+        alert(
+          `No hay suficientes equipos disponibles en la selección. Disponibles: ${eligibleSeriesList.length}`
+        );
+        return;
       }
-    }
 
-    if (eligibleSeriesList.length < Number(massTransferData.quantity)) {
-      alert(
-        `No hay suficientes equipos disponibles en la selección. Disponibles: ${eligibleSeriesList.length}`
-      );
-      return;
+      setEligibleSeriesIdsList(eligibleSeriesList);
+      setScannedTransferSeries([]);
+      setCurrentScanInput('');
+      setIsScanningForTransfer(true);
+      setShowMassTransferModal(false);
+    } catch (err) {
+      console.error(err);
+      alert(err instanceof Error ? err.message : 'Error al preparar traslado.');
     }
-
-    setEligibleSeriesIdsList(eligibleSeriesList);
-    setScannedTransferSeries([]);
-    setCurrentScanInput('');
-    setIsScanningForTransfer(true);
-    setShowMassTransferModal(false);
-  }, [MASTER_MODELOS, historyReceptions, massTransferData, resolveSeriesPerUnit]);
+  }, [massTransferData]);
 
   const handleScanKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {

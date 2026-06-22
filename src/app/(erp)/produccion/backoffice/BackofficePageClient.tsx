@@ -16,7 +16,8 @@ export default function BackofficePageClient() {
     setActiveTab,
     operationCtx,
     historyLoadError,
-    historyLoading,
+    historyInitialLoading,
+    historyRefreshing,
     historyStats,
     totalCount,
     totalPages,
@@ -135,7 +136,8 @@ export default function BackofficePageClient() {
       {activeTab === 'history' && (
         <HistoryTab
           historyLoadError={historyLoadError}
-          historyLoading={historyLoading}
+          historyInitialLoading={historyInitialLoading}
+          historyRefreshing={historyRefreshing}
           historyStats={historyStats}
           totalCount={totalCount}
           totalPages={totalPages}

@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { Card, Badge, Button } from '@/components/ui';
+import { assertSapOperationAllowed, resolveUnitSapStatus } from '@/lib/sap/sapValidationStatus';
 import { ModulePage, ModuleToolbar } from '@/components/module-page';
 import { 
   Box, 
@@ -154,20 +155,24 @@ export default function BodegaGestionPage() {
       }
 
       for (const s of seriesToCheck) {
-        const sapStatus = s.sap_status || 'Pendiente Validación';
+        const sapStatus = resolveUnitSapStatus(
+          s.sap_integration_status || s.sap_status,
+          s.series_sap_statuses || [s.sap_status]
+        );
         if (dispatchAction === 'despacho') {
-           if (sapStatus !== 'Validado SAP') {
-              alert(`⚠️ Bloqueo Operativo (Integración SAP): No se puede despachar porque el equipo ${s.sn} tiene estado "${sapStatus}". Solo se permite "Validado SAP".`);
-              return;
-           }
+          const check = assertSapOperationAllowed(sapStatus, 'dispatch');
+          if (!check.ok) {
+            alert(`⚠️ ${check.message} Equipo ${s.sn}.`);
+            return;
+          }
         } else if (dispatchAction === 'traslado') {
-           // Taller (Diagnóstico / Reparación) no tiene bloqueos.
-           if (dispatchArea !== 'Diagnóstico' && dispatchArea !== 'Reparación') {
-             if (sapStatus === 'Sin Coincidencia' || sapStatus === 'Revisar' || sapStatus === 'Obsoleto') {
-                alert(`⚠️ Bloqueo Operativo (Integración SAP): No se puede trasladar porque el equipo ${s.sn} tiene estado "${sapStatus}". Debe ser "Validado SAP" o "Pendiente Validación".`);
-                return;
-             }
-           }
+          if (dispatchArea !== 'Diagnóstico' && dispatchArea !== 'Reparación') {
+            const check = assertSapOperationAllowed(sapStatus, 'transfer');
+            if (!check.ok) {
+              alert(`⚠️ ${check.message} Equipo ${s.sn}.`);
+              return;
+            }
+          }
         }
       }
     }
@@ -281,10 +286,22 @@ export default function BodegaGestionPage() {
             || normalizedNotes.split('Backoffice_Agency: ')[1]?.split('\n')[0]?.trim()
             || main.receptions?.carrier
             || '---';
-          // Tech/Brand/Model vienen directo de la serie (fuente de verdad principal)
-          const techId = main.technology_id || normalizedNotes.split('Backoffice_Tech: ')[1]?.split('\n')[0]?.trim() || '';
-          const brandId = main.brand_id || normalizedNotes.split('Backoffice_Brand: ')[1]?.split('\n')[0]?.trim() || '';
-          const modelId = main.model_id || normalizedNotes.split('Backoffice_Model: ')[1]?.split('\n')[0]?.trim() || '';
+          // Tech/Brand/Model: model_id en serie → catálogo; fallback notes legacy
+          const techId =
+            main.models?.technology_id ||
+            main.models?.technologies?.name ||
+            normalizedNotes.split('Backoffice_Tech: ')[1]?.split('\n')[0]?.trim() ||
+            '';
+          const brandId =
+            main.brand_id ||
+            main.models?.brand_id ||
+            normalizedNotes.split('Backoffice_Brand: ')[1]?.split('\n')[0]?.trim() ||
+            '';
+          const modelId =
+            main.model_id ||
+            main.models?.name ||
+            normalizedNotes.split('Backoffice_Model: ')[1]?.split('\n')[0]?.trim() ||
+            '';
           const reentryCount = main.service_orders?.reentry_count || 1;
           const ingresoLabel = `${reentryCount}° Ingreso`;
 
@@ -336,6 +353,15 @@ export default function BodegaGestionPage() {
 
       const unitCount = seriesList.length;
       const capacity = b.capacity || 0;
+      const boxModelRecord = catModelos.find((m: any) => m.id === b.model_id);
+      const boxTechLabel = boxModelRecord
+        ? catTecnologias.find((t: any) => t.id === boxModelRecord.technology_id)?.name ||
+          boxModelRecord.technology_id
+        : '---';
+      const firstSeriesTech = seriesList.length > 0
+        ? catTecnologias.find((t: any) => t.id === seriesList[0].tecnologia)?.name ||
+          seriesList[0].tecnologia
+        : boxTechLabel;
 
       return {
         id: b.box_code || b.id,
@@ -350,7 +376,7 @@ export default function BodegaGestionPage() {
         status: resolveBoxDisplayStatus(unitCount, capacity),
         series: seriesList,
         fechaIngreso: new Date(b.created_at || Date.now()).toLocaleString(),
-        tecnologia: seriesList.length > 0 ? seriesList[0].tecnologia : '---',
+        tecnologia: firstSeriesTech || boxTechLabel || '---',
         usuarioIngreso: seriesList.length > 0 ? seriesList[0].recibio : 'Admin User'
       };
     })

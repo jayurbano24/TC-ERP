@@ -23,6 +23,8 @@ export type CacTrayUnitRow = {
   model_id: string | null;
   serial_numbers: string[];
   series_ids: string[];
+  sap_integration_status?: string | null;
+  series_sap_statuses?: (string | null)[];
 };
 
 export type CacTrayQueryParams = {

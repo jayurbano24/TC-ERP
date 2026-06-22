@@ -14,9 +14,29 @@ export async function getWorkshopTasks(stage?: string) {
       updated_at,
       brand_id,
       model_id,
-      service_orders (id, os_label),
-      receptions (guide_number, notes, carrier, source),
-      boxes (box_code),
+      models (
+        id,
+        name,
+        technology_id,
+        technologies ( id, name )
+      ),
+      brands ( id, name ),
+      service_orders (
+        id,
+        os_label,
+        reception_guide_id,
+        sap_transfer_id,
+        reception_guides ( guide_number, agency ),
+        sap_transfer_documents ( agency )
+      ),
+      receptions:current_reception_id (
+        guide_number,
+        notes,
+        carrier,
+        source,
+        reception_guides ( guide_number, agency )
+      ),
+      boxes ( box_code ),
       ingress_count,
       current_diagnostics
     `)

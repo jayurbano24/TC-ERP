@@ -5,7 +5,7 @@ import { Card, Badge, Button } from '@/components/ui';
 import { ModulePage, ModuleToolbar } from '@/components/module-page';
 import { Search, MapPin, Package, Download, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
-import { getInventoryDetails } from '@/lib/database/warehouse';
+import { getInventoryDetails, resolveWarehouseStatusLabel } from '@/lib/database/warehouse';
 
 export default function InventarioDetallePage() {
   const [loading, setLoading] = useState(true);
@@ -52,7 +52,7 @@ export default function InventarioDetallePage() {
           extractField(r.notes, 'Piloto') || 'N/A',
           r.carrier || extractField(r.notes, 'Courier') || 'REDESIS',
           extractField(r.notes, 'Recibido Por') || r.received_by || 'SISTEMA',
-          'BODEGA CENTRAL',
+          resolveWarehouseStatusLabel(i.current_status),
           i.service_orders?.os_label || 'TC-00012',
           '1° Ingreso',
           r.source === 'cac' ? 'CAC' : 'PX',
@@ -106,7 +106,7 @@ export default function InventarioDetallePage() {
         s1: g.series_list[0] || g.serial_number,
         s2: g.series_list[1] || '---',
         s3: g.series_list[2] || '---',
-        s4: g.series_list[3] || '---'
+        s4: g.series_list[3] || '---',
       };
     });
 
@@ -238,7 +238,9 @@ export default function InventarioDetallePage() {
                   <tr><td colSpan={19} className="p-8 text-center text-slate-400 font-bold">No se encontraron unidades</td></tr>
                 ) : filteredItems.map((item, idx) => {
                   const r = item.receptions || {};
-                  if (idx === 0) console.log("DEBUG ITEM:", item);
+                  const statusLabel = resolveWarehouseStatusLabel(item.current_status);
+                  const statusVariant =
+                    item.current_status === 'in_central_warehouse' ? 'green' : 'purple';
                   return (
                   <tr key={idx} className="hover:bg-slate-50 transition-colors">
                     <td className="px-4 py-4">{item.created_at ? new Date(item.created_at).toLocaleString() : 'N/A'}</td>
@@ -247,7 +249,7 @@ export default function InventarioDetallePage() {
                     <td className="px-4 py-4 uppercase">{r.carrier || extractField(r.notes, 'Courier') || 'REDESIS'}</td>
                     <td className="px-4 py-4">{extractField(r.notes, 'Recibido Por') || r.received_by || 'SISTEMA'}</td>
                     <td className="px-4 py-4">
-                      <Badge variant="green">BODEGA CENTRAL</Badge>
+                      <Badge variant={statusVariant}>{statusLabel}</Badge>
                     </td>
                     <td className="px-4 py-4 font-black">{item.service_orders?.os_label || 'TC-00012'}</td>
                     <td className="px-4 py-4">1° Ingreso</td>

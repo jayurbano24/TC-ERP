@@ -18,6 +18,8 @@ type Catalogs = {
   MASTER_MODELOS: CatalogModel[];
 };
 
+const SEARCH_DEBOUNCE_MS = 500;
+
 function buildQueryParams(
   page: number,
   historySearch: string,
@@ -75,8 +77,11 @@ export function useBackofficeHistory(
   enabled = true
 ) {
   const historyFetchIdRef = useRef(0);
+  const hasLoadedOnceRef = useRef(false);
+
   const [historyLoadError, setHistoryLoadError] = useState<string | null>(null);
-  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyInitialLoading, setHistoryInitialLoading] = useState(false);
+  const [historyRefreshing, setHistoryRefreshing] = useState(false);
   const [trayEntries, setTrayEntries] = useState<HistoryUnitEntry[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
@@ -88,7 +93,7 @@ export function useBackofficeHistory(
   const [historyPage, setHistoryPage] = useState(1);
 
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(historySearch), 350);
+    const t = setTimeout(() => setDebouncedSearch(historySearch), SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(t);
   }, [historySearch]);
 
@@ -97,42 +102,59 @@ export function useBackofficeHistory(
     [historyPage, debouncedSearch, historyFilters, dateFilterFrom, dateFilterTo]
   );
 
-  const fetchHistory = useCallback(
-    async (opts?: { silent?: boolean; page?: number }) => {
-      const fetchId = ++historyFetchIdRef.current;
-      if (!opts?.silent) setHistoryLoading(true);
+  const queryKey = useMemo(() => JSON.stringify(queryParams), [queryParams]);
+
+  const loadHistory = useCallback(async (params: CacTrayQueryParams, opts?: { silent?: boolean }) => {
+    const fetchId = ++historyFetchIdRef.current;
+    const isFirstLoad = !hasLoadedOnceRef.current;
+
+    if (isFirstLoad && !opts?.silent) {
+      setHistoryInitialLoading(true);
+    } else if (!opts?.silent) {
+      setHistoryRefreshing(true);
+    }
+    setHistoryLoadError(null);
+
+    try {
+      const pageData = await fetchTrayPage(params);
+      if (fetchId !== historyFetchIdRef.current) return;
+
+      setTrayEntries(trayRowsToHistoryEntries(pageData.rows as CacTrayUnitRow[]));
+      setTotalCount(pageData.totalCount);
+      setTotalPages(pageData.totalPages);
+      hasLoadedOnceRef.current = true;
       setHistoryLoadError(null);
 
-      const params = { ...queryParams, page: opts?.page ?? queryParams.page };
-
-      try {
-        const [pageData, stats] = await Promise.all([
-          fetchTrayPage(params),
-          fetchTrayStats(params),
-        ]);
-
-        if (fetchId !== historyFetchIdRef.current) return;
-
-        setTrayEntries(trayRowsToHistoryEntries(pageData.rows as CacTrayUnitRow[]));
-        setTotalCount(pageData.totalCount);
-        setTotalPages(pageData.totalPages);
-        setHistoryStats(stats);
-        setHistoryLoadError(null);
-      } catch (error: unknown) {
-        if (fetchId !== historyFetchIdRef.current) return;
-        console.error('Error fetching CAC tray:', error);
-        setHistoryLoadError(error instanceof Error ? error.message : 'No se pudo cargar el historial.');
-      } finally {
-        if (fetchId === historyFetchIdRef.current) setHistoryLoading(false);
+      void fetchTrayStats(params)
+        .then((stats) => {
+          if (fetchId !== historyFetchIdRef.current) return;
+          setHistoryStats(stats);
+        })
+        .catch((err) => console.warn('CAC tray stats:', err));
+    } catch (error: unknown) {
+      if (fetchId !== historyFetchIdRef.current) return;
+      console.error('Error fetching CAC tray:', error);
+      setHistoryLoadError(error instanceof Error ? error.message : 'No se pudo cargar el historial.');
+    } finally {
+      if (fetchId === historyFetchIdRef.current) {
+        setHistoryInitialLoading(false);
+        setHistoryRefreshing(false);
       }
-    },
-    [queryParams]
-  );
+    }
+  }, []);
 
   useEffect(() => {
     if (!enabled) return;
-    void fetchHistory();
-  }, [enabled, fetchHistory]);
+    void loadHistory(queryParams);
+  }, [enabled, queryKey, loadHistory, queryParams]);
+
+  const fetchHistory = useCallback(
+    async (opts?: { silent?: boolean; page?: number }) => {
+      const params = { ...queryParams, page: opts?.page ?? queryParams.page };
+      await loadHistory(params, opts);
+    },
+    [queryParams, loadHistory]
+  );
 
   const getHistoryTrayEntries = useCallback(() => trayEntries, [trayEntries]);
 
@@ -176,7 +198,9 @@ export function useBackofficeHistory(
 
   return {
     historyLoadError,
-    historyLoading,
+    historyLoading: historyInitialLoading || historyRefreshing,
+    historyInitialLoading,
+    historyRefreshing,
     historyReceptions: [] as unknown[],
     trayEntries,
     totalCount,

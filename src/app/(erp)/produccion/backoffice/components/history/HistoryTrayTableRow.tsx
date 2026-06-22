@@ -1,6 +1,8 @@
 'use client';
 
 import { Badge } from '@/components/ui';
+import { SapValidationBadge, SeriesSapValidationDots } from '@/components/sap/SapValidationBadge';
+import { resolveUnitSapStatus } from '@/lib/sap/sapValidationStatus';
 import { Clock, Edit2, Eye, Printer, RefreshCw, RotateCcw } from 'lucide-react';
 import { formatAgencyLabel, getBackofficeClassifierName, type HistoryUnitEntry } from '../../historyTrayUtils';
 import type { CatalogAgency, CatalogBrand, CatalogModel, CatalogTech } from '../../types';
@@ -55,6 +57,14 @@ export function HistoryTrayTableRow({
   const reentry =
     unit.find((u: { service_orders?: { reentry_count?: number } }) => u?.service_orders?.reentry_count)
       ?.service_orders?.reentry_count || 1;
+  const sapStatus =
+    entry.sapValidationStatus ||
+    resolveUnitSapStatus(
+      unit[0]?.service_orders?.sap_integration_status,
+      entry.seriesSapStatuses || unit.map((u: { sap_status?: string }) => u.sap_status)
+    );
+  const seriesSapStatuses =
+    entry.seriesSapStatuses || unit.map((u: { sap_status?: string }) => u.sap_status || null);
 
   return (
     <tr className={`border-b border-slate-100 transition-colors hover:bg-blue-50/30 ${bandBg}`}>
@@ -95,6 +105,12 @@ export function HistoryTrayTableRow({
       <td className="px-4 py-3 text-[11px] font-black text-slate-600 uppercase whitespace-nowrap">{brandObj?.nombre || '---'}</td>
       <td className="px-4 py-3 text-[11px] font-bold text-[#181c3a] whitespace-nowrap">{modelObj?.nombre || '---'}</td>
       <td className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase whitespace-nowrap">{entry.unitSap}</td>
+      <td className="px-4 py-3 whitespace-nowrap">
+        <SapValidationBadge status={sapStatus} />
+        <div className="mt-1">
+          <SeriesSapValidationDots statuses={seriesSapStatuses} />
+        </div>
+      </td>
       {[0, 1, 2, 3].map((si) => (
         <td key={si} className="px-4 py-3 text-[11px] font-mono font-bold text-slate-600 whitespace-nowrap">
           {unit[si]?.serial_number ? (

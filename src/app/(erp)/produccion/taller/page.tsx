@@ -285,35 +285,77 @@ export default function TallerPage() {
     const groupedData = Array.from(groupedMap.values());
 
     const adapted = groupedData.map((t: any) => {
-      const notes = t.receptions?.notes || '';
-      
-      let techId = t.technology_id || '';
+      const notes = (t.receptions?.notes || '').replace(/\\n/g, '\n');
+
+      const modelRow = catModelos.find((m: any) => m.id === t.model_id);
+      let techId =
+        t.models?.technology_id ||
+        modelRow?.technology_id ||
+        '';
+
       let brandId = t.brand_id || '';
       let modelId = t.model_id || '';
       let courierStr = t.receptions?.carrier || 'Desconocido';
       let sourceStr = t.receptions?.source?.toUpperCase() || 'CAC';
       let agenciaStr = 'N/A';
 
-      if (notes) {
-         try {
-           const parsed = JSON.parse(notes);
-           if (parsed.courier && courierStr === 'Desconocido') courierStr = parsed.courier;
-           if (parsed.agencia) agenciaStr = parsed.agencia;
-         } catch(e) {}
+      const receptionGuide = (t.receptions?.reception_guides || []).find(
+        (rg: any) => rg.guide_number === t.receptions?.guide_number
+      );
+      const soGuide = t.service_orders?.reception_guides;
+      const sapAgency = t.service_orders?.sap_transfer_documents?.agency;
 
-         const tMatch = notes.match(/Backoffice_Tech:\s*([^\s]+)/);
-         if (tMatch && !techId) techId = tMatch[1];
-         
-         const bMatch = notes.match(/Backoffice_Brand:\s*([^\s]+)/);
-         if (bMatch && !brandId) brandId = bMatch[1];
-         
-         const mMatch = notes.match(/Backoffice_Model:\s*([^\s]+)/);
-         if (mMatch && !modelId) modelId = mMatch[1];
+      if (notes) {
+        try {
+          const parsed = JSON.parse(notes);
+          if (parsed.courier && courierStr === 'Desconocido') courierStr = parsed.courier;
+          if (parsed.agencia) agenciaStr = parsed.agencia;
+        } catch {
+          /* not JSON */
+        }
+
+        const techFromNotes = notes.split('Backoffice_Tech: ')[1]?.split('\n')[0]?.trim() || '';
+        if (!techId && techFromNotes && !/^cajas:/i.test(techFromNotes)) {
+          techId = techFromNotes;
+        }
+
+        const brandFromNotes = notes.split('Backoffice_Brand: ')[1]?.split('\n')[0]?.trim() || '';
+        if (!brandId && brandFromNotes) brandId = brandFromNotes;
+
+        const modelFromNotes = notes.split('Backoffice_Model: ')[1]?.split('\n')[0]?.trim() || '';
+        if (!modelId && modelFromNotes) modelId = modelFromNotes;
+
+        const agenciaFromNotes =
+          notes.split('Agencia: ')[1]?.split('\n')[0]?.trim() ||
+          notes.split('Backoffice_Agency: ')[1]?.split('\n')[0]?.trim() ||
+          notes.split('Proveedor PX: ')[1]?.split('\n')[0]?.trim() ||
+          '';
+        if (agenciaFromNotes) agenciaStr = agenciaFromNotes;
       }
 
-      const tecnologiaName = catTecnologias.find(tech => tech.id === techId)?.name || techId || 'EQUIPO';
-      const marcaName = catMarcas.find(b => b.id === brandId)?.name || brandId || 'Desconocida';
-      const modeloName = catModelos.find(m => m.id === modelId)?.name || modelId || 'S/N';
+      if (agenciaStr === 'N/A') {
+        agenciaStr =
+          receptionGuide?.agency ||
+          soGuide?.agency ||
+          sapAgency ||
+          (sourceStr === 'PX' ? courierStr : 'N/A');
+      }
+
+      const tecnologiaName =
+        t.models?.technologies?.name ||
+        catTecnologias.find((tech) => tech.id === techId)?.name ||
+        (techId && !/^cajas:/i.test(techId) ? techId : null) ||
+        'EQUIPO';
+      const marcaName =
+        t.brands?.name ||
+        catMarcas.find((b) => b.id === brandId)?.name ||
+        brandId ||
+        'Desconocida';
+      const modeloName =
+        t.models?.name ||
+        catModelos.find((m) => m.id === modelId)?.name ||
+        modelId ||
+        'S/N';
 
         const stageRaw = t.current_status === 'in_workshop' ? 'PARA DIAGNOSTICAR' 
           : t.current_status === 'in_qc' ? 'REPARACION'

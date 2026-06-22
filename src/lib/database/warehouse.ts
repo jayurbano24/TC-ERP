@@ -1,5 +1,59 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
+/** Estados que cuentan como inventario físico en bodega central / L3. */
+export const WAREHOUSE_INVENTORY_STATUSES = [
+  'in_central_warehouse',
+  'in_control_warehouse',
+] as const;
+
+const AREA_TO_SERIES_STATUS: Record<string, string> = {
+  'Bodega Central': 'in_central_warehouse',
+  'Bodega SCRAP': 'irreparable',
+  SCRAP: 'irreparable',
+  'Bodega Obsoleto': 'obsolete',
+  Obsoleto: 'obsolete',
+  Diagnóstico: 'in_workshop',
+  Reparación: 'in_qc',
+  L3: 'in_control_warehouse',
+};
+
+const AREA_TO_RACK: Record<string, string> = {
+  'Bodega SCRAP': 'SCRAP',
+  SCRAP: 'SCRAP',
+  'Bodega Obsoleto': 'OBSOLETO',
+  Obsoleto: 'OBSOLETO',
+  Diagnóstico: 'TALLER-DIAGNOSTICO',
+  Reparación: 'TALLER-REPARACION',
+  L3: 'BODEGA-L3',
+};
+
+export function resolveWarehouseStatusLabel(status: string | null | undefined): string {
+  switch (status) {
+    case 'in_central_warehouse':
+      return 'BODEGA CENTRAL';
+    case 'in_control_warehouse':
+      return 'BODEGA L3';
+    case 'RECEPCIONADO_BODEGA_GENERAL':
+      return 'PENDIENTE INGRESO';
+    case 'in_workshop':
+      return 'TALLER · DIAGNÓSTICO';
+    case 'in_qc':
+      return 'TALLER · REPARACIÓN';
+    case 'in_validation':
+      return 'TALLER · QC';
+    case 'ready_to_dispatch':
+      return 'LISTO DESPACHO';
+    case 'dispatched':
+      return 'DESPACHADO';
+    case 'irreparable':
+      return 'SCRAP';
+    case 'obsolete':
+      return 'OBSOLETO';
+    default:
+      return (status || 'DESCONOCIDO').toUpperCase().replace(/_/g, ' ');
+  }
+}
+
 const WAREHOUSE_READY_RECEPTION_STATUSES = new Set([
   'CLASIFICADA',
   'PROCESADO',
@@ -168,25 +222,32 @@ export async function transferBoxesToArea(boxIds: string[], targetArea: string, 
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: "Supabase not configured" };
 
-  // Map area to status
-  let nextStatus = 'in_central_warehouse';
-  if (targetArea === 'Bodega SCRAP' || targetArea === 'SCRAP') nextStatus = 'irreparable';
-  if (targetArea === 'Bodega Obsoleto' || targetArea === 'Obsoleto') nextStatus = 'obsolete';
-  if (targetArea === 'Diagnóstico') nextStatus = 'in_workshop';
+  const nextStatus = AREA_TO_SERIES_STATUS[targetArea] ?? 'in_central_warehouse';
+  const rackFromArea = AREA_TO_RACK[targetArea];
+  const rackLocation = targetRack ?? rackFromArea;
 
-  // 1. Update boxes location
-  if (targetRack !== undefined) {
+  // 1. Actualizar ubicación de caja cuando sale de bodega central o cambia área
+  if (rackLocation) {
     const { error: boxError } = await supabase
       .from('boxes')
-      .update({ 
-        rack_location: targetRack
-      })
+      .update({ rack_location: rackLocation })
       .in('id', boxIds);
 
     if (boxError) return { error: boxError.message };
   }
 
-  // 2. Update all series inside these boxes
+  // 2. Series en la caja + hermanas de la misma OS (S-2, S-3, S-4 sin current_box_id)
+  const { data: inBoxSeries, error: fetchErr } = await supabase
+    .from('series')
+    .select('id, service_order_id')
+    .in('current_box_id', boxIds);
+
+  if (fetchErr) return { error: fetchErr.message };
+
+  const osIds = Array.from(
+    new Set((inBoxSeries || []).map((s) => s.service_order_id).filter(Boolean))
+  ) as string[];
+
   const { data: updatedSeries, error: seriesError } = await supabase
     .from('series')
     .update({ current_status: nextStatus })
@@ -194,15 +255,53 @@ export async function transferBoxesToArea(boxIds: string[], targetArea: string, 
     .select('id');
 
   if (seriesError) return { error: seriesError.message };
-  
-  if (updatedSeries && nextStatus === 'in_central_warehouse') {
-    const { logAudit } = await import('@/lib/database/audit');
-    for (const s of updatedSeries) {
-      await logAudit('series', s.id, 'INGRESO BODEGA', { status: 'in_central_warehouse', boxIds });
+
+  let siblingUpdated: { id: string }[] = [];
+  if (osIds.length > 0 && nextStatus !== 'in_central_warehouse') {
+    const { data: siblings, error: siblingError } = await supabase
+      .from('series')
+      .update({ current_status: nextStatus })
+      .in('service_order_id', osIds)
+      .in('current_status', [...WAREHOUSE_INVENTORY_STATUSES])
+      .select('id');
+
+    if (siblingError) return { error: siblingError.message };
+    siblingUpdated = siblings || [];
+  }
+
+  const allUpdatedIds = [
+    ...new Set([...(updatedSeries || []).map((s) => s.id), ...siblingUpdated.map((s) => s.id)]),
+  ];
+
+  const { logAudit } = await import('@/lib/database/audit');
+
+  if (allUpdatedIds.length) {
+    for (const seriesId of allUpdatedIds) {
+      if (nextStatus === 'in_central_warehouse') {
+        await logAudit('series', seriesId, 'INGRESO BODEGA', {
+          status: 'in_central_warehouse',
+          boxIds,
+          userId,
+        });
+      } else if (nextStatus === 'in_workshop') {
+        await logAudit('series', seriesId, 'INGRESO A TALLER', {
+          status: 'in_workshop',
+          targetArea,
+          boxIds,
+          userId,
+        });
+      } else {
+        await logAudit('series', seriesId, 'TRASLADO', {
+          status: nextStatus,
+          targetArea,
+          boxIds,
+          userId,
+        });
+      }
     }
   }
 
-  return { success: true };
+  return { success: true, seriesUpdated: allUpdatedIds.length };
 }
 
 export async function dispatchBoxFromWarehouse(boxId: string, destination: string, notes?: string) {
@@ -409,24 +508,30 @@ export async function getInventoryDetails() {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return [];
 
-  // 1. Get all boxes currently in the warehouse (not dispatched)
+  // 1. Cajas físicamente en bodega (excluir despacho, eliminado y racks de taller)
   const { data: warehouseBoxes, error: boxError } = await supabase
     .from("boxes")
-    .select("id")
-    .not("rack_location", "in", '("DESPACHO","ELIMINADO")');
+    .select("id, rack_location")
+    .not("rack_location", "in", '("DESPACHO","ELIMINADO")')
+    .not("rack_location", "ilike", "TALLER%");
 
   if (boxError) {
     console.error("Error fetching closed boxes:", boxError);
     return { error: boxError.message };
   }
 
-  if (!warehouseBoxes || warehouseBoxes.length === 0) {
+  const warehouseBoxIds = (warehouseBoxes || [])
+    .filter((b: { rack_location?: string | null }) => {
+      const rack = (b.rack_location || '').toUpperCase();
+      return !rack.startsWith('SCRAP') && !rack.startsWith('OBSOLETO');
+    })
+    .map((b: { id: string }) => b.id);
+
+  if (warehouseBoxIds.length === 0) {
     return { data: [] };
   }
 
-  const warehouseBoxIds = warehouseBoxes.map((b: any) => b.id);
-
-  // 2. Fetch only series that belong to those closed boxes
+  // 2. Solo series con estado de inventario en bodega (excluye taller, despacho, etc.)
   const { data, error } = await supabase
     .from("series")
     .select(`
@@ -447,6 +552,7 @@ export async function getInventoryDetails() {
       models (name, technologies (name))
     `)
     .in("current_box_id", warehouseBoxIds)
+    .in("current_status", [...WAREHOUSE_INVENTORY_STATUSES])
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -454,6 +560,12 @@ export async function getInventoryDetails() {
     return { error: error.message };
   }
 
-  return { data };
+  const warehouseOnly = (data || []).filter((row: { current_status?: string; boxes?: { rack_location?: string } }) => {
+    const rack = (row.boxes?.rack_location || '').toUpperCase();
+    if (rack.startsWith('TALLER')) return false;
+    return (WAREHOUSE_INVENTORY_STATUSES as readonly string[]).includes(row.current_status || '');
+  });
+
+  return { data: warehouseOnly };
 }
 

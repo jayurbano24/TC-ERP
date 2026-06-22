@@ -60,7 +60,7 @@ export function HistoryTrayTable({
       lastHourKey = hourKey;
       hourRows.push(
         <tr key={`hour-${hourKey}`} className="bg-[#2ec4f1]/10">
-          <td colSpan={18} className="px-6 py-3 text-[10px] font-black uppercase tracking-[0.25em] text-[#181c3a]">
+          <td colSpan={19} className="px-6 py-3 text-[10px] font-black uppercase tracking-[0.25em] text-[#181c3a]">
             {formatHistoryHourLabel(entry.classifiedAtIso)}
           </td>
         </tr>
@@ -107,6 +107,7 @@ export function HistoryTrayTable({
               <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">Marca</th>
               <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">Modelo</th>
               <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">Documento SAP</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">Validación SAP</th>
               <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">S-1</th>
               <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">S-2</th>
               <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">S-3</th>
@@ -117,7 +118,7 @@ export function HistoryTrayTable({
           <tbody>
             {totalCount === 0 ? (
               <tr>
-                <td colSpan={18} className="p-12 text-center">
+                <td colSpan={19} className="p-12 text-center">
                   <Database className="w-12 h-12 text-slate-200 mx-auto mb-4" />
                   <p className="text-xs font-black text-slate-400 uppercase tracking-widest max-w-lg mx-auto leading-relaxed">
                     {emptyMessage}

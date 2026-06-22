@@ -56,6 +56,48 @@ function applyTrayFilters(
   return q;
 }
 
+async function enrichTrayRowsWithSapStatus(rows: CacTrayUnitRow[]): Promise<CacTrayUnitRow[]> {
+  if (rows.length === 0) return rows;
+  const supabase = getSupabaseServerClient();
+  const osIds = [...new Set(rows.map((r) => r.service_order_id))];
+
+  const [{ data: orders }, { data: series }] = await Promise.all([
+    supabase.from('service_orders').select('id, sap_integration_status').in('id', osIds),
+    supabase
+      .from('series')
+      .select('service_order_id, serial_number, sap_status')
+      .in('service_order_id', osIds)
+      .not('brand_id', 'is', null),
+  ]);
+
+  const integrationByOs = new Map(
+    (orders || []).map((o: { id: string; sap_integration_status?: string | null }) => [
+      o.id,
+      o.sap_integration_status,
+    ])
+  );
+
+  const seriesByOs = new Map<string, { serial_number: string; sap_status: string | null }[]>();
+  for (const s of series || []) {
+    const row = s as { service_order_id: string; serial_number: string; sap_status: string | null };
+    if (!seriesByOs.has(row.service_order_id)) seriesByOs.set(row.service_order_id, []);
+    seriesByOs.get(row.service_order_id)!.push(row);
+  }
+
+  return rows.map((row) => {
+    const osSeries = seriesByOs.get(row.service_order_id) || [];
+    const statusBySerial = new Map(osSeries.map((s) => [s.serial_number, s.sap_status]));
+    const series_sap_statuses = row.serial_numbers.map(
+      (sn) => statusBySerial.get(sn) ?? null
+    );
+    return {
+      ...row,
+      sap_integration_status: integrationByOs.get(row.service_order_id) ?? null,
+      series_sap_statuses,
+    };
+  });
+}
+
 export async function queryCacTrayPage(params: CacTrayQueryParams): Promise<CacTrayPageResponse> {
   const supabase = getSupabaseServerClient();
   const limit = Math.min(Math.max(params.limit || DEFAULT_LIMIT, 1), MAX_LIMIT);
@@ -81,9 +123,10 @@ export async function queryCacTrayPage(params: CacTrayQueryParams): Promise<CacT
 
   const totalCount = count ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalCount / limit));
+  const enrichedRows = await enrichTrayRowsWithSapStatus((data || []) as CacTrayUnitRow[]);
 
   return {
-    rows: (data || []) as CacTrayUnitRow[],
+    rows: enrichedRows,
     totalCount,
     page,
     limit,
@@ -94,17 +137,34 @@ export async function queryCacTrayPage(params: CacTrayQueryParams): Promise<CacT
 export async function queryCacTrayStats(params: CacTrayQueryParams): Promise<CacTrayStatsResponse> {
   const supabase = getSupabaseServerClient();
 
-  let query = supabase.from('cac_tray_units').select('tech_id').eq('is_active', true);
+  let countQuery = supabase
+    .from('cac_tray_units')
+    .select('*', { count: 'exact', head: true })
+    .eq('is_active', true);
+  countQuery = applyTrayFilters(countQuery, params);
 
+  const { count, error: countError } = await countQuery;
+  if (countError) {
+    if (countError.message.includes('cac_tray_units') && countError.message.includes('does not exist')) {
+      throw new Error('Migración 033 pendiente: ejecute 033_cac_tray_units.sql en Supabase.');
+    }
+    throw new Error(countError.message);
+  }
+
+  const total = count ?? 0;
+  if (total === 0) return { total: 0, byTechId: {} };
+
+  // Evitar escanear miles de filas solo para el desglose por tecnología
+  const STATS_BREAKDOWN_MAX = 2500;
+  if (total > STATS_BREAKDOWN_MAX) {
+    return { total, byTechId: {} };
+  }
+
+  let query = supabase.from('cac_tray_units').select('tech_id').eq('is_active', true);
   query = applyTrayFilters(query, params);
 
   const { data, error } = await query;
-  if (error) {
-    if (error.message.includes('cac_tray_units') && error.message.includes('does not exist')) {
-      throw new Error('Migración 033 pendiente: ejecute 033_cac_tray_units.sql en Supabase.');
-    }
-    throw new Error(error.message);
-  }
+  if (error) throw new Error(error.message);
 
   const byTechId: Record<string, number> = {};
   let unknown = 0;
@@ -120,10 +180,7 @@ export async function queryCacTrayStats(params: CacTrayQueryParams): Promise<Cac
 
   if (unknown > 0) byTechId['__unknown__'] = unknown;
 
-  return {
-    total: (data || []).length,
-    byTechId,
-  };
+  return { total, byTechId };
 }
 
 /** Para exportación: hasta maxRows filas con los mismos filtros. */
@@ -144,7 +201,7 @@ export async function queryCacTrayAllFiltered(
 
   const { data, error } = await query;
   if (error) throw new Error(error.message);
-  return (data || []) as CacTrayUnitRow[];
+  return enrichTrayRowsWithSapStatus((data || []) as CacTrayUnitRow[]);
 }
 
 export async function queryTransferEligibleSeries(

@@ -694,11 +694,12 @@ export async function createPxReceptionWithBoxes(
     return { error: 'No se pudo crear la recepción PX. Intente de nuevo.' };
   }
 
-  // Generate consecutive BOX-xxx codes
+  // Generate consecutive BOX-xxx codes (solo cajas operativas; ignora ELIMINADO/DESPACHO)
   const { data: lastBoxes } = await supabase
     .from('boxes')
-    .select('box_code')
-    .like('box_code', 'BOX-%');
+    .select('box_code, rack_location')
+    .like('box_code', 'BOX-%')
+    .not('rack_location', 'in', '("ELIMINADO","DESPACHO")');
 
   let maxBoxNum = 0;
   if (lastBoxes && lastBoxes.length > 0) {

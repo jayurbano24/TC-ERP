@@ -1,8 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { PxManifestItem, PxScannedSeries, GuideData, CurrentEntry } from '../types/reception.types';
 
+import { isIncrementalBoxCaptureEnabled } from '@/lib/featureFlags';
+
 const STORAGE_KEY = 'tc_erp_px_reception_state';
 const SAVE_DEBOUNCE_MS = 500;
+const skipLocalPersistence = isIncrementalBoxCaptureEnabled();
 
 export const useReceptionPX = () => {
   const [isReceptionStarted, setIsReceptionStarted] = useState<boolean>(false);
@@ -38,6 +41,7 @@ export const useReceptionPX = () => {
   const isFirstSave = useRef(true);
 
   useEffect(() => {
+    if (skipLocalPersistence) return;
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
@@ -57,6 +61,7 @@ export const useReceptionPX = () => {
   }, []);
 
   useEffect(() => {
+    if (skipLocalPersistence) return;
     if (isFirstSave.current) {
       isFirstSave.current = false;
       return;

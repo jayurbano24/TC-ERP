@@ -8,6 +8,8 @@ import {
   getPxActiveBoxCodes,
   getPxBoxStats,
   validatePxFinalizeReadiness,
+  validatePxIncrementalFinalizeReadiness,
+  canCreateNewPxBox,
 } from '../utils/pxBoxUtils';
 
 export const PxReceptionTab = ({ 
@@ -16,7 +18,11 @@ export const PxReceptionTab = ({
   scannedSeries, setScannedSeries, selectedBoxForScan, setSelectedBoxForScan, printBoxLabel, 
   setManifestItems, handleFinalizePX, handleAddSN_PX, currentScans, setCurrentScans, 
   systemModels, moduleMode, isReceptionStarted, setIsReceptionStarted, isSubmittingPX,
-  closedBoxes, setClosedBoxes, lastSavedAt
+  closedBoxes, setClosedBoxes, lastSavedAt,
+  useIncrementalCapture, onStartReceptionIncremental, onAddLotToBoxIncremental,
+  pxInProgressList, onResumePxReception, isLoadingIncrementalResume, incrementalReceptionId,
+  boxMetaByCode, onAcquireBoxLock, onAdjustBoxQuantity, onCloseBoxIncremental,
+  onReopenBoxIncremental, onSaveHeaderIncremental, currentOperatorId
 }: any) => {
 
   const [activeBoxNum, setActiveBoxNum] = useState<number>(1);
@@ -151,6 +157,10 @@ export const PxReceptionTab = ({
     }
     const isValid = await checkHeaderFields(guideData.sap, guideData.docReferencia, true);
     if (!isValid) return;
+    if (useIncrementalCapture && incrementalReceptionId && onSaveHeaderIncremental) {
+      const ok = await onSaveHeaderIncremental();
+      if (!ok) return;
+    }
     setIsEditingHeader(false);
     setHeaderDraft(null);
   };
@@ -201,6 +211,11 @@ export const PxReceptionTab = ({
       alert("Por favor complete al menos el Número de Pedido y Proveedor PX");
       return;
     }
+    if (useIncrementalCapture && onStartReceptionIncremental) {
+      const ok = await onStartReceptionIncremental();
+      if (ok) setViewMode('dashboard');
+      return;
+    }
     const isValid = await checkHeaderFields(guideData.sap, guideData.docReferencia, true);
     if (!isValid) return;
     try {
@@ -224,8 +239,25 @@ export const PxReceptionTab = ({
   };
 
   const handleCreateNewBox = () => {
-    // Busca el máximo número de caja actual
+    if (useIncrementalCapture) {
+      const limitCheck = canCreateNewPxBox(boxMetaByCode || {}, guideData.totalCajasEsperadas || 1);
+      if (!limitCheck.ok) {
+        alert(limitCheck.reason);
+        return;
+      }
+    }
+
     let maxNum = 0;
+    const allCodes = useIncrementalCapture
+      ? Object.keys(boxMetaByCode || {})
+      : manifestItems.map((i: any) => i.boxCode);
+    allCodes.forEach((code: string) => {
+      const match = code.match(/CAJA-(\d+)/);
+      if (match) {
+        const num = parseInt(match[1]);
+        if (num > maxNum) maxNum = num;
+      }
+    });
     manifestItems.forEach((i: any) => {
       const match = i.boxCode.match(/CAJA-(\d+)/);
       if (match) {
@@ -233,21 +265,24 @@ export const PxReceptionTab = ({
         if (num > maxNum) maxNum = num;
       }
     });
-    
-    // Si hay cajas vacías (lógicamente), se usan, de lo contrario se asume un nuevo CAJA-XXX basado en las que tengan items
-    // Para simplificar, en este flujo las cajas "nacen" cuando se les agrega el primer lote, o podemos tener una lista separada.
-    // Como manifestItems representa "Lotes", una caja sin lotes no existe en manifestItems.
-    // Vamos a usar activeBoxNum para llevar el conteo.
+
     const nextNum = Math.max(maxNum, activeBoxNum) + 1;
     setActiveBoxNum(nextNum);
     const newBoxCode = `CAJA-${nextNum}`;
-    
-    // Entrar directamente a esa caja
+
     setSelectedBoxForScan(newBoxCode);
     setViewMode('box_detail');
   };
 
-  const handleEnterBox = (boxCode: string) => {
+  const handleEnterBox = async (boxCode: string) => {
+    if (useIncrementalCapture && onAcquireBoxLock) {
+      const meta = boxMetaByCode?.[boxCode];
+      const isClosedServer = meta?.status === 'cerrada' || meta?.status === 'closed';
+      if (meta?.id && !isClosedServer) {
+        const ok = await onAcquireBoxLock(boxCode, meta.id);
+        if (!ok) return;
+      }
+    }
     setSelectedBoxForScan(boxCode);
     setViewMode('box_detail');
   };
@@ -288,7 +323,12 @@ export const PxReceptionTab = ({
     setViewMode('dashboard');
   };
 
-  const handleCloseBox = (boxCode: string) => {
+  const handleCloseBox = async (boxCode: string) => {
+    if (useIncrementalCapture && onCloseBoxIncremental) {
+      const ok = await onCloseBoxIncremental(boxCode);
+      if (ok) setViewMode('dashboard');
+      return;
+    }
     const check = canClosePxBox(boxCode, manifestItems, scannedSeries);
     if (!check.ok) {
       alert(check.reason);
@@ -306,7 +346,11 @@ export const PxReceptionTab = ({
     setSelectedBoxForScan(null);
   };
 
-  const handleReopenBox = (boxCode: string) => {
+  const handleReopenBox = async (boxCode: string) => {
+    if (useIncrementalCapture && onReopenBoxIncremental) {
+      await onReopenBoxIncremental(boxCode);
+      return;
+    }
     if (
       !window.confirm(
         `¿Reabrir ${boxCode}?\n\nPodrá volver a editar lotes y series. Debe cerrarla nuevamente antes de finalizar la recepción.`
@@ -317,10 +361,24 @@ export const PxReceptionTab = ({
     setClosedBoxes(closedBoxes.filter((b: string) => b !== boxCode));
   };
 
-  const handleAddLotToActiveBox = () => {
+  const handleAddLotToActiveBox = async () => {
     const targetBoxCode = selectedBoxForScan || `CAJA-${activeBoxNum}`;
-    if (closedBoxes.includes(targetBoxCode)) {
+    const meta = boxMetaByCode?.[targetBoxCode];
+    const isClosed = useIncrementalCapture && meta
+      ? meta.status === 'cerrada' || meta.status === 'closed'
+      : closedBoxes.includes(targetBoxCode);
+    if (isClosed) {
       alert('Esta caja está cerrada. Reábrala para agregar lotes.');
+      return;
+    }
+    if (useIncrementalCapture && onAddLotToBoxIncremental) {
+      const ok = await onAddLotToBoxIncremental(targetBoxCode, currentEntry);
+      if (ok) {
+        setCurrentEntry({
+          ...currentEntry,
+          totalEsperado: 0,
+        });
+      }
       return;
     }
     if (!currentEntry.tecnologia || !currentEntry.marca || !currentEntry.modelo || !currentEntry.totalEsperado) {
@@ -350,11 +408,31 @@ export const PxReceptionTab = ({
     }
     boxesMap.get(item.boxCode)!.push(item);
   });
-  const activeBoxCodes = getPxActiveBoxCodes(manifestItems, scannedSeries);
-  const finalizeCheck = validatePxFinalizeReadiness(manifestItems, scannedSeries, closedBoxes);
+  const activeBoxCodes = useIncrementalCapture && boxMetaByCode && Object.keys(boxMetaByCode).length > 0
+    ? Object.keys(boxMetaByCode)
+    : getPxActiveBoxCodes(manifestItems, scannedSeries);
+  const boxLimitReached = useIncrementalCapture
+    ? !canCreateNewPxBox(boxMetaByCode || {}, guideData.totalCajasEsperadas || 1).ok
+    : false;
+  const finalizeCheck =
+    useIncrementalCapture && boxMetaByCode && Object.keys(boxMetaByCode).length > 0
+      ? validatePxIncrementalFinalizeReadiness(boxMetaByCode, closedBoxes, scannedSeries)
+      : validatePxFinalizeReadiness(manifestItems, scannedSeries, closedBoxes);
   const canFinalize = finalizeCheck.ok;
-  const openBoxCount = activeBoxCodes.filter((b) => !closedBoxes.includes(b)).length;
-  const closedBoxCount = activeBoxCodes.filter((b) => closedBoxes.includes(b)).length;
+  const openBoxCount = activeBoxCodes.filter((b) => {
+    if (useIncrementalCapture && boxMetaByCode?.[b]) {
+      const st = boxMetaByCode[b].status;
+      return st !== 'cerrada' && st !== 'closed';
+    }
+    return !closedBoxes.includes(b);
+  }).length;
+  const closedBoxCount = activeBoxCodes.filter((b) => {
+    if (useIncrementalCapture && boxMetaByCode?.[b]) {
+      const st = boxMetaByCode[b].status;
+      return st === 'cerrada' || st === 'closed';
+    }
+    return closedBoxes.includes(b);
+  }).length;
 
   // Si no ha iniciado, mostrar PASO 1
   if (!isReceptionStarted) {
@@ -385,6 +463,37 @@ export const PxReceptionTab = ({
                 </div>
               )}
               {renderHeaderFields()}
+
+              {useIncrementalCapture && (pxInProgressList?.length > 0 || isLoadingIncrementalResume) && (
+                <div className="rounded-2xl border border-[#2ec4f1]/30 bg-[#2ec4f1]/5 px-5 py-4 space-y-3">
+                  <p className="text-[11px] font-black uppercase tracking-widest text-[#181c3a]">
+                    Recepciones en servidor (EN_PROCESO)
+                  </p>
+                  {isLoadingIncrementalResume && (
+                    <p className="text-xs font-bold text-slate-500">Recuperando sesión...</p>
+                  )}
+                  {(pxInProgressList || []).map((rec: any) => (
+                    <div
+                      key={rec.id}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-white border border-slate-100 px-4 py-3"
+                    >
+                      <div>
+                        <p className="text-xs font-black text-[#181c3a]">{rec.guide_number}</p>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                          SAP {rec.sap_document || '—'} · {rec.captured_count} equipos capturados
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        onClick={() => onResumePxReception?.(rec.id)}
+                        className="h-9 px-4 text-[9px] font-black uppercase tracking-widest bg-[#2ec4f1] hover:bg-[#25aed4] text-white rounded-xl"
+                      >
+                        Continuar
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="pt-6 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -489,11 +598,15 @@ export const PxReceptionTab = ({
             </div>
           </div>
           <div className="flex items-center gap-4">
-            {lastSavedAt && (
+            {useIncrementalCapture && incrementalReceptionId ? (
+              <span className="hidden lg:inline text-[10px] font-bold text-emerald-600 uppercase tracking-widest">
+                Servidor · {scannedSeries.length} equipos · REC {guideData.guia}
+              </span>
+            ) : lastSavedAt ? (
               <span className="hidden lg:inline text-[10px] font-bold text-emerald-600 uppercase tracking-widest">
                 Autoguardado {new Date(lastSavedAt).toLocaleTimeString('es-ES')} · {scannedSeries.length} series
               </span>
-            )}
+            ) : null}
             <Button
               variant="outline"
               onClick={openHeaderEdit}
@@ -563,10 +676,17 @@ export const PxReceptionTab = ({
               </h2>
               <Button 
                 onClick={handleCreateNewBox}
-                className="bg-[#181c3a] hover:bg-[#252b57] text-white font-black text-[10px] uppercase tracking-widest h-10 px-6 transition-all shadow-lg hover:shadow-xl"
+                disabled={boxLimitReached}
+                title={boxLimitReached ? 'Edite la cabecera para aumentar la cantidad de cajas esperadas' : undefined}
+                className="bg-[#181c3a] hover:bg-[#252b57] text-white font-black text-[10px] uppercase tracking-widest h-10 px-6 transition-all shadow-lg hover:shadow-xl disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Plus className="w-4 h-4 mr-2" /> Nueva Caja
               </Button>
+              {boxLimitReached && (
+                <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest mt-2 text-right">
+                  Límite de {guideData.totalCajasEsperadas} caja(s) — edite la cabecera para agregar más
+                </p>
+              )}
             </div>
 
             <div className="bg-slate-50 p-6 rounded-xl border border-slate-100 h-full overflow-y-auto max-h-[500px]">
@@ -582,8 +702,13 @@ export const PxReceptionTab = ({
             {activeBoxCodes.map((boxCode: string) => {
               const stats = getPxBoxStats(boxCode, manifestItems, scannedSeries);
               const boxItems = stats.lots;
-              const { totalExpected, received, isComplete } = stats;
-              const isClosed = closedBoxes.includes(boxCode);
+              const meta = useIncrementalCapture ? boxMetaByCode?.[boxCode] : null;
+              const totalExpected = meta?.declared_quantity ?? stats.totalExpected;
+              const received = meta?.captured_count ?? stats.received;
+              const isComplete = totalExpected > 0 && received >= totalExpected;
+              const isClosed = useIncrementalCapture && meta
+                ? meta.status === 'cerrada' || meta.status === 'closed'
+                : closedBoxes.includes(boxCode);
               
               const uniqueModels = Array.from(new Set(boxItems.map((i: any) => `${i.marca} ${i.modelo}`)));
 
@@ -662,12 +787,50 @@ export const PxReceptionTab = ({
 
   const boxItems = boxesMap.get(targetBox) || [];
   const boxStats = getPxBoxStats(targetBox, manifestItems, scannedSeries);
-  const totalExpected = boxStats.totalExpected;
-  const received = boxStats.received;
-  const isBoxComplete = boxStats.isComplete;
-  const isBoxClosed = closedBoxes.includes(targetBox);
+  const boxMeta = useIncrementalCapture ? boxMetaByCode?.[targetBox] : null;
+  const totalExpected = boxMeta?.declared_quantity ?? boxStats.totalExpected;
+  const received = boxMeta?.captured_count ?? boxStats.received;
+  const isBoxComplete = totalExpected > 0 && received >= totalExpected;
+  const isBoxClosed = useIncrementalCapture && boxMeta
+    ? boxMeta.status === 'cerrada' || boxMeta.status === 'closed'
+    : closedBoxes.includes(targetBox);
   const progressPct = totalExpected > 0 ? Math.min(100, Math.round((received / totalExpected) * 100)) : 0;
-  const canClose = canClosePxBox(targetBox, manifestItems, scannedSeries).ok;
+  const hasBoxLock =
+    !useIncrementalCapture ||
+    !boxMeta ||
+    (Boolean(boxMeta.locked_by) &&
+      (!currentOperatorId || boxMeta.locked_by === currentOperatorId));
+  const lockedByOtherOperator =
+    useIncrementalCapture &&
+    Boolean(boxMeta?.locked_by) &&
+    Boolean(currentOperatorId) &&
+    boxMeta!.locked_by !== currentOperatorId;
+  const boxEditDisabled = isBoxClosed || lockedByOtherOperator;
+  const canClose =
+    useIncrementalCapture && received > 0
+      ? !isBoxClosed
+      : canClosePxBox(targetBox, manifestItems, scannedSeries).ok;
+
+  const handleAdjustQuantityClick = async () => {
+    if (!useIncrementalCapture || !onAdjustBoxQuantity || !boxMeta) return;
+    const newQtyStr = window.prompt(
+      `Cantidad actual declarada: ${totalExpected}\nCapturados: ${received}\n\nNueva cantidad a recibir en esta caja:`,
+      String(totalExpected)
+    );
+    if (!newQtyStr) return;
+    const newQty = parseInt(newQtyStr, 10);
+    if (!Number.isFinite(newQty) || newQty < 1) {
+      alert('Cantidad inválida.');
+      return;
+    }
+    if (newQty < received) {
+      alert(`No puede ser menor a ${received} (ya capturados).`);
+      return;
+    }
+    const reason = window.prompt('Motivo del ajuste de cantidad (obligatorio):')?.trim();
+    if (!reason) return;
+    await onAdjustBoxQuantity(targetBox, newQty, reason);
+  };
 
   return (
     <div className="space-y-6 animate-rise-in">
@@ -679,11 +842,15 @@ export const PxReceptionTab = ({
         >
           <ArrowLeft className="w-4 h-4 mr-2" /> Volver a Cajas Activas
         </Button>
-        {lastSavedAt && (
+        {useIncrementalCapture && incrementalReceptionId ? (
+          <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">
+            Servidor · {scannedSeries.filter((s: any) => s.boxCode === targetBox).length} en esta caja
+          </span>
+        ) : lastSavedAt ? (
           <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">
             Autoguardado {new Date(lastSavedAt).toLocaleTimeString('es-ES')} · {scannedSeries.length} series totales
           </span>
-        )}
+        ) : null}
         {isBoxClosed ? (
           <Button
             variant="outline"
@@ -699,8 +866,39 @@ export const PxReceptionTab = ({
           >
             <Lock className="w-4 h-4 mr-2" /> Cerrar caja
           </Button>
+        ) : useIncrementalCapture && received > 0 && !isBoxClosed ? (
+          <Button
+            onClick={() => handleCloseBox(targetBox)}
+            className="ml-auto bg-amber-500 hover:bg-amber-600 text-white font-black text-[10px] uppercase tracking-widest h-10"
+          >
+            <Lock className="w-4 h-4 mr-2" /> Cerrar parcial
+          </Button>
         ) : null}
       </div>
+
+      {useIncrementalCapture && boxMeta && !hasBoxLock && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
+          {boxMeta.locked_by ? (
+            <>
+              <p className="text-[11px] font-black uppercase tracking-widest text-amber-800">
+                Caja en uso por otro operador — solo lectura
+              </p>
+              <p className="text-xs font-bold text-amber-700 mt-1">
+                Espere a que libere el control o pida a un supervisor reasignar la caja.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-[11px] font-black uppercase tracking-widest text-amber-800">
+                Debe tomar control de la caja antes de escanear
+              </p>
+              <p className="text-xs font-bold text-amber-700 mt-1">
+                El control se tomará automáticamente al registrar el primer equipo, o al entrar a la caja.
+              </p>
+            </>
+          )}
+        </div>
+      )}
 
       {isBoxClosed && (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 flex items-center gap-3">
@@ -708,8 +906,15 @@ export const PxReceptionTab = ({
           <div>
             <p className="text-[11px] font-black uppercase tracking-widest text-emerald-800">Caja cerrada — solo lectura</p>
             <p className="text-xs font-bold text-emerald-700 mt-1">
-              Los {received} equipos están guardados localmente. Reabra la caja solo si necesita corregir algo antes de finalizar la recepción.
+              {useIncrementalCapture
+                ? `Caja cerrada en servidor${boxMeta?.is_partial_box ? ' (parcial)' : ''}. Use "Reabrir caja" para seguir escaneando o ajustando.`
+                : `Los ${received} equipos están guardados localmente. Reabra la caja solo si necesita corregir algo antes de finalizar la recepción.`}
             </p>
+            {useIncrementalCapture && boxMeta?.is_partial_box && boxMeta.partial_box_reason ? (
+              <p className="text-[10px] font-bold text-emerald-600 mt-2">
+                Motivo parcial: {boxMeta.partial_box_reason}
+              </p>
+            ) : null}
           </div>
         </div>
       )}
@@ -728,7 +933,7 @@ export const PxReceptionTab = ({
             </div>
 
             <div className="p-5 space-y-6 bg-slate-50">
-              {!isBoxClosed && (
+              {!isBoxClosed && !boxEditDisabled && (
               <div className="space-y-4">
                 <h4 className="text-[11px] font-black text-[#181c3a] uppercase tracking-widest border-b border-slate-200 pb-2">Agregar Lote a {targetBox}</h4>
                 
@@ -798,6 +1003,35 @@ export const PxReceptionTab = ({
               </div>
               )}
 
+              {useIncrementalCapture && boxMeta && !isBoxClosed && hasBoxLock && received > 0 && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-4 space-y-3">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-amber-800">
+                      Cantidad declarada: {totalExpected}
+                      {boxMeta.declared_quantity_original &&
+                      boxMeta.declared_quantity_original !== totalExpected ? (
+                        <span className="text-slate-400 font-bold ml-1">
+                          (orig. {boxMeta.declared_quantity_original})
+                        </span>
+                      ) : null}
+                    </p>
+                    {boxMeta.quantity_adjustment_reason ? (
+                      <p className="text-[10px] font-bold text-amber-700 mt-1">
+                        Ajuste: {boxMeta.quantity_adjustment_reason}
+                      </p>
+                    ) : null}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void handleAdjustQuantityClick()}
+                    className="w-full h-10 border-amber-300 text-amber-800 hover:bg-amber-100 font-black text-[10px] uppercase tracking-widest"
+                  >
+                    <Pencil className="w-3.5 h-3.5 mr-2" /> Ajustar cantidad a recibir
+                  </Button>
+                </div>
+              )}
+
               {/* Lotes Agregados */}
               <div className="pt-4 border-t border-slate-200">
                 <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Lotes en la Caja</h4>
@@ -838,6 +1072,11 @@ export const PxReceptionTab = ({
                   if (isBoxClosed) {
                     e.preventDefault();
                     alert('Esta caja está cerrada. Reábrala para escanear más equipos.');
+                    return;
+                  }
+                  if (boxEditDisabled) {
+                    e.preventDefault();
+                    alert('No tiene control de esta caja. Espere a que el otro operador libere el lock.');
                     return;
                   }
                   handleAddSN_PX(e);
@@ -887,8 +1126,8 @@ export const PxReceptionTab = ({
                                 }}
                                 placeholder={`Escanear Serie ${idx + 1}...`}
                                 className={`w-full h-12 px-4 bg-white border-2 rounded-lg text-sm font-mono font-bold outline-none transition-colors shadow-inner uppercase ${isDuplicate ? 'border-rose-500 text-rose-600 focus:border-rose-500 bg-rose-50' : 'border-slate-200 focus:border-[#2ec4f1]'}`}
-                                autoFocus={idx === 0 && !isBoxClosed}
-                                disabled={boxItems.length === 0 || isBoxClosed}
+                                autoFocus={idx === 0 && !isBoxClosed && !boxEditDisabled}
+                                disabled={boxItems.length === 0 || boxEditDisabled}
                               />
                               {isDuplicate && (
                                 <span className="text-[10px] text-rose-500 font-bold absolute -bottom-4 left-0">
@@ -903,10 +1142,10 @@ export const PxReceptionTab = ({
                   })()}
                   <Button 
                     type="submit" 
-                    disabled={boxItems.length === 0 || isBoxClosed}
+                    disabled={boxItems.length === 0 || boxEditDisabled}
                     className="w-full h-12 bg-[#181c3a] hover:bg-[#252b57] text-white text-[11px] uppercase tracking-widest font-black rounded-lg mt-2 shadow-lg shadow-[#181c3a]/20 disabled:opacity-50"
                   >
-                    {isBoxClosed ? 'Caja cerrada' : 'Registrar Equipo (Enter)'}
+                    {isBoxClosed ? 'Caja cerrada' : boxEditDisabled ? 'Sin control de caja' : 'Registrar Equipo (Enter)'}
                   </Button>
                 </form>
               </Card>

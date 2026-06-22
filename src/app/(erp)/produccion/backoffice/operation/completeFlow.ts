@@ -4,6 +4,7 @@ import type React from 'react';
 import type { BackofficeTab, BackofficeReception, CatalogAgency, CatalogBrand, CatalogModel, CatalogTech, GuideItem, ReceptionStep, SapTransferGroup } from '../types';
 import type { CompleteGuidesContext } from './completeGuidesContext';
 import { runCompleteCurrentGuides } from './completeCurrentGuides';
+import { getPendingGuides } from './classificationGuideUtils';
 
 export type CompleteFlowParams = {
   isSubmitting: boolean;
@@ -38,6 +39,8 @@ export type CompleteFlowParams = {
   setReturnReason: React.Dispatch<React.SetStateAction<string>>;
   setAccessoryPhotos: React.Dispatch<React.SetStateAction<string[]>>;
   resetManifestState: () => void;
+  fetchPending: (opts?: { silent?: boolean }) => Promise<void>;
+  setActiveReception: React.Dispatch<React.SetStateAction<BackofficeReception | null>>;
 };
 
 function buildCompleteCtx(params: CompleteFlowParams): CompleteGuidesContext {
@@ -87,11 +90,24 @@ export function createCompleteFlowHandlers(params: CompleteFlowParams) {
 
   const onCompletedNextBox = () => {
     void params.fetchHistory();
-    params.setReceptionStep('classification');
     params.resetManifestState();
     params.setScannedGuides([]);
     params.setReturnReason('');
     params.setAccessoryPhotos([]);
+
+    const pending =
+      params.activeReception != null
+        ? getPendingGuides(params.activeReception, params.processedGuides)
+        : [];
+
+    if (pending.length === 0) {
+      void params.fetchPending();
+      params.setActiveReception(null);
+      params.setReceptionStep('category_selection');
+      return;
+    }
+
+    params.setReceptionStep('classification');
   };
 
   return { completeCurrentGuides, handleConfirmReturn, onCompletedNextBox };

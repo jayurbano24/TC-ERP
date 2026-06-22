@@ -1,4 +1,5 @@
 import { isCourierLabel } from '@/lib/cacAgencyUtils';
+import { auditSapTransferCreated } from '@/lib/database/cacBackofficeAudit';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { SAP_TRANSFER_STATUS } from '@/modules/sap-transfer';
 
@@ -104,6 +105,15 @@ export async function createOrGetSapTransfer(params: {
     .single();
 
   if (error) return { error: error.message };
+
+  await auditSapTransferCreated({
+    sapTransferId: data.id,
+    receptionId: params.receptionId,
+    sapDocumentNumber: sapDoc,
+    agency: params.agency,
+    registeredBy: params.registeredBy,
+  });
+
   return { data: data as SapTransferDocument };
 }
 

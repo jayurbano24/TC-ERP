@@ -90,3 +90,78 @@ export function validatePxFinalizeReadiness(
 
   return { ok: true, boxCodes };
 }
+
+/** Finalizar captura incremental: cajas con equipos deben estar cerradas (parcial OK). */
+export function validatePxIncrementalFinalizeReadiness(
+  boxMetaByCode: Record<string, { captured_count: number; status: string }>,
+  closedBoxes: string[],
+  scannedSeries: Array<{ boxCode: string }> = []
+): { ok: true; boxCodes: string[]; totalCaptured: number } | { ok: false; reason: string } {
+  const capturedByBox = (code: string, metaCount: number) => {
+    const uiCount = scannedSeries.filter((s) => s.boxCode === code).length;
+    return Math.max(metaCount, uiCount);
+  };
+
+  const boxCodes = Object.entries(boxMetaByCode)
+    .filter(([code, meta]) => capturedByBox(code, meta.captured_count) > 0)
+    .map(([code]) => code);
+
+  if (boxCodes.length === 0 && scannedSeries.length > 0) {
+    const fromSeries = [...new Set(scannedSeries.map((s) => s.boxCode))];
+    if (fromSeries.length > 0) {
+      const totalCaptured = scannedSeries.length;
+      for (const code of fromSeries) {
+        const meta = boxMetaByCode[code];
+        const isClosed =
+          closedBoxes.includes(code) ||
+          meta?.status === 'cerrada' ||
+          meta?.status === 'closed';
+        if (!isClosed) {
+          return {
+            ok: false,
+            reason: `Debe cerrar ${code} antes de finalizar la recepción.`,
+          };
+        }
+      }
+      return { ok: true, boxCodes: fromSeries, totalCaptured };
+    }
+  }
+
+  if (boxCodes.length === 0) {
+    return { ok: false, reason: 'No hay equipos capturados para finalizar.' };
+  }
+
+  for (const code of boxCodes) {
+    const meta = boxMetaByCode[code];
+    const isClosed =
+      closedBoxes.includes(code) || meta.status === 'cerrada' || meta.status === 'closed';
+    if (!isClosed) {
+      return {
+        ok: false,
+        reason: `Debe cerrar ${code} antes de finalizar la recepción.`,
+      };
+    }
+  }
+
+  const totalCaptured = boxCodes.reduce(
+    (acc, code) => acc + capturedByBox(code, boxMetaByCode[code]?.captured_count || 0),
+    0
+  );
+
+  return { ok: true, boxCodes, totalCaptured };
+}
+
+export function canCreateNewPxBox(
+  boxMetaByCode: Record<string, unknown>,
+  totalCajasEsperadas: number
+): { ok: true } | { ok: false; reason: string } {
+  const serverCount = Object.keys(boxMetaByCode).length;
+  const limit = totalCajasEsperadas || 1;
+  if (serverCount >= limit) {
+    return {
+      ok: false,
+      reason: `Ya alcanzó el límite de ${limit} caja(s) declaradas. Use "Editar cabecera" para aumentar "Cantidad Total Cajas" si necesita agregar más.`,
+    };
+  }
+  return { ok: true };
+}

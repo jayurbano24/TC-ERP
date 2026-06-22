@@ -1,5 +1,6 @@
 import type { HistoryUnitEntry } from '@/app/(erp)/produccion/backoffice/history/types';
 import type { CacTrayUnitRow } from './cacTrayTypes';
+import { resolveUnitSapStatus } from '@/lib/sap/sapValidationStatus';
 
 /** Adapta fila del read-model al shape que ya consumen tabla, export y modales. */
 export function trayRowToHistoryEntry(row: CacTrayUnitRow, groupIndex = 0): HistoryUnitEntry {
@@ -10,6 +11,7 @@ export function trayRowToHistoryEntry(row: CacTrayUnitRow, groupIndex = 0): Hist
     model_id: row.model_id,
     current_status: row.unit_status,
     sap_transfer_id: row.sap_transfer_id,
+    sap_status: row.series_sap_statuses?.[i] || null,
     service_orders: {
       os_label: row.os_label,
       main_serial: row.serial_numbers[0] || sn,
@@ -17,6 +19,7 @@ export function trayRowToHistoryEntry(row: CacTrayUnitRow, groupIndex = 0): Hist
       created_at: row.classified_at,
       reception_guide_id: row.reception_guide_id,
       sap_transfer_id: row.sap_transfer_id,
+      sap_integration_status: row.sap_integration_status,
     },
   }));
 
@@ -52,6 +55,11 @@ export function trayRowToHistoryEntry(row: CacTrayUnitRow, groupIndex = 0): Hist
     sapTransferId: row.sap_transfer_id,
     sortAt,
     classifiedAtIso,
+    sapValidationStatus: resolveUnitSapStatus(
+      row.sap_integration_status,
+      row.series_sap_statuses || unit.map((u) => u.sap_status)
+    ),
+    seriesSapStatuses: row.series_sap_statuses || unit.map((u) => u.sap_status),
   };
 }
 

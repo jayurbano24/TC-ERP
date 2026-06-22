@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { Card, Badge, Button } from '@/components/ui';
+import { assertSapOperationAllowed, resolveUnitSapStatus } from '@/lib/sap/sapValidationStatus';
 import * as XLSX from 'xlsx';
 import { ModulePage, ModuleToolbar } from '@/components/module-page';
 import { 
@@ -255,9 +256,18 @@ export default function DespachoPage() {
     }
 
     // 1. Validar Matriz de Bloqueos SAP
-    const sapStatus = sData.service_orders?.sap_integration_status || sData.sap_status || 'Pendiente Validación';
-    if (sapStatus !== 'Validado SAP') {
-      alert(`⚠️ Bloqueo Operativo (Integración SAP): El equipo no puede ser despachado porque su estado es "${sapStatus}". Solo los equipos "Validado SAP" tienen permitido el despacho.`); 
+    let seriesSapStatuses = [sData.sap_status];
+    if (sData.service_order_id) {
+      const { data: siblings } = await supabase
+        .from('series')
+        .select('sap_status')
+        .eq('service_order_id', sData.service_order_id);
+      if (siblings?.length) seriesSapStatuses = siblings.map((s) => s.sap_status);
+    }
+    const sapStatus = resolveUnitSapStatus(sData.service_orders?.sap_integration_status, seriesSapStatuses);
+    const sapCheck = assertSapOperationAllowed(sapStatus, 'dispatch');
+    if (!sapCheck.ok) {
+      alert(`⚠️ ${sapCheck.message}`);
       return;
     }
 

@@ -12,7 +12,8 @@ import { HistoryTrayTable } from './HistoryTrayTable';
 
 type Props = {
   historyLoadError: string | null;
-  historyLoading: boolean;
+  historyInitialLoading: boolean;
+  historyRefreshing: boolean;
   historyStats: CacTrayStatsResponse;
   totalCount: number;
   totalPages: number;
@@ -50,7 +51,8 @@ type Props = {
 
 export function HistoryTab({
   historyLoadError,
-  historyLoading,
+  historyInitialLoading,
+  historyRefreshing,
   historyStats,
   totalCount,
   totalPages,
@@ -97,7 +99,7 @@ export function HistoryTab({
         ? 'Ningún registro coincide con los filtros activos. Limpie búsqueda, fechas o filtros por columna.'
         : 'No hay ingresos CAC con orden de servicio TC-XXX que coincidan con los filtros';
 
-  const showInitialLoader = historyLoading && trayEntries.length === 0 && !historyLoadError;
+  const showInitialLoader = historyInitialLoading && trayEntries.length === 0 && !historyLoadError;
 
   return (
     <div className="space-y-4">
@@ -126,6 +128,13 @@ export function HistoryTab({
 
       {!showInitialLoader && (
         <>
+          {historyRefreshing && (
+            <div className="flex items-center gap-2 px-1 text-[10px] font-black uppercase tracking-widest text-[#2ec4f1]">
+              <RefreshCw size={14} className="animate-spin shrink-0" />
+              Actualizando resultados…
+            </div>
+          )}
+
           <HistoryStatsGrid stats={historyStats} MASTER_TECNOLOGIAS={MASTER_TECNOLOGIAS} />
 
           <HistoryToolbar

@@ -38,7 +38,9 @@ export function CompletedStep({ ctx }: Props) {
         <p className="text-slate-400 font-bold uppercase text-[10px] tracking-[0.3em] mb-12 text-center max-w-sm">
           La información ha sido procesada {category === 'Accesorio' ? 'y la agencia ha sido notificada vía correo.' : 'y enviada a bodega.'}
         </p>
-        <Button variant="primary" className="bg-[#181c3a] px-12 h-16 rounded-2xl font-black uppercase text-xs" onClick={() => { fetchHistory(); setReceptionStep('classification'); setGuideItems([]); setScannedGuides([]); setAgencia(''); setReturnReason(''); setSelectedItemIdx(null); setItemSeriesInputs({}); setAccessoryPhotos([]); setSapGroups([]); setActiveSapGroupId(null); setSapTransferNumber(''); }}>Siguiente Caja</Button>
+        <Button variant="primary" className="bg-[#181c3a] px-12 h-16 rounded-2xl font-black uppercase text-xs" onClick={onCompletedNextBox}>
+          Siguiente Caja
+        </Button>
       </div>
   );
 }

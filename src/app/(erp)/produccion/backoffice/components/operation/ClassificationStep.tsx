@@ -1,8 +1,14 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { Badge, Button } from '@/components/ui';
-import { Box, CheckCircle2, ChevronLeft, Monitor, Package, Radio, RefreshCw } from 'lucide-react';
+import { Box, CheckCircle2, ChevronLeft, Monitor, Package, Radio, RefreshCw, Search } from 'lucide-react';
+import {
+  countClassificationProgress,
+  getPendingGuides,
+  isGuideProcessed,
+  normalizeGuideKey,
+} from '../../operation/classificationGuideUtils';
 import { parseReceptionGuideList } from '../../operation/parseReceptionGuideList';
 import type { OperationContext } from '../../operation/operationContext';
 
@@ -10,170 +16,318 @@ type Props = { ctx: OperationContext };
 
 export function ClassificationStep({ ctx }: Props) {
   const {
-    receptionStep, setReceptionStep, activeReception, setActiveReception,
-    accessoryPhotos, setAccessoryPhotos, scannedGuides, setScannedGuides,
-    processedGuides, setProcessedGuides, inboxSearch, setInboxSearch,
-    classificationSearch, setClassificationSearch, agencia, setAgencia,
-    selectedAgencyId, setSelectedAgencyId, category, setCategory,
-    guideItems, setGuideItems, manifestPanelOpen, setManifestPanelOpen,
-    returnReason, setReturnReason, returnTracking, setReturnTracking,
-    returnCourier, setReturnCourier, sapTransferNumber, setSapTransferNumber,
-    sapGroups, setSapGroups, activeSapGroupId, setActiveSapGroupId,
-    newItem, setNewItem, selectedItemIdx, setSelectedItemIdx,
-    itemSeriesInputs, setItemSeriesInputs, pendingReceptions, loading,
-    inboxLoadError, isSubmitting, processingDateLabel, currentUserFullName,
-    allReceptions, historyLoading, CAC_AGENCIES, MASTER_TECNOLOGIAS,
-    MASTER_MARCAS, MASTER_MODELOS, agencyDetails, availableBrandsConfig,
-    availableModels, isActiveSapDocumentFilled, startProcessingReception,
-    handlePrintConduce, fetchPending, fetchHistory, handleTestConnection,
-    initSapGroupsForConfig, handleUndoClassification, setShowAgencyModal,
-    addSapGroup, selectSapGroup, removeSapGroup, updateActiveSapDocument,
-    addItem, completeCurrentGuides, handleConfirmReturn, compressImage,
-    setShowBulkModal, setBulkTargetIdx, onCompletedNextBox,
+    setReceptionStep,
+    activeReception,
+    setScannedGuides,
+    processedGuides,
+    classificationSearch,
+    setClassificationSearch,
+    setAgencia,
+    setSelectedAgencyId,
+    setCategory,
+    initSapGroupsForConfig,
+    handleUndoClassification,
+    loading,
+    allReceptions,
+    fetchPending,
+    setActiveReception,
   } = ctx;
 
+  const [selectedGuides, setSelectedGuides] = useState<string[]>([]);
+
+  const guiasList = useMemo(
+    () => (activeReception ? parseReceptionGuideList(activeReception) : []),
+    [activeReception]
+  );
+
+  const { pending, total } = useMemo(
+    () =>
+      activeReception
+        ? countClassificationProgress(activeReception, processedGuides, allReceptions as any[])
+        : { pending: 0, total: 0 },
+    [activeReception, processedGuides, allReceptions]
+  );
+
+  const visiblePendingGuides = useMemo(() => {
+    const pendingGuides = activeReception
+      ? getPendingGuides(activeReception, processedGuides, allReceptions as any[])
+      : [];
+    const q = classificationSearch.trim().toLowerCase();
+    if (!q) return pendingGuides;
+    return pendingGuides.filter((g) => g.toLowerCase().includes(q));
+  }, [activeReception, processedGuides, allReceptions, classificationSearch]);
+
+  const toggleGuide = (guia: string) => {
+    setSelectedGuides((prev) => {
+      const key = normalizeGuideKey(guia);
+      const exists = prev.some((g) => normalizeGuideKey(g) === key);
+      if (exists) return prev.filter((g) => normalizeGuideKey(g) !== key);
+      return [...prev, guia];
+    });
+  };
+
+  const toggleSelectAllVisible = () => {
+    if (selectedGuides.length === visiblePendingGuides.length) {
+      setSelectedGuides([]);
+    } else {
+      setSelectedGuides([...visiblePendingGuides]);
+    }
+  };
+
+  const startBulkClassification = (
+    cat: 'Accesorio' | 'Teléfono' | 'Devolución',
+    step: 'accessories_photos' | 'sub_bodega_transfer' | 'return_confirmation'
+  ) => {
+    if (selectedGuides.length === 0) return;
+    setCategory(cat as any);
+    setScannedGuides([...selectedGuides]);
+    setAgencia('');
+    setSelectedAgencyId('');
+    setSelectedGuides([]);
+    setReceptionStep(step as any);
+  };
+
+  const startSingleEquipo = (guia: string) => {
+    setCategory('Equipo');
+    setScannedGuides([guia]);
+    setSelectedGuides([]);
+    initSapGroupsForConfig();
+    setReceptionStep('config');
+  };
+
+  const startSingleNonEquipo = (
+    guia: string,
+    cat: 'Accesorio' | 'Teléfono' | 'Devolución',
+    step: 'accessories_photos' | 'sub_bodega_transfer' | 'return_confirmation'
+  ) => {
+    setCategory(cat as any);
+    setScannedGuides([guia]);
+    setAgencia('');
+    setSelectedAgencyId('');
+    setSelectedGuides([]);
+    setReceptionStep(step as any);
+  };
+
+  const goBackToInbox = () => {
+    setSelectedGuides([]);
+    setClassificationSearch('');
+    setActiveReception(null);
+    setReceptionStep('category_selection');
+    void fetchPending();
+  };
+
+  if (!activeReception) return null;
+
+  const classifiedCount = total - pending;
+
   return (
-      <div className="space-y-8 animate-rise-in">
-        <div className="flex justify-between items-center">
-          <button onClick={() => { setReceptionStep('category_selection'); setClassificationSearch(''); }} className="flex items-center gap-2 text-[10px] font-black text-slate-400 hover:text-[#181c3a] uppercase tracking-widest transition-all">
-            <ChevronLeft size={16} /> Volver a Bandeja
-          </button>
-          <div className="text-right">
-            <Badge className="bg-[#2ec4f1] text-[#181c3a] border-none font-black text-[9px] uppercase tracking-widest">{activeReception.status}</Badge>
-            <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase">Lote: {activeReception.guide_number?.split(' ')[0]}</p>
-          </div>
-        </div>
-        <div className="bg-white p-12 rounded-[2.5rem] shadow-2xl border border-slate-100 text-center">
-          <h2 className="text-3xl font-black text-[#181c3a] uppercase mb-2 leading-none">Clasificación de Carga</h2>
-          <p className="text-slate-400 font-bold uppercase text-[10px] tracking-[0.2em] mb-12">Seleccione una caja para iniciar su procesamiento</p>
-          <div className="grid grid-cols-1 gap-4 max-w-7xl mx-auto">
-            {(() => {
-              const rawNotes = activeReception.notes || '';
-              const cleanNotes = rawNotes
-                .split('---')[0]
-                .split('Backoffice_')[0]
-                .split('Guías Procesadas:')[0];
-                
-              const rawGuideNumber = activeReception.guide_number || '';
-              const fallbackGuides = rawGuideNumber.split(/[\\/,]/).map(g => g.trim()).filter(Boolean);
-              const guiasListString = cleanNotes?.split('Guías: ')[1]?.split('\n')[0];
-              const guiasList = guiasListString 
-                ? guiasListString.split(/[\\/,]/).map((g: string) => g.trim()).filter(Boolean) 
-                : (fallbackGuides.length > 0 ? fallbackGuides : [rawGuideNumber]);
-                
-              const pendingCount = guiasList.filter((g: string) => !processedGuides.includes(g)).length;
-    
-              return (
-                <>
-                  <div className="flex justify-between items-center mb-2 px-2">
-                    <p className="text-sm font-black text-slate-400 uppercase tracking-widest">
-                      Estado del Lote
-                    </p>
-                    <Badge className="bg-slate-50 text-[#181c3a] font-black text-xs px-4 py-2 border border-slate-200">
-                      {pendingCount} DE {guiasList.length} PENDIENTES
-                    </Badge>
-                  </div>
-                  {/* BUSCADOR DE GUÍAS */}
-                  <div className="relative mb-6">
-                    <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
-                      <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                      </svg>
-                    </div>
-                    <input
-                      type="text"
-                      placeholder="Buscar número de guía..."
-                      value={classificationSearch}
-                      onChange={(e) => setClassificationSearch(e.target.value)}
-                      className="w-full pl-11 pr-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-2xl text-sm font-bold outline-none focus:border-[#2ec4f1] transition-all placeholder:text-slate-300"
-                    />
-                    {classificationSearch && (
-                      <button
-                        onClick={() => setClassificationSearch('')}
-                        className="absolute inset-y-0 right-4 flex items-center text-slate-400 hover:text-slate-600 transition-colors"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
-                    )}
-                  </div>
-                  {guiasList.map((guia: string, idx: number) => {
-                    // Filtrar por búsqueda
-                    if (classificationSearch && !guia.toLowerCase().includes(classificationSearch.toLowerCase())) return null;
-                    const isProcessedLocally = processedGuides.includes(guia);
-                    // Detección Global: Buscar si la guía ya existe en cualquier recepción terminada
-                    const isProcessedGlobally = allReceptions.some(r => 
-                      r.status === 'RECIBIDO_BACKOFFICE' && 
-                      (r.guide_number === guia || r.notes?.toLowerCase().includes(guia.toLowerCase()))
-                    );
-                    const isProcessed = isProcessedLocally || isProcessedGlobally;
-    
-                    if (isProcessed) return null;
-    
-                    return (
-                      <div key={idx} className={`bg-slate-50 p-8 rounded-3xl border-2 flex flex-col md:flex-row items-center justify-between transition-all shadow-sm border-slate-100 hover:border-[#2ec4f1]/30 hover:shadow-xl group`}>
-                        <div className="flex items-center gap-6 mb-6 md:mb-0">
-                          <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm transition-all ${isProcessed ? (isProcessedGlobally ? 'bg-blue-100 text-blue-600' : 'bg-emerald-100 text-emerald-600') : 'bg-white text-[#181c3a] group-hover:bg-[#181c3a] group-hover:text-white'}`}>
-                            {isProcessed ? <CheckCircle2 size={24} /> : <Box size={24} />}
-                          </div>
-                          <div className="text-left">
-                            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">
-                              No. de Guía / Caja 
-                              {isProcessedLocally && <span className="text-emerald-500 ml-2 font-black">— Procesada Ahora</span>}
-                              {!isProcessedLocally && isProcessedGlobally && <span className="text-blue-500 ml-2 font-black">— YA PROCESADA EN HISTORIAL</span>}
-                            </p>
-                            <h4 className={`text-xl font-black font-mono ${isProcessed ? 'text-slate-400' : 'text-[#181c3a]'}`}>{guia}</h4>
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap gap-3 justify-center md:justify-end">
-                          {isProcessed ? (
-                            <div className="flex flex-col items-center gap-2 md:flex-row">
-                              <Badge className="bg-emerald-50 text-emerald-600 font-black text-[10px] px-6 py-4 rounded-xl border-none uppercase tracking-widest">
-                                Caja Recibida Completamente
-                              </Badge>
-                              <Button 
-                                onClick={() => handleUndoClassification(guia)} 
-                                disabled={loading}
-                                className="bg-slate-200 hover:bg-slate-300 text-slate-600 border-none rounded-xl px-4 py-4 font-black text-[10px] uppercase tracking-[0.1em] transition-all flex items-center justify-center"
-                              >
-                                <RefreshCw size={14} className="mr-2" /> Reclasificar
-                              </Button>
-                            </div>
-                          ) : (
-                            <>
-                              <Button onClick={() => { setCategory('Equipo'); setScannedGuides([guia]); initSapGroupsForConfig(); setReceptionStep('config'); }} className="bg-[#181c3a] hover:bg-[#2ec4f1] text-white border-none rounded-2xl px-8 py-6 font-black text-[10px] uppercase tracking-[0.2em] transition-all shadow-lg group">
-                                <Monitor size={18} className="mr-3 group-hover:scale-110 transition-transform" /> Equipos
-                              </Button>
-                              <Button 
-                                onClick={() => { 
-                                  setCategory('Accesorio'); 
-                                  setScannedGuides([guia]); 
-                                  setAgencia(''); 
-                                  setSelectedAgencyId('');
-                                  setReceptionStep('accessories_photos' as any); 
-                                }} 
-                                className="bg-emerald-500 hover:bg-emerald-600 text-white border-none rounded-2xl px-8 py-6 font-black text-[10px] uppercase tracking-[0.2em] transition-all shadow-lg flex items-center justify-center group"
-                              >
-                                <Package size={18} className="mr-3 group-hover:scale-110 transition-transform" /> Accesorios
-                              </Button>
-                              <Button onClick={() => { setCategory('Teléfono'); setScannedGuides([guia]); setAgencia(''); setSelectedAgencyId(''); setReceptionStep('sub_bodega_transfer'); }} className="bg-amber-500 hover:bg-amber-600 text-white border-none rounded-2xl px-8 py-6 font-black text-[10px] uppercase tracking-[0.2em] transition-all shadow-lg group">
-                                <Radio size={18} className="mr-3 group-hover:scale-110 transition-transform" /> Teléfonos
-                              </Button>
-                              <Button onClick={() => { setCategory('Devolución' as any); setScannedGuides([guia]); setAgencia(''); setSelectedAgencyId(''); setReceptionStep('return_confirmation' as any); }} className="bg-rose-500 hover:bg-rose-600 text-white border-none rounded-2xl px-8 py-6 font-black text-[10px] uppercase tracking-[0.2em] transition-all shadow-lg flex items-center justify-center group">
-                                <RefreshCw size={18} className="mr-3 group-hover:scale-110 transition-transform" /> Devoluciones
-                              </Button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </>
-              );
-            })()}
-          </div>
+    <div className="space-y-4 animate-rise-in">
+      <div className="flex justify-between items-center">
+        <button
+          type="button"
+          onClick={goBackToInbox}
+          className="flex items-center gap-2 text-[10px] font-black text-slate-400 hover:text-[#181c3a] uppercase tracking-widest transition-all"
+        >
+          <ChevronLeft size={16} /> Volver a Bandeja
+        </button>
+        <div className="text-right">
+          <Badge className="bg-[#2ec4f1] text-[#181c3a] border-none font-black text-[9px] uppercase tracking-widest">
+            {String(activeReception.status)}
+          </Badge>
+          <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase">
+            Lote: {String(activeReception.guide_number || '').split(' ')[0]}
+          </p>
         </div>
       </div>
+
+      <div className="bg-white p-6 md:p-8 rounded-2xl shadow-lg border border-slate-100">
+        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-5">
+          <div>
+            <h2 className="text-xl font-black text-[#181c3a] uppercase leading-none">Clasificación de Carga</h2>
+            <p className="text-slate-400 font-bold uppercase text-[9px] tracking-[0.15em] mt-2">
+              Seleccione una o varias guías · Equipos solo individual
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="text-right">
+              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Pendientes</p>
+              <p className="text-2xl font-black text-[#181c3a] leading-none">
+                {pending}
+                <span className="text-sm text-slate-400 font-bold"> de {total}</span>
+              </p>
+            </div>
+            {classifiedCount > 0 && (
+              <Badge className="bg-emerald-50 text-emerald-600 border-none font-black text-[10px] px-3 py-2">
+                {classifiedCount} clasificada{classifiedCount !== 1 ? 's' : ''}
+              </Badge>
+            )}
+          </div>
+        </div>
+
+        {pending === 0 ? (
+          <div className="py-16 text-center border-2 border-dashed border-emerald-200 rounded-xl bg-emerald-50/50">
+            <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-4" />
+            <h3 className="text-lg font-black text-[#181c3a] uppercase mb-2">Lote completado</h3>
+            <p className="text-xs font-bold text-slate-500 mb-6">
+              Las {total} guías fueron clasificadas. Este lote ya no aparecerá en la bandeja.
+            </p>
+            <Button variant="primary" className="bg-[#181c3a]" onClick={goBackToInbox}>
+              Volver a Bandeja
+            </Button>
+          </div>
+        ) : (
+          <>
+            <div className="relative mb-4">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Buscar número de guía..."
+                value={classificationSearch}
+                onChange={(e) => setClassificationSearch(e.target.value)}
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:border-[#2ec4f1] transition-all placeholder:text-slate-300"
+              />
+            </div>
+
+            {selectedGuides.length > 0 && (
+              <div className="mb-4 p-3 bg-[#181c3a] rounded-xl flex flex-wrap items-center gap-2 justify-between">
+                <span className="text-white text-[10px] font-black uppercase tracking-widest ml-1">
+                  {selectedGuides.length} guía{selectedGuides.length !== 1 ? 's' : ''} seleccionada
+                  {selectedGuides.length !== 1 ? 's' : ''}
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    onClick={() => startBulkClassification('Accesorio', 'accessories_photos')}
+                    className="bg-emerald-500 hover:bg-emerald-600 text-white border-none rounded-lg px-4 py-2 h-9 font-black text-[9px] uppercase"
+                  >
+                    <Package size={14} className="mr-1.5" /> Accesorios
+                  </Button>
+                  <Button
+                    onClick={() => startBulkClassification('Teléfono', 'sub_bodega_transfer')}
+                    className="bg-amber-500 hover:bg-amber-600 text-white border-none rounded-lg px-4 py-2 h-9 font-black text-[9px] uppercase"
+                  >
+                    <Radio size={14} className="mr-1.5" /> Teléfonos
+                  </Button>
+                  <Button
+                    onClick={() => startBulkClassification('Devolución', 'return_confirmation')}
+                    className="bg-rose-500 hover:bg-rose-600 text-white border-none rounded-lg px-4 py-2 h-9 font-black text-[9px] uppercase"
+                  >
+                    <RefreshCw size={14} className="mr-1.5" /> Devoluciones
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedGuides([])}
+                    className="text-white/60 hover:text-white text-[9px] font-black uppercase px-2"
+                  >
+                    Limpiar
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center gap-3 px-3 py-2 mb-2 border-b border-slate-100">
+              <input
+                type="checkbox"
+                checked={
+                  visiblePendingGuides.length > 0 &&
+                  selectedGuides.length === visiblePendingGuides.length
+                }
+                onChange={toggleSelectAllVisible}
+                className="w-4 h-4 accent-[#2ec4f1] rounded cursor-pointer"
+              />
+              <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                Seleccionar visibles ({visiblePendingGuides.length})
+              </span>
+            </div>
+
+            <div className="space-y-2 max-h-[calc(100vh-320px)] overflow-y-auto pr-1">
+              {visiblePendingGuides.length === 0 ? (
+                <p className="text-center py-10 text-xs font-bold uppercase text-slate-400 tracking-widest">
+                  Sin coincidencias para la búsqueda
+                </p>
+              ) : (
+                visiblePendingGuides.map((guia) => {
+                  const isSelected = selectedGuides.some(
+                    (g) => normalizeGuideKey(g) === normalizeGuideKey(guia)
+                  );
+                  const showRowActions = selectedGuides.length === 0;
+
+                  return (
+                    <div
+                      key={guia}
+                      className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all ${
+                        isSelected
+                          ? 'border-[#2ec4f1] bg-[#2ec4f1]/5'
+                          : 'border-slate-100 bg-slate-50/80 hover:border-slate-200'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleGuide(guia)}
+                        className="w-4 h-4 accent-[#2ec4f1] rounded cursor-pointer shrink-0"
+                      />
+                      <div className="w-9 h-9 rounded-lg bg-white border border-slate-100 flex items-center justify-center shrink-0">
+                        <Box size={16} className="text-[#181c3a]" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">
+                          No. de Guía / Caja
+                        </p>
+                        <p className="text-sm font-black font-mono text-[#181c3a] truncate">{guia}</p>
+                      </div>
+
+                      {showRowActions ? (
+                        <div className="flex flex-wrap gap-1.5 justify-end shrink-0">
+                          <Button
+                            onClick={() => startSingleEquipo(guia)}
+                            className="bg-[#181c3a] hover:bg-[#2ec4f1] text-white border-none rounded-lg px-3 py-2 h-8 font-black text-[8px] uppercase"
+                          >
+                            <Monitor size={12} className="mr-1" /> Equipos
+                          </Button>
+                          <Button
+                            onClick={() => startSingleNonEquipo(guia, 'Accesorio', 'accessories_photos')}
+                            className="bg-emerald-500 hover:bg-emerald-600 text-white border-none rounded-lg px-3 py-2 h-8 font-black text-[8px] uppercase"
+                          >
+                            <Package size={12} className="mr-1" /> Acc.
+                          </Button>
+                          <Button
+                            onClick={() => startSingleNonEquipo(guia, 'Teléfono', 'sub_bodega_transfer')}
+                            className="bg-amber-500 hover:bg-amber-600 text-white border-none rounded-lg px-3 py-2 h-8 font-black text-[8px] uppercase"
+                          >
+                            <Radio size={12} className="mr-1" /> Tel.
+                          </Button>
+                          <Button
+                            onClick={() => startSingleNonEquipo(guia, 'Devolución', 'return_confirmation')}
+                            className="bg-rose-500 hover:bg-rose-600 text-white border-none rounded-lg px-3 py-2 h-8 font-black text-[8px] uppercase"
+                          >
+                            <RefreshCw size={12} className="mr-1" /> Dev.
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="shrink-0">
+                          <Button
+                            onClick={() => startSingleEquipo(guia)}
+                            className="bg-[#181c3a] hover:bg-[#2ec4f1] text-white border-none rounded-lg px-3 py-2 h-8 font-black text-[8px] uppercase"
+                            title="Equipos solo se clasifican de a una guía"
+                          >
+                            <Monitor size={12} className="mr-1" /> Equipos
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {guiasList.some((g) => isGuideProcessed(g, processedGuides, allReceptions as any[])) && (
+              <p className="mt-4 text-[9px] font-bold text-slate-400 uppercase tracking-widest text-center">
+                Las guías ya clasificadas no se muestran en esta lista
+              </p>
+            )}
+          </>
+        )}
+      </div>
+    </div>
   );
 }

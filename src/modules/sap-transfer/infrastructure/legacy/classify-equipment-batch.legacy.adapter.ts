@@ -70,8 +70,10 @@ export class ClassifyEquipmentBatchLegacyAdapter implements IClassifyBatchGatewa
       if (upsertedSeries) {
         await auditClassifiedSeries(
           upsertedSeries.map((s) => s.id),
-          params.sapTransferId,
-          params.registeredBy
+          {
+            sapTransferId: params.sapTransferId,
+            registeredBy: params.registeredBy,
+          }
         );
       }
 

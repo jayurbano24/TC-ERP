@@ -28,7 +28,9 @@ function parseTrayParams(req: NextRequest): CacTrayQueryParams {
 
 export async function GET(req: NextRequest) {
   try {
-    const result = await queryCacTrayPage(parseTrayParams(req));
+    const sp = req.nextUrl.searchParams;
+    const includeSapValidation = sp.get('includeSap') !== '0';
+    const result = await queryCacTrayPage(parseTrayParams(req), { includeSapValidation });
     return NextResponse.json(result, {
       headers: { 'Cache-Control': 'private, max-age=15, stale-while-revalidate=60' },
     });

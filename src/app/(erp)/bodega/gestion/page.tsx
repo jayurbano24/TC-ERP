@@ -1058,7 +1058,7 @@ export default function BodegaGestionPage() {
                 <Box className="w-6 h-6 text-[#181c3a]" />
               </div>
               <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Total Cajas</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">Total Cajas</p>
                 <h3 className="text-2xl font-black text-[#181c3a]">
                   {inventory.length}
                 </h3>
@@ -1071,7 +1071,7 @@ export default function BodegaGestionPage() {
                 <QrCode className="w-6 h-6 text-[#2ec4f1]" />
               </div>
               <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Total Unidades</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">Total Unidades</p>
                 <h3 className="text-2xl font-black text-[#181c3a]">
                   {inventory.reduce((sum, b) => sum + (b.unitCount ?? b.series?.length ?? 0), 0).toLocaleString()}
                 </h3>
@@ -1084,7 +1084,7 @@ export default function BodegaGestionPage() {
                 <PackageCheck className="w-6 h-6 text-emerald-500" />
               </div>
               <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Cajas Completas</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">Cajas Completas</p>
                 <h3 className="text-2xl font-black text-[#181c3a]">
                   {inventory.filter(b => b.status === 'Full').length}
                 </h3>
@@ -1097,7 +1097,7 @@ export default function BodegaGestionPage() {
                 <TrendingUp className="w-6 h-6 text-amber-500" />
               </div>
               <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Cajas en Proceso</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">Cajas en Proceso</p>
                 <h3 className="text-2xl font-black text-[#181c3a]">
                   {inventory.filter(b => b.status === 'Parcial').length}
                 </h3>
@@ -1180,7 +1180,7 @@ export default function BodegaGestionPage() {
                         <span className="text-[10px] font-bold text-slate-700">{item.fechaIngreso}</span>
                       </td>
                       <td className="px-6 py-5">
-                        <span className="text-[10px] font-bold text-[#2ec4f1]">{catTecnologias.find(t => t.id === item.tecnologia)?.name || item.tecnologia || '---'}</span>
+                        <span className="text-[10px] font-bold text-cyan-800">{catTecnologias.find(t => t.id === item.tecnologia)?.name || item.tecnologia || '---'}</span>
                       </td>
                       <td className="px-6 py-5">
                         <span className="text-[10px] font-bold text-slate-700">{(item.usuarioIngreso || 'SISTEMA').split('@')[0]}</span>
@@ -1213,7 +1213,7 @@ export default function BodegaGestionPage() {
                             {(() => {
                               const r = item.rack || '';
                               if (r === 'SIN RACK' || !r) {
-                                return <span className="text-xs font-bold text-slate-400">Sin Asignar</span>;
+                                return <span className="text-xs font-bold text-slate-600">Sin Asignar</span>;
                               }
                               const parts = r.split(' - ').map((p: string) => p.replace('RACK-', '').replace('NIVEL-', '').replace('POSICION-', ''));
                               return (
@@ -1228,7 +1228,7 @@ export default function BodegaGestionPage() {
                             })()}
                             <Pencil className="w-3 h-3 text-slate-300 opacity-0 group-hover/loc:opacity-100 transition-opacity" />
                           </div>
-                          <span className="text-[9px] font-black uppercase text-slate-400 mt-0.5">
+                          <span className="text-[9px] font-black uppercase text-slate-600 mt-0.5">
                             {item.area || 'Sin Área'}
                           </span>
                         </div>
@@ -1238,7 +1238,7 @@ export default function BodegaGestionPage() {
                           <span className="text-xs font-bold text-slate-700">
                             {catMarcas.find(b => b.id === item.marca)?.name || item.marca || 'N/A'}
                           </span>
-                          <span className="text-[10px] font-medium text-slate-400">
+                          <span className="text-[10px] font-medium text-slate-600">
                             {catModelos.find(m => m.id === item.modelo)?.name || item.modelo || 'N/A'}
                           </span>
                         </div>

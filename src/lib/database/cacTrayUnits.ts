@@ -57,32 +57,54 @@ function applyTrayFilters(
   return q;
 }
 
-export async function queryCacTrayPage(params: CacTrayQueryParams): Promise<CacTrayPageResponse> {
+type TrayPageOptions = {
+  /** Si false, omite joins SAP (más rápido en primera pintura). */
+  includeSapValidation?: boolean;
+};
+
+export async function queryCacTrayPage(
+  params: CacTrayQueryParams,
+  options?: TrayPageOptions
+): Promise<CacTrayPageResponse> {
   const supabase = getSupabaseServerClient();
   const limit = Math.min(Math.max(params.limit || DEFAULT_LIMIT, 1), MAX_LIMIT);
   const page = Math.max(params.page || 1, 1);
   const offset = (page - 1) * limit;
 
-  let query = supabase
+  let rowsQuery = supabase
     .from('cac_tray_units')
-    .select('*', { count: 'exact' })
+    .select('*')
     .order('classified_at', { ascending: false })
     .order('os_number', { ascending: false })
     .range(offset, offset + limit - 1);
 
-  query = applyTrayFilters(query, params);
+  let countQuery = supabase
+    .from('cac_tray_units')
+    .select('id', { count: 'exact', head: true });
 
-  const { data, error, count } = await query;
-  if (error) {
-    if (error.message.includes('cac_tray_units') && error.message.includes('does not exist')) {
+  rowsQuery = applyTrayFilters(rowsQuery, params);
+  countQuery = applyTrayFilters(countQuery, params);
+
+  const [{ data, error }, { count, error: countError }] = await Promise.all([
+    rowsQuery,
+    countQuery,
+  ]);
+
+  const trayError = error || countError;
+  if (trayError) {
+    if (trayError.message.includes('cac_tray_units') && trayError.message.includes('does not exist')) {
       throw new Error('Migración 033 pendiente: ejecute 033_cac_tray_units.sql en Supabase.');
     }
-    throw new Error(error.message);
+    throw new Error(trayError.message);
   }
 
   const totalCount = count ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalCount / limit));
-  const rows = await enrichCacTrayRowsWithSapValidation((data || []) as CacTrayUnitRow[]);
+  const baseRows = (data || []) as CacTrayUnitRow[];
+  const rows =
+    options?.includeSapValidation === false
+      ? baseRows
+      : await enrichCacTrayRowsWithSapValidation(baseRows);
 
   return {
     rows,
@@ -191,12 +213,18 @@ export async function queryTransferEligibleSeries(
   return out;
 }
 
-export function buildTrayQueryString(params: CacTrayQueryParams): string {
+export function buildTrayQueryString(
+  params: CacTrayQueryParams & { includeSap?: boolean }
+): string {
   const sp = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
+    if (key === 'includeSap') return;
     if (value !== undefined && value !== null && String(value).trim() !== '') {
       sp.set(key, String(value));
     }
   });
+  if (params.includeSap === false) {
+    sp.set('includeSap', '0');
+  }
   return sp.toString();
 }

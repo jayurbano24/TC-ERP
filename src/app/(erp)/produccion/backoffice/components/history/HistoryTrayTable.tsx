@@ -16,6 +16,7 @@ type Props = HistoryTrayRowActions & {
   pageEntries: HistoryUnitEntry[];
   totalCount: number;
   totalPages: number;
+  loading?: boolean;
   emptyMessage?: string;
   historyPage: number;
   setHistoryPage: React.Dispatch<React.SetStateAction<number>>;
@@ -31,6 +32,7 @@ export function HistoryTrayTable({
   pageEntries,
   totalCount,
   totalPages,
+  loading = false,
   emptyMessage = 'No hay ingresos CAC con orden de servicio TC-XXX que coincidan con los filtros',
   historyPage,
   setHistoryPage,
@@ -116,7 +118,17 @@ export function HistoryTrayTable({
             </tr>
           </thead>
           <tbody>
-            {totalCount === 0 ? (
+            {loading ? (
+              Array.from({ length: 8 }).map((_, i) => (
+                <tr key={`sk-${i}`} className="border-b border-slate-50">
+                  {Array.from({ length: 19 }).map((__, j) => (
+                    <td key={j} className="px-4 py-3">
+                      <div className="h-3 bg-slate-100 rounded animate-pulse" />
+                    </td>
+                  ))}
+                </tr>
+              ))
+            ) : totalCount === 0 ? (
               <tr>
                 <td colSpan={19} className="p-12 text-center">
                   <Database className="w-12 h-12 text-slate-200 mx-auto mb-4" />

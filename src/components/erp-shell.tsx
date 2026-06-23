@@ -290,7 +290,7 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
                 </div>
                 <div className="flex flex-col">
                   <h1 className="text-lg font-black tracking-tighter leading-none">MULTIMEDIA</h1>
-                  <span className="text-[9px] font-bold text-white/40 uppercase tracking-[0.2em] mt-1">Enterprise System</span>
+                  <span className="text-[9px] font-bold text-white/70 uppercase tracking-[0.2em] mt-1">Enterprise System</span>
                 </div>
               </div>
             ) : (
@@ -345,7 +345,7 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
               return (
               <div key={group.title} className="space-y-1">
                 {isSidebarOpen ? (
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em] px-4 mb-3">
+                  <p className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.15em] px-4 mb-3">
                     {group.title}
                   </p>
                 ) : (
@@ -377,7 +377,7 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
                           {isSidebarOpen && (
                             <div className="flex flex-col overflow-hidden animate-in fade-in duration-300">
                               <span className={`text-sm font-semibold truncate ${isActive ? 'text-white drop-shadow-md' : 'text-slate-200 group-hover:text-white transition-colors'}`}>{item.label}</span>
-                              <span className={`text-[11px] font-medium truncate mt-0.5 transition-colors ${isActive ? 'text-white/90' : 'text-slate-400 group-hover:text-slate-300'}`}>
+                              <span className={`text-[11px] font-medium truncate mt-0.5 transition-colors ${isActive ? 'text-white' : 'text-slate-300 group-hover:text-white'}`}>
                                 {item.descripcion}
                               </span>
                             </div>
@@ -397,7 +397,7 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
           <div className={`p-4 border-t border-white/5 flex flex-col justify-end space-y-2 ${!isSidebarOpen && 'items-center'}`}>
             <Link 
               href="/configuracion"
-              className={`flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition-colors text-white/40 hover:text-white ${!isSidebarOpen && 'justify-center'}`}
+              className={`flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition-colors text-white/70 hover:text-white ${!isSidebarOpen && 'justify-center'}`}
               title={!isSidebarOpen ? "Configuración" : undefined}
             >
               <Settings size={18} />
@@ -405,7 +405,7 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
             </Link>
             <button 
               onClick={toggleTheme}
-              className={`flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition-colors text-white/40 hover:text-white ${!isSidebarOpen && 'justify-center'}`}
+              className={`flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition-colors text-white/70 hover:text-white ${!isSidebarOpen && 'justify-center'}`}
               title={!isSidebarOpen ? "Cambiar Tema" : undefined}
             >
               {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
@@ -418,7 +418,7 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
         <div className="flex-1 min-w-0 bg-[var(--background)] flex flex-col">
           {/* Top Bar / Global Actions */}
           <header className="h-20 bg-[var(--surface)] border-b border-[var(--border)] px-4 md:px-8 flex items-center justify-between sticky top-0 z-30">
-            <div className="flex items-center gap-4 text-slate-400">
+            <div className="flex items-center gap-4 text-slate-600">
               <button 
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
                 className="hidden md:flex p-2 rounded-xl hover:bg-[var(--surface-hover)] transition-colors text-[var(--muted)] hover:text-[var(--foreground)] mr-2"
@@ -455,7 +455,7 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
                   </div>
                   <div className="flex flex-col">
                     <span className="text-xs font-bold leading-tight">{currentUser.full_name || 'Cargando...'}</span>
-                    <span className="text-[9px] font-black uppercase tracking-widest text-[#2ec4f1]">{currentUser.role || 'SIN ROL'}</span>
+                    <span className="text-[9px] font-black uppercase tracking-widest text-cyan-800">{currentUser.role || 'SIN ROL'}</span>
                   </div>
                 </div>
               )}

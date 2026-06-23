@@ -346,7 +346,7 @@ export default function GeneralDashboardPage() {
                     <div key={kpi.name}>
                       <div className="flex justify-between text-xs font-black uppercase tracking-widest mb-3">
                         <span className="text-[#181c3a]">{kpi.name} <span className="text-slate-400 ml-1">({kpi.role.replace('_', ' ')})</span></span>
-                        <span className="text-slate-500">{kpi.progress} Unidades</span>
+                        <span className="text-slate-500">{kpi.progress} {kpi.progressLabel}</span>
                       </div>
                       <div className="w-full bg-slate-100 rounded-full h-3">
                         <div className={`${colors[idx % colors.length]} h-3 rounded-full transition-all duration-1000`} style={{ width: `${percent}%` }} />
@@ -392,6 +392,9 @@ export default function GeneralDashboardPage() {
                       <div>
                         <p className="text-sm font-bold text-[#181c3a]">{kpi.name}</p>
                         <p className="text-[10px] uppercase font-bold text-slate-400">{kpi.role.replace('_', ' ')}</p>
+                        <p className="text-[10px] font-black text-cyan-800 mt-1 tabular-nums">
+                          {kpi.progress} {kpi.progressLabel}
+                        </p>
                       </div>
                     </div>
                     <div className="flex items-center gap-3">

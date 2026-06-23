@@ -45,3 +45,25 @@ export function countClassificationProgress(
   const pending = getPendingGuides(activeReception, processedGuides, allReceptions).length;
   return { pending, total };
 }
+
+/** Progreso de clasificación para tarjetas de bandeja CAC (misma lógica que Historial Recepción). */
+export function getInboxClassificationStats(rec: {
+  notes?: string;
+  guide_number?: string;
+  received_units?: number;
+  processed_guides?: string[];
+}): { classified: number; total: number; remaining: number } {
+  const guideList = parseReceptionGuideList(rec);
+  const units = rec.received_units ?? 1;
+  let total = guideList.length > 0 ? guideList.length : units;
+  if (guideList.length <= 1 && units > 1) {
+    total = units;
+  }
+
+  const classified = new Set(
+    (rec.processed_guides || []).map(normalizeGuideKey).filter(Boolean)
+  ).size;
+  const remaining = Math.max(0, total - classified);
+
+  return { classified, total, remaining };
+}

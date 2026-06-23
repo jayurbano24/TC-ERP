@@ -100,6 +100,7 @@ export function HistoryTab({
         : 'No hay ingresos CAC con orden de servicio TC-XXX que coincidan con los filtros';
 
   const showInitialLoader = historyLoading && trayEntries.length === 0 && !historyLoadError;
+  const showTableLoading = historyLoading && trayEntries.length === 0 && !historyLoadError;
 
   return (
     <div className="space-y-4">
@@ -119,18 +120,10 @@ export function HistoryTab({
         </div>
       )}
 
-      {showInitialLoader && (
-        <div className="py-16 text-center bg-white rounded-2xl border border-slate-100">
-          <RefreshCw className="w-10 h-10 mx-auto mb-4 text-[#2ec4f1] animate-spin" />
-          <p className="text-sm font-black text-slate-400 uppercase tracking-widest">Cargando historial...</p>
-        </div>
-      )}
-
-      {!showInitialLoader && (
-        <>
+      <>
           <HistoryStatsGrid
             stats={historyStats}
-            loading={historyStatsLoading}
+            loading={historyStatsLoading || showInitialLoader}
             MASTER_TECNOLOGIAS={MASTER_TECNOLOGIAS}
           />
 
@@ -209,6 +202,7 @@ export function HistoryTab({
               pageEntries={trayEntries}
               totalCount={totalCount}
               totalPages={totalPages}
+              loading={showTableLoading}
               emptyMessage={emptyMessage}
               historyPage={historyPage}
               setHistoryPage={setHistoryPage}
@@ -227,7 +221,6 @@ export function HistoryTab({
             />
           </Card>
         </>
-      )}
     </div>
   );
 }

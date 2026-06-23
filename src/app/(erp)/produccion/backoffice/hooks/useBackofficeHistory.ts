@@ -45,8 +45,8 @@ function buildQueryParams(
   };
 }
 
-async function fetchTrayPage(params: CacTrayQueryParams) {
-  const qs = buildTrayQueryString(params);
+async function fetchTrayPage(params: CacTrayQueryParams, includeSap = true) {
+  const qs = buildTrayQueryString({ ...params, includeSap: includeSap ? undefined : false });
   const res = await fetch(`/api/backoffice/cac-history/tray?${qs}`, { cache: 'no-store' });
   const payload = await res.json();
   if (!res.ok) throw new Error(payload?.error || 'Error al cargar bandeja CAC');
@@ -107,7 +107,7 @@ export function useBackofficeHistory(
       const params = { ...queryParams, page: opts?.page ?? queryParams.page };
 
       try {
-        const pageData = await fetchTrayPage(params);
+        const pageData = await fetchTrayPage(params, false);
 
         if (fetchId !== historyFetchIdRef.current) return;
 
@@ -116,6 +116,15 @@ export function useBackofficeHistory(
         setTotalPages(pageData.totalPages);
         setHistoryLoadError(null);
         setHistoryLoading(false);
+
+        void fetchTrayPage(params, true)
+          .then((enriched) => {
+            if (fetchId !== historyFetchIdRef.current) return;
+            setTrayEntries(trayRowsToHistoryEntries(enriched.rows as CacTrayUnitRow[]));
+          })
+          .catch((error: unknown) => {
+            console.error('Error enriching CAC tray SAP validation:', error);
+          });
 
         setHistoryStatsLoading(true);
         void fetchTrayStats(params)

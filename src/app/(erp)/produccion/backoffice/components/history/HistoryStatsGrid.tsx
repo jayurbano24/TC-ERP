@@ -33,11 +33,11 @@ export function HistoryStatsGrid({ stats, loading = false, MASTER_TECNOLOGIAS }:
             key={tech.id}
             className="p-6 border-none shadow-2xl bg-white rounded-[2.5rem] flex flex-col items-center justify-center text-center group hover:bg-[#181c3a] transition-all duration-500 border border-slate-100/50 h-40"
           >
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 group-hover:text-white/50 mb-4">
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 group-hover:text-white/70 mb-4">
               {tech.nombre}
             </p>
             <StatNumber value={count} loading={loading} />
-            <p className="text-[9px] font-black text-slate-300 group-hover:text-white/20 uppercase mt-4 tracking-widest">
+            <p className="text-[9px] font-black text-slate-500 group-hover:text-white/60 uppercase mt-4 tracking-widest">
               Equipos
             </p>
           </Card>
@@ -46,32 +46,32 @@ export function HistoryStatsGrid({ stats, loading = false, MASTER_TECNOLOGIAS }:
 
       {unknownTechUnits > 0 && (
         <Card className="p-6 border-none shadow-2xl bg-rose-50 rounded-[2.5rem] flex flex-col items-center justify-center text-center group hover:bg-rose-500 transition-all duration-500 border border-rose-100 h-40">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-rose-400 group-hover:text-white mb-4">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-rose-700 group-hover:text-white mb-4">
             SIN TECNOLOGÍA
           </p>
           <StatNumber value={unknownTechUnits} loading={loading} />
-          <p className="text-[9px] font-black text-rose-200 group-hover:text-white/50 uppercase mt-4 tracking-widest">
+          <p className="text-[9px] font-black text-rose-600 group-hover:text-white/70 uppercase mt-4 tracking-widest">
             Revisar Modelos
           </p>
         </Card>
       )}
 
       <Card className="p-6 border-none shadow-2xl bg-white rounded-[2.5rem] flex flex-col items-center justify-center text-center group hover:bg-[#181c3a] transition-all duration-500 border border-slate-100/50 h-40">
-        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 group-hover:text-white/50 mb-4">
+        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 group-hover:text-white/70 mb-4">
           Total Global
         </p>
         <StatNumber value={stats.total} loading={loading} />
-        <p className="text-[9px] font-black text-slate-300 group-hover:text-white/20 uppercase mt-4 tracking-widest">
+        <p className="text-[9px] font-black text-slate-500 group-hover:text-white/60 uppercase mt-4 tracking-widest">
           Unidades
         </p>
       </Card>
 
       <Card className="p-6 border-none shadow-2xl bg-[#2ec4f1] rounded-[2.5rem] flex flex-col items-center justify-center text-center text-[#181c3a] h-40">
-        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#181c3a]/30 mb-4">Órdenes (OS)</p>
+        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#181c3a]/60 mb-4">Órdenes (OS)</p>
         <p className="text-6xl font-black text-[#181c3a] leading-none tracking-tighter">
           {loading ? <span className="text-[#181c3a]/20 animate-pulse">—</span> : stats.total}
         </p>
-        <p className="text-[9px] font-black text-[#181c3a]/20 uppercase mt-4 tracking-widest">Generadas</p>
+        <p className="text-[9px] font-black text-[#181c3a]/50 uppercase mt-4 tracking-widest">Generadas</p>
       </Card>
     </div>
   );

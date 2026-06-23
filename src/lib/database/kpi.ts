@@ -7,28 +7,19 @@ export type UserKPI = {
   target: number;
   progress: number;
   percentage: number;
+  /** Unidad legible del trabajo contado (ej. equipos clasificados). */
+  progressLabel: string;
 };
 
-export async function getDailyKPIs(timeRange: string = 'Hoy'): Promise<UserKPI[]> {
-  const supabase = getSupabaseBrowserClient();
-  if (!supabase) return [];
+type ProfileRow = {
+  id: string;
+  full_name?: string | null;
+  is_active?: boolean | null;
+  user_roles?: { role: string }[];
+  employees?: { nombre_completo?: string } | { nombre_completo?: string }[] | null;
+};
 
-  // Obtener usuarios activos y roles y empleados
-  const { data: usersData } = await supabase
-    .from('profiles')
-    .select('id, full_name, is_active, user_roles(role), employees(nombre_completo)');
-
-  if (!usersData) return [];
-
-  // Obtener metas
-  let targetsData: any[] = [];
-  try {
-    const res = await supabase.from('user_kpi_targets').select('user_id, target_value');
-    if (res.data) targetsData = res.data;
-  } catch (e) {
-    console.warn('user_kpi_targets table might not exist yet.');
-  }
-
+function getTimeRangeBounds(timeRange: string): { startIso: string; endIso: string } {
   const startOfRange = new Date();
   const endOfRange = new Date();
 
@@ -52,80 +43,200 @@ export async function getDailyKPIs(timeRange: string = 'Hoy'): Promise<UserKPI[]
     endOfRange.setHours(23, 59, 59, 999);
   }
 
-  const startIso = startOfRange.toISOString();
-  const endIso = endOfRange.toISOString();
+  return { startIso: startOfRange.toISOString(), endIso: endOfRange.toISOString() };
+}
 
-  // Recepciones de hoy
-  const { data: receptions } = await supabase
-    .from('receptions')
-    .select('received_by, received_units')
-    .gte('created_at', startIso)
-    .lte('created_at', endIso);
+function buildUserIdResolver(usersData: ProfileRow[]) {
+  const idByKey = new Map<string, string>();
 
-  // Bodega de hoy (movimientos / cajas creadas)
-  // Contamos cuantas series fueron movidas o cajas cerradas por usuario.
-  // Vamos a usar inventory_movements.
-  const { data: movements } = await supabase
-    .from('inventory_movements')
-    .select('moved_by, id')
-    .gte('moved_at', startIso)
-    .lte('moved_at', endIso);
+  for (const userRow of usersData) {
+    const keys = new Set<string>();
+    if (userRow.full_name) keys.add(userRow.full_name.trim());
+    const emp = userRow.employees;
+    if (Array.isArray(emp) && emp[0]?.nombre_completo) keys.add(emp[0].nombre_completo.trim());
+    else if (emp && !Array.isArray(emp) && emp.nombre_completo) keys.add(emp.nombre_completo.trim());
 
-  // Taller (Diagnostic, Reparacion, etc)
-  const { data: jobs } = await supabase
-    .from('workshop_jobs')
-    .select('technician_id, id')
-    .gte('created_at', startIso)
-    .lte('created_at', endIso);
-
-  // Mapear los contadores
-  const progressMap: Record<string, number> = {};
-
-  if (receptions) {
-    receptions.forEach((r: any) => {
-      if (r.received_by) {
-        progressMap[r.received_by] = (progressMap[r.received_by] || 0) + (r.received_units || 0);
+    idByKey.set(userRow.id.toLowerCase(), userRow.id);
+    for (const key of keys) {
+      const lower = key.toLowerCase();
+      idByKey.set(lower, userRow.id);
+      if (lower.includes('@')) {
+        idByKey.set(lower.split('@')[0], userRow.id);
       }
-    });
+    }
   }
 
-  if (movements) {
-    movements.forEach((m: any) => {
-      if (m.moved_by) {
-        progressMap[m.moved_by] = (progressMap[m.moved_by] || 0) + 1;
-      }
-    });
+  return (actorKey: string | null | undefined): string | null => {
+    if (!actorKey) return null;
+    const lower = actorKey.trim().toLowerCase();
+    if (idByKey.has(lower)) return idByKey.get(lower)!;
+    if (lower.includes('@')) {
+      const local = lower.split('@')[0];
+      if (idByKey.has(local)) return idByKey.get(local)!;
+    }
+    return null;
+  };
+}
+
+function progressLabelForRole(role: string): string {
+  const r = role.toUpperCase();
+  if (r.includes('BACKOFFICE') || r.includes('GERENTE') || r === 'ADMIN' || r.includes('SUPERVISOR')) {
+    return 'equipos/guías clasificados';
+  }
+  if (r.includes('RECEPTOR') || r.includes('RECEPCION')) return 'unidades recibidas';
+  if (r.includes('BODEGA')) return 'movimientos de bodega';
+  if (r.includes('TECNICO') || r.includes('TALLER') || r.includes('QC') || r.includes('OPERACION')) {
+    return 'órdenes de taller';
+  }
+  return 'unidades procesadas';
+}
+
+function roleCountsBackoffice(role: string): boolean {
+  const r = role.toUpperCase();
+  return (
+    r.includes('BACKOFFICE') ||
+    r.includes('GERENTE') ||
+    r === 'ADMIN' ||
+    r.includes('SUPERVISOR')
+  );
+}
+
+function roleCountsReception(role: string): boolean {
+  const r = role.toUpperCase();
+  return r.includes('RECEPTOR') || r.includes('RECEPCION');
+}
+
+function roleCountsBodega(role: string): boolean {
+  return role.toUpperCase().includes('BODEGA');
+}
+
+function roleCountsTaller(role: string): boolean {
+  const r = role.toUpperCase();
+  return r.includes('TECNICO') || r.includes('TALLER') || r.includes('QC') || r.includes('OPERACION');
+}
+
+export async function getDailyKPIs(timeRange: string = 'Hoy'): Promise<UserKPI[]> {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return [];
+
+  // Obtener usuarios activos y roles y empleados
+  const { data: usersData } = await supabase
+    .from('profiles')
+    .select('id, full_name, is_active, user_roles(role), employees(nombre_completo)');
+
+  if (!usersData) return [];
+
+  // Obtener metas
+  let targetsData: any[] = [];
+  try {
+    const res = await supabase.from('user_kpi_targets').select('user_id, target_value');
+    if (res.data) targetsData = res.data;
+  } catch (e) {
+    console.warn('user_kpi_targets table might not exist yet.');
   }
 
-  if (jobs) {
-    jobs.forEach((j: any) => {
-      if (j.technician_id) {
-        progressMap[j.technician_id] = (progressMap[j.technician_id] || 0) + 1;
-      }
-    });
-  }
+  const { startIso, endIso } = getTimeRangeBounds(timeRange);
+  const resolveUserId = buildUserIdResolver(usersData as ProfileRow[]);
 
-  // Unificar todo
+  const [
+    { data: receptions },
+    { data: movements },
+    { data: jobs },
+    { data: classifiedGuides },
+    { data: trayUnits },
+  ] = await Promise.all([
+    supabase
+      .from('receptions')
+      .select('received_by, received_units')
+      .gte('created_at', startIso)
+      .lte('created_at', endIso),
+    supabase
+      .from('inventory_movements')
+      .select('moved_by, id')
+      .gte('moved_at', startIso)
+      .lte('moved_at', endIso),
+    supabase
+      .from('workshop_jobs')
+      .select('technician_id, id')
+      .gte('created_at', startIso)
+      .lte('created_at', endIso),
+    supabase
+      .from('reception_guides')
+      .select('classified_by, category')
+      .gte('classified_at', startIso)
+      .lte('classified_at', endIso)
+      .not('classified_by', 'is', null),
+    supabase
+      .from('cac_tray_units')
+      .select('received_by_name')
+      .eq('is_active', true)
+      .gte('classified_at', startIso)
+      .lte('classified_at', endIso),
+  ]);
+
+  const progressBySource: Record<string, { reception: number; backoffice: number; bodega: number; taller: number }> = {};
+
+  const bump = (userId: string | null, source: 'reception' | 'backoffice' | 'bodega' | 'taller', amount: number) => {
+    if (!userId || amount <= 0) return;
+    if (!progressBySource[userId]) {
+      progressBySource[userId] = { reception: 0, backoffice: 0, bodega: 0, taller: 0 };
+    }
+    progressBySource[userId][source] += amount;
+  };
+
+  receptions?.forEach((r: { received_by?: string; received_units?: number }) => {
+    bump(resolveUserId(r.received_by), 'reception', r.received_units || 1);
+  });
+
+  movements?.forEach((m: { moved_by?: string }) => {
+    bump(resolveUserId(m.moved_by) || m.moved_by || null, 'bodega', 1);
+  });
+
+  jobs?.forEach((j: { technician_id?: string }) => {
+    if (j.technician_id) bump(j.technician_id, 'taller', 1);
+  });
+
+  classifiedGuides?.forEach((g: { classified_by?: string; category?: string }) => {
+    const cat = (g.category || '').toLowerCase();
+    if (cat === 'equipo') return;
+    bump(resolveUserId(g.classified_by), 'backoffice', 1);
+  });
+
+  trayUnits?.forEach((row: { received_by_name?: string }) => {
+    bump(resolveUserId(row.received_by_name), 'backoffice', 1);
+  });
+
   const kpis: UserKPI[] = usersData
-    .filter(u => u.is_active && u.user_roles && u.user_roles.length > 0)
-    .map((userRow: any) => {
-      const u = userRow as any;
-      const roleStr = u.user_roles[0].role;
-      const progress = progressMap[u.id] || 0;
-      const targetObj = targetsData.find(t => t.user_id === u.id);
-      
-      // Intentar sacar nombre_completo
+    .filter((u) => u.is_active && u.user_roles && u.user_roles.length > 0)
+    .map((userRow) => {
+      const u = userRow as ProfileRow;
+      const roleStr = u.user_roles![0].role;
+      const sources = progressBySource[u.id] || { reception: 0, backoffice: 0, bodega: 0, taller: 0 };
+
+      let progress = 0;
+      if (roleCountsBackoffice(roleStr)) progress += sources.backoffice;
+      if (roleCountsReception(roleStr)) progress += sources.reception;
+      if (roleCountsBodega(roleStr)) progress += sources.bodega;
+      if (roleCountsTaller(roleStr)) progress += sources.taller;
+
+      if (progress === 0) {
+        progress =
+          sources.backoffice + sources.reception + sources.bodega + sources.taller;
+      }
+
+      const targetObj = targetsData.find((t) => t.user_id === u.id);
+
       let realName = u.full_name || 'Usuario';
-      if (u.employees && Array.isArray(u.employees) && u.employees.length > 0 && u.employees[0].nombre_completo) {
-        realName = u.employees[0].nombre_completo;
-      } else if (u.employees && !Array.isArray(u.employees) && u.employees.nombre_completo) {
-        realName = u.employees.nombre_completo;
+      const emp = u.employees;
+      if (Array.isArray(emp) && emp[0]?.nombre_completo) {
+        realName = emp[0].nombre_completo;
+      } else if (emp && !Array.isArray(emp) && emp.nombre_completo) {
+        realName = emp.nombre_completo;
       } else if (realName.includes('@')) {
         realName = realName.split('@')[0];
       }
 
-      // Default target 100 if not set
-      let target = targetObj ? targetObj.target_value : 100;
+      const target = targetObj ? targetObj.target_value : 100;
 
       return {
         user_id: u.id,
@@ -133,11 +244,12 @@ export async function getDailyKPIs(timeRange: string = 'Hoy'): Promise<UserKPI[]
         role: roleStr,
         target,
         progress,
-        percentage: target > 0 ? Math.round((progress / target) * 100) : 0
+        percentage: target > 0 ? Math.round((progress / target) * 100) : 0,
+        progressLabel: progressLabelForRole(roleStr),
       };
     });
 
-  return kpis.sort((a, b) => b.percentage - a.percentage);
+  return kpis.sort((a, b) => b.progress - a.progress || b.percentage - a.percentage);
 }
 
 export async function setKPI(userId: string, targetValue: number) {

@@ -58,8 +58,7 @@ export function useBackofficeLifecycle({
 
   useEffect(() => {
     if (activeTab === 'history') {
-      void inbox.fetchPending();
-      void fetchHistory();
+      void inbox.fetchPending({ silent: true });
     }
-  }, [activeTab, fetchHistory, inbox]);
+  }, [activeTab, inbox]);
 }

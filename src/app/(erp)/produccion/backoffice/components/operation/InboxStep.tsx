@@ -5,9 +5,11 @@ import { Badge, Button } from '@/components/ui';
 import { RecordListCard } from '@/components/ui/RecordListCard';
 import { ErpIcon } from '@/lib/design/icons';
 import { erpTypography } from '@/lib/design/tokens';
-import { formatDisplayDateTime } from '@/lib/formatDisplayDate';
 import { shouldShowInCacInbox } from '../../cacInboxFilter';
 import type { OperationContext } from '../../operation/operationContext';
+import { InboxElapsedTimer } from './InboxElapsedTimer';
+import { InboxClassificationProgress } from './InboxClassificationProgress';
+import { getInboxClassificationStats } from '../../operation/classificationGuideUtils';
 
 type Props = { ctx: OperationContext };
 
@@ -33,6 +35,12 @@ export function InboxStep({ ctx }: Props) {
       rec.status !== 'RECIBIDO' &&
       (!inboxSearch || rec.guide_number.toLowerCase().includes(inboxSearch.toLowerCase()))
   );
+
+  const pendingBoxCount = filteredReceptions.reduce(
+    (sum, rec) => sum + getInboxClassificationStats(rec).remaining,
+    0
+  );
+  const pendingReceptionCount = filteredReceptions.length;
 
   return (
     <div className="space-y-6 lg:space-y-8">
@@ -85,6 +93,33 @@ export function InboxStep({ ctx }: Props) {
         />
       </div>
 
+      {!loading && !inboxLoadError && pendingReceptionCount > 0 && (
+        <div className="flex flex-wrap gap-3">
+          <div className="inline-flex items-center gap-2.5 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 shadow-sm">
+            <ErpIcon name="clock" className="w-4 h-4 text-cyan-800" />
+            <div>
+              <p className="text-[9px] font-black uppercase tracking-widest text-slate-600">
+                Cajas pendientes de clasificar
+              </p>
+              <p className="text-lg font-black text-[#181c3a] leading-tight tabular-nums">
+                {pendingBoxCount.toLocaleString('es-GT')}
+              </p>
+            </div>
+          </div>
+          <div className="inline-flex items-center gap-2.5 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 shadow-sm">
+            <ErpIcon name="box" className="w-4 h-4 text-[#181c3a]" />
+            <div>
+              <p className="text-[9px] font-black uppercase tracking-widest text-slate-600">
+                Recepciones en bandeja
+              </p>
+              <p className="text-lg font-black text-[#181c3a] leading-tight tabular-nums">
+                {pendingReceptionCount.toLocaleString('es-GT')}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {inboxLoadError && (
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
           <div>
@@ -126,15 +161,10 @@ export function InboxStep({ ctx }: Props) {
                     <ErpIcon name="box" className="w-5 h-5 text-slate-300" />
                   </div>
                   <h4 className="text-lg font-black font-mono text-[#181c3a] break-all">{rec.guide_number}</h4>
-                  <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-1">
+                  <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-1">
                     Lote: {rec.id.substring(0, 8)}
                   </p>
-                  <div className="mt-4 flex items-center gap-2">
-                    <ErpIcon name="history" className="w-3.5 h-3.5 text-[#2ec4f1]" />
-                    <span className="text-[10px] font-bold text-slate-500">
-                      {formatDisplayDateTime(rec.created_at)}
-                    </span>
-                  </div>
+                  <InboxElapsedTimer since={rec.created_at} />
                 </>
               }
               footer={
@@ -167,12 +197,7 @@ export function InboxStep({ ctx }: Props) {
                     Recibido por: {rec.received_by || 'SISTEMA'}
                   </p>
                 </div>
-                <div>
-                  <p className={erpTypography.label}>Unidades</p>
-                  <p className="text-sm font-black text-[#181c3a] leading-tight mt-1">
-                    {rec.received_units} bultos
-                  </p>
-                </div>
+                <InboxClassificationProgress rec={rec} />
                 <div>
                   <p className={erpTypography.label}>Ubicación actual</p>
                   <p className="text-sm font-black text-emerald-600 uppercase leading-tight mt-1">

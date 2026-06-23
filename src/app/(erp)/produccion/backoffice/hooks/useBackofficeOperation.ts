@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { testSupabaseConnection } from '@/lib/supabase/test-connection';
-import type { BackofficeTab, BackofficeReception, ReceptionStep } from '../types';
+import type { BackofficeTab, BackofficeReception, OperationCategory, ReceptionStep } from '../types';
 import { compressImage } from '../backofficeHelpers';
 import { useBackofficeCatalogs } from './useBackofficeCatalogs';
 import { useBackofficeHistory } from './useBackofficeHistory';
@@ -38,7 +38,7 @@ export function useBackofficeOperation() {
   const [dateFilterTo, setDateFilterTo] = useState('');
   const [agencia, setAgencia] = useState('');
   const [selectedAgencyId, setSelectedAgencyId] = useState<string>('');
-  const [category, setCategory] = useState<'Equipo' | 'Accesorio' | 'Teléfono'>('Equipo');
+  const [category, setCategory] = useState<OperationCategory>('Equipo');
   const [returnReason, setReturnReason] = useState('');
   const [returnTracking, setReturnTracking] = useState('');
   const [returnCourier, setReturnCourier] = useState('');
@@ -52,6 +52,7 @@ export function useBackofficeOperation() {
   const {
     historyLoadError,
     historyLoading,
+    historyStatsLoading,
     historyReceptions,
     totalCount,
     totalPages,
@@ -159,9 +160,13 @@ export function useBackofficeOperation() {
         setHistorySearch,
         setHistoryPage,
         fetchHistory,
+        fetchPending: inbox.fetchPending,
         setScannedGuides,
         setAgencia,
         setReturnReason,
+        setReturnTracking,
+        setReturnCourier,
+        setSelectedAgencyId,
         setAccessoryPhotos,
         resetManifestState: manifest.resetManifestState,
       }),
@@ -186,6 +191,7 @@ export function useBackofficeOperation() {
       MASTER_MODELOS,
       currentUserFullName,
       fetchHistory,
+      inbox.fetchPending,
       manifest.resetManifestState,
     ]
   );
@@ -277,6 +283,7 @@ export function useBackofficeOperation() {
     operationCtx,
     historyLoadError,
     historyLoading,
+    historyStatsLoading,
     historyReceptions,
     totalCount,
     totalPages,

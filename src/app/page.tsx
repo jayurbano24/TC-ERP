@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { User, Lock, ShieldCheck, ChevronRight, LogIn, Fingerprint, Eye, EyeOff } from 'lucide-react';
 import { Button, Spinner } from '@/components/ui';
 import { signInWithEmail } from '@/lib/auth';
+import { registerUserSession } from '@/lib/userSession';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -28,23 +29,8 @@ export default function LoginPage() {
       
       const authData = await signInWithEmail(loginIdentifier, password);
       
-      if (authData?.user?.id && authData.user.id !== 'dev-user') {
-        try {
-          const res = await fetch('/api/user-session', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId: authData.user.id })
-          });
-          const textResponse = await res.text();
-          if (textResponse.startsWith('{')) {
-            const sessionData = JSON.parse(textResponse);
-            if (sessionData.sessionId) {
-              localStorage.setItem('tcerp_session_id', sessionData.sessionId);
-            }
-          }
-        } catch (e) {
-          console.warn('Non-critical error creating session:', e);
-        }
+      if (authData?.user?.id) {
+        await registerUserSession(authData.user.id);
       }
 
       router.push('/dashboard');

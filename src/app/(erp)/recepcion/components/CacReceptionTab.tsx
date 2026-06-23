@@ -1,10 +1,14 @@
 // @ts-nocheck
 import React from 'react';
 import { Card } from '@/components/ui/Card';
+import { TablePagination } from '@/components/ui/TablePagination';
 import BarcodeScanner from '@/components/BarcodeScanner';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Scan, FileText, Upload, Camera, AlertCircle, Truck, Barcode, QrCode, Pencil, Trash2, Loader2, CheckCircle2 } from 'lucide-react';
+import { useClientPagination } from '@/hooks/useClientPagination';
+
+const CAC_SCAN_PAGE_SIZE = 20;
 
 export const CacReceptionTab = ({ 
   cacAgency, setCacAgency, cacPilot, setCacPilot, cacCarrier, setCacCarrier, 
@@ -14,6 +18,10 @@ export const CacReceptionTab = ({
   isCameraScannerOpen, cacError, 
   handleFinalizeCAC, loading 
 }: any) => {
+
+  const cacScanPagination = useClientPagination(cacScannedItems, CAC_SCAN_PAGE_SIZE, [
+    cacScannedItems.length,
+  ]);
 
   const handleScan_CAC = (e: React.FormEvent) => {
     e.preventDefault();
@@ -228,20 +236,40 @@ export const CacReceptionTab = ({
                           <p className="text-xs font-black uppercase tracking-widest opacity-40">Esperando Escaneo...</p>
                         </div>
                       ) : (
+                        <>
                         <div className="flex flex-wrap gap-3">
-                          {cacScannedItems.map((g: any, i: number) => (
-                            <div key={i} className="bg-[#181c3a] text-white border border-[#2ec4f1]/30 rounded-xl px-5 py-3 flex items-center justify-between gap-4 group animate-rise-in shadow-lg">
+                          {cacScanPagination.slice.map((g: any, localIdx: number) => {
+                            const globalIndex =
+                              (cacScanPagination.page - 1) * CAC_SCAN_PAGE_SIZE + localIdx;
+                            return (
+                            <div key={globalIndex} className="bg-[#181c3a] text-white border border-[#2ec4f1]/30 rounded-xl px-5 py-3 flex items-center justify-between gap-4 group animate-rise-in shadow-lg">
                               <div className="flex flex-col">
-                                <span className="text-[#2ec4f1] text-[8px] font-black mb-0.5">#{cacScannedItems.length - i}</span>
+                                <span className="text-[#2ec4f1] text-[8px] font-black mb-0.5">#{cacScannedItems.length - globalIndex}</span>
                                 <span className="text-xs font-mono font-black">{g}</span>
                               </div>
                               <div className="flex items-center gap-1 border-l border-white/10 pl-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button onClick={() => handleEditCACSeries(i)} className="p-1 hover:bg-[#2ec4f1]/20 rounded text-[#2ec4f1] transition-colors"><Pencil size={12} /></button>
-                                <button onClick={() => handleDeleteCACSeries(i)} className="p-1 hover:bg-rose-500/20 rounded text-rose-400 transition-colors"><Trash2 size={12} /></button>
+                                <button onClick={() => handleEditCACSeries(globalIndex)} className="p-1 hover:bg-[#2ec4f1]/20 rounded text-[#2ec4f1] transition-colors"><Pencil size={12} /></button>
+                                <button onClick={() => handleDeleteCACSeries(globalIndex)} className="p-1 hover:bg-rose-500/20 rounded text-rose-400 transition-colors"><Trash2 size={12} /></button>
                               </div>
                             </div>
-                          ))}
+                          );
+                          })}
                         </div>
+                        {cacScannedItems.length > CAC_SCAN_PAGE_SIZE && (
+                          <div className="mt-6 rounded-2xl overflow-hidden border border-slate-200">
+                            <TablePagination
+                              totalCount={cacScanPagination.totalCount}
+                              page={cacScanPagination.page}
+                              totalPages={cacScanPagination.totalPages}
+                              startItem={cacScanPagination.startItem}
+                              endItem={cacScanPagination.endItem}
+                              pageSize={CAC_SCAN_PAGE_SIZE}
+                              onPageChange={cacScanPagination.setPage}
+                              itemLabel="series"
+                            />
+                          </div>
+                        )}
+                        </>
                       )}
                     </div>
                   </div>

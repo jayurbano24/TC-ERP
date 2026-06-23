@@ -1,7 +1,7 @@
 'use client';
 
 import type React from 'react';
-import type { BackofficeTab, CatalogAgency, CatalogBrand, CatalogModel, CatalogTech, GuideItem, ReceptionStep, SapTransferGroup } from '../types';
+import type { BackofficeTab, CatalogAgency, CatalogBrand, CatalogModel, CatalogTech, GuideItem, OperationCategory, ReceptionStep, SapTransferGroup } from '../types';
 
 export type CompleteGuidesContext = {
   isSubmitting: boolean;
@@ -20,7 +20,7 @@ export type CompleteGuidesContext = {
     processed_guides?: string[];
     evidence_url?: string;
   } | null;
-  category: 'Equipo' | 'Accesorio' | 'Teléfono';
+  category: OperationCategory;
   receptionStep: ReceptionStep;
   guideItems: GuideItem[];
   sapGroups: SapTransferGroup[];
@@ -40,4 +40,10 @@ export type CompleteGuidesContext = {
   setHistorySearch: React.Dispatch<React.SetStateAction<string>>;
   setHistoryPage: React.Dispatch<React.SetStateAction<number>>;
   fetchHistory: (opts?: { silent?: boolean }) => Promise<void>;
+  fetchPending?: (opts?: { silent?: boolean }) => Promise<void>;
+  setScannedGuides?: React.Dispatch<React.SetStateAction<string[]>>;
+  setReturnReason?: React.Dispatch<React.SetStateAction<string>>;
+  setReturnTracking?: React.Dispatch<React.SetStateAction<string>>;
+  setReturnCourier?: React.Dispatch<React.SetStateAction<string>>;
+  setSelectedAgencyId?: React.Dispatch<React.SetStateAction<string>>;
 };

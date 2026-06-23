@@ -96,12 +96,511 @@ export async function getSapBlockReturnRows() {
       os: s.service_orders?.os_label || '---',
       sapDocument: sapDoc?.sap_document_number || '---',
       receptionId: sapDoc?.reception_id,
+      serviceOrderId: osId || undefined,
+      seriesId: s.id as string,
+      sapTransferId: s.sap_transfer_id as string | undefined,
       category: 'DEVOLUCIÓN SAP BLOQUE',
       isSapBlock: true,
     });
   }
 
   return rows;
+}
+
+const PROCESSED_RECEPTION_STATUSES = new Set(['DESPACHADO', 'DEVUELTO_A_AGENCIA', 'DEVUELTO']);
+
+function extractGuiaEnvioFromNotes(notes: string | null | undefined): string | undefined {
+  const match = String(notes || '').match(/Guía de Envío:\s*([^\n(]+)/i);
+  return match?.[1]?.trim() || undefined;
+}
+
+/** Fila de caja en Bodega Devolución (desde clasificación Backoffice). */
+export type BoxReturnRow = {
+  id: string;
+  sn: string;
+  cliente: string;
+  motivo: string;
+  fecha: string;
+  timestamp: number;
+  estatus: 'Pendiente' | 'Procesado';
+  dbId: string;
+  receptionId: string;
+  classifiedBy?: string;
+  guiaEnvio?: string;
+  isBoxReturn: true;
+  os: string;
+  processDate: string;
+  processUser: string;
+  transferNotes: string;
+  agencyRaw?: string;
+  carrier?: string;
+  receptionNotes?: string;
+};
+
+/** Repara guías de devolución que quedaron solo en receptions (sin fila en reception_guides). */
+async function backfillDevolucionGuidesFromReceptions(
+  supabase: NonNullable<ReturnType<typeof getSupabaseBrowserClient>>
+) {
+  const { data: recs } = await supabase
+    .from('receptions')
+    .select('id, notes, processed_guides, guide_number, status')
+    .or('status.eq.BODEGA_DEVOLUCION,notes.ilike.%Movido a BODEGA: DEVOLUCI%')
+    .not('status', 'in', '("ARCHIVADO","ELIMINADO","DEVUELTO")');
+
+  if (!recs?.length) return;
+
+  for (const rec of recs) {
+    const guides = (rec.processed_guides?.length ? rec.processed_guides : [rec.guide_number])
+      .map((g) => String(g || '').trim())
+      .filter(Boolean);
+
+    for (const guideNumber of guides) {
+      const notes = String(rec.notes || '');
+      const guideBlock = notes.includes(`[Guía ${guideNumber}`)
+        ? notes.split(`[Guía ${guideNumber}`)[1]?.split('[Guía')[0] || ''
+        : notes;
+      const isDevolucionGuide =
+        rec.status === 'BODEGA_DEVOLUCION' ||
+        notes.includes('Movido a BODEGA: DEVOLUCI') ||
+        guideBlock.toLowerCase().includes('backoffice_category: devoluc') ||
+        guideBlock.includes('Motivo Devolución:');
+
+      if (!isDevolucionGuide) continue;
+
+      const motivo =
+        guideBlock.split('Motivo Devolución: ')[1]?.split('\n')[0]?.trim() ||
+        notes.split('Motivo Devolución: ')[1]?.split('\n')[0]?.trim() ||
+        null;
+
+      await supabase.from('reception_guides').upsert(
+        {
+          reception_id: rec.id,
+          guide_number: guideNumber,
+          category: 'devolucion',
+          status: 'CLASIFICADO',
+          motivo,
+          classified_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'reception_id,guide_number' }
+      );
+    }
+  }
+}
+
+function mapReceptionGuideToBoxReturnRow(rg: any): BoxReturnRow {
+  const recStatus = rg.receptions?.status as string | undefined;
+  const guideStatus = rg.status as string | undefined;
+  const isProcessed =
+    guideStatus === 'DESPACHADO' ||
+    (recStatus ? PROCESSED_RECEPTION_STATUSES.has(recStatus) : false);
+
+  const processDate = rg.classified_at
+    ? new Date(rg.classified_at).toLocaleString()
+    : new Date(rg.receptions?.created_at).toLocaleString();
+  const processUser = rg.classified_by || rg.receptions?.carrier || 'SISTEMA';
+  const receptionNotes = rg.receptions?.notes as string | undefined;
+  const transferNotes =
+    rg.motivo ||
+    receptionNotes?.split('Motivo Devolución: ')[1]?.split('\n')[0]?.trim() ||
+    receptionNotes?.split('Notas: ')[1]?.split('\n')[0]?.trim() ||
+    '';
+
+  return {
+    id: `CAJA-${rg.reception_id?.slice(0, 5).toUpperCase()}-${rg.guide_number}`,
+    sn: rg.guide_number,
+    cliente: rg.agency || rg.receptions?.carrier || 'S/D',
+    motivo: rg.motivo || 'Devolución de caja',
+    fecha: rg.classified_at
+      ? new Date(rg.classified_at).toLocaleDateString()
+      : new Date(rg.receptions?.created_at).toLocaleDateString(),
+    timestamp: rg.classified_at
+      ? new Date(rg.classified_at).getTime()
+      : new Date(rg.receptions?.created_at).getTime(),
+    estatus: isProcessed ? ('Procesado' as const) : ('Pendiente' as const),
+    dbId: rg.id as string,
+    receptionId: rg.reception_id as string,
+    classifiedBy: rg.classified_by as string | undefined,
+    guiaEnvio: extractGuiaEnvioFromNotes(receptionNotes),
+    isBoxReturn: true as const,
+    os: '---',
+    processDate,
+    processUser,
+    transferNotes,
+    agencyRaw: rg.agency as string | undefined,
+    carrier: rg.receptions?.carrier as string | undefined,
+    receptionNotes,
+  };
+}
+
+/** Filas para pestaña Bodega Devolución (guías clasificadas como devolución en Backoffice). */
+export async function getBoxReturnRows(): Promise<BoxReturnRow[]> {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return [];
+
+  await backfillDevolucionGuidesFromReceptions(supabase);
+
+  const { data, error } = await supabase
+    .from('reception_guides')
+    .select(`
+      id,
+      guide_number,
+      category,
+      agency,
+      status,
+      classified_by,
+      classified_at,
+      motivo,
+      reception_id,
+      receptions (
+        id,
+        created_at,
+        carrier,
+        status,
+        notes
+      )
+    `)
+    .eq('category', 'devolucion')
+    .not('receptions.status', 'in', '("ARCHIVADO","ELIMINADO","DEVUELTO")')
+    .order('classified_at', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching box returns:', error.message);
+    return [];
+  }
+
+  return (data || [])
+    .filter((rg: any) => rg.receptions)
+    .map(mapReceptionGuideToBoxReturnRow)
+    .sort((a, b) => b.timestamp - a.timestamp);
+}
+
+export type BoxReturnDispatchTarget = {
+  isBoxReturn: true;
+  receptionGuideId: string;
+  receptionId: string;
+  guideNumber: string;
+};
+
+/** Despacha devolución de caja (sin series) hacia la agencia. */
+export async function dispatchBoxReturns(
+  targets: BoxReturnDispatchTarget[],
+  guiaSalida: string,
+  userName: string,
+  destinationAgency?: string
+): Promise<{ error?: string; dispatchedCount?: number }> {
+  const guia = String(guiaSalida || '').trim();
+  if (!guia) return { error: 'La guía de salida es obligatoria.' };
+  if (!targets.length) return { error: 'No hay ítems seleccionados para despachar.' };
+
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return { error: 'Supabase not configured' };
+
+  const dispatchStamp = new Date().toISOString();
+  let dispatchedCount = 0;
+
+  try {
+    for (const target of targets) {
+      const { data: reception, error: recError } = await supabase
+        .from('receptions')
+        .select('notes, status')
+        .eq('id', target.receptionId)
+        .single();
+      if (recError || !reception) return { error: 'Recepción no encontrada' };
+
+      if (PROCESSED_RECEPTION_STATUSES.has(reception.status)) {
+        continue;
+      }
+
+      const dispatchNote =
+        `--- DESPACHO DEVOLUCIÓN CAJA ---\nGuía CAC: ${target.guideNumber}\nGuía Salida: ${guia}\nAgencia Destino: ${destinationAgency || 'N/A'}\nUsuario: ${userName}\nFecha: ${new Date().toLocaleString()}`;
+      let notes = reception.notes || '';
+      const timelineEvent = `\n[${new Date().toLocaleString()}] LOG-DEV-CAJA | DESPACHO | Guía ${target.guideNumber} despachada a agencia. Courier: ${guia} | Por: ${userName}`;
+      if (notes.includes('--- LÍNEA DE TIEMPO (MATRIZ) ---')) {
+        notes = notes.replace(
+          '--- LÍNEA DE TIEMPO (MATRIZ) ---',
+          `--- LÍNEA DE TIEMPO (MATRIZ) ---${timelineEvent}`
+        );
+      } else {
+        notes += `\n\n--- LÍNEA DE TIEMPO (MATRIZ) ---\n${timelineEvent}`;
+      }
+      notes += `\n\n${dispatchNote}`;
+
+      const { error: guideError } = await supabase
+        .from('reception_guides')
+        .update({
+          status: 'DESPACHADO',
+          updated_at: dispatchStamp,
+          ...(destinationAgency ? { agency: destinationAgency } : {}),
+        })
+        .eq('id', target.receptionGuideId);
+      if (guideError) return { error: guideError.message };
+
+      const { error: recUpdateError } = await supabase
+        .from('receptions')
+        .update({
+          status: 'DEVUELTO_A_AGENCIA',
+          notes,
+          updated_at: dispatchStamp,
+        })
+        .eq('id', target.receptionId);
+      if (recUpdateError) return { error: recUpdateError.message };
+
+      await logAdvancedAudit({
+        module: 'Logística',
+        tableName: 'reception_guides',
+        recordId: target.receptionGuideId,
+        action: 'DESPACHO_DEVOLUCION_CAJA',
+        newValues: { guiaSalida: guia, guideNumber: target.guideNumber },
+        observations: `Despacho de caja devuelta desde clasificación. Guía: ${target.guideNumber}`,
+      });
+
+      dispatchedCount++;
+    }
+
+    if (dispatchedCount === 0) {
+      return { error: 'Los ítems seleccionados ya fueron despachados o no son válidos.' };
+    }
+
+    return { dispatchedCount };
+  } catch (err) {
+    return { error: formatReturnNetworkError(err, 'Error al despachar devolución de caja.') };
+  }
+}
+
+/** Revierte devolución de caja y regresa la guía a Clasificación en Backoffice. */
+export async function undoBoxReturnFromClassification(
+  receptionGuideId: string,
+  receptionId: string,
+  guideNumber: string,
+  userName: string
+): Promise<{ error?: string }> {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return { error: 'Supabase not configured' };
+
+  try {
+    const { data: reception, error: recError } = await supabase
+      .from('receptions')
+      .select('*')
+      .eq('id', receptionId)
+      .single();
+    if (recError || !reception) return { error: 'Recepción no encontrada' };
+
+    const newProcessed = (reception.processed_guides || []).filter(
+      (g: string) => g !== guideNumber
+    );
+
+    let notes = reception.notes || '';
+    const timelineEvent = `\n[${new Date().toLocaleString()}] LOG-DEV-CAJA | REVERSO | Guía ${guideNumber} regresada a Clasificación | Por: ${userName}`;
+    if (notes.includes('--- LÍNEA DE TIEMPO (MATRIZ) ---')) {
+      notes = notes.replace(
+        '--- LÍNEA DE TIEMPO (MATRIZ) ---',
+        `--- LÍNEA DE TIEMPO (MATRIZ) ---${timelineEvent}`
+      );
+    } else {
+      notes += `\n\n--- LÍNEA DE TIEMPO (MATRIZ) ---\n${timelineEvent}`;
+    }
+
+    const { error: guideError } = await supabase
+      .from('reception_guides')
+      .update({
+        category: null,
+        status: 'PENDIENTE',
+        motivo: null,
+        classified_by: null,
+        classified_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', receptionGuideId);
+    if (guideError) return { error: guideError.message };
+
+    const { error: recUpdateError } = await supabase
+      .from('receptions')
+      .update({
+        processed_guides: newProcessed,
+        status: 'PENDIENTE DE CLASIFICAR',
+        notes,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', receptionId);
+    if (recUpdateError) return { error: recUpdateError.message };
+
+    await logAdvancedAudit({
+      module: 'Logística',
+      tableName: 'reception_guides',
+      recordId: receptionGuideId,
+      action: 'REVERSO_DEVOLUCION_CAJA',
+      newValues: { guideNumber, status: 'PENDIENTE DE CLASIFICAR' },
+      observations: `Reverso de devolución de caja. Guía ${guideNumber} regresada a clasificación.`,
+    });
+
+    return {};
+  } catch (err) {
+    return { error: formatReturnNetworkError(err, 'Error al revertir devolución de caja.') };
+  }
+}
+
+export type ReturnDispatchTarget = {
+  isSapBlock?: boolean;
+  isReception?: boolean;
+  serviceOrderId?: string;
+  receptionId?: string;
+  seriesId?: string;
+  sapTransferId?: string;
+};
+
+function chunkArray<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+/** Despacha equipos devueltos (salida física con guía courier). */
+export async function dispatchReturnItems(
+  targets: ReturnDispatchTarget[],
+  guiaSalida: string,
+  userName: string
+): Promise<{ error?: string; dispatchedCount?: number }> {
+  const guia = String(guiaSalida || '').trim();
+  if (!guia) return { error: 'La guía de salida es obligatoria.' };
+  if (!targets.length) return { error: 'No hay ítems seleccionados para despachar.' };
+
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return { error: 'Supabase not configured' };
+
+  const dispatchedSeriesIds = new Set<string>();
+  const sapTransferIds = new Set<string>();
+  const serviceOrderIds = new Set<string>();
+  const dispatchStamp = new Date().toISOString();
+  const dispatchNote =
+    `--- DESPACHO DEVOLUCIÓN ---\nGuía Salida: ${guia}\nUsuario: ${userName}\nFecha: ${new Date().toLocaleString()}`;
+
+  try {
+    for (const target of targets) {
+      let seriesIds: string[] = [];
+
+      if (target.isSapBlock && target.serviceOrderId) {
+        const { data, error } = await supabase
+          .from('series')
+          .select('id, notes, sap_transfer_id')
+          .eq('service_order_id', target.serviceOrderId)
+          .eq('current_status', 'returned');
+        if (error) return { error: error.message };
+        seriesIds = (data || []).map((s) => s.id);
+        for (const row of data || []) {
+          if (row.sap_transfer_id) sapTransferIds.add(row.sap_transfer_id);
+        }
+      } else if (target.isReception && target.receptionId) {
+        const { data, error } = await supabase
+          .from('series')
+          .select('id, notes, sap_transfer_id')
+          .eq('current_reception_id', target.receptionId)
+          .eq('current_status', 'returned');
+        if (error) return { error: error.message };
+        seriesIds = (data || []).map((s) => s.id);
+        for (const row of data || []) {
+          if (row.sap_transfer_id) sapTransferIds.add(row.sap_transfer_id);
+        }
+        await supabase
+          .from('receptions')
+          .update({ status: 'DESPACHADO' })
+          .eq('id', target.receptionId);
+      } else if (target.seriesId) {
+        const { data, error } = await supabase
+          .from('series')
+          .select('id, notes, sap_transfer_id')
+          .eq('id', target.seriesId)
+          .eq('current_status', 'returned')
+          .maybeSingle();
+        if (error) return { error: error.message };
+        if (data) {
+          seriesIds = [data.id];
+          if (data.sap_transfer_id) sapTransferIds.add(data.sap_transfer_id);
+        }
+      }
+
+      if (seriesIds.length === 0) {
+        return {
+          error: 'No se encontraron equipos en estado devuelto para despachar. Verifique que la orden aún esté pendiente.',
+        };
+      }
+
+      const { data: seriesRows } = await supabase
+        .from('series')
+        .select('id, notes, service_order_id')
+        .in('id', seriesIds);
+
+      for (const chunk of chunkArray(seriesRows || [], 50)) {
+        await Promise.all(
+          chunk.map((row) =>
+            supabase
+              .from('series')
+              .update({
+                current_status: 'dispatched',
+                notes: `${dispatchNote}\n\n${row.notes || ''}`.trim(),
+                updated_at: dispatchStamp,
+              })
+              .eq('id', row.id)
+          )
+        );
+        chunk.forEach((row) => dispatchedSeriesIds.add(row.id));
+      }
+
+      const osIds = [
+        ...new Set((seriesRows || []).map((s) => s.service_order_id).filter(Boolean)),
+      ] as string[];
+      if (osIds.length) {
+        const { error: osError } = await supabase
+          .from('service_orders')
+          .update({ status: 'DESPACHADO' })
+          .in('id', osIds);
+        if (osError) return { error: `Error actualizando orden de servicio: ${osError.message}` };
+        osIds.forEach((id) => serviceOrderIds.add(id));
+      }
+
+      if (target.sapTransferId) sapTransferIds.add(target.sapTransferId);
+    }
+
+    for (const sapId of sapTransferIds) {
+      const { count } = await supabase
+        .from('series')
+        .select('*', { count: 'exact', head: true })
+        .eq('sap_transfer_id', sapId)
+        .eq('current_status', 'returned');
+      if ((count || 0) === 0) {
+        await supabase
+          .from('sap_transfer_documents')
+          .update({ status: 'DESPACHADO', updated_at: dispatchStamp })
+          .eq('id', sapId);
+      }
+    }
+
+    for (const osId of serviceOrderIds) {
+      const { error: trayError } = await supabase.rpc('upsert_cac_tray_unit_from_os', {
+        p_os_id: osId,
+      });
+      if (trayError) {
+        console.warn('No se pudo refrescar cac_tray_units para OS', osId, trayError.message);
+      }
+    }
+
+    await logAdvancedAudit({
+      module: 'Logística',
+      tableName: 'series',
+      recordId: [...dispatchedSeriesIds][0] || 'batch',
+      action: 'DESPACHO_DEVOLUCION',
+      newValues: {
+        guiaSalida: guia,
+        series_count: dispatchedSeriesIds.size,
+        targets: targets.length,
+      },
+      observations: `Despacho de devolución (${dispatchedSeriesIds.size} serie(s)). Guía: ${guia}`,
+    });
+
+    return { dispatchedCount: dispatchedSeriesIds.size };
+  } catch (err) {
+    return { error: formatReturnNetworkError(err, 'Error al despachar devolución.') };
+  }
 }
 
 export async function getReturns() {

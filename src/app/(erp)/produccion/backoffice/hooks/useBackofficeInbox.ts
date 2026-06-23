@@ -4,6 +4,7 @@ import type React from 'react';
 import { useCallback, useRef, useState } from 'react';
 import { getReceptions } from '@/lib/database/receptions';
 import { receptionHasTcOs } from '../historyTrayUtils';
+import { shouldShowInCacInbox } from '../cacInboxFilter';
 import type { BackofficeReception, ReceptionStep } from '../types';
 
 type InboxDeps = {
@@ -27,19 +28,7 @@ export function useBackofficeInbox(deps: InboxDeps) {
       const data = (await getReceptions()) as BackofficeReception[];
       if (fetchId !== pendingFetchIdRef.current) return;
       setAllReceptions(data);
-      const pending = data.filter((r) => {
-        const source = (r as BackofficeReception & { source?: string }).source;
-        return (
-          (source !== 'px' || r.status === 'PENDIENTE_BACKOFFICE') &&
-          r.status !== 'RECIBIDO_BACKOFFICE' &&
-          r.status !== 'PROCESADO' &&
-          r.status !== 'CLASIFICADA' &&
-          r.status !== 'DEVUELTO_A_AGENCIA' &&
-          r.status !== 'FINALIZADO' &&
-          r.status !== 'ELIMINADO' &&
-          r.status !== 'ELIMINADO POR BODEGA'
-        );
-      });
+      const pending = data.filter((r) => shouldShowInCacInbox(r));
       setPendingReceptions(pending);
     } catch (error: unknown) {
       if (fetchId !== pendingFetchIdRef.current) return;

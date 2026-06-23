@@ -6,6 +6,7 @@ import { ClassificationStep } from './ClassificationStep';
 import { CompletedStep } from './CompletedStep';
 import { ConfigStep } from './ConfigStep';
 import { InboxStep } from './InboxStep';
+import { BulkClassifyStep } from './BulkClassifyStep';
 import { ReturnConfirmationStep } from './ReturnConfirmationStep';
 import { SubBodegaTransferStep } from './SubBodegaTransferStep';
 
@@ -20,6 +21,7 @@ export function OperationTab({ ctx }: Props) {
       {receptionStep === 'classification' && ctx.activeReception && <ClassificationStep ctx={ctx} />}
       {receptionStep === 'config' && ctx.activeReception && <ConfigStep ctx={ctx} />}
       {receptionStep === 'accessories_photos' && <AccessoryPhotosStep ctx={ctx} />}
+      {receptionStep === 'bulk_classify_confirm' && <BulkClassifyStep ctx={ctx} />}
       {receptionStep === 'return_confirmation' && <ReturnConfirmationStep ctx={ctx} />}
       {receptionStep === 'sub_bodega_transfer' && <SubBodegaTransferStep ctx={ctx} />}
       {receptionStep === 'completed' && <CompletedStep ctx={ctx} />}

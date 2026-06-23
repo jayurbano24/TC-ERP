@@ -100,7 +100,11 @@ export async function acquireBoxLockApi(input: {
   });
   const json = await res.json();
   if (!json.success) throw new Error(json.error || 'No se pudo tomar control de la caja');
-  return json;
+  return json as {
+    locked_by?: string | null;
+    lock_expires_at?: string | null;
+    version?: number;
+  };
 }
 
 export async function releaseBoxLockApi(input: {
@@ -201,6 +205,17 @@ export async function updatePxReceptionHeaderApi(input: {
   return json.data as PxReceptionSnapshot;
 }
 
+export async function appendPxCaptureLotsApi(boxId: string, lots: PxLotInput[]) {
+  const res = await fetch(`/api/recepcion/px/boxes/${boxId}/lots`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ lots }),
+  });
+  const json = await res.json();
+  if (!json.success) throw new Error(json.error || 'No se pudo agregar el lote');
+  return json.data as { declaredQuantity: number };
+}
+
 export async function scanPxEquipmentApi(input: {
   receptionId: string;
   boxId: string;
@@ -213,6 +228,7 @@ export async function scanPxEquipmentApi(input: {
   material?: string | null;
   operatorId?: string | null;
   operatorName?: string;
+  workstationLabel?: string | null;
 }) {
   const res = await fetch(`/api/recepcion/px/boxes/${input.boxId}/scan`, {
     method: 'POST',
@@ -228,6 +244,7 @@ export async function scanPxEquipmentApi(input: {
       material: input.material,
       operatorId: input.operatorId,
       operatorName: input.operatorName,
+      workstationLabel: input.workstationLabel,
     }),
   });
   const json = await res.json();

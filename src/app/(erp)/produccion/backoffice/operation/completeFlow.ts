@@ -1,10 +1,9 @@
 'use client';
 
 import type React from 'react';
-import type { BackofficeTab, BackofficeReception, CatalogAgency, CatalogBrand, CatalogModel, CatalogTech, GuideItem, ReceptionStep, SapTransferGroup } from '../types';
+import type { BackofficeTab, BackofficeReception, CatalogAgency, CatalogBrand, CatalogModel, CatalogTech, GuideItem, OperationCategory, ReceptionStep, SapTransferGroup } from '../types';
 import type { CompleteGuidesContext } from './completeGuidesContext';
 import { runCompleteCurrentGuides } from './completeCurrentGuides';
-import { getPendingGuides } from './classificationGuideUtils';
 
 export type CompleteFlowParams = {
   isSubmitting: boolean;
@@ -14,7 +13,7 @@ export type CompleteFlowParams = {
   processedGuides: string[];
   setProcessedGuides: React.Dispatch<React.SetStateAction<string[]>>;
   activeReception: BackofficeReception | null;
-  category: 'Equipo' | 'Accesorio' | 'Teléfono';
+  category: OperationCategory;
   receptionStep: ReceptionStep;
   guideItems: GuideItem[];
   sapGroups: SapTransferGroup[];
@@ -34,13 +33,15 @@ export type CompleteFlowParams = {
   setHistorySearch: React.Dispatch<React.SetStateAction<string>>;
   setHistoryPage: React.Dispatch<React.SetStateAction<number>>;
   fetchHistory: (opts?: { silent?: boolean }) => Promise<void>;
+  fetchPending?: (opts?: { silent?: boolean }) => Promise<void>;
   setScannedGuides: React.Dispatch<React.SetStateAction<string[]>>;
   setAgencia: React.Dispatch<React.SetStateAction<string>>;
   setReturnReason: React.Dispatch<React.SetStateAction<string>>;
+  setReturnTracking: React.Dispatch<React.SetStateAction<string>>;
+  setReturnCourier: React.Dispatch<React.SetStateAction<string>>;
+  setSelectedAgencyId: React.Dispatch<React.SetStateAction<string>>;
   setAccessoryPhotos: React.Dispatch<React.SetStateAction<string[]>>;
   resetManifestState: () => void;
-  fetchPending: (opts?: { silent?: boolean }) => Promise<void>;
-  setActiveReception: React.Dispatch<React.SetStateAction<BackofficeReception | null>>;
 };
 
 function buildCompleteCtx(params: CompleteFlowParams): CompleteGuidesContext {
@@ -72,6 +73,12 @@ function buildCompleteCtx(params: CompleteFlowParams): CompleteGuidesContext {
     setHistorySearch: params.setHistorySearch,
     setHistoryPage: params.setHistoryPage,
     fetchHistory: params.fetchHistory,
+    fetchPending: params.fetchPending,
+    setScannedGuides: params.setScannedGuides,
+    setReturnReason: params.setReturnReason,
+    setReturnTracking: params.setReturnTracking,
+    setReturnCourier: params.setReturnCourier,
+    setSelectedAgencyId: params.setSelectedAgencyId,
   };
 }
 
@@ -85,29 +92,20 @@ export function createCompleteFlowHandlers(params: CompleteFlowParams) {
       alert('Por favor ingrese el motivo de la devolución.');
       return;
     }
+    if (!params.selectedAgencyId) {
+      alert('Debe seleccionar la agencia de destino antes de confirmar la devolución.');
+      return;
+    }
     await completeCurrentGuides();
   };
 
   const onCompletedNextBox = () => {
     void params.fetchHistory();
+    params.setReceptionStep('classification');
     params.resetManifestState();
     params.setScannedGuides([]);
     params.setReturnReason('');
     params.setAccessoryPhotos([]);
-
-    const pending =
-      params.activeReception != null
-        ? getPendingGuides(params.activeReception, params.processedGuides)
-        : [];
-
-    if (pending.length === 0) {
-      void params.fetchPending();
-      params.setActiveReception(null);
-      params.setReceptionStep('category_selection');
-      return;
-    }
-
-    params.setReceptionStep('classification');
   };
 
   return { completeCurrentGuides, handleConfirmReturn, onCompletedNextBox };

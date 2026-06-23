@@ -1,6 +1,8 @@
 'use client';
 
 import { Badge, Button, Card } from '@/components/ui';
+import { SapValidationBadge } from '@/components/sap/SapValidationBadge';
+import { normalizeSeriesSapStatus, resolveUnitSapStatus } from '@/lib/sap/sapValidationStatus';
 import { Database, Plus, Printer } from 'lucide-react';
 import { getAgenciaLabel } from '../../backofficeHelpers';
 import type { CatalogAgency, CatalogBrand, CatalogModel, CatalogTech } from '../../types';
@@ -133,6 +135,7 @@ export function HistoryDetailModal({ reception, series, agencies, technologies, 
                             <th className="p-3 text-[8px] font-black uppercase tracking-widest">Tecnología</th>
                             <th className="p-3 text-[8px] font-black uppercase tracking-widest">Marca</th>
                             <th className="p-3 text-[8px] font-black uppercase tracking-widest">Modelo</th>
+                            <th className="p-3 text-[8px] font-black uppercase tracking-widest">Validación SAP</th>
                             <th className="p-3 text-[8px] font-black uppercase tracking-widest">No. Guía</th>
                             <th className="p-3 text-[8px] font-black uppercase tracking-widest text-right">Estado</th>
                           </tr>
@@ -143,6 +146,10 @@ export function HistoryDetailModal({ reception, series, agencies, technologies, 
                             const modelObj = models.find(m => m.id === s.model_id);
                             const model = modelObj?.nombre || s.model_id || '---';
                             const tech = modelObj ? (technologies.find(t => t.id === modelObj.tecnologiaId)?.nombre || '---') : '---';
+                            const sapStatus = resolveUnitSapStatus(
+                              s.service_orders?.sap_integration_status,
+                              [s.sap_status]
+                            );
                             return (
                               <tr key={idx} className="hover:bg-slate-50 transition-colors">
                                 <td className="p-3 text-[9px] font-black text-slate-300">S-{idx + 1}</td>
@@ -150,6 +157,12 @@ export function HistoryDetailModal({ reception, series, agencies, technologies, 
                                 <td className="p-3 text-[10px] font-bold text-slate-500 uppercase">{tech}</td>
                                 <td className="p-3 text-[10px] font-bold text-slate-500 uppercase">{brand}</td>
                                 <td className="p-3 text-[10px] font-bold text-slate-500 uppercase">{model}</td>
+                                <td className="p-3">
+                                  <SapValidationBadge status={sapStatus} compact />
+                                  <span className="block text-[8px] text-slate-400 mt-0.5 uppercase font-bold">
+                                    {normalizeSeriesSapStatus(s.sap_status)}
+                                  </span>
+                                </td>
                                 <td className="p-3 font-mono text-[10px] font-black text-[#181c3a]">{reception.guide_number}</td>
                                 <td className="p-3 text-right">
                                   <Badge className="bg-emerald-100 text-emerald-600 border-none text-[8px] uppercase font-black px-2 py-0.5">Recibido</Badge>

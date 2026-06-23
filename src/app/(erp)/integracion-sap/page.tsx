@@ -6,7 +6,12 @@ import {
   Search, ArrowRightLeft, FileWarning, CheckCircle2, AlertTriangle, Loader2
 } from 'lucide-react';
 import { Card, Button, Badge } from '@/components/ui';
-import { parseSapUploadFile } from '@/lib/sap/parseSapUploadFile';
+import Papa from 'papaparse';
+
+const REQUIRED_COLUMNS = [
+  "Material", "Texto breve de material", "Número de serie", 
+  "Centro", "Almacén", "Lote", "Status del sistema", "Lote de stock"
+];
 
 export default function IntegracionSAP() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'cargar' | 'historial' | 'consulta' | 'diferencias' | 'config'>('dashboard');
@@ -61,32 +66,21 @@ export default function IntegracionSAP() {
   const handleQuery = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!queryInput.trim()) return;
-
+    
     setIsQuerying(true);
     setQueryError(null);
     setQueryResult(null);
 
     try {
-      const sn = encodeURIComponent(queryInput.trim());
-      const [tcRes, sapRes] = await Promise.all([
-        fetch(`/api/sap/query?sn=${sn}`),
-        fetch(`/api/sap/stock-lookup?sn=${sn}`),
-      ]);
-      const tcData = await tcRes.json();
-      const sapData = await sapRes.json();
-
-      if (!sapData.success) {
-        setQueryError(sapData.error);
-        return;
+      const res = await fetch(`/api/sap/query?sn=${encodeURIComponent(queryInput.trim())}`);
+      const data = await res.json();
+      if (data.success) {
+        setQueryResult(data.data);
+      } else {
+        setQueryError(data.error);
       }
-
-      setQueryResult({
-        tc: tcData.success ? tcData.data : null,
-        tcError: tcData.success ? null : tcData.error,
-        sapStock: sapData.data,
-      });
-    } catch {
-      setQueryError('Error de conexión al consultar serie');
+    } catch (err: any) {
+      setQueryError("Error de conexión al consultar serie");
     } finally {
       setIsQuerying(false);
     }
@@ -98,56 +92,12 @@ export default function IntegracionSAP() {
     setProgressLog(prev => [...prev, `${new Date().toLocaleTimeString()} - ${msg}`]);
   };
 
-  const runSapValidation = async (
-    file: File,
-    rows: Record<string, string>[],
-    hash: string,
-    formatLabel: string
-  ) => {
-    logProcess(`${formatLabel} leído. Total filas: ${rows.length}`);
-    logProcess('Estructura validada correctamente.');
-
-    setUploadStatus('syncing');
-    logProcess('Importando series a Base SAP (consultable por número de serie)...');
-
-    const importRes = await fetch('/api/sap/import-stock', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        rows,
-        fileInfo: { name: file.name, hash, totalRows: rows.length, user: 'Usuario Activo' },
-      }),
-    });
-    const importData = await importRes.json();
-    if (!importData.success) {
-      throw new Error(importData.error || 'Error al indexar Base SAP');
-    }
-
-    logProcess(
-      `Base SAP actualizada: ${importData.imported} series indexadas (${importData.skipped} filas sin SN).`
-    );
-
-    setUploadStatus('matching');
-    logProcess('Validando equipos TC: consulta directa serie por serie en Base SAP...');
-
-    const validateRes = await fetch('/api/sap/validate-stock', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sessionId: importData.sessionId,
-        uploadId: importData.uploadId,
-      }),
-    });
-    const validateData = await validateRes.json();
-    if (!validateData.success) {
-      throw new Error(validateData.error || 'Error al validar equipos');
-    }
-
-    const { validados, noEncontrados, inconsistencias, processed } = validateData.data;
-    logProcess(
-      `Validación completada: ${validados} equipos Validado SAP, ${noEncontrados} sin coincidencia, ${inconsistencias} pendiente revisión (${processed} procesados).`
-    );
-    setUploadStatus('done');
+  const computeSHA256 = async (text: string) => {
+    const msgBuffer = new TextEncoder().encode(text);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    return hashHex;
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -159,30 +109,163 @@ export default function IntegracionSAP() {
     setErrorMsg(null);
     logProcess(`Archivo seleccionado: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
 
-    try {
-      logProcess('Calculando Hash SHA-256 del archivo...');
-      const parsed = await parseSapUploadFile(file);
-      logProcess(`Hash calculado: ${parsed.hash}`);
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const text = evt.target?.result as string;
+        logProcess('Calculando Hash SHA-256 del archivo...');
+        const hash = await computeSHA256(text);
+        logProcess(`Hash calculado: ${hash}`);
 
-      setUploadStatus('parsing');
-      logProcess(
-        parsed.format === 'xlsx'
-          ? 'Validando estructura y leyendo Excel...'
-          : 'Validando estructura y leyendo CSV...'
-      );
+        // Ideally we would check the hash in Supabase here to warn about duplicates.
+        // For now, we continue to parsing.
+        
+        setUploadStatus('parsing');
+        logProcess('Validando estructura y leyendo CSV...');
+        
+        Papa.parse(text, {
+          header: true,
+          skipEmptyLines: true,
+          complete: async (results) => {
+            logProcess(`CSV leído. Total filas: ${results.data.length}`);
+            
+            // Check headers
+            const headers = results.meta.fields || [];
+            const missing = REQUIRED_COLUMNS.filter(c => !headers.includes(c));
+            if (missing.length > 0) {
+              setErrorMsg(`Estructura inválida. Faltan las columnas: ${missing.join(', ')}`);
+              setUploadStatus('error');
+              return;
+            }
 
-      await runSapValidation(
-        file,
-        parsed.rows,
-        parsed.hash,
-        parsed.format === 'xlsx' ? 'Excel' : 'CSV'
-      );
-    } catch (err: unknown) {
-      setErrorMsg(err instanceof Error ? err.message : 'Error al procesar el archivo');
-      setUploadStatus('error');
-    } finally {
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
+            logProcess('Estructura validada correctamente.');
+            
+            // Create in-memory Hash Map for fast lookup (Key: Serial, Value: SAP Data)
+            logProcess('Creando índice en memoria...');
+            const sapMap = new Map<string, any>();
+            results.data.forEach((row: any) => {
+              const sn = row["Número de serie"];
+              if (sn) sapMap.set(sn.trim(), row);
+            });
+
+            setUploadStatus('fetching');
+            logProcess('Descargando series maestras de TC-Multimedia...');
+            
+            try {
+              const res = await fetch('/api/sap/tc-series');
+              const { success, series, equipos, error } = await res.json();
+              
+              if (!success) {
+                throw new Error(error || "Error al obtener series de TC");
+              }
+
+              logProcess(`Series maestras descargadas: ${series?.length || 0}`);
+              
+              setUploadStatus('matching');
+              logProcess('Iniciando motor de coincidencia en cascada...');
+              
+              // Map series to equipos
+              const equipoToSeries = new Map<string, string[]>();
+              series.forEach((s: any) => {
+                if (!equipoToSeries.has(s.service_order_id)) {
+                  equipoToSeries.set(s.service_order_id, []);
+                }
+                equipoToSeries.get(s.service_order_id)!.push(s.serial_number);
+              });
+
+              let validados = 0;
+              let noEncontrados = 0;
+              let inconsistencias = 0;
+
+              const validationDetails: any[] = [];
+              const equiposUpdates: any[] = [];
+              const seriesUpdates: any[] = [];
+
+              equipos.forEach((eq: any) => {
+                const eqSeries = equipoToSeries.get(eq.id) || [];
+                let matchCount = 0;
+                let foundMaterials = new Set<string>();
+
+                eqSeries.forEach((sn, idx) => {
+                  const sapRow = sapMap.get(sn);
+                  const isMatch = !!sapRow;
+                  if (isMatch) {
+                    matchCount++;
+                    foundMaterials.add(sapRow["Material"]);
+                    seriesUpdates.push({ id: series.find((s:any)=>s.serial_number===sn).id, sap_status: 'Validado' });
+                  } else {
+                    seriesUpdates.push({ id: series.find((s:any)=>s.serial_number===sn).id, sap_status: 'Sin Coincidencia' });
+                  }
+
+                  validationDetails.push({
+                    equipo_id: eq.id,
+                    tipo_serie: `S${idx + 1}`,
+                    serie: sn,
+                    material: sapRow ? sapRow["Material"] : null,
+                    descripcion: sapRow ? sapRow["Texto breve de material"] : null,
+                    centro: sapRow ? sapRow["Centro"] : null,
+                    almacen: sapRow ? sapRow["Almacén"] : null,
+                    lote: sapRow ? sapRow["Lote"] : null,
+                    estado_sap: sapRow ? sapRow["Status del sistema"] : null,
+                    valoracion: sapRow ? sapRow["Lote de stock"] : null,
+                    coincidencia: isMatch
+                  });
+                });
+
+                let eqStatus = 'Sin Coincidencia';
+                if (matchCount > 0) {
+                  if (foundMaterials.size > 1) {
+                    eqStatus = 'Pendiente Revisión';
+                    inconsistencias++;
+                  } else {
+                    eqStatus = 'Validado SAP';
+                    validados++;
+                  }
+                } else {
+                  noEncontrados++;
+                }
+
+                equiposUpdates.push({ id: eq.id, sap_integration_status: eqStatus });
+              });
+
+              logProcess(`Coincidencias: ${validados} validados, ${noEncontrados} no encontrados, ${inconsistencias} inconsistentes.`);
+              
+              setUploadStatus('syncing');
+              logProcess('Sincronizando resultados con la base de datos...');
+
+              const syncRes = await fetch('/api/sap/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  fileInfo: { name: file.name, hash, totalRows: results.data.length, user: 'Usuario Activo' },
+                  results: { encontrados: validados, noEncontrados, inconsistencias, timeStr: '1 min' },
+                  validationDetails,
+                  equiposUpdates,
+                  seriesUpdates
+                })
+              });
+
+              const syncData = await syncRes.json();
+              if (syncData.success) {
+                logProcess('Sincronización exitosa.');
+                setUploadStatus('done');
+              } else {
+                throw new Error(syncData.error || "Error al sincronizar");
+              }
+
+            } catch (err: any) {
+              setErrorMsg(err.message);
+              setUploadStatus('error');
+            }
+          }
+        });
+
+      } catch (err: any) {
+        setErrorMsg(err.message);
+        setUploadStatus('error');
+      }
+    };
+    reader.readAsText(file);
   };
 
   const renderDashboard = () => {
@@ -427,43 +510,30 @@ export default function IntegracionSAP() {
         {queryResult && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className={`border p-5 rounded-2xl ${queryResult.sapStock?.exists_in_sap ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'}`}>
-                <h4 className="text-[10px] font-black uppercase tracking-widest mb-4 text-[#181c3a]">
-                  Base SAP — consulta directa
-                </h4>
-                <div className="space-y-2 text-sm font-bold">
-                  <p>Serie: <span className="text-[#2ec4f1]">{queryResult.sapStock?.serial}</span></p>
-                  <p>
-                    Resultado:{' '}
-                    {queryResult.sapStock?.exists_in_sap ? (
-                      <span className="text-emerald-700">✓ EXISTE en SAP</span>
-                    ) : (
-                      <span className="text-rose-700">✗ NO está en SAP</span>
-                    )}
-                  </p>
-                  {queryResult.sapStock?.exists_in_sap && queryResult.sapStock.stock ? (
-                    <>
-                      <p>Material: {queryResult.sapStock.stock.material || 'N/A'}</p>
-                      <p>Centro / Almacén: {queryResult.sapStock.stock.centro || '—'} / {queryResult.sapStock.stock.almacen || '—'}</p>
-                      <p>Lote: {queryResult.sapStock.stock.lote || 'N/A'}</p>
-                    </>
-                  ) : null}
-                  <p className="text-[10px] text-slate-500 font-bold">
-                    Base indexada: {queryResult.sapStock?.sap_base_rows?.toLocaleString() || 0} series
-                  </p>
+              <div className="bg-slate-50 border border-slate-100 p-5 rounded-2xl">
+                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Información TC-Multimedia</h4>
+                <div className="space-y-2 text-sm font-bold text-[#181c3a]">
+                  <p>Serie: <span className="text-[#2ec4f1]">{queryResult.series.serial_number}</span></p>
+                  <p>Orden (OS): {queryResult.series.service_orders?.os_label || 'S/OS'}</p>
+                  <p>Estatus Actual: {queryResult.series.sap_status || 'N/A'}</p>
+                  <p>Integración General (Equipo): {queryResult.series.service_orders?.sap_integration_status || 'N/A'}</p>
                 </div>
               </div>
-
-              <div className="bg-slate-50 border border-slate-100 p-5 rounded-2xl">
-                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Inventario TC</h4>
-                {queryResult.tc?.series ? (
-                  <div className="space-y-2 text-sm font-bold text-[#181c3a]">
-                    <p>Orden (OS): {queryResult.tc.series.service_orders?.os_label || 'S/OS'}</p>
-                    <p>Estatus serie: {queryResult.tc.series.sap_status || 'N/A'}</p>
-                    <p>Integración equipo: {queryResult.tc.series.service_orders?.sap_integration_status || 'N/A'}</p>
+              
+              <div className="bg-emerald-50 border border-emerald-100 p-5 rounded-2xl">
+                <h4 className="text-[10px] font-black text-emerald-600/70 uppercase tracking-widest mb-4">Últimas Validaciones SAP</h4>
+                {queryResult.validations && queryResult.validations.length > 0 ? (
+                  <div className="space-y-3">
+                    {queryResult.validations.map((v: any) => (
+                      <div key={v.id} className="text-xs font-bold border-b border-emerald-100 pb-2">
+                        <p className="text-emerald-700">{v.coincidencia ? 'MATCH' : 'SIN COINCIDENCIA'} - {v.tipo_serie}</p>
+                        <p className="text-emerald-800/80">Material: {v.material || 'N/A'} - Lote: {v.lote || 'N/A'}</p>
+                        <p className="text-[9px] uppercase tracking-widest text-emerald-600/50 mt-1">Sesión: {new Date(v.sap_validation_sessions?.fecha_fin).toLocaleString()}</p>
+                      </div>
+                    ))}
                   </div>
                 ) : (
-                  <p className="text-xs font-bold text-slate-500">{queryResult.tcError || 'Serie no registrada en inventario TC.'}</p>
+                  <p className="text-xs font-bold text-emerald-700">No hay validaciones registradas para este equipo.</p>
                 )}
               </div>
             </div>
@@ -500,12 +570,12 @@ export default function IntegracionSAP() {
                   <UploadCloud className="w-16 h-16 text-slate-200 mb-4" />
                   <h3 className="text-xl font-black text-[#181c3a] uppercase tracking-tight mb-2">Cargar Archivo SAP</h3>
                   <p className="text-sm font-bold text-slate-400 max-w-sm mb-8">
-                    Arrastra y suelta el archivo Excel (.xlsx) o CSV exportado de SAP. El sistema validará su estructura y ejecutará el motor en cascada.
+                    Arrastra y suelta el archivo .csv exportado de SAP. El sistema validará su estructura y ejecutará el motor en cascada.
                   </p>
                   
                   <input 
                     type="file" 
-                    accept=".csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv" 
+                    accept=".csv" 
                     className="hidden" 
                     ref={fileInputRef} 
                     onChange={handleFileSelect} 
@@ -514,7 +584,7 @@ export default function IntegracionSAP() {
                     onClick={() => fileInputRef.current?.click()}
                     className="bg-[#2ec4f1] hover:bg-[#2ec4f1]/90 text-white rounded-xl font-black uppercase text-xs tracking-widest px-8 py-6 shadow-[0_0_20px_rgba(46,196,241,0.3)]"
                   >
-                    Seleccionar Excel o CSV
+                    Seleccionar Archivo CSV
                   </Button>
 
                   {uploadStatus === 'done' && (

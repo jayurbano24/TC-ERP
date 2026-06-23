@@ -1,6 +1,7 @@
 import { isTcServiceOrderLabel } from './constants';
 import { groupSeriesIntoEquipmentUnits } from './equipmentGrouping';
 import type { HistoryUnitEntry } from './types';
+import { resolveUnitSapStatus } from '@/lib/sap/sapValidationStatus';
 import {
   resolveUnitAgencyRaw,
   resolveUnitClassifiedAt,
@@ -96,6 +97,14 @@ export function collectTcHistoryUnitEntries(
       const unitSap = resolveUnitSap(rec, unitGuide, unit);
       const { status: unitStatus, label: unitStatusLabel } = resolveUnitStatus(rec, unit);
       const classifiedAt = resolveUnitClassifiedAt(rec, unit, unitGuide);
+      const seriesSapStatuses = unit.map(
+        (u: { sap_status?: string | null }) => u.sap_status || 'Pendiente'
+      );
+      const integrationStatus = unit.find(
+        (u: { service_orders?: { sap_integration_status?: string | null } }) =>
+          u?.service_orders?.sap_integration_status
+      )?.service_orders?.sap_integration_status;
+      const unitSapValidationStatus = resolveUnitSapStatus(integrationStatus, seriesSapStatuses);
 
       entries.push({
         rec,
@@ -110,6 +119,8 @@ export function collectTcHistoryUnitEntries(
         unitStatus,
         unitStatusLabel,
         sapTransferId: resolveUnitSapTransferId(rec, unit),
+        unitSapValidationStatus,
+        seriesSapStatuses,
         sortAt: classifiedAt,
         classifiedAtIso: new Date(classifiedAt).toISOString(),
       });

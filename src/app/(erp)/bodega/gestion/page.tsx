@@ -1,7 +1,9 @@
 "use client";
 
-import React, { useState } from 'react';
-import { Card, Badge, Button } from '@/components/ui';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Card, Badge, Button, TablePagination } from '@/components/ui';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { assertSapOperationAllowed, resolveUnitSapStatus } from '@/lib/sap/sapValidationStatus';
 import { ModulePage, ModuleToolbar } from '@/components/module-page';
 import { 
@@ -32,10 +34,11 @@ import {
   Truck,
   PackageMinus
 } from 'lucide-react';
-import { getInventoryBoxes, transferBoxesToArea, createBoxWithSeries, addSeriesToBox, dispatchBoxFromWarehouse, dispatchSpecificSeries, transferSpecificSeriesToArea, canScanSeriesIntoWarehouse, resolveBoxDisplayStatus } from '@/lib/database/warehouse';
-import { getTechnologies, getBrands, getModels } from '@/lib/database/config';
+import { getInventoryBoxes, transferBoxesToArea, createBodegaBoxAtomic, reserveNextBoxCode, addSeriesToBox, dispatchBoxFromWarehouse, dispatchSpecificSeries, transferSpecificSeriesToArea, canScanSeriesIntoWarehouse, resolveBoxDisplayStatus } from '@/lib/database/warehouse';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
-import { useEffect } from 'react';
+import { getBoxHistory } from '@/lib/database/warehouse';
+import { getTechnologies, getBrands, getModels } from '@/lib/database/config';
+import { useClientPagination } from '@/hooks/useClientPagination';
 
 // --- MOCK MASTER REGISTRY (Simulando datos de Recepción/Backoffice) ---
 const masterSeriesRegistry = [
@@ -70,6 +73,7 @@ const mockInventory = [
 ];
 
 export default function BodegaGestionPage() {
+  const pathname = usePathname();
   const [searchTerm, setSearchTerm] = useState('');
   const [showNewBoxModal, setShowNewBoxModal] = useState(false);
   const [selectedBox, setSelectedBox] = useState<any | null>(null);
@@ -77,6 +81,8 @@ export default function BodegaGestionPage() {
   const [loading, setLoading] = useState(false);
   const [showTimeline, setShowTimeline] = useState<any>(null);
   const [timelineGuideDetails, setTimelineGuideDetails] = useState<any>(null);
+  const [boxHistoryData, setBoxHistoryData] = useState<any[]>([]);
+  const [loadingBoxHistory, setLoadingBoxHistory] = useState(false);
   const [showPrintModal, setShowPrintModal] = useState<any | null>(null);
   const [showRackModal, setShowRackModal] = useState<any | null>(null);
   const [rackNum, setRackNum] = useState('');
@@ -99,10 +105,42 @@ export default function BodegaGestionPage() {
   const [filterTech, setFilterTech] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
 
+  const filteredInventory = useMemo(() => {
+    return inventory.filter((item) => {
+      if (filterTech && item.tecnologia !== filterTech) return false;
+
+      const isFull = item.status === 'Full';
+      if (filterStatus === 'Full' && !isFull) return false;
+      if (filterStatus === 'Partial' && item.status !== 'Parcial') return false;
+
+      if (!searchTerm) return true;
+      const term = searchTerm.toLowerCase();
+      const marcaName = catMarcas.find((b) => b.id === item.marca)?.name || item.marca || '';
+      const modeloName = catModelos.find((m) => m.id === item.modelo)?.name || item.modelo || '';
+      const techName = catTecnologias.find((t) => t.id === item.tecnologia)?.name || item.tecnologia || '';
+      const rackName = item.rack || '';
+      const idName = String(item.id || '');
+      return (
+        idName.toLowerCase().includes(term) ||
+        marcaName.toLowerCase().includes(term) ||
+        modeloName.toLowerCase().includes(term) ||
+        techName.toLowerCase().includes(term) ||
+        rackName.toLowerCase().includes(term)
+      );
+    });
+  }, [inventory, filterTech, filterStatus, searchTerm, catMarcas, catModelos, catTecnologias]);
+
+  const inventoryPagination = useClientPagination(filteredInventory, 25, [
+    filterTech,
+    filterStatus,
+    searchTerm,
+  ]);
+
   useEffect(() => {
-    fetchBoxes();
-    loadCatalogs();
-  }, []);
+    if (pathname !== '/bodega/gestion') return;
+    void fetchBoxes();
+    void loadCatalogs();
+  }, [pathname]);
 
   const loadCatalogs = async () => {
     try {
@@ -128,9 +166,10 @@ export default function BodegaGestionPage() {
 
   useEffect(() => {
     if (showNewBoxModal) {
-      setNewBox(prev => ({
+      setNewBoxStep('form');
+      setNewBox((prev) => ({
         ...prev,
-        correlativo: '[AUTO-GENERADO]'
+        correlativo: '',
       }));
     }
   }, [showNewBoxModal]);
@@ -240,25 +279,36 @@ export default function BodegaGestionPage() {
 
         if (error || !data) {
           setTimelineGuideDetails({ loading: false, error: 'No se encontraron detalles extra para esta guía.' });
-          return;
+        } else {
+          setTimelineGuideDetails({ loading: false, data });
         }
-
-        setTimelineGuideDetails({ loading: false, data });
       };
       fetchGuideDetails();
     } else {
       setTimelineGuideDetails(null);
     }
+
+    if (showTimeline && showTimeline.box_id) {
+      const fetchHistory = async () => {
+        setLoadingBoxHistory(true);
+        const { data } = await getBoxHistory(showTimeline.box_id);
+        setBoxHistoryData(data || []);
+        setLoadingBoxHistory(false);
+      };
+      fetchHistory();
+    } else {
+      setBoxHistoryData([]);
+    }
   }, [showTimeline]);
 
   const fetchBoxes = async () => {
     setLoading(true);
-    const result = await getInventoryBoxes() as any;
-    if (result.error) {
-      alert("Error al cargar inventario: " + result.error);
-      setLoading(false);
-      return;
-    }
+    try {
+      const result = await getInventoryBoxes() as any;
+      if (result.error) {
+        alert("Error al cargar inventario: " + result.error);
+        return;
+      }
     
     // Convert database response to table structure
     const dataFromDb = (result.data || []).filter((b: any) => b.rack_location !== 'DESPACHO').map((b: any) => {
@@ -280,10 +330,7 @@ export default function BodegaGestionPage() {
           const notes = main.receptions?.notes || '';
           const normalizedNotes = notes.replace(/\\n/g, '\n');
           const piloto = normalizedNotes.split('Piloto: ')[1]?.split('\n')[0]?.trim() || '---';
-          // Agencia: usar reception_guides.agency si está disponible (Fase 4), fallback a notes
-          const receptionGuide = (main.receptions?.reception_guides || []).find((rg: any) => rg.guide_number === main.receptions?.guide_number);
-          const agenciaCAC = receptionGuide?.agency
-            || normalizedNotes.split('Backoffice_Agency: ')[1]?.split('\n')[0]?.trim()
+          const agenciaCAC = normalizedNotes.split('Backoffice_Agency: ')[1]?.split('\n')[0]?.trim()
             || main.receptions?.carrier
             || '---';
           // Tech/Brand/Model: model_id en serie → catálogo; fallback notes legacy
@@ -344,14 +391,17 @@ export default function BodegaGestionPage() {
           case 'in_control_warehouse': areaLabel = 'L3'; break;
           case 'irreparable': areaLabel = 'Bodega SCRAP'; break;
           case 'obsolete': areaLabel = 'Bodega Obsoleto'; break;
-          case 'in_central_warehouse': 
-          case 'in_warehouse': 
+          case 'in_central_warehouse':
+          case 'in_warehouse':
+          case 'RECEPCIONADO_BODEGA_GENERAL':
             areaLabel = 'Bodega Central'; break;
           default: areaLabel = 'Bodega Central'; break;
         }
+      } else if ((b.rack_location || '').toUpperCase() === 'BODEGA_CENTRAL') {
+        areaLabel = 'Bodega Central';
       }
 
-      const unitCount = seriesList.length;
+      const unitCount = seriesList.length > 0 ? seriesList.length : (b.series || []).length;
       const capacity = b.capacity || 0;
       const boxModelRecord = catModelos.find((m: any) => m.id === b.model_id);
       const boxTechLabel = boxModelRecord
@@ -380,11 +430,37 @@ export default function BodegaGestionPage() {
         usuarioIngreso: seriesList.length > 0 ? seriesList[0].recibio : 'Admin User'
       };
     })
-      .filter((box: any) => box.area === 'Bodega Central' && box.unitCount > 0);
+      .filter((box: any) => {
+        const rack = String(box.rack || '').toUpperCase();
+        if (rack === 'DESPACHO' || rack === 'ELIMINADO') return false;
+        return box.unitCount > 0;
+      })
+      .sort((a: any, b: any) => {
+        const num = (code: string) => {
+          const match = String(code || '').match(/BOX-(\d+)/i);
+          return match ? parseInt(match[1], 10) : 0;
+        };
+        return num(b.id) - num(a.id);
+      });
 
     setInventory(dataFromDb);
-    setLoading(false);
+    } catch (err) {
+      console.error('Error cargando cajas de bodega:', err);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  useEffect(() => {
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) {
+        void fetchBoxes();
+        void loadCatalogs();
+      }
+    };
+    window.addEventListener('pageshow', onPageShow);
+    return () => window.removeEventListener('pageshow', onPageShow);
+  }, []);
   const [currentSN, setCurrentSN] = useState('');
   const [lastScannedInfo, setLastScannedInfo] = useState<any | null>(null);
   const [newBoxLastScannedInfo, setNewBoxLastScannedInfo] = useState<any | null>(null);
@@ -397,6 +473,7 @@ export default function BodegaGestionPage() {
     cantidad: 0
   });
   const [newBoxStep, setNewBoxStep] = useState<'form' | 'scanning'>('form');
+  const [isSavingNewBox, setIsSavingNewBox] = useState(false);
   const [tempSerials, setTempSerials] = useState<any[]>([]);
 
   // Mass Transfer State
@@ -407,63 +484,47 @@ export default function BodegaGestionPage() {
   const [destinationArea, setDestinationArea] = useState('Bodega Central');
 
   const handleAddBox = async () => {
+    if (isSavingNewBox) return;
+    setIsSavingNewBox(true);
     setLoading(true);
 
-    if (tempSerials.length === 0) {
-      alert("⚠️ Debe escanear al menos una serie para poder guardar la caja.");
-      setLoading(false);
-      return;
-    }
-
-    if (!tempSerials[0]?.reception_id) {
-      alert("⚠️ La serie escaneada no tiene recepción de origen. Verifique clasificación en Backoffice.");
-      setLoading(false);
-      return;
-    }
-
-    let boxId = newBox.correlativo;
-    if (!boxId || boxId === '[AUTO-GENERADO]') {
-      const supabase = getSupabaseBrowserClient();
-      if (supabase) {
-        const { data, error } = await supabase.rpc('next_box_code');
-        if (!error && data) {
-          boxId = data;
-        }
+    try {
+      if (tempSerials.length === 0) {
+        alert("⚠️ Debe escanear al menos una serie para poder guardar la caja.");
+        return;
       }
-      if (!boxId || boxId === '[AUTO-GENERADO]') {
-        boxId = `BOX-${(inventory.length + 1).toString().padStart(3, '0')}`;
+
+      if (!tempSerials[0]?.reception_id) {
+        alert("⚠️ La serie escaneada no tiene recepción de origen. Verifique clasificación en Backoffice.");
+        return;
       }
-    }
-    // Save to DB
-    const boxData = {
-      box_code: boxId,
-      rack_location: newBox.rack || 'P-01',
-      brand_id: newBox.marca,
-      model_id: newBox.modelo,
-      capacity: newBox.cantidad,
-      status: 'open',
-      reception_id: tempSerials[0]?.reception_id
-    };
 
-    // Ensure we include all sibling series (S-1, S-2, S-3, S-4) in the database update, not just the main one scanned
-    const seriesNumbers = tempSerials.flatMap(s => (s.allSeries && s.allSeries.length > 0) ? s.allSeries : [s.sn]);
-    const result = await createBoxWithSeries(boxData, seriesNumbers);
+      const seriesNumbers = tempSerials.flatMap((s) => (s.allSeries && s.allSeries.length > 0) ? s.allSeries : [s.sn]);
+      const result = await createBodegaBoxAtomic({
+        receptionId: tempSerials[0].reception_id,
+        brandId: newBox.marca,
+        modelId: newBox.modelo,
+        capacity: newBox.cantidad,
+        rackLocation: newBox.rack || 'P-01',
+        serialNumbers: seriesNumbers,
+        boxCode: newBox.correlativo?.match(/^BOX-[0-9]+$/i) ? newBox.correlativo : null,
+      });
 
-    if (result.error) {
-      alert("Error al guardar la caja: " + result.error);
+      if (result.error) {
+        alert("Error al guardar la caja: " + result.error);
+        return;
+      }
+
+      await fetchBoxes();
+      setShowNewBoxModal(false);
+      setNewBoxStep('form');
+      setTempSerials([]);
+      setNewBoxLastScannedInfo(null);
+      setNewBox({ correlativo: '', rack: '', marca: '', modelo: '', tecnologia: '', cantidad: 0 });
+    } finally {
+      setIsSavingNewBox(false);
       setLoading(false);
-      return;
     }
-
-    // Refresh from DB
-    await fetchBoxes();
-
-    setShowNewBoxModal(false);
-    setNewBoxStep('form');
-    setTempSerials([]);
-    setNewBoxLastScannedInfo(null);
-    setNewBox({ correlativo: '[AUTO-GENERADO]', rack: '', marca: '', modelo: '', tecnologia: '', cantidad: 0 });
-    setLoading(false);
   };
 
   const handleScanForNewBox = async (e: React.FormEvent) => {
@@ -838,7 +899,7 @@ export default function BodegaGestionPage() {
 
     // Guardar en la Base de Datos al instante (todas las series hermanas de la OS)
     const seriesToUpdate = info.allSeries.length > 0 ? info.allSeries : [info.sn];
-    const result = await addSeriesToBox(selectedBox.id, seriesToUpdate);
+    const result = await addSeriesToBox(selectedBox.realDbId || selectedBox.id, seriesToUpdate);
 
     if (result.error) {
       alert("⚠️ Error al vincular la serie a la caja en la base de datos.");
@@ -849,7 +910,7 @@ export default function BodegaGestionPage() {
     setSelectedBox(updatedBox);
     setLastScannedInfo(info);
     
-    setInventory(inventory.map(item => item.id === selectedBox.id ? updatedBox : item));
+    setInventory(inventory.map(item => (item.realDbId || item.id) === (selectedBox.realDbId || selectedBox.id) ? updatedBox : item));
     setCurrentSN('');
   };
 
@@ -960,13 +1021,14 @@ export default function BodegaGestionPage() {
       category="Bodega"
       actions={
         <div className="flex gap-3">
-          <Button 
-            variant="outline" 
-            leftIcon={<Search className="w-4 h-4" />}
-            onClick={() => window.location.href = '/bodega/inventario'}
-          >
-            Detalle de Inventario
-          </Button>
+          <Link href="/bodega/inventario" className="inline-flex">
+            <Button 
+              variant="outline" 
+              leftIcon={<Search className="w-4 h-4" />}
+            >
+              Detalle de Inventario
+            </Button>
+          </Link>
           <Button 
             variant="outline" 
             leftIcon={<ArrowLeftRight className="w-4 h-4" />}
@@ -1011,7 +1073,7 @@ export default function BodegaGestionPage() {
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Total Unidades</p>
                 <h3 className="text-2xl font-black text-[#181c3a]">
-                  {inventory.reduce((sum, b) => sum + (b.series?.length || b.cantidad || 0), 0).toLocaleString()}
+                  {inventory.reduce((sum, b) => sum + (b.unitCount ?? b.series?.length ?? 0), 0).toLocaleString()}
                 </h3>
               </div>
             </div>
@@ -1098,26 +1160,7 @@ export default function BodegaGestionPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {inventory.filter(item => {
-                    if (filterTech && item.tecnologia !== filterTech) return false;
-                    
-                    const isFull = item.status === 'Full';
-                    if (filterStatus === 'Full' && !isFull) return false;
-                    if (filterStatus === 'Partial' && item.status !== 'Parcial') return false;
-
-                    if (!searchTerm) return true;
-                    const term = searchTerm.toLowerCase();
-                    const marcaName = catMarcas.find(b => b.id === item.marca)?.name || item.marca || '';
-                    const modeloName = catModelos.find(m => m.id === item.modelo)?.name || item.modelo || '';
-                    const techName = catTecnologias.find(t => t.id === item.tecnologia)?.name || item.tecnologia || '';
-                    const rackName = item.rack || '';
-                    const idName = String(item.id || '');
-                    return idName.toLowerCase().includes(term) ||
-                      marcaName.toLowerCase().includes(term) ||
-                      modeloName.toLowerCase().includes(term) ||
-                      techName.toLowerCase().includes(term) ||
-                      rackName.toLowerCase().includes(term);
-                  }).map((item) => (
+                  {inventoryPagination.slice.map((item) => (
                     <tr 
                       key={item.id} 
                       className="hover:bg-slate-50/50 transition-colors group cursor-pointer"
@@ -1223,6 +1266,8 @@ export default function BodegaGestionPage() {
                             e.stopPropagation();
                             if (item.series && item.series.length > 0) {
                                setShowTimeline({
+                                 box_id: item.realDbId,
+                                 box_code: item.box_code || item.id,
                                  notes: item.series[0].notes,
                                  guide_number: item.series[0].guia,
                                  status: item.status,
@@ -1299,6 +1344,16 @@ export default function BodegaGestionPage() {
                 </tbody>
               </table>
             </div>
+            <TablePagination
+              totalCount={inventoryPagination.totalCount}
+              page={inventoryPagination.page}
+              totalPages={inventoryPagination.totalPages}
+              startItem={inventoryPagination.startItem}
+              endItem={inventoryPagination.endItem}
+              pageSize={inventoryPagination.pageSize}
+              onPageChange={inventoryPagination.setPage}
+              itemLabel="cajas"
+            />
           </Card>
         </div>
 
@@ -1334,7 +1389,7 @@ export default function BodegaGestionPage() {
                       className="w-full bg-slate-100 p-3 rounded-xl border border-slate-200 font-bold text-sm outline-none text-slate-500 cursor-not-allowed"
                       value={newBox.correlativo}
                       disabled
-                      placeholder="Ej: BOX-101"
+                      placeholder="Se asigna al pulsar «Siguiente»"
                     />
                   </div>
 
@@ -1411,37 +1466,29 @@ export default function BodegaGestionPage() {
                       variant="primary" 
                       className="flex-1" 
                       onClick={async () => {
-                        const correlativoVal = newBox.correlativo.trim().toUpperCase();
-                        if (!correlativoVal) return;
-                        
-                        // 1. Check local state inventory
-                        const existsLocal = inventory.some(box => 
-                          box.id.toUpperCase() === correlativoVal || 
-                          (box.box_code && box.box_code.toUpperCase() === correlativoVal)
-                        );
-                        
-                        if (existsLocal) {
-                          alert(`⚠️ El número de correlativo de caja "${correlativoVal}" ya existe en el sistema. Debe ser único.`);
+                        if (!newBox.cantidad || !newBox.rack || loading) return;
+
+                        setLoading(true);
+                        const reserved = await reserveNextBoxCode();
+                        setLoading(false);
+
+                        if (reserved.error || !reserved.code) {
+                          alert(reserved.error || 'No se pudo reservar el correlativo de caja.');
                           return;
                         }
-                        
-                        // 2. Check in database via Supabase
-                        const supabase = getSupabaseBrowserClient();
-                        if (supabase) {
-                          setLoading(true);
-                          const { data, error } = await supabase
-                            .from('boxes')
-                            .select('id, box_code')
-                            .eq('box_code', correlativoVal);
-                            
-                          setLoading(false);
-                          
-                          if (data && data.length > 0) {
-                            alert(`⚠️ El número de correlativo de caja "${correlativoVal}" ya existe registrado en la base de datos. Por favor ingrese uno único.`);
-                            return;
-                          }
+
+                        const correlativoVal = reserved.code.trim().toUpperCase();
+                        const existsLocal = inventory.some(
+                          (box) =>
+                            box.id.toUpperCase() === correlativoVal ||
+                            (box.box_code && box.box_code.toUpperCase() === correlativoVal)
+                        );
+                        if (existsLocal) {
+                          alert(`⚠️ El correlativo "${correlativoVal}" ya aparece en pantalla. Recargue e intente de nuevo.`);
+                          return;
                         }
-                        
+
+                        setNewBox((prev) => ({ ...prev, correlativo: correlativoVal }));
                         setNewBoxStep('scanning');
                       }}
                       disabled={!newBox.cantidad || !newBox.rack || loading}
@@ -1514,9 +1561,11 @@ export default function BodegaGestionPage() {
                               : 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/20'
                           }`}
                           onClick={handleAddBox}
-                          disabled={tempSerials.length === 0}
+                          disabled={tempSerials.length === 0 || isSavingNewBox}
                         >
-                          {tempSerials.length === 0
+                          {isSavingNewBox
+                            ? 'Guardando...'
+                            : tempSerials.length === 0
                             ? 'Pistolee 1 serie'
                             : tempSerials.length >= newBox.cantidad
                             ? '✓ Finalizar Caja'
@@ -1792,7 +1841,13 @@ export default function BodegaGestionPage() {
                             <td className="px-4 py-3 text-right">
                               <div className="flex items-center justify-end gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
                                 <button 
-                                  onClick={() => setShowTimeline({ notes: item.notes, guide_number: item.guia, status: item.estatus })}
+                                  onClick={() => setShowTimeline({
+                                    box_id: selectedBox.realDbId,
+                                    box_code: selectedBox.box_code || selectedBox.id,
+                                    notes: item.notes,
+                                    guide_number: item.guia,
+                                    status: item.estatus
+                                  })}
                                   className="p-1.5 bg-slate-50 hover:bg-[#2ec4f1]/10 hover:text-[#2ec4f1] text-slate-400 rounded-lg transition-colors" 
                                   title="Historial"
                                 >
@@ -1967,7 +2022,9 @@ export default function BodegaGestionPage() {
                  </div>
                  <div>
                    <h3 className="text-xl font-black text-[#181c3a] uppercase tracking-tighter leading-none">Trazabilidad de la Guía</h3>
-                   <p className="text-[10px] font-bold text-slate-400 uppercase mt-2 tracking-widest font-mono">{showTimeline.guide_number}</p>
+                   <p className="text-[10px] font-bold text-slate-400 uppercase mt-2 tracking-widest font-mono">
+                     {showTimeline.box_code ? `${showTimeline.box_code} · ` : ''}{showTimeline.guide_number}
+                   </p>
                  </div>
                </div>
                <button onClick={() => setShowTimeline(null)} className="w-10 h-10 rounded-full bg-white shadow-sm flex items-center justify-center text-slate-400 hover:text-rose-500 transition-all border border-slate-100"><X size={20} /></button>
@@ -1975,21 +2032,16 @@ export default function BodegaGestionPage() {
             <div className="p-10 max-h-[60vh] overflow-y-auto custom-scrollbar bg-white">
                <div className="relative border-l-2 border-slate-100 ml-4 space-y-10">
                   {(() => {
-                    const notes = (showTimeline.notes || '').replace(/\\n/g, '\n');
-                    let timelinePart = '';
-                    let baseDetailsPart = notes;
-                    if (notes.includes('--- LÍNEA DE TIEMPO (MATRIZ) ---')) {
-                      timelinePart = notes.split('--- LÍNEA DE TIEMPO (MATRIZ) ---').pop() || '';
-                      baseDetailsPart = notes.split('--- LÍNEA DE TIEMPO')[0];
-                    } else if (notes.includes('--- LÍNEA DE TIEMPO ---')) {
-                      timelinePart = notes.split('--- LÍNEA DE TIEMPO ---').pop() || '';
-                      baseDetailsPart = notes.split('--- LÍNEA DE TIEMPO')[0];
+                    if (loadingBoxHistory) {
+                      return (
+                        <div className="text-center py-20 opacity-50">
+                          <Loader2 size={48} className="mx-auto mb-4 animate-spin" />
+                          <p className="text-xs font-black uppercase tracking-widest">Cargando Historial Transaccional...</p>
+                        </div>
+                      );
                     }
 
-                    const baseDetails = baseDetailsPart.trim().split('\n').filter((l: string) => l.trim() !== '' && !l.startsWith('Backoffice_'));
-                    const events = timelinePart.trim().split('\n').filter((l: string) => l.trim() !== '');
-
-                    if (events.length === 0 && baseDetails.length === 0) {
+                    if (boxHistoryData.length === 0) {
                       return (
                         <div className="text-center py-20 opacity-20">
                           <Clock size={48} className="mx-auto mb-4" />
@@ -1998,106 +2050,44 @@ export default function BodegaGestionPage() {
                       );
                     }
 
-                    let lastKnownTime = '';
                     return (
                       <>
-                        {baseDetails.length > 0 && (
-                          <div className="relative">
-                            <div className="absolute -left-4 top-1/2 -mt-1.5 w-3 h-3 rounded-full bg-[#2ec4f1] ring-4 ring-white shadow-sm z-10" />
-                            <div className="bg-[#2ec4f1]/5 rounded-2xl p-5 border border-[#2ec4f1]/20 transition-all group">
-                              <p className="text-[10px] font-bold text-[#2ec4f1] uppercase tracking-widest mb-3 font-mono">DATOS DE ORIGEN / RECEPCIÓN INICIAL</p>
-                              <div className="grid grid-cols-2 gap-2">
-                                {baseDetails.map((detailLine: string, i: number) => {
-                                  const parts = detailLine.split(': ');
-                                  const key = parts[0];
-                                  const val = parts.slice(1).join(': ');
-                                  if (!val) return <div key={i} className="col-span-2 text-xs font-semibold text-slate-600">{key}</div>;
-                                  return (
-                                    <div key={i} className="bg-white/60 backdrop-blur-sm p-2.5 rounded-xl border border-[#2ec4f1]/10 text-xs flex flex-col gap-0.5">
-                                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">{key}</span>
-                                      <span className="font-black text-[#181c3a]">{val}</span>
-                                    </div>
-                                  )
-                                })}
+                        {boxHistoryData.map((event: any, idx: number) => {
+                          const cleanTime = new Date(
+                            event.timestamp || event.ts || event.created_at
+                          ).toLocaleString();
+                          let content = event.reason || `Movimiento: ${event.movement_type || 'EVENTO'}`;
+                          if (!event.reason && event.movement_type) {
+                            content = `Movimiento: ${event.movement_type}`;
+                            if (event.source_location) content += ` | Origen: ${event.source_location}`;
+                            if (event.target_location) content += ` | Destino: ${event.target_location}`;
+                            if (event.series_count != null) content += ` | Series: ${event.series_count}`;
+                          }
+
+                          const operator = event.user_name || event.operator_name || 'Sistema';
+
+                          const isLast = idx === boxHistoryData.length - 1;
+                          return (
+                            <div key={idx} className="relative group">
+                              <div className="absolute -left-[23px] top-1/2 -mt-1.5 w-3 h-3 rounded-full bg-slate-200 group-hover:bg-[#2ec4f1] ring-4 ring-white shadow-sm transition-colors z-10" />
+                              <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm hover:shadow-md hover:border-[#2ec4f1]/30 transition-all">
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="flex items-center gap-2">
+                                    <Clock size={12} className="text-slate-400" />
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{cleanTime}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1.5 text-slate-400">
+                                    <Info size={12} />
+                                    <span className="text-[9px] font-black uppercase tracking-widest">{operator}</span>
+                                  </div>
+                                </div>
+                                <p className="text-sm font-semibold text-[#181c3a]">{content}</p>
                               </div>
+                              {!isLast && <div className="absolute left-[-17px] top-[calc(50%+6px)] bottom-[-calc(50%+6px)] w-[2px] bg-slate-100" />}
                             </div>
-                          </div>
-                        )}
-
-                        {events.map((event: string, idx: number) => {
-                      let cleanTime = '';
-                      let content = '';
-
-                      if (event.includes('] ')) {
-                        const [timeStr, ...rest] = event.split('] ');
-                        cleanTime = (timeStr || '').replace('[', '');
-                        lastKnownTime = cleanTime;
-                        content = rest.join('] ');
-                      } else {
-                        // If there is no timestamp bracket, treat the whole line as content
-                        content = event;
-                        cleanTime = lastKnownTime;
-                      }
-                      
-                      // PARSE MATRIZ: ID | CODE | ACTION: DETAIL
-                      const pipeParts = content.split(' | ');
-                      let meta = '';
-                      let body = content;
-                      if (pipeParts.length > 2) {
-                        meta = pipeParts[0] + ' | ' + pipeParts[1];
-                        body = pipeParts.slice(2).join(' | ');
-                      } else if (pipeParts.length === 2) {
-                        meta = pipeParts[0];
-                        body = pipeParts[1];
-                      }
-                      
-                      let action = '';
-                      let detail = '';
-                      
-                      if (body) {
-                         const parts = body.split(': ');
-                         if (parts.length > 1) {
-                            action = parts[0];
-                            detail = parts.slice(1).join(': ');
-                         } else {
-                            action = 'METADATO / EVENTO';
-                            detail = body;
-                         }
-                       } else if (content) {
-                         const parts = content.split(': ');
-                         if (parts.length > 1) {
-                            action = parts[0];
-                            detail = parts.slice(1).join(': ');
-                         } else {
-                            action = 'METADATO / EVENTO';
-                            detail = content;
-                         }
-                      }
-
-                      if (action.toUpperCase() === 'STATUS' && detail.toUpperCase() === 'RECIBIDO_BACKOFFICE') {
-                         const agenciaCAC = showTimeline.agencia || notes.split('Backoffice_Agency: ')[1]?.split('\n')[0]?.trim() || '';
-                         if (agenciaCAC && agenciaCAC !== '---') {
-                            detail = `${detail} - EN CAC / AGENCIA: ${agenciaCAC}`;
-                         }
-                      }
-
-                      return (
-                        <div key={idx} className="relative pl-10 group">
-                          <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-white border-2 border-[#2ec4f1] group-hover:scale-125 transition-transform shadow-sm" />
-                          <div className="flex justify-between items-start mb-1">
-                            {cleanTime && <p className="text-[9px] font-black text-[#2ec4f1] uppercase tracking-widest">{cleanTime}</p>}
-                            {meta && (
-                              <Badge className="bg-slate-100 text-slate-400 border-none text-[7px] font-black tracking-tighter px-1.5 h-4">
-                                {meta.replace(' | ', ' • ')}
-                              </Badge>
-                            )}
-                          </div>
-                          <h4 className="text-sm font-black text-[#181c3a] uppercase mb-1 tracking-tight">{action}</h4>
-                          <p className="text-[11px] font-bold text-slate-500 leading-relaxed uppercase">{detail}</p>
-                        </div>
-                      );
-                    })}
-                    </>
+                          );
+                        })}
+                      </>
                     );
                   })()}
                </div>

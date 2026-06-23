@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { ModulePage } from '@/components/module-page';
 import { BackofficeTabNav } from './components/BackofficeTabNav';
@@ -16,8 +16,8 @@ export default function BackofficePageClient() {
     setActiveTab,
     operationCtx,
     historyLoadError,
-    historyInitialLoading,
-    historyRefreshing,
+    historyLoading,
+    historyStatsLoading,
     historyStats,
     totalCount,
     totalPages,
@@ -136,8 +136,8 @@ export default function BackofficePageClient() {
       {activeTab === 'history' && (
         <HistoryTab
           historyLoadError={historyLoadError}
-          historyInitialLoading={historyInitialLoading}
-          historyRefreshing={historyRefreshing}
+          historyLoading={historyLoading}
+          historyStatsLoading={historyStatsLoading}
           historyStats={historyStats}
           totalCount={totalCount}
           totalPages={totalPages}

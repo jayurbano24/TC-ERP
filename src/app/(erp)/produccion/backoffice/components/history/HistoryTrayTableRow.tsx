@@ -57,14 +57,12 @@ export function HistoryTrayTableRow({
   const reentry =
     unit.find((u: { service_orders?: { reentry_count?: number } }) => u?.service_orders?.reentry_count)
       ?.service_orders?.reentry_count || 1;
-  const sapStatus =
-    entry.sapValidationStatus ||
-    resolveUnitSapStatus(
-      unit[0]?.service_orders?.sap_integration_status,
-      entry.seriesSapStatuses || unit.map((u: { sap_status?: string }) => u.sap_status)
-    );
   const seriesSapStatuses =
-    entry.seriesSapStatuses || unit.map((u: { sap_status?: string }) => u.sap_status || null);
+    entry.seriesSapStatuses ??
+    unit.map((u: { sap_status?: string | null }) => u.sap_status || 'Pendiente');
+  const unitSapValidationStatus =
+    entry.unitSapValidationStatus ??
+    resolveUnitSapStatus(unit[0]?.service_orders?.sap_integration_status, seriesSapStatuses);
 
   return (
     <tr className={`border-b border-slate-100 transition-colors hover:bg-blue-50/30 ${bandBg}`}>
@@ -106,8 +104,8 @@ export function HistoryTrayTableRow({
       <td className="px-4 py-3 text-[11px] font-bold text-[#181c3a] whitespace-nowrap">{modelObj?.nombre || '---'}</td>
       <td className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase whitespace-nowrap">{entry.unitSap}</td>
       <td className="px-4 py-3 whitespace-nowrap">
-        <SapValidationBadge status={sapStatus} />
-        <div className="mt-1">
+        <div className="flex flex-col gap-1 items-start">
+          <SapValidationBadge status={unitSapValidationStatus} />
           <SeriesSapValidationDots statuses={seriesSapStatuses} />
         </div>
       </td>

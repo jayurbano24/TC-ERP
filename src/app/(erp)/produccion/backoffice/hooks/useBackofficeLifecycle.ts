@@ -1,7 +1,7 @@
 'use client';
 
 import type React from 'react';
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import type { BackofficeReception, BackofficeTab } from '../types';
 
 type InboxApi = {
@@ -27,12 +27,6 @@ export function useBackofficeLifecycle({
   setSelectedAgencyId,
   setAgencia,
 }: Params) {
-  const fetchHistoryRef = useRef(fetchHistory);
-  const fetchPendingRef = useRef(inbox.fetchPending);
-
-  fetchHistoryRef.current = fetchHistory;
-  fetchPendingRef.current = inbox.fetchPending;
-
   useEffect(() => {
     void inbox.fetchPending();
     void loadCatalogs();
@@ -41,8 +35,8 @@ export function useBackofficeLifecycle({
 
   useEffect(() => {
     const refetchOnReconnect = () => {
-      void fetchPendingRef.current({ silent: true });
-      if (activeTab === 'history') void fetchHistoryRef.current({ silent: true });
+      void inbox.fetchPending({ silent: true });
+      if (activeTab === 'history') void fetchHistory({ silent: true });
     };
     const onVisible = () => {
       if (document.visibilityState === 'visible') refetchOnReconnect();
@@ -53,7 +47,7 @@ export function useBackofficeLifecycle({
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('online', refetchOnReconnect);
     };
-  }, [activeTab]);
+  }, [activeTab, fetchHistory, inbox]);
 
   useEffect(() => {
     if (activeReception) {
@@ -61,4 +55,11 @@ export function useBackofficeLifecycle({
       setAgencia('');
     }
   }, [activeReception?.id, setAgencia, setSelectedAgencyId]);
+
+  useEffect(() => {
+    if (activeTab === 'history') {
+      void inbox.fetchPending();
+      void fetchHistory();
+    }
+  }, [activeTab, fetchHistory, inbox]);
 }

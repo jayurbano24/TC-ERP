@@ -1,3 +1,5 @@
+import type { SapValidationState } from '@/lib/sap/sapValidationStatus';
+
 export type HistoryUnitEntry = {
   rec: any;
   grp: { modelId: string; brandId: string; fullSeries: any[] };
@@ -11,6 +13,8 @@ export type HistoryUnitEntry = {
   unitStatus: string;
   unitStatusLabel: string;
   sapTransferId: string | null;
+  unitSapValidationStatus: SapValidationState;
+  seriesSapStatuses: string[];
   sortAt: number;
   /** Fecha/hora real de clasificación en Backoffice (OS o serie) */
   classifiedAtIso: string;

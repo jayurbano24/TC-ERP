@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
+import { TablePagination } from '@/components/ui/TablePagination';
+import { useClientPagination } from '@/hooks/useClientPagination';
 import { Scan, Box, Pencil, Trash2, CheckCircle2, Plus, FileText, ArrowRight, ArrowLeft, Lock, LockOpen } from 'lucide-react';
 import {
   canClosePxBox,
@@ -28,6 +30,16 @@ export const PxReceptionTab = ({
   const [activeBoxNum, setActiveBoxNum] = useState<number>(1);
   const [viewMode, setViewMode] = useState<'dashboard' | 'box_detail'>('dashboard');
   const [isEditingHeader, setIsEditingHeader] = useState(false);
+
+  const pxActiveBoxCode = selectedBoxForScan || '';
+  const boxScannedSeries = useMemo(
+    () =>
+      pxActiveBoxCode
+        ? scannedSeries.filter((s: any) => s.boxCode === pxActiveBoxCode)
+        : [],
+    [scannedSeries, pxActiveBoxCode]
+  );
+  const boxSeriesPagination = useClientPagination(boxScannedSeries, 25, [pxActiveBoxCode]);
   const [headerDraft, setHeaderDraft] = useState<any>(null);
   const [headerFieldErrors, setHeaderFieldErrors] = useState<{ sap?: string; docReferencia?: string }>({});
   const [isCheckingHeader, setIsCheckingHeader] = useState(false);
@@ -287,8 +299,8 @@ export const PxReceptionTab = ({
     setViewMode('box_detail');
   };
 
-  const handleEditBox = (boxCode: string) => {
-    handleEnterBox(boxCode);
+  const handleEditBox = async (boxCode: string) => {
+    await handleEnterBox(boxCode);
   };
 
   const handleDeleteBox = (boxCode: string) => {
@@ -1196,7 +1208,7 @@ export const PxReceptionTab = ({
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
-                          {scannedSeries.filter((s: any) => s.boxCode === targetBox).length === 0 && (
+                          {boxScannedSeries.length === 0 && (
                             <tr>
                               <td colSpan={showMulti ? 5 : 2} className="px-6 py-20 text-center">
                                 <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -1209,9 +1221,7 @@ export const PxReceptionTab = ({
                               </td>
                             </tr>
                           )}
-                          {scannedSeries
-                            .filter((s: any) => s.boxCode === targetBox)
-                            .map((s: any, idx: number) => (
+                          {boxSeriesPagination.slice.map((s: any, idx: number) => (
                             <tr key={`${s.sn}-${idx}`} className="hover:bg-slate-50/50 transition-colors">
                               <td className="px-6 py-4 font-mono font-black text-[#181c3a]">
                                 <div className="flex items-center gap-2">
@@ -1245,6 +1255,18 @@ export const PxReceptionTab = ({
                       </table>
                     );
                   })()}
+                  {boxScannedSeries.length > 0 && (
+                    <TablePagination
+                      totalCount={boxSeriesPagination.totalCount}
+                      page={boxSeriesPagination.page}
+                      totalPages={boxSeriesPagination.totalPages}
+                      startItem={boxSeriesPagination.startItem}
+                      endItem={boxSeriesPagination.endItem}
+                      pageSize={boxSeriesPagination.pageSize}
+                      onPageChange={boxSeriesPagination.setPage}
+                      itemLabel="equipos"
+                    />
+                  )}
                 </div>
               </Card>
             </div>

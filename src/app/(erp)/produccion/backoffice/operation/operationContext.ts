@@ -1,5 +1,5 @@
 import type React from 'react';
-import type { CatalogAgency, CatalogBrand, CatalogModel, CatalogTech, GuideItem, ReceptionStep, SapTransferGroup } from '../types';
+import type { CatalogAgency, CatalogBrand, CatalogModel, CatalogTech, GuideItem, OperationCategory, ReceptionStep, SapTransferGroup } from '../types';
 
 export type OperationContext = {
   receptionStep: ReceptionStep;
@@ -20,8 +20,8 @@ export type OperationContext = {
   setAgencia: React.Dispatch<React.SetStateAction<string>>;
   selectedAgencyId: string;
   setSelectedAgencyId: React.Dispatch<React.SetStateAction<string>>;
-  category: 'Equipo' | 'Accesorio' | 'Teléfono';
-  setCategory: React.Dispatch<React.SetStateAction<'Equipo' | 'Accesorio' | 'Teléfono'>>;
+  category: OperationCategory;
+  setCategory: React.Dispatch<React.SetStateAction<OperationCategory>>;
   guideItems: GuideItem[];
   setGuideItems: React.Dispatch<React.SetStateAction<GuideItem[]>>;
   manifestPanelOpen: boolean;

@@ -33,20 +33,20 @@ UPDATE public.series s
 SET current_status = 'in_workshop'
 FROM box_os o
 WHERE s.service_order_id = o.os_id
-  AND s.current_status IN ('in_central_warehouse', 'in_control_warehouse');
+  AND s.current_status IN ('in_central_warehouse', 'in_control_warehouse', 'ready_to_dispatch');
 
--- 3) Rack de la caja → taller
+-- 3) Rack de la caja → taller (forzar)
 UPDATE public.boxes
 SET rack_location = 'TALLER-DIAGNOSTICO'
 WHERE box_code = 'BOX-1'
-  AND rack_location NOT ILIKE 'TALLER%';
+  AND rack_location IS DISTINCT FROM 'TALLER-DIAGNOSTICO';
 
--- 4) Verificar (debe ser 0 filas en bodega para BOX-1)
+-- 4) Verificar (debe ser 0 filas en bodega/dispatch para BOX-1)
 SELECT so.os_label, s.serial_number, s.current_status, b.box_code
 FROM public.series s
 LEFT JOIN public.service_orders so ON so.id = s.service_order_id
 LEFT JOIN public.boxes b ON b.id = s.current_box_id
-WHERE s.current_status IN ('in_central_warehouse', 'in_control_warehouse')
+WHERE s.current_status IN ('in_central_warehouse', 'in_control_warehouse', 'ready_to_dispatch')
   AND (
     b.box_code = 'BOX-1'
     OR so.id IN (

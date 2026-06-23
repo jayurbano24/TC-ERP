@@ -2,13 +2,21 @@
 "use client";
 import React, { useMemo } from 'react';
 import * as XLSX from 'xlsx';
-import { Search, Truck, Clock, Camera, Pencil, Printer, Trash2, Download, ClipboardList, Scan, ChevronLeft, ChevronRight, ChevronDown, Eye, X, History, Tag, Box } from 'lucide-react';
+import { Search, Truck, Clock, Camera, Pencil, Printer, Trash2, Download, ClipboardList, Scan, ChevronDown, ChevronRight, Eye, X, History, Tag, Box } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
+import { TablePagination } from '@/components/ui/TablePagination';
+import { useClientPagination } from '@/hooks/useClientPagination';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { printingService } from '../services/printingService';
 import { groupPxSeriesByEquipment } from '../utils/pxSeriesUtils';
+import {
+  CAC_HISTORY_PAGE_SIZE,
+  ReceptionCacHistoryPagination,
+} from './ReceptionCacHistoryPagination';
+
+const PX_HISTORY_PAGE_SIZE = 10;
 
 export const HistoryTab = ({
   moduleMode,
@@ -104,21 +112,6 @@ export const HistoryTab = ({
     return true;
   };
 
-  React.useEffect(() => {
-    async function fetchGuides() {
-      const supabase = getSupabaseBrowserClient();
-      if (!supabase || cacRecords.length === 0) return;
-      const masterIds = cacRecords.filter((r: any) => !r.notes?.match(/como parte de lote (.*?)\./)).map((r: any) => r.id);
-      if (masterIds.length === 0) return;
-      
-      const { data } = await supabase.from('reception_guides').select('*').in('reception_id', masterIds);
-      if (data) {
-        setReceptionGuides(data);
-      }
-    }
-    fetchGuides();
-  }, [cacRecords]);
-
   const pxRowKey = (rec: any, index: number) =>
     `px-${rec.id || 'noid'}-${rec.created_at || index}-${rec.sap_document || rec.guide_number || index}`;
 
@@ -156,6 +149,12 @@ export const HistoryTab = ({
     );
   }, [filteredPxRecords]);
 
+  const pxHistoryPagination = useClientPagination(
+    filteredPxRecords,
+    PX_HISTORY_PAGE_SIZE,
+    [searchTerm, filterPilot, filterDate]
+  );
+
   const parsePxCajasCount = (rec: any) => {
     const fromNotes = rec.notes?.match(/Cajas:\s*(\d+)/i)?.[1];
     return fromNotes ? parseInt(fromNotes, 10) : 1;
@@ -180,6 +179,141 @@ export const HistoryTab = ({
       }),
     [cacRecords, searchTerm, filterPilot, filterDate]
   );
+
+  const [cacHistoryPage, setCacHistoryPage] = React.useState(1);
+
+  const cacHistoryGroups = useMemo(() => {
+    const allGroups: Record<string, { master: any; subs: any[] }> = {};
+    const masterRecords = cacRecords.filter((r: any) => !r.notes?.match(/como parte de lote (.*?)\./));
+
+    masterRecords.forEach((record: any) => {
+      const guides = receptionGuides.filter((g: any) => g.reception_id === record.id);
+
+      if (guides.length === 0) {
+        const rawNotes = record.notes || '';
+        const cleanNotes = rawNotes.split('--- LÍNEA DE TIEMPO')[0].split('Backoffice_')[0].split('Guías Procesadas:')[0];
+        const notesGuias =
+          cleanNotes
+            ?.split('Guías: ')[1]
+            ?.split('\n')[0]
+            ?.split(',')
+            .map((g: string) => g.trim())
+            .filter(Boolean) || [];
+        const allGuias = notesGuias.length > 0 ? notesGuias : [record.guide_number];
+
+        const subRecords = cacRecords.filter((r: any) => {
+          const match = r.notes?.match(/como parte de lote (.*?)\./);
+          return match && match[1].trim() === record.guide_number;
+        });
+
+        allGroups[record.id] = {
+          master: { ...record, allGuias, isSub: false, isGuidesDb: false },
+          subs: subRecords.map((s: any) => ({
+            ...s,
+            allGuias: [s.guide_number],
+            isSub: true,
+            isGuidesDb: false,
+          })),
+        };
+      } else {
+        const allGuias = guides.map((g: any) => g.guide_number);
+        allGroups[record.id] = {
+          master: { ...record, allGuias, isSub: false, isGuidesDb: true },
+          subs: guides.map((g: any) => ({
+            ...record,
+            id: g.id,
+            guide_number: g.guide_number,
+            status: g.status,
+            category: g.category,
+            classified_by: g.classified_by,
+            classified_at: g.classified_at,
+            fecha_formateada: g.classified_at ? new Date(g.classified_at).toLocaleString() : '',
+            isSub: true,
+            isGuidesDb: true,
+            allGuias: [g.guide_number],
+          })),
+        };
+      }
+    });
+
+    const itemMatches = (item: any) => {
+      if (!item) return false;
+      const searchLower = searchTerm.toLowerCase();
+      const matchesSearch =
+        !searchTerm ||
+        item.allGuias?.some((g: string) => g.toLowerCase().includes(searchLower)) ||
+        item.guide_number?.toLowerCase().includes(searchLower) ||
+        (item.pilot_display && item.pilot_display.toLowerCase().includes(searchLower));
+      const matchesPilot = filterPilot === 'Todos' || item.pilot_display === filterPilot;
+      const matchDate = isDateMatch(item.created_at);
+      const notEliminated =
+        item.status !== 'ELIMINADO' &&
+        item.status !== 'ELIMINADO POR BODEGA' &&
+        item.status !== 'ARCHIVADO';
+      return matchesSearch && matchesPilot && matchDate && notEliminated;
+    };
+
+    const filteredGroups = Object.values(allGroups).filter((group) => {
+      const masterMatches = itemMatches(group.master);
+      const anySubMatches = group.subs.some(itemMatches);
+      return masterMatches || anySubMatches;
+    });
+
+    const sortedGroups = filteredGroups.sort((a, b) => {
+      const timeA = new Date(a.master ? a.master.created_at : a.subs[0]?.created_at || 0).getTime();
+      const timeB = new Date(b.master ? b.master.created_at : b.subs[0]?.created_at || 0).getTime();
+      return timeB - timeA;
+    });
+
+    return { sortedGroups, allGroups };
+  }, [cacRecords, receptionGuides, searchTerm, filterPilot, filterDate]);
+
+  React.useEffect(() => {
+    if (moduleMode === 'cac') setCacHistoryPage(1);
+  }, [searchTerm, filterPilot, filterDate, moduleMode]);
+
+  const cacTotalGroups = cacHistoryGroups.sortedGroups.length;
+  const cacTotalPages = Math.max(1, Math.ceil(cacTotalGroups / CAC_HISTORY_PAGE_SIZE));
+  const cacSafePage = Math.min(cacHistoryPage, cacTotalPages);
+  const cacStartItem = cacTotalGroups === 0 ? 0 : (cacSafePage - 1) * CAC_HISTORY_PAGE_SIZE + 1;
+  const cacEndItem = Math.min(cacSafePage * CAC_HISTORY_PAGE_SIZE, cacTotalGroups);
+  const cacPaginatedGroups = cacHistoryGroups.sortedGroups.slice(
+    (cacSafePage - 1) * CAC_HISTORY_PAGE_SIZE,
+    cacSafePage * CAC_HISTORY_PAGE_SIZE
+  );
+  const cacAllGroups = cacHistoryGroups.allGroups;
+
+  React.useEffect(() => {
+    const activeIds = new Set(cacRecords.map((r: any) => r.id));
+    setReceptionGuides((prev) => prev.filter((g) => activeIds.has(g.reception_id)));
+  }, [cacRecords]);
+
+  React.useEffect(() => {
+    if (moduleMode !== 'cac') return;
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase) return;
+
+    const masterIds = cacPaginatedGroups.map((g) => g.master?.id).filter(Boolean);
+    if (masterIds.length === 0) return;
+
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('reception_guides')
+        .select('*')
+        .in('reception_id', masterIds);
+      if (cancelled || !data?.length) return;
+      setReceptionGuides((prev) => {
+        const map = new Map(prev.map((g) => [`${g.reception_id}:${g.guide_number}`, g]));
+        for (const g of data) map.set(`${g.reception_id}:${g.guide_number}`, g);
+        return Array.from(map.values());
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cacPaginatedGroups, moduleMode]);
 
   const toggleLot = (loteId: string) => {
     setExpandedLots(prev => ({ ...prev, [loteId]: !prev[loteId] }));
@@ -428,12 +562,14 @@ export const HistoryTab = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredPxRecords.map((rec: any, rowIndex: number) => {
+              {pxHistoryPagination.slice.map((rec: any, rowIndex: number) => {
+                const globalIndex =
+                  (pxHistoryPagination.page - 1) * PX_HISTORY_PAGE_SIZE + rowIndex;
                 const sap = String(rec.sap_document || '').trim();
                 const isDuplicateSap = sap && duplicatePxSapDocuments.has(sap);
                 return (
                 <tr
-                  key={pxRowKey(rec, rowIndex)}
+                  key={pxRowKey(rec, globalIndex)}
                   className={`hover:bg-slate-50 transition-colors group ${isDuplicateSap ? 'bg-amber-50/60' : ''}`}
                 >
                   <td className="px-6 py-5 font-bold text-slate-600 text-xs">{rec.fecha_formateada || new Date(rec.created_at).toLocaleString()}</td>
@@ -525,15 +661,16 @@ export const HistoryTab = ({
               )}
             </tbody>
           </table>
-          <div className="bg-slate-50/50 p-4 border-t border-slate-100 flex items-center justify-between">
-            <span className="text-[10px] font-bold text-slate-400 uppercase">Mostrando 1-10 de {pxRecords.length} registros</span>
-            <div className="flex gap-1">
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0"><ChevronLeft size={14} /></Button>
-              <Button variant="outline" size="sm" className="h-8 w-8 p-0 bg-[#181c3a] text-white">1</Button>
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">2</Button>
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0"><ChevronRight size={14} /></Button>
-            </div>
-          </div>
+          <TablePagination
+            totalCount={pxHistoryPagination.totalCount}
+            page={pxHistoryPagination.page}
+            totalPages={pxHistoryPagination.totalPages}
+            startItem={pxHistoryPagination.startItem}
+            endItem={pxHistoryPagination.endItem}
+            pageSize={PX_HISTORY_PAGE_SIZE}
+            onPageChange={pxHistoryPagination.setPage}
+            itemLabel="recepciones PX"
+          />
         </Card>
       ) : (
         <Card padding="none" className="overflow-hidden border-none shadow-xl">
@@ -552,79 +689,6 @@ export const HistoryTab = ({
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {(() => {
-                  // Agrupar TODOS los registros usando la tabla receptionGuides si existe, sino regex
-                  const allGroups: Record<string, { master: any, subs: any[] }> = {};
-                  
-                  const masterRecords = cacRecords.filter((r: any) => !r.notes?.match(/como parte de lote (.*?)\./));
-
-                  masterRecords.forEach((record: any) => {
-                    const guides = receptionGuides.filter((g: any) => g.reception_id === record.id);
-                    
-                    if (guides.length === 0) {
-                      // FALLBACK a regex
-                      const rawNotes = record.notes || '';
-                      const cleanNotes = rawNotes.split('--- LÍNEA DE TIEMPO')[0].split('Backoffice_')[0].split('Guías Procesadas:')[0];
-                      const notesGuias = cleanNotes?.split('Guías: ')[1]?.split('\n')[0]?.split(',').map((g: string) => g.trim()).filter(Boolean) || [];
-                      const allGuias = notesGuias.length > 0 ? notesGuias : [record.guide_number];
-                      
-                      const subRecords = cacRecords.filter((r: any) => {
-                        const match = r.notes?.match(/como parte de lote (.*?)\./);
-                        return match && match[1].trim() === record.guide_number;
-                      });
-
-                      allGroups[record.id] = {
-                        master: { ...record, allGuias, isSub: false, isGuidesDb: false },
-                        subs: subRecords.map((s: any) => ({ ...s, allGuias: [s.guide_number], isSub: true, isGuidesDb: false }))
-                      };
-                    } else {
-                      // USAR reception_guides
-                      const allGuias = guides.map((g: any) => g.guide_number);
-                      allGroups[record.id] = {
-                        master: { ...record, allGuias, isSub: false, isGuidesDb: true },
-                        subs: guides.map((g: any) => ({
-                          ...record, // heredamos piloto etc.
-                          id: g.id,
-                          guide_number: g.guide_number,
-                          status: g.status,
-                          category: g.category,
-                          classified_by: g.classified_by,
-                          classified_at: g.classified_at,
-                          fecha_formateada: g.classified_at ? new Date(g.classified_at).toLocaleString() : '',
-                          isSub: true,
-                          isGuidesDb: true,
-                          allGuias: [g.guide_number]
-                        }))
-                      };
-                    }
-                  });
-
-                  // Ahora aplicar los filtros a los grupos completos
-                  const filteredGroups = Object.values(allGroups).filter(group => {
-                    const itemMatches = (item: any) => {
-                      if (!item) return false;
-                      const searchLower = searchTerm.toLowerCase();
-                      const matchesSearch = !searchTerm ||
-                        item.allGuias.some((g: string) => g.toLowerCase().includes(searchLower)) ||
-                        item.guide_number?.toLowerCase().includes(searchLower) ||
-                        (item.pilot_display && item.pilot_display.toLowerCase().includes(searchLower));
-                      const matchesPilot = filterPilot === 'Todos' || item.pilot_display === filterPilot;
-                      const matchDate = isDateMatch(item.created_at);
-                      const notEliminated = item.status !== 'ELIMINADO' && item.status !== 'ELIMINADO POR BODEGA' && item.status !== 'ARCHIVADO';
-                      return matchesSearch && matchesPilot && matchDate && notEliminated;
-                    };
-
-                    const masterMatches = itemMatches(group.master);
-                    const anySubMatches = group.subs.some(itemMatches);
-                    return masterMatches || anySubMatches;
-                  });
-
-                  // Ordenar los grupos filtrados
-                  const sortedGroups = filteredGroups.sort((a, b) => {
-                    const timeA = new Date(a.master ? a.master.created_at : (a.subs[0]?.created_at || 0)).getTime();
-                    const timeB = new Date(b.master ? b.master.created_at : (b.subs[0]?.created_at || 0)).getTime();
-                    return timeB - timeA;
-                  });
-
                   const renderItem = (item: any, isSubRow: boolean, masterItem: any, isExpanded: boolean = false, passedLoteId: string = '', hasSubs: boolean = false) => {
                     const loteId = passedLoteId || `LOTE-${(masterItem || item).id.split('-')[0].toUpperCase()}`;
                     const isMasterWithSubs = !isSubRow && hasSubs;
@@ -670,7 +734,7 @@ export const HistoryTab = ({
 
                     let unitsDisplay;
                     if (!isSubRow) {
-                      const groupData = allGroups[masterItem.id];
+                      const groupData = cacAllGroups[masterItem.id];
                       if (groupData && groupData.subs.length > 0) {
                         let processedGuidesCount = 0;
                         if (masterItem.isGuidesDb) {
@@ -777,7 +841,7 @@ export const HistoryTab = ({
                     );
                   };
 
-                  return sortedGroups.flatMap(group => {
+                  return cacPaginatedGroups.flatMap(group => {
                     const rows = [];
                     if (group.master) {
                       const loteId = `LOTE-${group.master.id.split('-')[0].toUpperCase()}`;
@@ -792,7 +856,7 @@ export const HistoryTab = ({
                     return rows;
                   });
                 })()}
-                {filteredCacRecords.length === 0 && (
+                {cacTotalGroups === 0 && (
                   <tr>
                     <td colSpan={7} className="px-6 py-12 text-center text-slate-300 italic uppercase font-black tracking-widest">
                       No hay registros de CAC disponibles
@@ -802,6 +866,14 @@ export const HistoryTab = ({
               </tbody>
             </table>
           </div>
+          <ReceptionCacHistoryPagination
+            totalCount={cacTotalGroups}
+            safePage={cacSafePage}
+            totalPages={cacTotalPages}
+            startItem={cacStartItem}
+            endItem={cacEndItem}
+            setHistoryPage={setCacHistoryPage}
+          />
         </Card>
       )}
 

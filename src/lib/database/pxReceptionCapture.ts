@@ -472,6 +472,57 @@ export async function createPxCaptureBox(
   return { success: true, box: snapshot };
 }
 
+/** Agrega lote(s) a caja existente y actualiza cantidad declarada. */
+export async function appendPxCaptureLots(
+  boxId: string,
+  lots: PxLotInput[]
+): Promise<{ success: true; declaredQuantity: number } | { success: false; error: string }> {
+  const supabase = getSupabaseServerClient();
+  const addUnits = lots.reduce((acc, l) => acc + (l.expectedUnits || 0), 0);
+  if (addUnits <= 0) {
+    return { success: false, error: 'El lote debe tener cantidad esperada mayor a cero.' };
+  }
+
+  const { data: box, error: boxErr } = await supabase
+    .from('boxes')
+    .select('id, reception_id, status, declared_quantity, capacity, version')
+    .eq('id', boxId)
+    .maybeSingle();
+
+  if (boxErr || !box) return { success: false, error: 'Caja no encontrada.' };
+  if (box.status === 'cerrada' || box.status === 'closed') {
+    return { success: false, error: 'No se pueden agregar lotes a una caja cerrada.' };
+  }
+
+  const lotRows = lots.map((lot) => ({
+    reception_id: box.reception_id,
+    box_id: box.id,
+    technology_name: lot.technologyName || null,
+    brand_id: lot.brandId || null,
+    model_id: lot.modelId || null,
+    brand_name: lot.brandName || null,
+    model_name: lot.modelName || null,
+    expected_units: lot.expectedUnits,
+    material: lot.material || null,
+  }));
+
+  const { error: lotsError } = await supabase.from('px_reception_lots').insert(lotRows);
+  if (lotsError) return { success: false, error: lotsError.message };
+
+  const newDeclared = (box.declared_quantity ?? box.capacity ?? 0) + addUnits;
+  const { error: updErr } = await supabase
+    .from('boxes')
+    .update({
+      declared_quantity: newDeclared,
+      capacity: newDeclared,
+      version: (box.version ?? 1) + 1,
+    })
+    .eq('id', boxId);
+
+  if (updErr) return { success: false, error: updErr.message };
+  return { success: true, declaredQuantity: newDeclared };
+}
+
 export async function getPxReceptionSnapshot(receptionId: string): Promise<PxReceptionSnapshot | null> {
   const supabase = getSupabaseServerClient();
 
@@ -616,6 +667,7 @@ export async function capturePxEquipment(input: {
   material?: string | null;
   operatorId?: string | null;
   operatorName?: string;
+  workstationLabel?: string | null;
 }): Promise<
   | { success: true; equipmentId: string; capturedCount: number; declaredQuantity: number; boxStatus: string }
   | { success: false; error: string; errorCode?: string }
@@ -635,6 +687,7 @@ export async function capturePxEquipment(input: {
     p_material: input.material || null,
     p_captured_by: input.operatorId || null,
     p_operator_name: input.operatorName || 'OPERADOR',
+    p_workstation: input.workstationLabel || null,
   });
 
   if (error) {

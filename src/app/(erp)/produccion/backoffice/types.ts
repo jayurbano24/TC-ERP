@@ -35,10 +35,13 @@ export type CatalogAgency = {
   telefono?: string;
 };
 
+export type OperationCategory = 'Equipo' | 'Accesorio' | 'Teléfono' | 'Devolución';
+
 export type ReceptionStep =
   | 'category_selection'
   | 'classification'
   | 'accessories_photos'
+  | 'bulk_classify_confirm'
   | 'initial'
   | 'config'
   | 'scanning'

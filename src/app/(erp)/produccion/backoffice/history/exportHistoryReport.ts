@@ -3,6 +3,11 @@ import {
   getBackofficeClassifierName,
   type HistoryUnitEntry,
 } from '../historyTrayUtils';
+import {
+  formatSeriesSapStatusLabel,
+  formatUnitSapValidationForExport,
+} from '@/lib/backoffice/trayRowAdapter';
+import { resolveUnitSapStatus } from '@/lib/sap/sapValidationStatus';
 import type { CatalogAgency, CatalogBrand, CatalogModel, CatalogTech } from '../types';
 
 type ExportCatalogs = {
@@ -42,6 +47,11 @@ export async function exportHistoryReport(
       unit.find((u: { service_orders?: { reentry_count?: number } }) => u?.service_orders?.reentry_count)
         ?.service_orders?.reentry_count || 1;
 
+    const seriesSapStatuses = entry.seriesSapStatuses ?? unit.map((u) => u.sap_status || 'Pendiente');
+    const unitSapValidationStatus =
+      entry.unitSapValidationStatus ??
+      resolveUnitSapStatus(unit[0]?.service_orders?.sap_integration_status, seriesSapStatuses);
+
     rows.push({
       'Fecha / Hora': formattedDate,
       'No. Guía': entry.unitGuide,
@@ -56,10 +66,15 @@ export async function exportHistoryReport(
       Marca: brandObj?.nombre || '---',
       Modelo: modelObj?.nombre || '---',
       'Documento SAP': entry.unitSap,
+      'Validación SAP': formatUnitSapValidationForExport(unitSapValidationStatus),
       'S-1': unit[0]?.serial_number || '---',
+      'S-1 Validación SAP': unit[0] ? formatSeriesSapStatusLabel(unit[0].sap_status) : '---',
       'S-2': unit[1]?.serial_number || '---',
+      'S-2 Validación SAP': unit[1] ? formatSeriesSapStatusLabel(unit[1].sap_status) : '---',
       'S-3': unit[2]?.serial_number || '---',
+      'S-3 Validación SAP': unit[2] ? formatSeriesSapStatusLabel(unit[2].sap_status) : '---',
       'S-4': unit[3]?.serial_number || '---',
+      'S-4 Validación SAP': unit[3] ? formatSeriesSapStatusLabel(unit[3].sap_status) : '---',
     });
   });
 

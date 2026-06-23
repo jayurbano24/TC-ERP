@@ -160,7 +160,7 @@ export function ReturnConfirmationStep({ ctx }: Props) {
             <Button 
               className={`flex-[2] h-16 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl shadow-xl shadow-amber-500/20 font-black uppercase text-xs ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
               onClick={handleConfirmReturn}
-              disabled={isSubmitting}
+              disabled={isSubmitting || !selectedAgencyId || !returnReason.trim()}
             >
               {isSubmitting ? 'Procesando...' : 'Confirmar y Enviar Notificación'}
             </Button>

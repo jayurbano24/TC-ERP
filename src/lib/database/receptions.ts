@@ -566,7 +566,14 @@ export async function getSeriesByReceptionId(receptionId: string) {
 
   const { data, error } = await supabase
     .from('series')
-    .select('serial_number, model_id, brand_id, current_status')
+    .select(`
+      serial_number,
+      model_id,
+      brand_id,
+      current_status,
+      sap_status,
+      service_orders (os_label, sap_integration_status)
+    `)
     .eq('current_reception_id', receptionId);
 
   if (error) {
@@ -694,47 +701,39 @@ export async function createPxReceptionWithBoxes(
     return { error: 'No se pudo crear la recepción PX. Intente de nuevo.' };
   }
 
-  // Generate consecutive BOX-xxx codes (solo cajas operativas; ignora ELIMINADO/DESPACHO)
-  const { data: lastBoxes } = await supabase
-    .from('boxes')
-    .select('box_code, rack_location')
-    .like('box_code', 'BOX-%')
-    .not('rack_location', 'in', '("ELIMINADO","DESPACHO")');
-
-  let maxBoxNum = 0;
-  if (lastBoxes && lastBoxes.length > 0) {
-    for (const row of lastBoxes) {
-      const match = row.box_code.match(/^BOX-(\d+)$/i);
-      if (match) {
-        const num = parseInt(match[1], 10);
-        if (num > maxBoxNum) maxBoxNum = num;
-      }
-    }
-  }
-
-  const uiBoxToNewBox = new Map<string, string>();
-
-  // 2. Prepare boxes data — solo cajas con equipos escaneados
   const boxesWithEquipment = boxes.filter((b) => (seriesByBox[b.id] || []).length > 0);
   if (boxesWithEquipment.length === 0) {
     return { error: 'No hay equipos escaneados para crear cajas en esta recepción PX.' };
   }
 
-  const boxesToInsert = boxesWithEquipment.map(b => {
-    maxBoxNum++;
-    const newBoxCode = `BOX-${maxBoxNum}`;
-    uiBoxToNewBox.set(b.box_code, newBoxCode);
+  // Códigos BOX-xxx atómicos vía secuencia PostgreSQL (no MAX cliente)
+  const uiBoxToNewBox = new Map<string, string>();
+  const boxesToInsert: Array<{
+    reception_id: string;
+    box_code: string;
+    brand_id: string;
+    model_id: string;
+    capacity: number;
+    status: string;
+    rack_location: string;
+  }> = [];
 
-    return {
+  for (const b of boxesWithEquipment) {
+    const { data: newBoxCode, error: codeError } = await supabase.rpc('next_box_code');
+    if (codeError || !newBoxCode) {
+      return { error: codeError?.message || 'No se pudo generar código de caja (next_box_code).' };
+    }
+    uiBoxToNewBox.set(b.box_code, newBoxCode as string);
+    boxesToInsert.push({
       reception_id: recData.id,
-      box_code: newBoxCode,
+      box_code: newBoxCode as string,
       brand_id: b.brand_id,
       model_id: b.model_id,
       capacity: b.expected_units,
       status: 'closed',
-      rack_location: 'BODEGA_CENTRAL' // Ingreso automático a Bodega Central al finalizar recepción PX
-    };
-  });
+      rack_location: 'BODEGA_CENTRAL',
+    });
+  }
 
   const { data: createdBoxes, error: boxError } = await supabase
     .from('boxes')
@@ -872,6 +871,49 @@ export async function deletePxReceptionCascade(receptionId: string) {
     .from('receptions')
     .update({ status: 'ELIMINADO POR BODEGA' })
     .eq('id', receptionId);
+  if (error) return { error: error.message };
+  return { success: true };
+}
+
+/** Soft-delete CAC reception and dependent series/OS (tablet historial). */
+export async function deleteCacReceptionCascade(receptionId: string) {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return { error: 'Supabase not configured' };
+
+  const { data: seriesList } = await supabase
+    .from('series')
+    .select('id, service_order_id')
+    .eq('current_reception_id', receptionId);
+
+  const soIds = new Set<string>();
+  if (seriesList?.length) {
+    for (const s of seriesList) {
+      if (s.service_order_id) soIds.add(s.service_order_id);
+    }
+    const seriesIds = seriesList.map((s) => s.id);
+    if (soIds.size > 0) {
+      const ids = [...soIds];
+      await supabase.from('workshop_jobs').delete().in('service_order_id', ids);
+      await supabase.from('qc_checks').delete().in('service_order_id', ids);
+      await supabase.from('service_orders').delete().in('id', ids);
+    }
+    await supabase.from('box_series').delete().in('series_id', seriesIds);
+    await supabase.from('series').delete().in('id', seriesIds);
+  } else {
+    const { data: osByRec } = await supabase
+      .from('service_orders')
+      .select('id')
+      .eq('reception_id', receptionId);
+    if (osByRec?.length) {
+      const ids = osByRec.map((o) => o.id);
+      await supabase.from('workshop_jobs').delete().in('service_order_id', ids);
+      await supabase.from('qc_checks').delete().in('service_order_id', ids);
+      await supabase.from('service_orders').delete().in('id', ids);
+    }
+  }
+
+  await supabase.from('boxes').update({ rack_location: 'ELIMINADO' }).eq('reception_id', receptionId);
+  const { error } = await supabase.from('receptions').update({ status: 'ELIMINADO' }).eq('id', receptionId);
   if (error) return { error: error.message };
   return { success: true };
 }

@@ -1,4 +1,4 @@
-import { logCacBackofficeAudit, CAC_AUDIT_ACTIONS } from '@/lib/database/cacBackofficeAudit';
+import { logAdvancedAudit } from '@/lib/database/audit';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import type { IBlockReturnGateway } from '../../domain/ports/block-return.gateway.port';
 import {
@@ -109,15 +109,15 @@ export class BlockReturnBySapLegacyAdapter implements IBlockReturnGateway {
         return { error: `Error actualizando documento SAP: ${sapUpdateError.message}` };
       }
 
-      await logCacBackofficeAudit({
+      await logAdvancedAudit({
+        module: 'Logística',
         tableName: 'sap_transfer_documents',
         recordId: sapTransferId,
-        action: CAC_AUDIT_ACTIONS.DEVOLUCION_BLOQUE_SAP,
+        action: 'DEVOLUCION_BLOQUE_SAP',
         newValues: {
           status: SAP_TRANSFER_STATUS.DEVUELTO_BLOQUE,
           units_count: equipmentCount,
           motivo: formData.motivo,
-          legacy: true,
         },
         observations: `Devolución en bloque por Documento SAP ${sapTransfer.sap_document_number} (${equipmentCount} equipos).`,
       });

@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
-import { Card, Badge, Button } from '@/components/ui';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Card, Badge, Button, TablePagination } from '@/components/ui';
 import { ModulePage, ModuleToolbar } from '@/components/module-page';
 import { Search, MapPin, Package, Download, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { getInventoryDetails, resolveWarehouseStatusLabel } from '@/lib/database/warehouse';
+import { useClientPagination } from '@/hooks/useClientPagination';
 
 export default function InventarioDetallePage() {
   const [loading, setLoading] = useState(true);
@@ -113,22 +114,26 @@ export default function InventarioDetallePage() {
     return [...mergedGroups, ...ungrouped];
   }, [items]);
 
-  const filteredItems = groupedItems.filter(i => {
-    if (!searchTerm) return true;
-    const s = searchTerm.toLowerCase();
-    return (
-      (i.s1 || '').toLowerCase().includes(s) ||
-      (i.s2 || '').toLowerCase().includes(s) ||
-      (i.s3 || '').toLowerCase().includes(s) ||
-      (i.s4 || '').toLowerCase().includes(s) ||
-      (i.service_orders?.os_label || '').toLowerCase().includes(s) ||
-      (i.boxes?.id || '').toLowerCase().includes(s) ||
-      (i.material || '').toLowerCase().includes(s) ||
-      (i.models?.technologies?.name || '').toLowerCase().includes(s) ||
-      (i.brands?.name || '').toLowerCase().includes(s) ||
-      (i.models?.name || '').toLowerCase().includes(s)
-    );
-  });
+  const filteredItems = useMemo(() => {
+    return groupedItems.filter((i) => {
+      if (!searchTerm) return true;
+      const s = searchTerm.toLowerCase();
+      return (
+        (i.s1 || '').toLowerCase().includes(s) ||
+        (i.s2 || '').toLowerCase().includes(s) ||
+        (i.s3 || '').toLowerCase().includes(s) ||
+        (i.s4 || '').toLowerCase().includes(s) ||
+        (i.service_orders?.os_label || '').toLowerCase().includes(s) ||
+        (i.boxes?.id || '').toLowerCase().includes(s) ||
+        (i.material || '').toLowerCase().includes(s) ||
+        (i.models?.technologies?.name || '').toLowerCase().includes(s) ||
+        (i.brands?.name || '').toLowerCase().includes(s) ||
+        (i.models?.name || '').toLowerCase().includes(s)
+      );
+    });
+  }, [groupedItems, searchTerm]);
+
+  const tablePagination = useClientPagination(filteredItems, 50, [searchTerm]);
 
   return (
     <ModulePage
@@ -140,9 +145,11 @@ export default function InventarioDetallePage() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
           <div>
             <div className="flex items-center gap-3 mb-2">
-              <Button variant="outline" size="sm" className="h-7 px-2 text-slate-500 hover:text-[#181c3a] border-slate-200" onClick={() => window.history.back()}>
-                <ArrowLeft className="w-4 h-4 mr-1" /> Regresar
-              </Button>
+              <Link href="/bodega/gestion">
+                <Button variant="outline" size="sm" className="h-7 px-2 text-slate-500 hover:text-[#181c3a] border-slate-200">
+                  <ArrowLeft className="w-4 h-4 mr-1" /> Regresar
+                </Button>
+              </Link>
               <Badge variant="purple">BODEGA</Badge>
             </div>
             <h1 className="text-2xl font-black text-[#181c3a] tracking-tight">Detalle de Inventario</h1>
@@ -236,7 +243,7 @@ export default function InventarioDetallePage() {
                   <tr><td colSpan={19} className="p-8 text-center text-slate-400">Cargando inventario...</td></tr>
                 ) : filteredItems.length === 0 ? (
                   <tr><td colSpan={19} className="p-8 text-center text-slate-400 font-bold">No se encontraron unidades</td></tr>
-                ) : filteredItems.map((item, idx) => {
+                ) : tablePagination.slice.map((item, idx) => {
                   const r = item.receptions || {};
                   const statusLabel = resolveWarehouseStatusLabel(item.current_status);
                   const statusVariant =
@@ -270,6 +277,16 @@ export default function InventarioDetallePage() {
               </tbody>
             </table>
           </div>
+          <TablePagination
+            totalCount={tablePagination.totalCount}
+            page={tablePagination.page}
+            totalPages={tablePagination.totalPages}
+            startItem={tablePagination.startItem}
+            endItem={tablePagination.endItem}
+            pageSize={tablePagination.pageSize}
+            onPageChange={tablePagination.setPage}
+            itemLabel="unidades"
+          />
         </Card>
       </div>
     </ModulePage>

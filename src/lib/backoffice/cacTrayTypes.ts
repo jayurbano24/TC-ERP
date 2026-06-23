@@ -23,7 +23,9 @@ export type CacTrayUnitRow = {
   model_id: string | null;
   serial_numbers: string[];
   series_ids: string[];
+  /** Integración SAP a nivel OS (service_orders.sap_integration_status) */
   sap_integration_status?: string | null;
+  /** sap_status por serie, mismo orden que serial_numbers / series_ids */
   series_sap_statuses?: (string | null)[];
 };
 

@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { PxManifestItem, PxScannedSeries, GuideData, CurrentEntry } from '../types/reception.types';
 
-import { isIncrementalBoxCaptureEnabled } from '@/lib/featureFlags';
+/** Solo preferencias de UI — los datos operativos viven en Supabase (captura incremental). */
+const UI_PREFS_KEY = 'tc_erp_px_ui_prefs';
 
-const STORAGE_KEY = 'tc_erp_px_reception_state';
-const SAVE_DEBOUNCE_MS = 500;
-const skipLocalPersistence = isIncrementalBoxCaptureEnabled();
+type UiPrefs = {
+  selectedBoxForScan?: string | null;
+  guideDataDraft?: Partial<GuideData>;
+};
 
 export const useReceptionPX = () => {
   const [isReceptionStarted, setIsReceptionStarted] = useState<boolean>(false);
@@ -41,56 +43,52 @@ export const useReceptionPX = () => {
   const isFirstSave = useRef(true);
 
   useEffect(() => {
-    if (skipLocalPersistence) return;
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      const legacy = localStorage.getItem('tc_erp_px_reception_state');
+      if (legacy) {
+        localStorage.removeItem('tc_erp_px_reception_state');
+      }
+      const saved = localStorage.getItem(UI_PREFS_KEY);
       if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.isReceptionStarted) setIsReceptionStarted(parsed.isReceptionStarted);
-        if (parsed.manifestItems) setManifestItems(parsed.manifestItems);
-        if (parsed.scannedSeries) setScannedSeries(parsed.scannedSeries);
-        if (parsed.closedBoxes) setClosedBoxes(parsed.closedBoxes);
+        const parsed = JSON.parse(saved) as UiPrefs;
         if (parsed.selectedBoxForScan) setSelectedBoxForScan(parsed.selectedBoxForScan);
-        if (parsed.guideData) setGuideData(parsed.guideData);
-        if (parsed.currentEntry) setCurrentEntry(parsed.currentEntry);
-        if (parsed.lastSavedAt) setLastSavedAt(parsed.lastSavedAt);
+        if (parsed.guideDataDraft) {
+          setGuideData((prev) => ({ ...prev, ...parsed.guideDataDraft }));
+        }
       }
     } catch (e) {
-      console.error('Error loading PX state from local storage', e);
+      console.error('Error loading PX UI prefs', e);
     }
   }, []);
 
   useEffect(() => {
-    if (skipLocalPersistence) return;
     if (isFirstSave.current) {
       isFirstSave.current = false;
       return;
     }
     const timer = setTimeout(() => {
       try {
-        const stateToSave = {
-          isReceptionStarted,
-          manifestItems,
-          scannedSeries,
-          closedBoxes,
+        const prefs: UiPrefs = {
           selectedBoxForScan,
-          guideData,
-          currentEntry,
-          lastSavedAt: new Date().toISOString(),
+          guideDataDraft: isReceptionStarted
+            ? undefined
+            : {
+                sap: guideData.sap,
+                docReferencia: guideData.docReferencia,
+                proveedorPx: guideData.proveedorPx,
+                agencia: guideData.agencia,
+                piloto: guideData.piloto,
+                courier: guideData.courier,
+                totalCajasEsperadas: guideData.totalCajasEsperadas,
+              },
         };
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
-        setLastSavedAt(stateToSave.lastSavedAt);
+        localStorage.setItem(UI_PREFS_KEY, JSON.stringify(prefs));
       } catch (e) {
-        console.error('Error saving PX state to local storage', e);
-        if (e instanceof DOMException && e.name === 'QuotaExceededError') {
-          alert(
-            'No se pudo guardar más datos en el navegador. Finalice o exporte pronto; considere cerrar cajas completas y finalizar la recepción.'
-          );
-        }
+        console.error('Error saving PX UI prefs', e);
       }
-    }, SAVE_DEBOUNCE_MS);
+    }, 500);
     return () => clearTimeout(timer);
-  }, [isReceptionStarted, manifestItems, scannedSeries, closedBoxes, selectedBoxForScan, guideData, currentEntry]);
+  }, [selectedBoxForScan, guideData, isReceptionStarted]);
 
   return {
     isReceptionStarted,
@@ -102,6 +100,7 @@ export const useReceptionPX = () => {
     closedBoxes,
     setClosedBoxes,
     lastSavedAt,
+    setLastSavedAt,
     currentScans,
     setCurrentScans,
     selectedBoxForScan,

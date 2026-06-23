@@ -32,6 +32,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       material: body.material || null,
       operatorId: body.operatorId || null,
       operatorName: body.operatorName || 'OPERADOR',
+      workstationLabel: body.workstationLabel || body.workstation || null,
     });
 
     if (!result.success) {

@@ -6,10 +6,22 @@ import type { CatalogTech } from '../../types';
 
 type Props = {
   stats: CacTrayStatsResponse;
+  loading?: boolean;
   MASTER_TECNOLOGIAS: CatalogTech[];
 };
 
-export function HistoryStatsGrid({ stats, MASTER_TECNOLOGIAS }: Props) {
+function StatNumber({ value, loading }: { value: number; loading?: boolean }) {
+  if (loading) {
+    return <p className="text-5xl font-black text-slate-200 leading-none animate-pulse">—</p>;
+  }
+  return (
+    <p className="text-5xl font-black text-[#181c3a] group-hover:text-[#2ec4f1] leading-none tracking-tighter">
+      {value}
+    </p>
+  );
+}
+
+export function HistoryStatsGrid({ stats, loading = false, MASTER_TECNOLOGIAS }: Props) {
   const unknownTechUnits = stats.byTechId['__unknown__'] || 0;
 
   return (
@@ -24,9 +36,7 @@ export function HistoryStatsGrid({ stats, MASTER_TECNOLOGIAS }: Props) {
             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 group-hover:text-white/50 mb-4">
               {tech.nombre}
             </p>
-            <p className="text-5xl font-black text-[#181c3a] group-hover:text-[#2ec4f1] leading-none tracking-tighter">
-              {count}
-            </p>
+            <StatNumber value={count} loading={loading} />
             <p className="text-[9px] font-black text-slate-300 group-hover:text-white/20 uppercase mt-4 tracking-widest">
               Equipos
             </p>
@@ -39,9 +49,7 @@ export function HistoryStatsGrid({ stats, MASTER_TECNOLOGIAS }: Props) {
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-rose-400 group-hover:text-white mb-4">
             SIN TECNOLOGÍA
           </p>
-          <p className="text-5xl font-black text-rose-500 group-hover:text-white leading-none tracking-tighter">
-            {unknownTechUnits}
-          </p>
+          <StatNumber value={unknownTechUnits} loading={loading} />
           <p className="text-[9px] font-black text-rose-200 group-hover:text-white/50 uppercase mt-4 tracking-widest">
             Revisar Modelos
           </p>
@@ -52,9 +60,7 @@ export function HistoryStatsGrid({ stats, MASTER_TECNOLOGIAS }: Props) {
         <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 group-hover:text-white/50 mb-4">
           Total Global
         </p>
-        <p className="text-5xl font-black text-[#181c3a] group-hover:text-[#2ec4f1] leading-none tracking-tighter">
-          {stats.total}
-        </p>
+        <StatNumber value={stats.total} loading={loading} />
         <p className="text-[9px] font-black text-slate-300 group-hover:text-white/20 uppercase mt-4 tracking-widest">
           Unidades
         </p>
@@ -62,7 +68,9 @@ export function HistoryStatsGrid({ stats, MASTER_TECNOLOGIAS }: Props) {
 
       <Card className="p-6 border-none shadow-2xl bg-[#2ec4f1] rounded-[2.5rem] flex flex-col items-center justify-center text-center text-[#181c3a] h-40">
         <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#181c3a]/30 mb-4">Órdenes (OS)</p>
-        <p className="text-6xl font-black text-[#181c3a] leading-none tracking-tighter">{stats.total}</p>
+        <p className="text-6xl font-black text-[#181c3a] leading-none tracking-tighter">
+          {loading ? <span className="text-[#181c3a]/20 animate-pulse">—</span> : stats.total}
+        </p>
         <p className="text-[9px] font-black text-[#181c3a]/20 uppercase mt-4 tracking-widest">Generadas</p>
       </Card>
     </div>

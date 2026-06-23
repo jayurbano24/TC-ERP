@@ -1,17 +1,27 @@
 import type { HistoryUnitEntry } from '@/app/(erp)/produccion/backoffice/history/types';
 import type { CacTrayUnitRow } from './cacTrayTypes';
-import { resolveUnitSapStatus } from '@/lib/sap/sapValidationStatus';
+import {
+  resolveUnitSapStatus,
+  normalizeSeriesSapStatus,
+  type SapValidationState,
+} from '@/lib/sap/sapValidationStatus';
 
 /** Adapta fila del read-model al shape que ya consumen tabla, export y modales. */
 export function trayRowToHistoryEntry(row: CacTrayUnitRow, groupIndex = 0): HistoryUnitEntry {
+  const seriesSapStatuses = row.series_sap_statuses || [];
+  const unitSapValidationStatus = resolveUnitSapStatus(
+    row.sap_integration_status,
+    seriesSapStatuses
+  );
+
   const unit = row.serial_numbers.map((sn, i) => ({
     id: row.series_ids[i] || `${row.service_order_id}-${i}`,
     serial_number: sn,
     brand_id: row.brand_id,
     model_id: row.model_id,
     current_status: row.unit_status,
+    sap_status: seriesSapStatuses[i] || 'Pendiente',
     sap_transfer_id: row.sap_transfer_id,
-    sap_status: row.series_sap_statuses?.[i] || null,
     service_orders: {
       os_label: row.os_label,
       main_serial: row.serial_numbers[0] || sn,
@@ -53,14 +63,19 @@ export function trayRowToHistoryEntry(row: CacTrayUnitRow, groupIndex = 0): Hist
     unitStatus: row.unit_status,
     unitStatusLabel: row.unit_status_label,
     sapTransferId: row.sap_transfer_id,
+    unitSapValidationStatus,
+    seriesSapStatuses: seriesSapStatuses as string[],
     sortAt,
     classifiedAtIso,
-    sapValidationStatus: resolveUnitSapStatus(
-      row.sap_integration_status,
-      row.series_sap_statuses || unit.map((u) => u.sap_status)
-    ),
-    seriesSapStatuses: row.series_sap_statuses || unit.map((u) => u.sap_status),
   };
+}
+
+export function formatSeriesSapStatusLabel(raw?: string | null): string {
+  return normalizeSeriesSapStatus(raw);
+}
+
+export function formatUnitSapValidationForExport(status: SapValidationState): string {
+  return status;
 }
 
 export function trayRowsToHistoryEntries(rows: CacTrayUnitRow[]): HistoryUnitEntry[] {

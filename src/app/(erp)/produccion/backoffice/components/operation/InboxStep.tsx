@@ -6,6 +6,7 @@ import { RecordListCard } from '@/components/ui/RecordListCard';
 import { ErpIcon } from '@/lib/design/icons';
 import { erpTypography } from '@/lib/design/tokens';
 import { formatDisplayDateTime } from '@/lib/formatDisplayDate';
+import { shouldShowInCacInbox } from '../../cacInboxFilter';
 import type { OperationContext } from '../../operation/operationContext';
 
 type Props = { ctx: OperationContext };
@@ -27,6 +28,7 @@ export function InboxStep({ ctx }: Props) {
 
   const filteredReceptions = pendingReceptions.filter(
     (rec) =>
+      shouldShowInCacInbox(rec) &&
       rec.status !== 'ARCHIVADO' &&
       rec.status !== 'RECIBIDO' &&
       (!inboxSearch || rec.guide_number.toLowerCase().includes(inboxSearch.toLowerCase()))

@@ -1,6 +1,6 @@
 import type React from 'react';
 import type { OperationContext } from './operationContext';
-import type { BackofficeReception, CatalogAgency, CatalogBrand, CatalogModel, CatalogTech, ReceptionStep } from '../types';
+import type { BackofficeReception, CatalogAgency, CatalogBrand, CatalogModel, CatalogTech, OperationCategory, ReceptionStep } from '../types';
 
 type ManifestSlice = {
   guideItems: OperationContext['guideItems'];
@@ -63,8 +63,8 @@ export type BuildOperationContextParams = {
   setAgencia: React.Dispatch<React.SetStateAction<string>>;
   selectedAgencyId: string;
   setSelectedAgencyId: React.Dispatch<React.SetStateAction<string>>;
-  category: 'Equipo' | 'Accesorio' | 'Teléfono';
-  setCategory: React.Dispatch<React.SetStateAction<'Equipo' | 'Accesorio' | 'Teléfono'>>;
+  category: OperationCategory;
+  setCategory: React.Dispatch<React.SetStateAction<OperationCategory>>;
   returnReason: string;
   setReturnReason: React.Dispatch<React.SetStateAction<string>>;
   returnTracking: string;

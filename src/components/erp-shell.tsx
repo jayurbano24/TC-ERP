@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui";
 import { useTheme } from "@/components/theme-provider";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { getRolePermissions } from "@/lib/database/roles";
+import { registerUserSession } from "@/lib/userSession";
 import { 
   LayoutDashboard, 
   Settings, 
@@ -36,14 +37,53 @@ const ICON_MAP: Record<string, React.ElementType> = {
   LayoutDashboard, PackageSearch, Undo2, Laptop, Wrench, Warehouse, Truck, TrendingUp, CircleDollarSign, ShieldCheck, Activity, Users
 };
 
+const NAV_PERMS_KEY_PREFIX = 'tcerp_nav_permissions_';
+const LAST_USER_KEY = 'tcerp_last_user_id';
+
+function readCachedPermissions(userId?: string | null): any[] | null {
+  if (typeof window === 'undefined') return null;
+  const id = userId || localStorage.getItem(LAST_USER_KEY);
+  if (!id) return null;
+  try {
+    const raw = localStorage.getItem(`${NAV_PERMS_KEY_PREFIX}${userId}`);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedPermissions(userId: string, perms: any[]) {
+  try {
+    localStorage.setItem(LAST_USER_KEY, userId);
+    localStorage.setItem(`${NAV_PERMS_KEY_PREFIX}${userId}`, JSON.stringify(perms));
+  } catch {
+    /* quota / private mode */
+  }
+}
+
+function clearCachedPermissions(userId?: string | null) {
+  if (!userId || typeof window === 'undefined') return;
+  localStorage.removeItem(`${NAV_PERMS_KEY_PREFIX}${userId}`);
+}
+
 export function ErpShell({ children }: { children: React.ReactNode }) {
   const { theme, toggleTheme } = useTheme();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const pathname = usePathname();
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [userPermissions, setUserPermissions] = useState<any[] | null>(null);
+  const [userPermissions, setUserPermissions] = useState<any[] | null>(() => {
+    if (typeof window === 'undefined') return null;
+    if (localStorage.getItem('tcerp_dev_session')) return [{ is_admin: true }];
+    return readCachedPermissions();
+  });
+  const [permissionsLoading, setPermissionsLoading] = useState(() => userPermissions === null);
   const [isMobile, setIsMobile] = useState(false);
+
+  const applyUserPermissions = (userId: string, perms: any[]) => {
+    setUserPermissions(perms);
+    writeCachedPermissions(userId, perms);
+  };
 
   useEffect(() => {
     const handleResize = () => {
@@ -58,30 +98,51 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+
     async function loadUser() {
-      const devRaw = typeof window !== 'undefined' ? localStorage.getItem('tcerp_dev_session') : null;
-      const supabase = getSupabaseBrowserClient();
-      const session = supabase ? (await supabase.auth.getSession()).data.session : null;
-      if (!session?.user && devRaw) {
-        try {
-          const dev = JSON.parse(devRaw);
-          setCurrentUser({ id: 'dev-user', email: dev.email, full_name: 'Dev Admin', role: dev.role || 'ADMINISTRADOR', role_id: null });
-          setUserPermissions([{ is_admin: true }]);
-          return;
-        } catch { /* ignore */ }
-      }
-      if (!supabase) {
-        if (!session?.user) router.push('/');
-        return;
-      }
-      
-      if (session?.user) {
-        // Validación Avanzada de Sesión (Single PC + 5 Horas)
-        if (session.user.id !== 'dev-user') {
-          const localSessionId = localStorage.getItem('tcerp_session_id');
-          if (!localSessionId) {
-            handleLogout();
+      setPermissionsLoading(true);
+      try {
+        const devRaw = typeof window !== 'undefined' ? localStorage.getItem('tcerp_dev_session') : null;
+        const supabase = getSupabaseBrowserClient();
+        const session = supabase ? (await supabase.auth.getSession()).data.session : null;
+
+        if (!session?.user && devRaw) {
+          try {
+            const dev = JSON.parse(devRaw);
+            if (cancelled) return;
+            setCurrentUser({ id: 'dev-user', email: dev.email, full_name: 'Dev Admin', role: dev.role || 'ADMINISTRADOR', role_id: null });
+            applyUserPermissions('dev-user', [{ is_admin: true }]);
             return;
+          } catch {
+            /* ignore */
+          }
+        }
+
+        if (!supabase) {
+          if (!session?.user) router.push('/');
+          return;
+        }
+
+        if (!session?.user) {
+          router.push('/');
+          return;
+        }
+
+        const userId = session.user.id;
+        const cachedPerms = readCachedPermissions(userId);
+        if (cachedPerms && !cancelled) {
+          setUserPermissions(cachedPerms);
+        }
+
+        if (userId !== 'dev-user') {
+          let localSessionId = localStorage.getItem('tcerp_session_id');
+          if (!localSessionId) {
+            localSessionId = await registerUserSession(userId);
+            if (!localSessionId) {
+              if (!cachedPerms) handleLogout();
+              return;
+            }
           }
 
           const { data: sessionData, error: sessionError } = await supabase
@@ -90,65 +151,80 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
             .eq('id', localSessionId)
             .single();
 
-          if (sessionError) {
-             // Si el error es 'PGRST116', significa que la fila no existe (fue borrada / otro PC inició sesión)
-             if (sessionError.code === 'PGRST116') {
-                handleLogout();
-                return;
-             }
-             // Si es otro error (ej. red caída), NO cerramos sesión por error temporal
-          } else if (!sessionData) {
-            // La sesión fue borrada
-            handleLogout();
+          if (sessionError?.code === 'PGRST116' || (!sessionError && !sessionData)) {
+            if (!cachedPerms) handleLogout();
             return;
-          } else {
-             const sessionAgeHours = (new Date().getTime() - new Date(sessionData.created_at).getTime()) / (1000 * 60 * 60);
-             if (sessionAgeHours > 16) {
-               // Sesión excedió las 16 horas (turno extendido)
-               await supabase.from('user_sessions').delete().eq('id', localSessionId);
-               handleLogout();
-               return;
-             }
+          }
+
+          if (sessionData) {
+            const sessionAgeHours =
+              (Date.now() - new Date(sessionData.created_at).getTime()) / (1000 * 60 * 60);
+            if (sessionAgeHours > 16) {
+              await supabase.from('user_sessions').delete().eq('id', localSessionId);
+              if (!cachedPerms) handleLogout();
+              return;
+            }
           }
         }
 
-        // Obtenemos el perfil y su rol
-        const { data } = await supabase
+        const { data, error: profileError } = await supabase
           .from('profiles')
           .select('full_name, email, avatar_url, user_roles(role, role_id)')
-          .eq('id', session.user.id)
+          .eq('id', userId)
           .single();
-        if (data) {
-          const role = data.user_roles && data.user_roles.length > 0 ? data.user_roles[0].role : 'Sin Rol';
-          const roleId = data.user_roles && data.user_roles.length > 0 ? data.user_roles[0].role_id : null;
-          
-          setCurrentUser({
-            id: session.user.id,
-            email: data.email,
-            full_name: data.full_name,
-            avatar_url: data.avatar_url,
-            role,
-            role_id: roleId
-          });
 
-          if (role === 'ADMINISTRADOR' || data.email === 'gurbano@techcommwireless.com' || data.email === 'gurbnao@techcommwireless.com') {
-             setUserPermissions([{ is_admin: true }]);
-          } else if (roleId) {
-             const perms = await getRolePermissions(roleId);
-             setUserPermissions(perms || []);
-          } else {
-             setUserPermissions([]); // No role, no access
-          }
+        if (cancelled) return;
+
+        if (profileError || !data) {
+          console.warn('No se pudo cargar perfil para menú:', profileError?.message);
+          if (!cachedPerms) setUserPermissions([]);
+          return;
         }
-      } else {
-        router.push('/');
+
+        const role = data.user_roles && data.user_roles.length > 0 ? data.user_roles[0].role : 'Sin Rol';
+        const roleId = data.user_roles && data.user_roles.length > 0 ? data.user_roles[0].role_id : null;
+
+        setCurrentUser({
+          id: userId,
+          email: data.email,
+          full_name: data.full_name,
+          avatar_url: data.avatar_url,
+          role,
+          role_id: roleId,
+        });
+
+        if (role === 'ADMINISTRADOR' || data.email === 'gurbano@techcommwireless.com' || data.email === 'gurbnao@techcommwireless.com') {
+          applyUserPermissions(userId, [{ is_admin: true }]);
+        } else if (roleId) {
+          const perms = await getRolePermissions(roleId);
+          if (!cancelled) applyUserPermissions(userId, perms || []);
+        } else {
+          applyUserPermissions(userId, []);
+        }
+      } catch (err) {
+        console.error('Error cargando sesión/menú:', err);
+        if (!cancelled) setUserPermissions((prev) => prev ?? []);
+      } finally {
+        if (!cancelled) setPermissionsLoading(false);
       }
     }
-    loadUser();
-  }, [pathname]);
+
+    void loadUser();
+
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) void loadUser();
+    };
+    window.addEventListener('pageshow', onPageShow);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener('pageshow', onPageShow);
+    };
+  }, []);
 
   const handleLogout = async () => {
     const supabase = getSupabaseBrowserClient();
+    const logoutUserId = currentUser?.id;
     if (supabase) {
       const localSessionId = localStorage.getItem('tcerp_session_id');
       if (localSessionId && currentUser?.id !== 'dev-user') {
@@ -156,8 +232,11 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
       }
       await supabase.auth.signOut();
     }
+    clearCachedPermissions(logoutUserId);
     localStorage.removeItem('tcerp_session_id');
     localStorage.removeItem('tcerp_dev_session');
+    localStorage.removeItem(LAST_USER_KEY);
+    setUserPermissions(null);
     router.push('/');
   };
 
@@ -236,6 +315,16 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
 
           {/* Navigation */}
           <nav className="flex-1 overflow-y-auto px-3 py-6 space-y-6 custom-scrollbar">
+            {permissionsLoading && !userPermissions ? (
+              <div className="space-y-3 px-2 animate-pulse">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <div key={i} className="h-10 rounded-xl bg-white/5" />
+                ))}
+                <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest text-center pt-2">
+                  Cargando menú…
+                </p>
+              </div>
+            ) : null}
             {navigationGroups.map((group) => {
               // Filtrar items basados en permisos
               const filteredItems = group.items.filter(item => {

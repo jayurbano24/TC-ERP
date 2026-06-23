@@ -7,3 +7,4 @@ export * from './EmptyState';
 export * from './StatCard';
 export * from './PageSection';
 export * from './RecordListCard';
+export * from './TablePagination';

@@ -165,3 +165,17 @@ export function canCreateNewPxBox(
   }
   return { ok: true };
 }
+
+/** Progreso de caja desde metadata servidor (fuente de verdad). */
+export function getPxBoxProgressFromMeta(meta?: {
+  captured_count: number;
+  declared_quantity?: number;
+} | null): { received: number; totalExpected: number; isComplete: boolean } {
+  const received = meta?.captured_count ?? 0;
+  const totalExpected = meta?.declared_quantity ?? 0;
+  return {
+    received,
+    totalExpected,
+    isComplete: totalExpected > 0 && received >= totalExpected,
+  };
+}

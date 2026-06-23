@@ -150,27 +150,44 @@ export function formatUnitStatusLabel(status: string): string {
     case 'returned':
     case 'DEVUELTO_BLOQUE':
       return 'Devuelto';
+    case 'dispatched':
+      return 'Despachado';
     default:
       return status || '---';
   }
 }
 
 export function resolveUnitStatus(rec: any, unit: any[]): { status: string; label: string } {
+  const seriesStatuses = unit.map((u) => u?.current_status).filter(Boolean);
+
+  if (
+    seriesStatuses.length > 0 &&
+    seriesStatuses.every((s) => s === 'dispatched' || s === 'in_scraps')
+  ) {
+    return { status: 'dispatched', label: 'Despachado' };
+  }
+
   const sapTransferId = resolveUnitSapTransferId(rec, unit);
   const sapDoc = (rec.sap_transfer_documents || []).find((d: any) => d.id === sapTransferId);
   const sapStatus = sapDoc?.status;
+
+  if (sapStatus === 'DESPACHADO') {
+    return { status: 'dispatched', label: 'Despachado' };
+  }
 
   if (sapStatus === 'DEVUELTO_BLOQUE') {
     return { status: 'returned', label: 'Devuelto' };
   }
 
-  const seriesStatuses = unit.map((u) => u?.current_status).filter(Boolean);
   if (seriesStatuses.length > 0 && seriesStatuses.every((s) => s === 'returned')) {
     return { status: 'returned', label: 'Devuelto' };
   }
 
   const seriesStatus = unit.find((u) => u?.current_status)?.current_status;
 
+  if (seriesStatus === 'dispatched') {
+    return { status: 'dispatched', label: 'Despachado' };
+  }
   if (seriesStatus === 'returned') {
     return { status: 'returned', label: 'Devuelto' };
   }

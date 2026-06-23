@@ -67,13 +67,18 @@ export class ClassifyEquipmentBatchLegacyAdapter implements IClassifyBatchGatewa
         return { error: seriesError.message };
       }
 
+      const { error: trayError } = await supabase.rpc('upsert_cac_tray_unit_from_os', {
+        p_os_id: osData.id,
+      });
+      if (trayError) {
+        console.warn('upsert_cac_tray_unit_from_os:', trayError.message);
+      }
+
       if (upsertedSeries) {
         await auditClassifiedSeries(
           upsertedSeries.map((s) => s.id),
-          {
-            sapTransferId: params.sapTransferId,
-            registeredBy: params.registeredBy,
-          }
+          params.sapTransferId,
+          params.registeredBy
         );
       }
 

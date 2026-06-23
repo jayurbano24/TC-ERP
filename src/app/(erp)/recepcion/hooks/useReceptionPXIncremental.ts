@@ -1,10 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, startTransition, type Dispatch, type SetStateAction } from 'react';
 import type { CurrentEntry, GuideData } from '../types/reception.types';
 import type { PxBoxSnapshot } from '@/lib/database/pxReceptionCapture';
 import { snapshotToGuideData, snapshotToPxUiState } from '@/lib/database/pxReceptionCapture';
-import { validationService } from '../services/validationService';
 import { getWorkstationLabel } from '../utils/pxWorkstation';
 import { validatePxIncrementalFinalizeReadiness } from '../utils/pxBoxUtils';
 import {
@@ -18,7 +17,10 @@ import {
   joinOrStartPxReceptionApi,
   reopenPxBoxApi,
   releaseBoxLockApi,
+  voidPxEquipmentApi,
+  deletePxCaptureBoxApi,
   scanPxEquipmentApi,
+  type ScanPxEquipmentResult,
   setIncrementalReceptionIdInSession,
   getIncrementalReceptionIdFromSession,
   updatePxReceptionHeaderApi,
@@ -55,6 +57,85 @@ type UseReceptionPXIncrementalArgs = {
   onHistoryRefresh?: () => Promise<void>;
 };
 
+function buildOptimisticScanResult(
+  meta: PxBoxSnapshot | undefined,
+  captured: number
+): ScanPxEquipmentResult {
+  return {
+    success: true,
+    equipmentId: `pending-${crypto.randomUUID()}`,
+    capturedCount: captured + 1,
+    declaredQuantity: meta?.declared_quantity ?? captured + 1,
+    boxStatus: meta?.status ?? 'abierta',
+  };
+}
+
+function buildScannedSerialSet(scannedSeries: any[]): Set<string> {
+  const set = new Set<string>();
+  for (const s of scannedSeries) {
+    if (s.sn) set.add(String(s.sn).toUpperCase());
+    if (s.s2) set.add(String(s.s2).toUpperCase());
+    if (s.s3) set.add(String(s.s3).toUpperCase());
+    if (s.s4) set.add(String(s.s4).toUpperCase());
+  }
+  return set;
+}
+
+function buildScanEntry(
+  boxCode: string,
+  currentScans: string[],
+  validScans: string[],
+  material: string | undefined,
+  equipmentId: string
+) {
+  const upper = (v: string) => v.trim().toUpperCase();
+  return {
+    boxCode,
+    sn: validScans[0],
+    s2: currentScans[1]?.trim() ? upper(currentScans[1]) : undefined,
+    s3: currentScans[2]?.trim() ? upper(currentScans[2]) : undefined,
+    s4: currentScans[3]?.trim() ? upper(currentScans[3]) : undefined,
+    material,
+    equipmentId,
+  };
+}
+
+function applyLocalScanPatch(
+  pxState: PxStateSlice,
+  setBoxMetaByCode: Dispatch<SetStateAction<Record<string, PxBoxSnapshot>>>,
+  setBoxVersionByCode: Dispatch<SetStateAction<Record<string, number>>>,
+  boxCode: string,
+  scannedSeries: any[],
+  currentScans: string[],
+  validScans: string[],
+  material: string | undefined,
+  result: ScanPxEquipmentResult
+): any[] {
+  const nextSeries = [
+    ...scannedSeries,
+    buildScanEntry(boxCode, currentScans, validScans, material, result.equipmentId),
+  ];
+  pxState.setScannedSeries(nextSeries);
+  setBoxMetaByCode((prev) => {
+    const meta = prev[boxCode];
+    if (!meta) return prev;
+    return {
+      ...prev,
+      [boxCode]: {
+        ...meta,
+        captured_count: result.capturedCount,
+        declared_quantity: result.declaredQuantity,
+        status: result.boxStatus,
+      },
+    };
+  });
+  setBoxVersionByCode((prev) => ({
+    ...prev,
+    [boxCode]: (prev[boxCode] ?? 1) + 1,
+  }));
+  return nextSeries;
+}
+
 function buildLotInput(
   entry: CurrentEntry,
   systemBrands: any[],
@@ -90,6 +171,8 @@ export function useReceptionPXIncremental({
   const operatorIdRef = useRef<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const scannedSeriesRef = useRef<any[]>([]);
+  const boxMetaRef = useRef<Record<string, PxBoxSnapshot>>({});
 
   operatorIdRef.current = operatorId;
 
@@ -113,7 +196,9 @@ export function useReceptionPXIncremental({
       pxState.setManifestItems(ui.manifestItems);
       pxState.setScannedSeries(ui.scannedSeries);
       pxState.setClosedBoxes(ui.closedBoxes);
+      scannedSeriesRef.current = ui.scannedSeries;
       setBoxMetaByCode(ui.boxMetaByCode);
+      boxMetaRef.current = ui.boxMetaByCode;
       setBoxIdByCode(ui.boxIdByCode);
       setBoxVersionByCode(ui.boxVersionByCode);
       setReceptionVersion(snapshot.reception.version ?? 1);
@@ -157,7 +242,11 @@ export function useReceptionPXIncremental({
   useEffect(() => {
     getSupabaseBrowserClient()
       .auth.getUser()
-      .then(({ data }) => setOperatorId(data?.user?.id ?? null));
+      .then(({ data }) => {
+        const id = data?.user?.id ?? null;
+        operatorIdRef.current = id;
+        setOperatorId(id);
+      });
     loadInProgressList();
 
     try {
@@ -271,7 +360,7 @@ export function useReceptionPXIncremental({
         setBoxMetaByCode((prev) => {
           const current = prev[boxCode];
           if (!current) return prev;
-          return {
+          const next = {
             ...prev,
             [boxCode]: {
               ...current,
@@ -280,18 +369,19 @@ export function useReceptionPXIncremental({
               version: result.version ?? current.version,
             },
           };
+          boxMetaRef.current = { ...boxMetaRef.current, [boxCode]: next[boxCode] };
+          return next;
         });
         if (result.version) {
-          setBoxVersionByCode((prev) => ({ ...prev, [boxCode]: result.version }));
+          setBoxVersionByCode((prev) => ({ ...prev, [boxCode]: result.version! }));
         }
-        await refreshSnapshot();
         return true;
       } catch (err: unknown) {
         alert(err instanceof Error ? err.message : 'No se pudo tomar control de la caja');
         return false;
       }
     },
-    [currentUserFullName, ensureOperatorId, refreshSnapshot]
+    [currentUserFullName, ensureOperatorId]
   );
 
   const onAddLotToBoxIncremental = useCallback(
@@ -339,9 +429,13 @@ export function useReceptionPXIncremental({
   const onScanPxIncremental = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
-      if (isScanning) return;
 
       const { selectedBoxForScan, currentScans, manifestItems, scannedSeries, setCurrentScans } = pxState;
+      const liveSeries =
+        scannedSeriesRef.current.length > 0 ? scannedSeriesRef.current : scannedSeries;
+      if (scannedSeriesRef.current !== liveSeries) {
+        scannedSeriesRef.current = liveSeries;
+      }
 
       if (!incrementalReceptionId) {
         alert('Recepción no iniciada en servidor.');
@@ -360,13 +454,13 @@ export function useReceptionPXIncremental({
 
       if (!currentScans[0]?.trim()) return;
 
-      const opId = await ensureOperatorId();
+      const opId = operatorIdRef.current ?? (await ensureOperatorId());
       if (!opId) {
         alert('Sesión de usuario no lista. Espere un momento o recargue la página.');
         return;
       }
 
-      const meta = boxMetaByCode[selectedBoxForScan];
+      const meta = boxMetaRef.current[selectedBoxForScan] ?? boxMetaByCode[selectedBoxForScan];
       const declared = meta?.declared_quantity ?? 0;
       const captured = meta?.captured_count ?? 0;
       if (declared > 0 && captured >= declared) {
@@ -380,13 +474,8 @@ export function useReceptionPXIncremental({
         return;
       }
 
-      const isDuplicateInScanned = scannedSeries.some(
-        (s: any) =>
-          validScans.includes(s.sn) ||
-          validScans.includes(s.s2) ||
-          validScans.includes(s.s3) ||
-          validScans.includes(s.s4)
-      );
+      const scannedSet = buildScannedSerialSet(liveSeries);
+      const isDuplicateInScanned = validScans.some((v) => scannedSet.has(v));
       if (isDuplicateInScanned) {
         alert('Una o más series ya fueron escaneadas en esta recepción.');
         return;
@@ -405,88 +494,347 @@ export function useReceptionPXIncremental({
       }
 
       const boxLot = manifestItems.find((i: any) => i.boxCode === selectedBoxForScan);
+      const scanPayload = {
+        receptionId: incrementalReceptionId,
+        boxId,
+        mainSerial: validScans[0],
+        serialS2: currentScans[1]?.trim(),
+        serialS3: currentScans[2]?.trim(),
+        serialS4: currentScans[3]?.trim(),
+        brandId: systemBrands.find((b) => b.name === boxLot?.marca)?.id || meta?.brand_id,
+        modelId: systemModels.find((m) => m.name === boxLot?.modelo)?.id || meta?.model_id,
+        material: boxLot?.material,
+        operatorId: opId,
+        operatorName: currentUserFullName,
+        workstationLabel: getWorkstationLabel(),
+      };
 
-      try {
-        for (const scan of validScans) {
-          const validation = await validationService.checkSerialInSystem(scan);
-          if (validation.blocked) {
-            alert(validation.info);
-            return;
-          }
-        }
-      } catch (err: unknown) {
-        alert('Error validando serie: ' + (err instanceof Error ? err.message : 'desconocido'));
-        return;
+      const optimisticResult = buildOptimisticScanResult(meta, captured);
+      const pendingId = optimisticResult.equipmentId;
+      const rollbackScans = [...currentScans];
+      const rollbackMeta = meta ? { ...meta } : undefined;
+      const rollbackVersion = boxVersionByCode[selectedBoxForScan];
+      const seriesBeforePending = liveSeries;
+      const nextSeries = [...liveSeries, buildScanEntry(
+        selectedBoxForScan,
+        currentScans,
+        validScans,
+        boxLot?.material,
+        pendingId
+      )];
+
+      scannedSeriesRef.current = nextSeries;
+      if (meta) {
+        boxMetaRef.current = {
+          ...boxMetaRef.current,
+          [selectedBoxForScan]: {
+            ...meta,
+            captured_count: optimisticResult.capturedCount,
+            declared_quantity: optimisticResult.declaredQuantity,
+            status: optimisticResult.boxStatus,
+          },
+        };
       }
 
-      setIsScanning(true);
-      try {
-        await scanPxEquipmentApi({
-          receptionId: incrementalReceptionId,
-          boxId,
-          mainSerial: validScans[0],
-          serialS2: currentScans[1]?.trim(),
-          serialS3: currentScans[2]?.trim(),
-          serialS4: currentScans[3]?.trim(),
-          brandId: systemBrands.find((b) => b.name === boxLot?.marca)?.id || meta?.brand_id,
-          modelId: systemModels.find((m) => m.name === boxLot?.modelo)?.id || meta?.model_id,
-          material: boxLot?.material,
-          operatorId: opId,
-          operatorName: currentUserFullName,
-          workstationLabel: getWorkstationLabel(),
+      startTransition(() => {
+        pxState.setScannedSeries(nextSeries);
+        setBoxMetaByCode((prev) => {
+          const current = prev[selectedBoxForScan];
+          if (!current) return prev;
+          return {
+            ...prev,
+            [selectedBoxForScan]: {
+              ...current,
+              captured_count: optimisticResult.capturedCount,
+              declared_quantity: optimisticResult.declaredQuantity,
+              status: optimisticResult.boxStatus,
+            },
+          };
         });
-
-        await refreshSnapshot();
+        setBoxVersionByCode((prev) => ({
+          ...prev,
+          [selectedBoxForScan]: (prev[selectedBoxForScan] ?? 1) + 1,
+        }));
         setCurrentScans(['', '', '', '']);
-        setTimeout(() => document.getElementById('scan-input-0')?.focus(), 10);
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : 'Error al guardar escaneo en servidor';
-        if (message.includes('tomar control')) {
-          const ok = await onAcquireBoxLock(selectedBoxForScan, boxId);
-          if (ok) {
-            try {
-              await scanPxEquipmentApi({
-                receptionId: incrementalReceptionId,
-                boxId,
-                mainSerial: validScans[0],
-                serialS2: currentScans[1]?.trim(),
-                serialS3: currentScans[2]?.trim(),
-                serialS4: currentScans[3]?.trim(),
-                brandId: systemBrands.find((b) => b.name === boxLot?.marca)?.id || meta?.brand_id,
-                modelId: systemModels.find((m) => m.name === boxLot?.modelo)?.id || meta?.model_id,
-                material: boxLot?.material,
-                operatorId: opId,
-                operatorName: currentUserFullName,
-                workstationLabel: getWorkstationLabel(),
-              });
-              await refreshSnapshot();
-              setCurrentScans(['', '', '', '']);
-              setTimeout(() => document.getElementById('scan-input-0')?.focus(), 10);
-              return;
-            } catch (retryErr: unknown) {
-              alert(retryErr instanceof Error ? retryErr.message : message);
-              return;
-            }
-          }
+        setLastSyncedAt(new Date().toISOString());
+      });
+      setTimeout(() => document.getElementById('scan-input-0')?.focus(), 10);
+
+      const rollbackOptimisticScan = () => {
+        scannedSeriesRef.current = seriesBeforePending;
+        if (rollbackMeta) {
+          boxMetaRef.current = { ...boxMetaRef.current, [selectedBoxForScan]: rollbackMeta };
         }
-        alert(message);
-      } finally {
-        setIsScanning(false);
-      }
+        startTransition(() => {
+          pxState.setScannedSeries(seriesBeforePending);
+          setCurrentScans(rollbackScans);
+          if (rollbackMeta) {
+            setBoxMetaByCode((prev) => ({ ...prev, [selectedBoxForScan]: rollbackMeta }));
+          }
+          if (rollbackVersion !== undefined) {
+            setBoxVersionByCode((prev) => ({ ...prev, [selectedBoxForScan]: rollbackVersion }));
+          }
+        });
+      };
+
+      const reconcileOptimisticScan = (result: ScanPxEquipmentResult) => {
+        const reconciled = scannedSeriesRef.current.map((s) =>
+          s.equipmentId === pendingId ? { ...s, equipmentId: result.equipmentId } : s
+        );
+        scannedSeriesRef.current = reconciled;
+        if (meta) {
+          boxMetaRef.current = {
+            ...boxMetaRef.current,
+            [selectedBoxForScan]: {
+              ...(boxMetaRef.current[selectedBoxForScan] ?? meta),
+              captured_count: result.capturedCount,
+              declared_quantity: result.declaredQuantity,
+              status: result.boxStatus,
+            },
+          };
+        }
+        startTransition(() => {
+          pxState.setScannedSeries(reconciled);
+          setBoxMetaByCode((prev) => {
+            const current = prev[selectedBoxForScan];
+            if (!current) return prev;
+            return {
+              ...prev,
+              [selectedBoxForScan]: {
+                ...current,
+                captured_count: result.capturedCount,
+                declared_quantity: result.declaredQuantity,
+                status: result.boxStatus,
+              },
+            };
+          });
+        });
+        window.setTimeout(() => {
+          refreshSnapshot().catch(() => undefined);
+        }, 2500);
+      };
+
+      const submitScan = async (retryOnLock = false): Promise<boolean> => {
+        try {
+          const result = await scanPxEquipmentApi(scanPayload);
+          reconcileOptimisticScan(result);
+          return true;
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : 'Error al guardar escaneo en servidor';
+          if (!retryOnLock && message.includes('tomar control')) {
+            const ok = await onAcquireBoxLock(selectedBoxForScan, boxId);
+            if (ok) return submitScan(true);
+          }
+          rollbackOptimisticScan();
+          alert(message);
+          return false;
+        }
+      };
+
+      void submitScan();
     },
     [
-      isScanning,
       pxState,
       incrementalReceptionId,
       boxIdByCode,
       boxMetaByCode,
+      boxVersionByCode,
       systemBrands,
       systemModels,
-      operatorId,
       currentUserFullName,
       refreshSnapshot,
       onAcquireBoxLock,
       ensureOperatorId,
+    ]
+  );
+
+  const onDeleteEquipmentIncremental = useCallback(
+    async (boxCode: string, item: { equipmentId?: string; sn: string }) => {
+      if (!incrementalReceptionId) {
+        alert('Recepción no iniciada en servidor.');
+        return false;
+      }
+      if (!window.confirm(`¿Eliminar el equipo con serie ${item.sn}?`)) return false;
+
+      const boxId = boxIdByCode[boxCode];
+      if (!boxId) {
+        alert('Caja no registrada en servidor.');
+        return false;
+      }
+
+      const opId = operatorIdRef.current ?? (await ensureOperatorId());
+      if (!opId) {
+        alert('Sesión de usuario no lista.');
+        return false;
+      }
+
+      const meta = boxMetaRef.current[boxCode] ?? boxMetaByCode[boxCode];
+      const lockHeldByMe =
+        meta?.locked_by &&
+        opId &&
+        meta.locked_by === opId &&
+        meta.lock_expires_at &&
+        new Date(meta.lock_expires_at) > new Date();
+
+      if (!lockHeldByMe) {
+        const ok = await onAcquireBoxLock(boxCode, boxId);
+        if (!ok) return false;
+      }
+
+      const prevSeries = scannedSeriesRef.current;
+      const nextSeries = prevSeries.filter((s) => {
+        if (item.equipmentId) return s.equipmentId !== item.equipmentId;
+        return !(s.boxCode === boxCode && s.sn === item.sn);
+      });
+      scannedSeriesRef.current = nextSeries;
+      startTransition(() => {
+        pxState.setScannedSeries(nextSeries);
+      });
+
+      try {
+        const isPending = item.equipmentId?.startsWith('pending-');
+        const result = await voidPxEquipmentApi({
+          receptionId: incrementalReceptionId,
+          boxId,
+          equipmentId: isPending ? null : item.equipmentId,
+          mainSerial: item.sn,
+          operatorId: opId,
+          operatorName: currentUserFullName,
+        });
+        if (meta) {
+          const updatedMeta = {
+            ...meta,
+            captured_count: result.capturedCount,
+            declared_quantity: result.declaredQuantity,
+            status: result.boxStatus,
+            version: result.version,
+          };
+          boxMetaRef.current = { ...boxMetaRef.current, [boxCode]: updatedMeta };
+          setBoxVersionByCode((prev) => ({ ...prev, [boxCode]: result.version }));
+          startTransition(() => {
+            setBoxMetaByCode((prev) => ({ ...prev, [boxCode]: updatedMeta }));
+          });
+        }
+        return true;
+      } catch (err: unknown) {
+        scannedSeriesRef.current = prevSeries;
+        startTransition(() => {
+          pxState.setScannedSeries(prevSeries);
+        });
+        alert(err instanceof Error ? err.message : 'No se pudo eliminar el equipo');
+        return false;
+      }
+    },
+    [
+      incrementalReceptionId,
+      boxIdByCode,
+      boxMetaByCode,
+      currentUserFullName,
+      onAcquireBoxLock,
+      ensureOperatorId,
+      pxState,
+    ]
+  );
+
+  const onDeleteBoxIncremental = useCallback(
+    async (boxCode: string) => {
+      if (!incrementalReceptionId) {
+        alert('Recepción no iniciada en servidor.');
+        return false;
+      }
+
+      const meta = boxMetaRef.current[boxCode] ?? boxMetaByCode[boxCode];
+      const isClosed =
+        meta?.status === 'cerrada' || meta?.status === 'closed' || pxState.closedBoxes.includes(boxCode);
+      if (isClosed) {
+        alert('No puede eliminar una caja cerrada. Reábrala primero si necesita modificarla.');
+        return false;
+      }
+
+      const lotsInBox = pxState.manifestItems.filter((i: any) => i.boxCode === boxCode).length;
+      const seriesInBox = scannedSeriesRef.current.filter((s) => s.boxCode === boxCode).length;
+      const message =
+        lotsInBox > 0 || seriesInBox > 0
+          ? `¿Eliminar ${boxCode}? Se quitarán ${lotsInBox} lote(s) y ${seriesInBox} equipo(s) escaneado(s).`
+          : `¿Eliminar la caja vacía ${boxCode}?`;
+      if (!window.confirm(message)) return false;
+
+      const boxId = boxIdByCode[boxCode];
+      if (!boxId) {
+        alert('Caja no registrada en servidor.');
+        return false;
+      }
+
+      const opId = operatorIdRef.current ?? (await ensureOperatorId());
+      if (!opId) {
+        alert('Sesión de usuario no lista.');
+        return false;
+      }
+
+      const lockHeldByMe =
+        meta?.locked_by &&
+        opId &&
+        meta.locked_by === opId &&
+        meta.lock_expires_at &&
+        new Date(meta.lock_expires_at) > new Date();
+
+      if (!lockHeldByMe) {
+        const ok = await onAcquireBoxLock(boxCode, boxId);
+        if (!ok) return false;
+      }
+
+      try {
+        await deletePxCaptureBoxApi({
+          receptionId: incrementalReceptionId,
+          boxId,
+          expectedVersion: boxVersionByCode[boxCode] ?? meta?.version ?? 1,
+          operatorId: opId,
+          operatorName: currentUserFullName,
+        });
+
+        const nextSeries = scannedSeriesRef.current.filter((s) => s.boxCode !== boxCode);
+        scannedSeriesRef.current = nextSeries;
+        const nextManifest = pxState.manifestItems.filter((i: any) => i.boxCode !== boxCode);
+        const { [boxCode]: _removedMeta, ...restMeta } = boxMetaRef.current;
+        boxMetaRef.current = restMeta;
+
+        startTransition(() => {
+          pxState.setManifestItems(nextManifest);
+          pxState.setScannedSeries(nextSeries);
+          pxState.setClosedBoxes(pxState.closedBoxes.filter((b) => b !== boxCode));
+          setBoxMetaByCode((prev) => {
+            const { [boxCode]: _b, ...rest } = prev;
+            return rest;
+          });
+          setBoxIdByCode((prev) => {
+            const { [boxCode]: _b, ...rest } = prev;
+            return rest;
+          });
+          setBoxVersionByCode((prev) => {
+            const { [boxCode]: _b, ...rest } = prev;
+            return rest;
+          });
+          if (pxState.selectedBoxForScan === boxCode) {
+            pxState.setSelectedBoxForScan(null);
+          }
+        });
+        return true;
+      } catch (err: unknown) {
+        alert(err instanceof Error ? err.message : 'No se pudo eliminar la caja');
+        await refreshSnapshot();
+        return false;
+      }
+    },
+    [
+      incrementalReceptionId,
+      boxMetaByCode,
+      boxIdByCode,
+      boxVersionByCode,
+      pxState,
+      currentUserFullName,
+      onAcquireBoxLock,
+      ensureOperatorId,
+      refreshSnapshot,
     ]
   );
 
@@ -738,6 +1086,8 @@ export function useReceptionPXIncremental({
     onReopenBoxIncremental,
     onSaveHeaderIncremental,
     onScanPxIncremental,
+    onDeleteEquipmentIncremental,
+    onDeleteBoxIncremental,
     handleFinalizePXIncremental,
     refreshSnapshot,
   };

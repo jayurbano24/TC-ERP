@@ -331,7 +331,8 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
         }
       }
     }
-    await ctx.fetchHistory();
+    ctx.setHistoryPage(1);
+    await ctx.fetchHistory({ page: 1, silent: true });
     const step = ctx.receptionStep as string;
     const isBulkStep = step === 'bulk_classify_confirm';
     if (step === 'return_confirmation' || (isBulkStep && ctx.category === 'Devolución')) {

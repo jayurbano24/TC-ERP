@@ -39,7 +39,7 @@ export type CompleteGuidesContext = {
   setActiveTab: React.Dispatch<React.SetStateAction<BackofficeTab>>;
   setHistorySearch: React.Dispatch<React.SetStateAction<string>>;
   setHistoryPage: React.Dispatch<React.SetStateAction<number>>;
-  fetchHistory: (opts?: { silent?: boolean }) => Promise<void>;
+  fetchHistory: (opts?: { silent?: boolean; page?: number }) => Promise<void>;
   fetchPending?: (opts?: { silent?: boolean }) => Promise<void>;
   setScannedGuides?: React.Dispatch<React.SetStateAction<string[]>>;
   setReturnReason?: React.Dispatch<React.SetStateAction<string>>;

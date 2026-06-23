@@ -655,6 +655,72 @@ export function mapRpcCaptureError(message: string): string {
   return msg;
 }
 
+function scheduleReceptionReceivedUnitsSync(receptionId: string) {
+  void (async () => {
+    try {
+      const supabase = getSupabaseServerClient();
+      const { count: totalCaptured } = await supabase
+        .from('px_reception_equipment')
+        .select('id', { count: 'exact', head: true })
+        .eq('reception_id', receptionId)
+        .eq('capture_status', 'active');
+
+      await supabase
+        .from('receptions')
+        .update({ received_units: totalCaptured || 0 })
+        .eq('id', receptionId);
+    } catch (e) {
+      console.error('scheduleReceptionReceivedUnitsSync:', e);
+    }
+  })();
+}
+
+function scheduleCapturePxEquipmentSideEffects(
+  input: {
+    receptionId: string;
+    boxId: string;
+    mainSerial: string;
+  },
+  payload: {
+    equipment_id: string;
+    captured_count: number;
+    declared_quantity: number;
+    box_status: string;
+  },
+  started: number
+) {
+  void (async () => {
+    try {
+      const supabase = getSupabaseServerClient();
+      const { count: totalCaptured } = await supabase
+        .from('px_reception_equipment')
+        .select('id', { count: 'exact', head: true })
+        .eq('reception_id', input.receptionId)
+        .eq('capture_status', 'active');
+
+      await supabase
+        .from('receptions')
+        .update({ received_units: totalCaptured || 0 })
+        .eq('id', input.receptionId);
+
+      await emitPxDomainEvent('EquipmentCaptured', input.receptionId, {
+        box_id: input.boxId,
+        equipment_id: payload.equipment_id,
+        main_serial: input.mainSerial.trim().toUpperCase(),
+      });
+      await emitPxCaptureMetric({
+        receptionId: input.receptionId,
+        boxId: input.boxId,
+        action: 'capture_px_equipment',
+        outcome: 'success',
+        durationMs: Date.now() - started,
+      });
+    } catch (e) {
+      console.error('capturePxEquipment side effects:', e);
+    }
+  })();
+}
+
 export async function capturePxEquipment(input: {
   receptionId: string;
   boxId: string;
@@ -711,29 +777,7 @@ export async function capturePxEquipment(input: {
     box_status: string;
   };
 
-  const { count: totalCaptured } = await supabase
-    .from('px_reception_equipment')
-    .select('id', { count: 'exact', head: true })
-    .eq('reception_id', input.receptionId)
-    .eq('capture_status', 'active');
-
-  await supabase
-    .from('receptions')
-    .update({ received_units: totalCaptured || 0 })
-    .eq('id', input.receptionId);
-
-  await emitPxDomainEvent('EquipmentCaptured', input.receptionId, {
-    box_id: input.boxId,
-    equipment_id: payload.equipment_id,
-    main_serial: input.mainSerial.trim().toUpperCase(),
-  });
-  await emitPxCaptureMetric({
-    receptionId: input.receptionId,
-    boxId: input.boxId,
-    action: 'capture_px_equipment',
-    outcome: 'success',
-    durationMs: Date.now() - started,
-  });
+  scheduleCapturePxEquipmentSideEffects(input, payload, started);
 
   return {
     success: true,
@@ -741,6 +785,97 @@ export async function capturePxEquipment(input: {
     capturedCount: payload.captured_count,
     declaredQuantity: payload.declared_quantity,
     boxStatus: payload.box_status,
+  };
+}
+
+export async function voidPxEquipment(input: {
+  receptionId: string;
+  boxId: string;
+  equipmentId?: string | null;
+  mainSerial?: string | null;
+  operatorId?: string | null;
+  operatorName?: string;
+}): Promise<
+  | {
+      success: true;
+      equipmentId: string;
+      mainSerial: string;
+      capturedCount: number;
+      declaredQuantity: number;
+      boxStatus: string;
+      version: number;
+    }
+  | { success: false; error: string; errorCode?: string }
+> {
+  const supabase = getSupabaseServerClient();
+  const { data, error } = await supabase.rpc('void_px_equipment_tx', {
+    p_reception_id: input.receptionId,
+    p_box_id: input.boxId,
+    p_equipment_id: input.equipmentId || null,
+    p_operator_id: input.operatorId || null,
+    p_operator_name: input.operatorName || 'OPERADOR',
+    p_main_serial: input.mainSerial?.trim().toUpperCase() || null,
+  });
+
+  if (error) {
+    const errorCode = (error.message.match(/^([A-Z_]+):/) || [])[1] || 'RPC_ERROR';
+    return { success: false, error: mapRpcCaptureError(error.message), errorCode };
+  }
+
+  const payload = data as {
+    equipment_id: string;
+    main_serial: string;
+    captured_count: number;
+    declared_quantity: number;
+    box_status: string;
+    version: number;
+  };
+
+  scheduleReceptionReceivedUnitsSync(input.receptionId);
+
+  return {
+    success: true,
+    equipmentId: payload.equipment_id,
+    mainSerial: payload.main_serial,
+    capturedCount: payload.captured_count,
+    declaredQuantity: payload.declared_quantity,
+    boxStatus: payload.box_status,
+    version: payload.version,
+  };
+}
+
+export async function deletePxCaptureBox(input: {
+  receptionId: string;
+  boxId: string;
+  expectedVersion: number;
+  operatorId?: string | null;
+  operatorName?: string;
+}): Promise<
+  | { success: true; boxId: string; boxCode: string; version: number }
+  | { success: false; error: string; errorCode?: string }
+> {
+  const supabase = getSupabaseServerClient();
+  const { data, error } = await supabase.rpc('delete_px_capture_box_tx', {
+    p_reception_id: input.receptionId,
+    p_box_id: input.boxId,
+    p_expected_version: input.expectedVersion,
+    p_operator_id: input.operatorId || null,
+    p_operator_name: input.operatorName || 'OPERADOR',
+  });
+
+  if (error) {
+    const errorCode = (error.message.match(/^([A-Z_]+):/) || [])[1] || 'RPC_ERROR';
+    return { success: false, error: mapRpcCaptureError(error.message), errorCode };
+  }
+
+  const payload = data as { box_id: string; box_code: string; version: number };
+  scheduleReceptionReceivedUnitsSync(input.receptionId);
+
+  return {
+    success: true,
+    boxId: payload.box_id,
+    boxCode: payload.box_code,
+    version: payload.version,
   };
 }
 

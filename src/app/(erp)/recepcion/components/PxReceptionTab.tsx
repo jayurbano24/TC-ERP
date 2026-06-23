@@ -24,7 +24,8 @@ export const PxReceptionTab = ({
   useIncrementalCapture, onStartReceptionIncremental, onAddLotToBoxIncremental,
   pxInProgressList, onResumePxReception, isLoadingIncrementalResume, incrementalReceptionId,
   boxMetaByCode, onAcquireBoxLock, onAdjustBoxQuantity, onCloseBoxIncremental,
-  onReopenBoxIncremental, onSaveHeaderIncremental, currentOperatorId
+  onReopenBoxIncremental, onSaveHeaderIncremental, currentOperatorId,
+  onDeleteEquipmentIncremental, onDeleteBoxIncremental
 }: any) => {
 
   const [activeBoxNum, setActiveBoxNum] = useState<number>(1);
@@ -39,6 +40,16 @@ export const PxReceptionTab = ({
         : [],
     [scannedSeries, pxActiveBoxCode]
   );
+  const scannedSerialUpperSet = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of scannedSeries) {
+      if (s.sn) set.add(String(s.sn).toUpperCase());
+      if (s.s2) set.add(String(s.s2).toUpperCase());
+      if (s.s3) set.add(String(s.s3).toUpperCase());
+      if (s.s4) set.add(String(s.s4).toUpperCase());
+    }
+    return set;
+  }, [scannedSeries]);
   const boxSeriesPagination = useClientPagination(boxScannedSeries, 25, [pxActiveBoxCode]);
   const [headerDraft, setHeaderDraft] = useState<any>(null);
   const [headerFieldErrors, setHeaderFieldErrors] = useState<{ sap?: string; docReferencia?: string }>({});
@@ -303,11 +314,27 @@ export const PxReceptionTab = ({
     await handleEnterBox(boxCode);
   };
 
-  const handleDeleteBox = (boxCode: string) => {
-    if (closedBoxes.includes(boxCode)) {
+  const handleDeleteBox = async (boxCode: string) => {
+    const isClosed =
+      useIncrementalCapture && boxMetaByCode?.[boxCode]
+        ? boxMetaByCode[boxCode].status === 'cerrada' || boxMetaByCode[boxCode].status === 'closed'
+        : closedBoxes.includes(boxCode);
+    if (isClosed) {
       alert('No puede eliminar una caja cerrada. Reábrala primero si necesita modificarla.');
       return;
     }
+
+    if (useIncrementalCapture && onDeleteBoxIncremental) {
+      const ok = await onDeleteBoxIncremental(boxCode);
+      if (ok) {
+        if (selectedBoxForScan === boxCode) {
+          setSelectedBoxForScan(null);
+          setViewMode('dashboard');
+        }
+      }
+      return;
+    }
+
     const lotsInBox = manifestItems.filter((i: any) => i.boxCode === boxCode).length;
     const seriesInBox = scannedSeries.filter((s: any) => s.boxCode === boxCode).length;
     const message =
@@ -323,6 +350,23 @@ export const PxReceptionTab = ({
       setSelectedBoxForScan(null);
       setViewMode('dashboard');
     }
+  };
+
+  const handleDeleteEquipment = async (item: { equipmentId?: string; sn: string; boxCode?: string }) => {
+    const boxCode = item.boxCode || selectedBoxForScan;
+    if (!boxCode) return;
+
+    if (useIncrementalCapture && onDeleteEquipmentIncremental) {
+      await onDeleteEquipmentIncremental(boxCode, item);
+      return;
+    }
+
+    if (!window.confirm(`¿Eliminar el equipo con serie ${item.sn}?`)) return;
+    setScannedSeries(
+      scannedSeries.filter((x: any) =>
+        item.equipmentId ? x.equipmentId !== item.equipmentId : !(x.boxCode === boxCode && x.sn === item.sn)
+      )
+    );
   };
 
   const handleBackToDashboard = () => {
@@ -1101,14 +1145,10 @@ export const PxReceptionTab = ({
                       <div className="flex flex-col gap-5">
                         {Array.from({ length: expectedScans }).map((_, idx) => {
                           const currentVal = currentScans[idx] || '';
-                          const isDuplicate = currentVal.trim() !== '' && (
-                            scannedSeries.some((s: any) => 
-                              s.sn === currentVal.trim().toUpperCase() || 
-                              s.s2 === currentVal.trim().toUpperCase() || 
-                              s.s3 === currentVal.trim().toUpperCase() || 
-                              s.s4 === currentVal.trim().toUpperCase()
-                            ) ||
-                            currentScans.some((v: string, i: number) => i !== idx && v.trim().toUpperCase() === currentVal.trim().toUpperCase())
+                          const currentUpper = currentVal.trim().toUpperCase();
+                          const isDuplicate = currentUpper !== '' && (
+                            scannedSerialUpperSet.has(currentUpper) ||
+                            currentScans.some((v: string, i: number) => i !== idx && v.trim().toUpperCase() === currentUpper)
                           );
 
                           return (
@@ -1240,7 +1280,7 @@ export const PxReceptionTab = ({
                                 {!isBoxClosed && (
                                 <div className="flex justify-end gap-1">
                                   <button 
-                                    onClick={() => setScannedSeries(scannedSeries.filter((x: any) => x.sn !== s.sn))}
+                                    onClick={() => handleDeleteEquipment({ ...s, boxCode: targetBox })}
                                     className="p-1.5 hover:bg-rose-50 rounded-lg group transition-colors"
                                     title="Eliminar Equipo"
                                   >

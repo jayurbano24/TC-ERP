@@ -216,6 +216,14 @@ export async function appendPxCaptureLotsApi(boxId: string, lots: PxLotInput[]) 
   return json.data as { declaredQuantity: number };
 }
 
+export type ScanPxEquipmentResult = {
+  success: true;
+  equipmentId: string;
+  capturedCount: number;
+  declaredQuantity: number;
+  boxStatus: string;
+};
+
 export async function scanPxEquipmentApi(input: {
   receptionId: string;
   boxId: string;
@@ -229,7 +237,7 @@ export async function scanPxEquipmentApi(input: {
   operatorId?: string | null;
   operatorName?: string;
   workstationLabel?: string | null;
-}) {
+}): Promise<ScanPxEquipmentResult> {
   const res = await fetch(`/api/recepcion/px/boxes/${input.boxId}/scan`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -249,7 +257,62 @@ export async function scanPxEquipmentApi(input: {
   });
   const json = await res.json();
   if (!json.success) throw new Error(json.error || 'Error al capturar equipo');
-  return json;
+  return json as ScanPxEquipmentResult;
+}
+
+export type VoidPxEquipmentResult = {
+  success: true;
+  equipmentId: string;
+  mainSerial: string;
+  capturedCount: number;
+  declaredQuantity: number;
+  boxStatus: string;
+  version: number;
+};
+
+export async function voidPxEquipmentApi(input: {
+  receptionId: string;
+  boxId: string;
+  equipmentId?: string | null;
+  mainSerial?: string | null;
+  operatorId?: string | null;
+  operatorName?: string;
+}): Promise<VoidPxEquipmentResult> {
+  const equipmentKey = input.equipmentId || 'pending';
+  const res = await fetch(
+    `/api/recepcion/px/boxes/${input.boxId}/equipment/${encodeURIComponent(equipmentKey)}`,
+    {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        receptionId: input.receptionId,
+        mainSerial: input.mainSerial,
+        sn: input.mainSerial,
+        operatorId: input.operatorId,
+        operatorName: input.operatorName,
+      }),
+    }
+  );
+  const json = await res.json();
+  if (!json.success) throw new Error(json.error || 'Error al eliminar equipo');
+  return json as VoidPxEquipmentResult;
+}
+
+export async function deletePxCaptureBoxApi(input: {
+  receptionId: string;
+  boxId: string;
+  expectedVersion: number;
+  operatorId?: string | null;
+  operatorName?: string;
+}) {
+  const res = await fetch(`/api/recepcion/px/boxes/${input.boxId}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const json = await res.json();
+  if (!json.success) throw new Error(json.error || 'Error al eliminar caja');
+  return json as { success: true; boxId: string; boxCode: string; version: number };
 }
 
 export async function finalizePxReceptionApi(input: {

@@ -463,6 +463,8 @@ export default function ReceptionsPage() {
           onCloseBoxIncremental={pxIncremental.onCloseBoxIncremental}
           onReopenBoxIncremental={pxIncremental.onReopenBoxIncremental}
           onSaveHeaderIncremental={pxIncremental.onSaveHeaderIncremental}
+          onDeleteEquipmentIncremental={pxIncremental.onDeleteEquipmentIncremental}
+          onDeleteBoxIncremental={pxIncremental.onDeleteBoxIncremental}
           lastSavedAt={pxIncremental.lastSyncedAt || pxState.lastSavedAt}
         />
       )}

@@ -6,6 +6,8 @@ import { FeatureFlagService } from '../../../../shared/feature-flags/FeatureFlag
 
 import { container } from '../../../../shared/di/container';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: Request) {
   try {
     const query = container.resolve(GetRendimientoTecnicosQuery);

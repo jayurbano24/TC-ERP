@@ -7,6 +7,8 @@ import { FeatureFlagService } from '../../../../shared/feature-flags/FeatureFlag
 import { QueryBus } from '../../../../modules/recepcion/application/cqrs/QueryBus';
 import { container } from '../../../../shared/di/container';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: Request) {
   try {
     const queryBus = container.resolve(QueryBus);

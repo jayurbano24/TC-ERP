@@ -1,14 +1,29 @@
 import 'reflect-metadata';
 import { container } from 'tsyringe';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-// ─── Supabase Client (Singleton) ─────────────────────────────────────────────
-const supabaseClient = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-);
-container.register('SupabaseClient', { useValue: supabaseClient });
+// ─── Supabase Client (lazy singleton — avoids build-time env requirement) ─────
+let supabaseClient: SupabaseClient | null = null;
+
+function getSupabaseClient(): SupabaseClient {
+  if (supabaseClient) return supabaseClient;
+
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ??
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
+
+  if (!url || !key) {
+    throw new Error(
+      'Supabase no configurado: defina NEXT_PUBLIC_SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY.',
+    );
+  }
+
+  supabaseClient = createClient(url, key, { auth: { persistSession: false } });
+  return supabaseClient;
+}
+
+container.register('SupabaseClient', { useFactory: getSupabaseClient });
 
 // ─── Core Infrastructure ──────────────────────────────────────────────────────
 import { CommandBus } from '../../modules/recepcion/application/cqrs/CommandBus';

@@ -1,6 +1,33 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { logAudit } from "@/lib/database/audit";
 
+const TALLER_WORKSHOP_AUDIT_ACTIONS = new Set([
+  'INGRESO A TALLER',
+  'DIAGNÓSTICO INICIAL COMPLETADO',
+  'REPARACIÓN COMPLETADA',
+  'CONTROL DE CALIDAD COMPLETADO',
+  'REACONDICIONADO COMPLETADO',
+]);
+
+/** Stock en racks de bodega física no debe aparecer en cola Taller (Equipo Listo). */
+export function isWarehouseStockOnlyInCentral(series: {
+  current_status?: string | null;
+  ingress_count?: number | null;
+  boxes?: { rack_location?: string | null } | null;
+  has_workshop_audit?: boolean;
+}): boolean {
+  if (series.current_status !== 'in_central_warehouse') return false;
+  if (series.has_workshop_audit) return false;
+
+  const rack = String(series.boxes?.rack_location || '').toUpperCase();
+  if (!rack || rack.startsWith('TALLER')) return false;
+  if (rack === 'DESPACHO' || rack === 'ELIMINADO') return false;
+
+  const isPhysicalBodegaRack =
+    rack.startsWith('BODEGA') || rack.startsWith('P-') || rack.startsWith('RACK-');
+  return isPhysicalBodegaRack;
+}
+
 export async function getWorkshopTasks(stage?: string) {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return [];
@@ -36,7 +63,7 @@ export async function getWorkshopTasks(stage?: string) {
         source,
         reception_guides ( guide_number, agency )
       ),
-      boxes ( box_code ),
+      boxes ( box_code, rack_location ),
       ingress_count,
       current_diagnostics
     `)
@@ -51,7 +78,38 @@ export async function getWorkshopTasks(stage?: string) {
     console.error("Error fetching workshop tasks:", error.message || error);
     return [];
   }
-  return data || [];
+
+  const rows = data || [];
+  const centralWarehouseIds = rows
+    .filter((row) => row.current_status === 'in_central_warehouse')
+    .map((row) => row.id as string);
+
+  let workshopAuditIds = new Set<string>();
+  if (centralWarehouseIds.length > 0) {
+    const chunkSize = 200;
+    for (let i = 0; i < centralWarehouseIds.length; i += chunkSize) {
+      const chunk = centralWarehouseIds.slice(i, i + chunkSize);
+      const { data: auditRows } = await supabase
+        .from('erp_audit_logs')
+        .select('record_id, action')
+        .in('record_id', chunk);
+      for (const log of auditRows || []) {
+        if (TALLER_WORKSHOP_AUDIT_ACTIONS.has(String(log.action))) {
+          workshopAuditIds.add(String(log.record_id));
+        }
+      }
+    }
+  }
+
+  return rows.filter((row) => {
+    const hasWorkshopAudit = workshopAuditIds.has(row.id as string);
+    return !isWarehouseStockOnlyInCentral({
+      current_status: row.current_status,
+      ingress_count: row.ingress_count,
+      boxes: row.boxes as { rack_location?: string | null } | null,
+      has_workshop_audit: hasWorkshopAudit,
+    });
+  });
 }
 
 export async function saveDiagnostic(seriesId: string, result: string, notes: string, selectedDiagnostics: string[] = [], actionName: string = 'DIAGNÓSTICO INICIAL COMPLETADO') {

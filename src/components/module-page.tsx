@@ -42,7 +42,7 @@ export const ModulePage = ({
           </div>
           <h1 className={erpTypography.pageTitle}>{title}</h1>
           {subtitle && (
-            <p className="text-sm sm:text-base text-slate-500 font-medium max-w-3xl leading-relaxed">{subtitle}</p>
+            <p className="text-sm sm:text-base text-[var(--muted)] font-medium max-w-3xl leading-relaxed">{subtitle}</p>
           )}
         </div>
 

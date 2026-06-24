@@ -1,8 +1,22 @@
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { logAdvancedAudit } from '@/lib/database/audit';
-import { processBlockReturnBySapTransfer } from '@/lib/database/sapTransfers';
+import { processBlockReturnBySapTransfer as sapTransferBlockReturn } from '@/modules/sap-transfer';
+import {
+  isHexagonalReturnsEnabled,
+  processBlockReturnBySapTransferHex,
+  registerIndividualReturnHex,
+} from '@/modules/returns';
 
-export { processBlockReturnBySapTransfer };
+export async function processBlockReturnBySapTransfer(
+  sapTransferId: string,
+  formData: { motivo: string; guiaSalida: string; observaciones?: string },
+  currentUserFullName: string
+) {
+  if (isHexagonalReturnsEnabled()) {
+    return processBlockReturnBySapTransferHex(sapTransferId, formData, currentUserFullName);
+  }
+  return sapTransferBlockReturn(sapTransferId, formData, currentUserFullName);
+}
 
 function isAtomicFullReceptionReturnEnabled(): boolean {
   if (process.env.NEXT_PUBLIC_USE_ATOMIC_FULL_RECEPTION_RETURN === 'true') return true;
@@ -630,6 +644,10 @@ export async function getReturns() {
 }
 
 export async function registerNewReturn(returnEntry: any) {
+  if (isHexagonalReturnsEnabled()) {
+    return registerIndividualReturnHex(returnEntry);
+  }
+
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: "Supabase not configured" };
 

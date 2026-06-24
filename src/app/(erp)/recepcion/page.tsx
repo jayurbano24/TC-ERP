@@ -408,16 +408,16 @@ export default function ReceptionsPage() {
       title={moduleMode === 'px' ? "Recepción Planta Externa (PX)" : "Recepción de Carga (CAC)"}
       category="Logística"
       actions={
-        <div className="flex bg-slate-100 p-1 rounded-xl">
+        <div className="flex bg-[var(--surface-hover)] p-1 rounded-xl">
           <button 
             onClick={() => setModuleMode('px')}
-            className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${moduleMode === 'px' ? 'bg-[#181c3a] text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}
+            className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${moduleMode === 'px' ? 'bg-[#181c3a] text-white shadow-lg' : 'text-[var(--muted)] hover:text-[var(--foreground)]'}`}
           >
             Módulo PX
           </button>
           <button 
             onClick={() => setModuleMode('cac')}
-            className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${moduleMode === 'cac' ? 'bg-[#181c3a] text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}
+            className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${moduleMode === 'cac' ? 'bg-[#181c3a] text-white shadow-lg' : 'text-[var(--muted)] hover:text-[var(--foreground)]'}`}
           >
             Módulo CAC
           </button>

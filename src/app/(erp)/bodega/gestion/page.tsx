@@ -34,9 +34,10 @@ import {
   Truck,
   PackageMinus
 } from 'lucide-react';
-import { getInventoryBoxes, transferBoxesToArea, createBodegaBoxAtomic, reserveNextBoxCode, addSeriesToBox, dispatchBoxFromWarehouse, dispatchSpecificSeries, transferSpecificSeriesToArea, canScanSeriesIntoWarehouse, resolveBoxDisplayStatus } from '@/lib/database/warehouse';
+import { getInventoryBoxes, transferBoxesToArea, createBodegaBoxAtomic, reserveNextBoxCode, addSeriesToBox, dispatchBoxFromWarehouse, dispatchSpecificSeries, transferSpecificSeriesToArea, canScanSeriesIntoWarehouse, resolveBoxDisplayStatus, getBoxHistory } from '@/lib/database/warehouse';
+import { DispatchBatchSelector } from '@/modules/outbound-dispatch/components/DispatchBatchSelector';
+import { isHexagonalOutboundDispatchEnabled } from '@/modules/outbound-dispatch';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
-import { getBoxHistory } from '@/lib/database/warehouse';
 import { getTechnologies, getBrands, getModels } from '@/lib/database/config';
 import { useClientPagination } from '@/hooks/useClientPagination';
 
@@ -96,6 +97,9 @@ export default function BodegaGestionPage() {
   const [dispatchAction, setDispatchAction] = useState<'despacho'|'traslado'>('despacho');
   const [dispatchArea, setDispatchArea] = useState('Diagnóstico');
   const [selectedSeriesForDispatch, setSelectedSeriesForDispatch] = useState<string[]>([]);
+  const [selectedDispatchBatchId, setSelectedDispatchBatchId] = useState<string | null>(null);
+  const [selectedDispatchBatchNumber, setSelectedDispatchBatchNumber] = useState<string | null>(null);
+  const useOutboundDispatchHex = isHexagonalOutboundDispatchEnabled();
   const [catTecnologias, setCatTecnologias] = useState<any[]>([]);
   const [catMarcas, setCatMarcas] = useState<any[]>([]);
   const [catModelos, setCatModelos] = useState<any[]>([]);
@@ -229,11 +233,23 @@ export default function BodegaGestionPage() {
             error = res.error;
          }
       } else {
+        const batchId = useOutboundDispatchHex ? selectedDispatchBatchId ?? undefined : undefined;
         if (dispatchMode === 'all') {
-          const res = await dispatchBoxFromWarehouse(realDbId || boxId, dispatchDestination, dispatchNotes);
+          const res = await dispatchBoxFromWarehouse(
+            realDbId || boxId,
+            dispatchDestination,
+            dispatchNotes,
+            batchId
+          );
           error = res.error;
         } else {
-          const res = await dispatchSpecificSeries(realDbId || boxId, selectedSeriesForDispatch, dispatchDestination, dispatchNotes);
+          const res = await dispatchSpecificSeries(
+            realDbId || boxId,
+            selectedSeriesForDispatch,
+            dispatchDestination,
+            dispatchNotes,
+            batchId
+          );
           error = res.error;
         }
       }
@@ -1050,6 +1066,16 @@ export default function BodegaGestionPage() {
       }
     >
       <div className="space-y-8">
+        {useOutboundDispatchHex && (
+          <DispatchBatchSelector
+            selectedBatchId={selectedDispatchBatchId}
+            onSelectBatch={(id, batchNumber) => {
+              setSelectedDispatchBatchId(id);
+              setSelectedDispatchBatchNumber(batchNumber ?? null);
+            }}
+          />
+        )}
+
         {/* KPI Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <Card className="border-l-4 border-l-[#181c3a]" padding="md">
@@ -2292,6 +2318,11 @@ export default function BodegaGestionPage() {
                 <p className="text-sm text-slate-600">
                   Selecciona las series que deseas extraer. La caja quedará con las series restantes.
                 </p>
+                {useOutboundDispatchHex && selectedDispatchBatchId && (
+                  <p className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                    Lote activo: {selectedDispatchBatchNumber || selectedDispatchBatchId}
+                  </p>
+                )}
                 
                 <div className="flex bg-slate-100 p-1 rounded-lg">
                   <button 

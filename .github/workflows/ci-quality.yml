@@ -1,0 +1,35 @@
+name: CI Quality (Fase 2.5)
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_USE_HEXAGONAL_SAP_TRANSFER: 'true'
+      NEXT_PUBLIC_USE_HEXAGONAL_RETURNS: 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Unit tests (vitest)
+        run: npm test
+
+      - name: Architecture lint (baseline)
+        run: npm run check:architecture
+
+      - name: ESLint
+        run: npm run lint
+        continue-on-error: true

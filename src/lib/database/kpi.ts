@@ -46,8 +46,33 @@ function getTimeRangeBounds(timeRange: string): { startIso: string; endIso: stri
   return { startIso: startOfRange.toISOString(), endIso: endOfRange.toISOString() };
 }
 
+function normalizeNameTokens(name: string): string[] {
+  return name
+    .toLowerCase()
+    .replace(/[.,]/g, ' ')
+    .split(/\s+/)
+    .filter((t) => t.length > 1);
+}
+
+function namesLikelyMatch(a: string, b: string): boolean {
+  const ta = normalizeNameTokens(a);
+  const tb = normalizeNameTokens(b);
+  if (!ta.length || !tb.length) return false;
+  if (ta.join(' ') === tb.join(' ')) return true;
+
+  const setA = new Set(ta);
+  const setB = new Set(tb);
+  const [small, large] = setA.size <= setB.size ? [setA, setB] : [setB, setA];
+  let overlap = 0;
+  for (const token of small) {
+    if (large.has(token)) overlap += 1;
+  }
+  return overlap >= Math.min(2, small.size);
+}
+
 function buildUserIdResolver(usersData: ProfileRow[]) {
   const idByKey = new Map<string, string>();
+  const aliasEntries: { id: string; keys: string[] }[] = [];
 
   for (const userRow of usersData) {
     const keys = new Set<string>();
@@ -57,22 +82,32 @@ function buildUserIdResolver(usersData: ProfileRow[]) {
     else if (emp && !Array.isArray(emp) && emp.nombre_completo) keys.add(emp.nombre_completo.trim());
 
     idByKey.set(userRow.id.toLowerCase(), userRow.id);
+    const keyList: string[] = [];
     for (const key of keys) {
       const lower = key.toLowerCase();
       idByKey.set(lower, userRow.id);
+      keyList.push(key);
       if (lower.includes('@')) {
         idByKey.set(lower.split('@')[0], userRow.id);
+        keyList.push(lower.split('@')[0]);
       }
     }
+    aliasEntries.push({ id: userRow.id, keys: keyList });
   }
 
   return (actorKey: string | null | undefined): string | null => {
     if (!actorKey) return null;
-    const lower = actorKey.trim().toLowerCase();
+    const trimmed = actorKey.trim();
+    const lower = trimmed.toLowerCase();
     if (idByKey.has(lower)) return idByKey.get(lower)!;
     if (lower.includes('@')) {
       const local = lower.split('@')[0];
       if (idByKey.has(local)) return idByKey.get(local)!;
+    }
+    for (const entry of aliasEntries) {
+      if (entry.keys.some((key) => namesLikelyMatch(trimmed, key))) {
+        return entry.id;
+      }
     }
     return null;
   };
@@ -144,10 +179,11 @@ export async function getDailyKPIs(timeRange: string = 'Hoy'): Promise<UserKPI[]
     { data: jobs },
     { data: classifiedGuides },
     { data: trayUnits },
+    { data: auditLogs },
   ] = await Promise.all([
     supabase
       .from('receptions')
-      .select('received_by, received_units')
+      .select('received_by, received_units, notes')
       .gte('created_at', startIso)
       .lte('created_at', endIso),
     supabase
@@ -168,10 +204,16 @@ export async function getDailyKPIs(timeRange: string = 'Hoy'): Promise<UserKPI[]
       .not('classified_by', 'is', null),
     supabase
       .from('cac_tray_units')
-      .select('received_by_name')
-      .eq('is_active', true)
+      .select('received_by_name, service_order_id')
       .gte('classified_at', startIso)
       .lte('classified_at', endIso),
+    supabase
+      .from('erp_audit_logs')
+      .select('user_id, action, new_values')
+      .eq('module', 'cac_backoffice')
+      .in('action', ['CLASSIFY_BATCH', 'GUIDE_COMPLETED', 'RECEPTION_CLASSIFIED', 'SERIES_CLASSIFIED'])
+      .gte('created_at', startIso)
+      .lte('created_at', endIso),
   ]);
 
   const progressBySource: Record<string, { reception: number; backoffice: number; bodega: number; taller: number }> = {};
@@ -184,8 +226,10 @@ export async function getDailyKPIs(timeRange: string = 'Hoy'): Promise<UserKPI[]
     progressBySource[userId][source] += amount;
   };
 
-  receptions?.forEach((r: { received_by?: string; received_units?: number }) => {
-    bump(resolveUserId(r.received_by), 'reception', r.received_units || 1);
+  receptions?.forEach((r: { received_by?: string; received_units?: number; notes?: string }) => {
+    const fromNotes = r.notes?.match(/Recibido Por:\s*([^\n]+)/i)?.[1]?.trim();
+    const actorId = resolveUserId(r.received_by) || resolveUserId(fromNotes);
+    bump(actorId, 'reception', r.received_units || 1);
   });
 
   movements?.forEach((m: { moved_by?: string }) => {
@@ -196,14 +240,42 @@ export async function getDailyKPIs(timeRange: string = 'Hoy'): Promise<UserKPI[]
     if (j.technician_id) bump(j.technician_id, 'taller', 1);
   });
 
-  classifiedGuides?.forEach((g: { classified_by?: string; category?: string }) => {
-    const cat = (g.category || '').toLowerCase();
-    if (cat === 'equipo') return;
+  classifiedGuides?.forEach((g: { classified_by?: string }) => {
     bump(resolveUserId(g.classified_by), 'backoffice', 1);
   });
 
-  trayUnits?.forEach((row: { received_by_name?: string }) => {
-    bump(resolveUserId(row.received_by_name), 'backoffice', 1);
+  const trayCounted = new Set<string>();
+  const trayUsersWithCredit = new Set<string>();
+  trayUnits?.forEach((row: { received_by_name?: string; service_order_id?: string }) => {
+    const userId = resolveUserId(row.received_by_name);
+    if (!userId) return;
+    const dedupeKey = row.service_order_id || `${userId}-${row.received_by_name}`;
+    if (trayCounted.has(dedupeKey)) return;
+    trayCounted.add(dedupeKey);
+    trayUsersWithCredit.add(userId);
+    bump(userId, 'backoffice', 1);
+  });
+
+  auditLogs?.forEach((log: { user_id?: string; action?: string; new_values?: Record<string, unknown> }) => {
+    const payload = log.new_values || {};
+    const registeredBy =
+      typeof payload.registered_by === 'string'
+        ? payload.registered_by
+        : typeof payload.classified_by === 'string'
+          ? payload.classified_by
+          : null;
+
+    const userId = log.user_id || resolveUserId(registeredBy);
+    if (!userId) return;
+
+    if (log.action === 'CLASSIFY_BATCH') {
+      if (trayUsersWithCredit.has(userId)) return;
+      const units = Number(payload.units_count) || 1;
+      bump(userId, 'backoffice', units);
+      return;
+    }
+    if (log.action === 'SERIES_CLASSIFIED') return;
+    if (!trayUsersWithCredit.has(userId)) bump(userId, 'backoffice', 1);
   });
 
   const kpis: UserKPI[] = usersData

@@ -103,7 +103,7 @@ export function ClassificationStep({ ctx }: Props) {
             setClassificationSearch('');
             setSelectedGuides([]);
           }}
-          className="flex items-center gap-2 text-[10px] font-black text-slate-400 hover:text-[#181c3a] uppercase tracking-widest transition-all"
+          className="flex items-center gap-2 text-[10px] font-black text-[var(--muted)] hover:text-[var(--foreground)] uppercase tracking-widest transition-all"
         >
           <ChevronLeft size={16} /> Volver a Bandeja
         </button>
@@ -111,21 +111,21 @@ export function ClassificationStep({ ctx }: Props) {
           <Badge className="bg-[#2ec4f1] text-[#181c3a] border-none font-black text-[9px] uppercase tracking-widest">
             {String(activeReception.status)}
           </Badge>
-          <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase">
+          <p className="text-[10px] font-bold text-[var(--muted)] mt-1 uppercase">
             Lote: {String(activeReception.guide_number || '').split(' ')[0]}
           </p>
         </div>
       </div>
 
-      <div className="bg-white p-5 rounded-2xl shadow-lg border border-slate-100">
+      <div className="erp-themed-surface p-5 rounded-2xl shadow-lg border border-[var(--border)]">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
           <div>
-            <h2 className="text-xl font-black text-[#181c3a] uppercase">Clasificación de Carga</h2>
-            <p className="text-slate-400 font-bold uppercase text-[9px] tracking-widest">
+            <h2 className="text-xl font-black text-[var(--heading)] uppercase">Clasificación de Carga</h2>
+            <p className="text-[var(--muted)] font-bold uppercase text-[9px] tracking-widest">
               Seleccione cajas para clasificación masiva o use Equipos por caja
             </p>
           </div>
-          <Badge className="bg-slate-50 text-[#181c3a] font-black text-[10px] px-3 py-1.5 border border-slate-200 self-start">
+          <Badge className="bg-[var(--surface-hover)] text-[var(--foreground)] font-black text-[10px] px-3 py-1.5 border border-[var(--border)] self-start">
             {pendingCount} de {totalGuides} pendientes
           </Badge>
         </div>

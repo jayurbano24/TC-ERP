@@ -35,9 +35,12 @@ export async function auditClassifiedSeries(
     sapTransferId: string;
     registeredBy: string;
     sapDocumentNumber?: string;
+    correlationId?: string;
   }
 ) {
   if (!seriesIds.length) return;
+
+  const correlationId = context.correlationId ?? context.sapTransferId;
 
   for (const seriesId of seriesIds) {
     await logCacBackofficeAudit({
@@ -57,16 +60,54 @@ export async function auditClassifiedSeries(
       eventType: CAC_DOMAIN_EVENTS.SERIES_CLASSIFIED,
       aggregateType: 'series',
       aggregateId: seriesId,
-      correlationId: context.sapTransferId,
+      correlationId,
       actorLabel: context.registeredBy,
       payload: {
         status: 'RECEPCIONADO_BODEGA_GENERAL',
         sap_transfer_id: context.sapTransferId,
         sap_document_number: context.sapDocumentNumber,
-        legacy_adapter: true,
       },
     });
   }
+}
+
+export async function auditClassifyBatchCompleted(params: {
+  receptionId: string;
+  sapTransferId: string;
+  unitsCount: number;
+  seriesCount: number;
+  registeredBy: string;
+  correlationId: string;
+  sapDocumentNumber?: string;
+}) {
+  await logCacBackofficeAudit({
+    tableName: 'sap_transfer_documents',
+    recordId: params.sapTransferId,
+    action: CAC_AUDIT_ACTIONS.CLASSIFY_BATCH,
+    newValues: {
+      reception_id: params.receptionId,
+      sap_transfer_id: params.sapTransferId,
+      units_count: params.unitsCount,
+      series_count: params.seriesCount,
+      registered_by: params.registeredBy,
+      correlation_id: params.correlationId,
+    },
+    observations: `Lote clasificado: ${params.unitsCount} equipo(s), ${params.seriesCount} serie(s)`,
+  });
+
+  await emitDomainEvent({
+    eventType: CAC_DOMAIN_EVENTS.CLASSIFY_BATCH_COMPLETED,
+    aggregateType: 'reception',
+    aggregateId: params.receptionId,
+    correlationId: params.correlationId,
+    actorLabel: params.registeredBy,
+    payload: {
+      sap_transfer_id: params.sapTransferId,
+      sap_document_number: params.sapDocumentNumber,
+      units_count: params.unitsCount,
+      series_count: params.seriesCount,
+    },
+  });
 }
 
 export async function auditSapTransferCreated(params: {

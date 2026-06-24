@@ -1,4 +1,21 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+/** CHG-002: todas las series del doc SAP encajonadas en bodega → INGRESADO_BODEGA. */
+async function syncSapTransferIngresadoForSeries(
+  supabase: SupabaseClient,
+  seriesIds: string[]
+): Promise<number> {
+  if (!seriesIds.length) return 0;
+  const { data, error } = await supabase.rpc('warehouse_sync_sap_for_series', {
+    p_series_ids: seriesIds,
+  });
+  if (error) {
+    console.warn('warehouse_sync_sap_for_series:', error.message);
+    return 0;
+  }
+  return typeof data === 'number' ? data : 0;
+}
 
 /** Estados que cuentan como inventario físico en bodega central / L3. */
 export const WAREHOUSE_INVENTORY_STATUSES = [
@@ -396,6 +413,11 @@ export async function createBoxWithSeries(boxData: any, seriesNumbers: string[])
     return { error: 'Ninguna serie válida pudo vincularse a la caja. Verifique que estén clasificadas en Backoffice.' };
   }
 
+  await syncSapTransferIngresadoForSeries(
+    supabase,
+    linked.map((row) => row.id)
+  );
+
   return { data: box };
 }
 
@@ -403,15 +425,23 @@ export async function addSeriesToBox(boxId: string, seriesNumbers: string[]) {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: "Supabase not configured" };
 
-  const { error: seriesError } = await supabase
+  const { data: linked, error: seriesError } = await supabase
     .from('series')
     .update({ 
       current_box_id: boxId,
       current_status: 'in_central_warehouse'
     })
-    .in('serial_number', seriesNumbers);
+    .in('serial_number', seriesNumbers)
+    .select('id');
 
   if (seriesError) return { error: seriesError.message };
+
+  if (linked?.length) {
+    await syncSapTransferIngresadoForSeries(
+      supabase,
+      linked.map((row) => row.id)
+    );
+  }
 
   return { success: true };
 }

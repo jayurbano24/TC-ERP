@@ -1,11 +1,12 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import type { CacTrayQueryParams } from '@/lib/backoffice/cacTrayTypes';
 import { queryCacTrayPage } from '@/lib/database/cacTrayUnits';
+import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
 
 export const dynamic = 'force-dynamic';
 
-function parseTrayParams(req: NextRequest): CacTrayQueryParams {
-  const sp = req.nextUrl.searchParams;
+function parseTrayParams(url: URL): CacTrayQueryParams {
+  const sp = url.searchParams;
   return {
     page: Number(sp.get('page') || '1'),
     limit: Number(sp.get('limit') || '25'),
@@ -26,17 +27,14 @@ function parseTrayParams(req: NextRequest): CacTrayQueryParams {
   };
 }
 
-export async function GET(req: NextRequest) {
-  try {
-    const sp = req.nextUrl.searchParams;
-    const includeSapValidation = sp.get('includeSap') !== '0';
-    const result = await queryCacTrayPage(parseTrayParams(req), { includeSapValidation });
+export const GET = withErrorHandler(
+  async (req: Request) => {
+    const url = new URL(req.url);
+    const includeSapValidation = url.searchParams.get('includeSap') !== '0';
+    const result = await queryCacTrayPage(parseTrayParams(url), { includeSapValidation });
     return NextResponse.json(result, {
       headers: { 'Cache-Control': 'private, max-age=15, stale-while-revalidate=60' },
     });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Error al cargar bandeja CAC';
-    console.error('cac-history/tray:', message);
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
-}
+  },
+  { module: 'backoffice', action: 'cac-history.tray' }
+);

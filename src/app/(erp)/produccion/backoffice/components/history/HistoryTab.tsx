@@ -143,15 +143,15 @@ export function HistoryTab({
             onOpenMassTransfer={onOpenMassTransfer}
           />
 
-          <Card className="p-0 bg-white rounded-[2.5rem] shadow-2xl border-none overflow-hidden transition-all duration-500">
-            <div className="p-8 border-b border-slate-50 space-y-6">
+          <Card className="p-0 erp-themed-surface rounded-[2.5rem] shadow-2xl border-none overflow-hidden transition-all duration-500">
+            <div className="p-8 border-b border-[var(--border)] space-y-6">
               <div className="flex flex-col lg:flex-row lg:items-center gap-4">
                 <div className="relative group flex-1 max-w-xl">
-                  <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300 group-focus-within:text-[#2ec4f1] transition-colors" />
+                  <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-5 h-5 text-[var(--muted)] group-focus-within:text-[#2ec4f1] transition-colors" />
                   <input
                     type="text"
                     placeholder="BUSCAR POR SERIE, GUÍA COURIER O DOCUMENTO SAP..."
-                    className="w-full h-14 pl-16 pr-6 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-[10px] text-[#181c3a] outline-none focus:border-[#2ec4f1] focus:bg-white transition-all uppercase tracking-widest"
+                    className="w-full h-14 pl-16 pr-6 bg-[var(--surface-hover)] border-2 border-[var(--border)] rounded-2xl font-black text-[10px] text-[var(--foreground)] outline-none focus:border-[#2ec4f1] focus:bg-[var(--surface)] transition-all uppercase tracking-widest"
                     value={historySearch}
                     onChange={(e) => {
                       setHistorySearch(e.target.value);
@@ -165,7 +165,7 @@ export function HistoryTab({
                   className={`flex items-center gap-2 h-14 px-6 rounded-2xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
                     historyFiltersOpen || hasActiveHistoryTrayFilters(historyFilters)
                       ? 'border-[#181c3a] bg-[#181c3a] text-white'
-                      : 'border-slate-100 bg-slate-50 text-slate-500 hover:border-[#2ec4f1]'
+                      : 'border-[var(--border)] bg-[var(--surface-hover)] text-[var(--muted)] hover:border-[#2ec4f1] hover:text-[var(--foreground)]'
                   }`}
                 >
                   <Filter size={16} />

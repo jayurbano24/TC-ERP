@@ -3,6 +3,12 @@ export {
   processBlockReturnBySapTransfer,
 } from './factory';
 
+export {
+  isHexagonalSapTransferEnabled,
+  isAtomicClassifyEnabled,
+  isAtomicBlockReturnEnabled,
+} from './infrastructure/feature-flags';
+
 export type {
   EquipmentUnitPayload,
   ClassifyBatchParams,
@@ -23,3 +29,6 @@ export { BlockReturnBySapHandler } from './application/commands/block-return-by-
 
 export type { IClassifyBatchGateway } from './domain/ports/classify-batch.gateway.port';
 export type { IBlockReturnGateway } from './domain/ports/block-return.gateway.port';
+
+export type { ISapTransferReturnPort } from '@/modules/returns/domain/ports/sap-transfer-return.port';
+export { SapTransferReturnPortAdapter } from './infrastructure/adapters/sap-transfer-return.port.adapter';

@@ -1,12 +1,13 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import type { CacTrayQueryParams } from '@/lib/backoffice/cacTrayTypes';
 import { trayRowsToHistoryEntries } from '@/lib/backoffice/trayRowAdapter';
 import { queryCacTrayAllFiltered } from '@/lib/database/cacTrayUnits';
+import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
 
 export const dynamic = 'force-dynamic';
 
-function parseExportParams(req: NextRequest): CacTrayQueryParams {
-  const sp = req.nextUrl.searchParams;
+function parseExportParams(url: URL): CacTrayQueryParams {
+  const sp = url.searchParams;
   return {
     from: sp.get('from') || undefined,
     to: sp.get('to') || undefined,
@@ -25,18 +26,14 @@ function parseExportParams(req: NextRequest): CacTrayQueryParams {
   };
 }
 
-/** Filas listas para export (máx. 10k). */
-export async function GET(req: NextRequest) {
-  try {
-    const rows = await queryCacTrayAllFiltered(parseExportParams(req));
+export const GET = withErrorHandler(
+  async (req: Request) => {
+    const rows = await queryCacTrayAllFiltered(parseExportParams(new URL(req.url)));
     return NextResponse.json({
       entries: trayRowsToHistoryEntries(rows),
       count: rows.length,
       truncated: rows.length >= 10000,
     });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Error al exportar historial CAC';
-    console.error('cac-history/export:', message);
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
-}
+  },
+  { module: 'backoffice', action: 'cac-history.export' }
+);

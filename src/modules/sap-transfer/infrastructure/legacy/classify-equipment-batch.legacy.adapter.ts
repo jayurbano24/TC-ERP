@@ -1,14 +1,16 @@
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import type { IClassifyBatchGateway } from '../../domain/ports/classify-batch.gateway.port';
 import type { ClassifyBatchParams, ClassifyBatchResult } from '../../domain/types/equipment-unit.types';
-import { auditClassifiedSeries } from '../audit';
+import { auditClassifiedSeries, auditClassifyBatchCompleted } from '../audit';
 
 export class ClassifyEquipmentBatchLegacyAdapter implements IClassifyBatchGateway {
   async classifyBatch(params: ClassifyBatchParams): Promise<ClassifyBatchResult> {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return { error: 'Supabase not configured' };
 
+    const correlationId = params.correlationId ?? params.receptionId;
     const results: unknown[] = [];
+    let totalSeries = 0;
 
     for (const unit of params.units) {
       if (!unit.main_serial) continue;
@@ -75,14 +77,27 @@ export class ClassifyEquipmentBatchLegacyAdapter implements IClassifyBatchGatewa
       }
 
       if (upsertedSeries) {
+        totalSeries += upsertedSeries.length;
         await auditClassifiedSeries(
           upsertedSeries.map((s) => s.id),
           params.sapTransferId,
-          params.registeredBy
+          params.registeredBy,
+          correlationId
         );
       }
 
       results.push(osData);
+    }
+
+    if (results.length > 0) {
+      await auditClassifyBatchCompleted({
+        receptionId: params.receptionId,
+        sapTransferId: params.sapTransferId,
+        unitsCount: results.length,
+        seriesCount: totalSeries,
+        registeredBy: params.registeredBy,
+        correlationId,
+      });
     }
 
     return { data: results };

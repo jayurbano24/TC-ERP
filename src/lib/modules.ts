@@ -25,7 +25,7 @@ export const erpModules: ErpModule[] = [
   // DESPACHO
   { id: 10, categoria: 'Bodega', nombre: "Despacho Final", descripcion: "Masivo, individual y Master Box.", ruta: "/despacho" },
 
-  // GESTIÓN
+  { id: 17, categoria: 'Gestión', nombre: "Portal de Reportes", descripcion: "Catálogo unificado de exportaciones Excel/CSV.", ruta: "/reportes" },
   { id: 11, categoria: 'Gestión', nombre: "Dashboard & BI", descripcion: "Productividad, KPIs y proyección de capacidad.", ruta: "/gestion/bi" },
   { id: 12, categoria: 'Gestión', nombre: "Costos & Rentabilidad", descripcion: "Costeo por equipo, técnico y proyecto.", ruta: "/gestion/costos" },
   { id: 13, categoria: 'Gestión', nombre: "Alertas & SLA", descripcion: "Monitoreo de tiempos y alertas preventivas.", ruta: "/gestion/alertas" },
@@ -39,6 +39,8 @@ export type NavigationItem = {
   href: string;
   descripcion: string;
   icon?: string;
+  /** Clave en erp_role_permissions.module_name (default: label) */
+  permissionKey?: string;
 };
 
 // Main sidebar groups
@@ -63,14 +65,15 @@ export const navigationGroups = [
       { label: "Backoffice", href: "/produccion/backoffice", descripcion: "Aceptación & SN", icon: "Laptop" },
       { label: "Taller", href: "/produccion/taller", descripcion: "Reparación & QC", icon: "Wrench" },
       { label: "Bodega", href: "/bodega/gestion", descripcion: "Racks & Stock", icon: "Warehouse" },
-      { label: "Accesorios", href: "/bodega/accesorios", descripcion: "Bodega de Accesorios", icon: "Boxes" },
-      { label: "Despacho", href: "/despacho", descripcion: "Salida de Equipos", icon: "Truck" },
-      { label: "Integración SAP", href: "/integracion-sap", descripcion: "Centro de Validación", icon: "Database" },
+      { label: "Accesorios", href: "/bodega/accesorios", descripcion: "Bodega de Accesorios", icon: "Boxes", permissionKey: "Accesorios" },
+      { label: "Despacho", href: "/despacho", descripcion: "Salida de Equipos", icon: "Truck", permissionKey: "Despacho" },
+      { label: "Integración SAP", href: "/integracion-sap", descripcion: "Centro de Validación", icon: "Database", permissionKey: "Integración SAP" },
     ]
   },
   {
     title: "Gestión & BI",
     items: [
+      { label: "Reportes", href: "/reportes", descripcion: "Exportaciones centralizadas", icon: "FileSpreadsheet", permissionKey: "Reportes" },
       { label: "Recursos Humanos", href: "/rrhh", descripcion: "Asistencia y Planilla", icon: "Users" },
       { label: "Productividad", href: "/gestion/bi", descripcion: "Métricas y KPIs", icon: "TrendingUp" },
       { label: "Costos", href: "/gestion/costos", descripcion: "Análisis financiero", icon: "CircleDollarSign" },

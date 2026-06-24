@@ -8,8 +8,8 @@ LANGUAGE sql
 IMMUTABLE
 AS $$
   SELECT CASE lower(trim(COALESCE(p_status, '')))
-    WHEN 'recepcionado_bodega_general' THEN 'Pendiente de Ingreso a Bodega General'
-    WHEN 'pendiente_ingreso_bodega' THEN 'Pendiente de Ingreso a Bodega General'
+    WHEN 'recepcionado_bodega_general' THEN 'Ingresado a Backoffice'
+    WHEN 'pendiente_ingreso_bodega' THEN 'Ingresado a Backoffice'
     WHEN 'in_central_warehouse' THEN 'Ingresado a Bodega General'
     WHEN 'ingresado_bodega' THEN 'Ingresado a Bodega General'
     WHEN 'returned' THEN 'Devuelto'

@@ -9,11 +9,14 @@ import { getTechnologies, getBrands, getModels, getDiagnostics, getRepairs, getR
 import { getSeriesHistory } from '@/lib/database/audit';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { useEffect } from 'react';
+import { isHexagonalProductionOrderEnabled } from '@/modules/production-order';
+import { ProductionOrderPanel } from '@/modules/production-order/components/ProductionOrderPanel';
 
-type TabType = 'diagnostico' | 'reparacion' | 'reacondicionado' | 'qc' | 'l3' | 'scraps' | 'listo' | 'despacho';
+type TabType = 'diagnostico' | 'reparacion' | 'reacondicionado' | 'qc' | 'l3' | 'scraps' | 'listo' | 'despacho' | 'po';
 
 export default function TallerPage() {
   const [activeTab, setActiveTab] = useState<TabType>('diagnostico');
+  const useProductionOrderHex = isHexagonalProductionOrderEnabled();
   const [selectedForOperation, setSelectedForOperation] = useState<any | null>(null);
   
   // Pagination State
@@ -521,6 +524,9 @@ ${funcNotes || 'Ninguno evaluado'}
   };
 
   const tabs = [
+    ...(useProductionOrderHex
+      ? [{ id: 'po', label: 'PO Taller', icon: ClipboardList, color: 'text-cyan-600', bg: 'bg-cyan-50' }]
+      : []),
     { id: 'diagnostico', label: 'Diagnóstico', icon: Stethoscope, color: 'text-amber-500', bg: 'bg-amber-50' },
     { id: 'reparacion', label: 'Reparación', icon: Wrench, color: 'text-blue-500', bg: 'bg-blue-50' },
     { id: 'reacondicionado', label: 'Reacondicionado', icon: RefreshCw, color: 'text-emerald-500', bg: 'bg-emerald-50' },
@@ -638,7 +644,9 @@ ${funcNotes || 'Ninguno evaluado'}
 
         {/* Dynamic Content Area */}
         <div className="animate-rise-in">
-          {activeTab !== 'despacho' && (() => {
+          {activeTab === 'po' && useProductionOrderHex ? (
+            <ProductionOrderPanel />
+          ) : activeTab !== 'despacho' && activeTab !== 'po' && (() => {
             const currentTab = tabs.find(t => t.id === activeTab) || tabs[0];
             const TabIcon = currentTab.icon;
             

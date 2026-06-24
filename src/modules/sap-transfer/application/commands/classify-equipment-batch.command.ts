@@ -5,7 +5,8 @@ export class ClassifyEquipmentBatchCommand {
     readonly receptionId: string,
     readonly sapTransferId: string,
     readonly units: ClassifyBatchParams['units'],
-    readonly registeredBy: string
+    readonly registeredBy: string,
+    readonly correlationId?: string
   ) {}
 
   static from(params: ClassifyBatchParams): ClassifyEquipmentBatchCommand {
@@ -13,7 +14,8 @@ export class ClassifyEquipmentBatchCommand {
       params.receptionId,
       params.sapTransferId,
       params.units,
-      params.registeredBy
+      params.registeredBy,
+      params.correlationId
     );
   }
 }

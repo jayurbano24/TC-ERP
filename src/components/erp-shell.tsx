@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { navigationGroups } from "@/lib/modules";
+import { canViewNavItem, isAdminNavRole } from "@/lib/navigation-permissions";
 import { Badge } from "@/components/ui";
 import { useTheme } from "@/components/theme-provider";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -30,11 +31,16 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Activity,
-  Users
+  Users,
+  FileSpreadsheet,
+  Boxes,
+  Database
 } from "lucide-react";
 
 const ICON_MAP: Record<string, React.ElementType> = {
-  LayoutDashboard, PackageSearch, Undo2, Laptop, Wrench, Warehouse, Truck, TrendingUp, CircleDollarSign, ShieldCheck, Activity, Users
+  LayoutDashboard, PackageSearch, Undo2, Laptop, Wrench, Warehouse, Truck,
+  TrendingUp, CircleDollarSign, ShieldCheck, Activity, Users,
+  FileSpreadsheet, Boxes, Database,
 };
 
 const NAV_PERMS_KEY_PREFIX = 'tcerp_nav_permissions_';
@@ -45,7 +51,7 @@ function readCachedPermissions(userId?: string | null): any[] | null {
   const id = userId || localStorage.getItem(LAST_USER_KEY);
   if (!id) return null;
   try {
-    const raw = localStorage.getItem(`${NAV_PERMS_KEY_PREFIX}${userId}`);
+    const raw = localStorage.getItem(`${NAV_PERMS_KEY_PREFIX}${id}`);
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
@@ -72,18 +78,29 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [userPermissions, setUserPermissions] = useState<any[] | null>(() => {
-    if (typeof window === 'undefined') return null;
-    if (localStorage.getItem('tcerp_dev_session')) return [{ is_admin: true }];
-    return readCachedPermissions();
-  });
-  const [permissionsLoading, setPermissionsLoading] = useState(() => userPermissions === null);
+  const [userPermissions, setUserPermissions] = useState<any[] | null>(null);
+  const [permissionsLoading, setPermissionsLoading] = useState(true);
+  const [navReady, setNavReady] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
   const applyUserPermissions = (userId: string, perms: any[]) => {
     setUserPermissions(perms);
     writeCachedPermissions(userId, perms);
   };
+
+  useEffect(() => {
+    if (localStorage.getItem('tcerp_dev_session')) {
+      setUserPermissions([{ is_admin: true }]);
+      setPermissionsLoading(false);
+    } else {
+      const cached = readCachedPermissions();
+      if (cached) {
+        setUserPermissions(cached);
+        setPermissionsLoading(false);
+      }
+    }
+    setNavReady(true);
+  }, []);
 
   useEffect(() => {
     const handleResize = () => {
@@ -101,7 +118,6 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
     let cancelled = false;
 
     async function loadUser() {
-      setPermissionsLoading(true);
       try {
         const devRaw = typeof window !== 'undefined' ? localStorage.getItem('tcerp_dev_session') : null;
         const supabase = getSupabaseBrowserClient();
@@ -193,7 +209,7 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
           role_id: roleId,
         });
 
-        if (role === 'ADMINISTRADOR' || data.email === 'gurbano@techcommwireless.com' || data.email === 'gurbnao@techcommwireless.com') {
+        if (role === 'ADMINISTRADOR' || isAdminNavRole(role) || data.email === 'gurbano@techcommwireless.com' || data.email === 'gurbnao@techcommwireless.com') {
           applyUserPermissions(userId, [{ is_admin: true }]);
         } else if (roleId) {
           const perms = await getRolePermissions(roleId);
@@ -268,7 +284,7 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
         {/* Sidebar */}
         <aside className={`
           ${isSidebarOpen ? 'translate-x-0 w-72' : '-translate-x-full md:translate-x-0 w-0 md:w-20'} 
-          fixed inset-y-0 left-0 z-40 bg-[#181c3a] text-white transition-all duration-300 md:relative shrink-0 flex flex-col shadow-2xl shadow-black/40
+          fixed inset-y-0 left-0 z-40 bg-[var(--sidebar)] text-[var(--sidebar-foreground)] transition-all duration-300 md:relative shrink-0 flex flex-col shadow-2xl shadow-black/40
         `}>
           {/* Logo Section */}
           <div className="p-6 border-b border-white/5 flex justify-between items-center h-20">
@@ -315,7 +331,7 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
 
           {/* Navigation */}
           <nav className="flex-1 overflow-y-auto px-3 py-6 space-y-6 custom-scrollbar">
-            {permissionsLoading && !userPermissions ? (
+            {!navReady || permissionsLoading ? (
               <div className="space-y-3 px-2 animate-pulse">
                 {[1, 2, 3, 4, 5].map((i) => (
                   <div key={i} className="h-10 rounded-xl bg-white/5" />
@@ -324,20 +340,12 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
                   Cargando menú…
                 </p>
               </div>
-            ) : null}
-            {navigationGroups.map((group) => {
+            ) : (
+            navigationGroups.map((group) => {
               // Filtrar items basados en permisos
-              const filteredItems = group.items.filter(item => {
-                // Si aún no cargan permisos, no mostrar nada
-                if (!userPermissions) return false;
-                
-                // Administradores ven todo
-                if (userPermissions.length > 0 && userPermissions[0].is_admin) return true;
-                
-                // Verificar matriz de permisos
-                const perm = userPermissions.find(p => p.module_name === item.label);
-                return perm ? perm.can_view === true : false;
-              });
+              const filteredItems = group.items.filter((item) =>
+                canViewNavItem(item, userPermissions)
+              );
 
               // Si el grupo no tiene items después de filtrar, no lo renderizamos
               if (filteredItems.length === 0) return null;
@@ -366,18 +374,18 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
                         className={`
                           group flex items-center rounded-xl p-3 transition-all duration-200
                           ${isActive 
-                            ? 'bg-[#2ec4f1] text-white shadow-lg shadow-[#2ec4f1]/20' 
+                            ? 'bg-[#2ec4f1] text-[#181c3a] shadow-lg shadow-[#2ec4f1]/20' 
                             : 'hover:bg-white/5'}
                           ${isSidebarOpen ? 'justify-between px-4' : 'justify-center mx-2'}
                         `}
                       >
                         <div className="flex items-center gap-3 w-full">
-                          {Icon && <Icon size={20} strokeWidth={2} className={`shrink-0 ${isActive ? 'text-white drop-shadow-md' : 'text-slate-300 group-hover:text-white transition-colors'}`} />}
+                          {Icon && <Icon size={20} strokeWidth={2} className={`shrink-0 ${isActive ? 'text-[#181c3a]' : 'text-slate-300 group-hover:text-white transition-colors'}`} />}
                           
                           {isSidebarOpen && (
                             <div className="flex flex-col overflow-hidden animate-in fade-in duration-300">
-                              <span className={`text-sm font-semibold truncate ${isActive ? 'text-white drop-shadow-md' : 'text-slate-200 group-hover:text-white transition-colors'}`}>{item.label}</span>
-                              <span className={`text-[11px] font-medium truncate mt-0.5 transition-colors ${isActive ? 'text-white' : 'text-slate-300 group-hover:text-white'}`}>
+                              <span className={`text-sm font-semibold truncate ${isActive ? 'text-[#181c3a]' : 'text-slate-200 group-hover:text-white transition-colors'}`}>{item.label}</span>
+                              <span className={`text-[11px] font-medium truncate mt-0.5 transition-colors ${isActive ? 'text-[#181c3a]/80' : 'text-slate-300 group-hover:text-white'}`}>
                                 {item.descripcion}
                               </span>
                             </div>
@@ -390,7 +398,8 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
                 </div>
               </div>
               );
-            })}
+            })
+            )}
           </nav>
 
           {/* User & Footer */}
@@ -418,7 +427,7 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
         <div className="flex-1 min-w-0 bg-[var(--background)] flex flex-col">
           {/* Top Bar / Global Actions */}
           <header className="h-20 bg-[var(--surface)] border-b border-[var(--border)] px-4 md:px-8 flex items-center justify-between sticky top-0 z-30">
-            <div className="flex items-center gap-4 text-slate-600">
+            <div className="flex items-center gap-4 text-[var(--muted)]">
               <button 
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
                 className="hidden md:flex p-2 rounded-xl hover:bg-[var(--surface-hover)] transition-colors text-[var(--muted)] hover:text-[var(--foreground)] mr-2"
@@ -430,7 +439,7 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
                 <LayoutDashboard className="w-4 h-4" />
                 <span className="text-[10px] font-bold uppercase tracking-widest">Dashboard</span>
                 <ChevronRight className="w-3 h-3" />
-                <span className="text-[10px] font-bold uppercase tracking-widest text-[#181c3a]">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--foreground)]">
                   {pathname?.split('/').pop()?.replace('-', ' ')}
                 </span>
               </div>

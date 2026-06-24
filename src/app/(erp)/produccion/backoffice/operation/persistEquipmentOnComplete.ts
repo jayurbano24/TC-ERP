@@ -3,6 +3,7 @@
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { createServiceOrders } from '@/lib/database/receptions';
 import { createOrGetSapTransfer, classifyEquipmentBatch } from '@/lib/database/sapTransfers';
+import { generateClientCorrelationId } from '@/shared/infrastructure/http/correlationId.client';
 import { countReadyEquipmentUnits } from '../historyTrayUtils';
 import type { GuideItem, SapTransferGroup } from '../types';
 
@@ -14,6 +15,8 @@ export type PersistEquipmentParams = {
   sapTransferNumber: string;
   agencyLabel: string;
   currentUserFullName: string;
+  /** Si no se pasa, se genera uno por operación de finalización. */
+  correlationId?: string;
 };
 
 export type PersistEquipmentResult = {
@@ -21,6 +24,7 @@ export type PersistEquipmentResult = {
   osCreatedCount: number;
   equipmentPersistError: string | null;
   expectedUnits: number;
+  correlationId: string;
 };
 
 export async function persistEquipmentOnComplete(params: PersistEquipmentParams): Promise<PersistEquipmentResult> {
@@ -34,6 +38,8 @@ export async function persistEquipmentOnComplete(params: PersistEquipmentParams)
     currentUserFullName,
   } = params;
 
+  const correlationId = params.correlationId ?? generateClientCorrelationId();
+
   let osCreatedCount = 0;
   let equipmentPersistError: string | null = null;
 
@@ -46,7 +52,7 @@ export async function persistEquipmentOnComplete(params: PersistEquipmentParams)
 ` +
         `Cada unidad debe tener todas sus series antes de finalizar.`
     );
-    return { aborted: true, osCreatedCount: 0, equipmentPersistError: null, expectedUnits };
+    return { aborted: true, osCreatedCount: 0, equipmentPersistError: null, expectedUnits, correlationId };
   }
 
   const sapGroupsInManifest = Array.from(
@@ -69,7 +75,7 @@ export async function persistEquipmentOnComplete(params: PersistEquipmentParams)
 
   if (groupsToProcess.length === 0) {
     alert('Debe registrar al menos un Documento SAP con equipos antes de finalizar.');
-    return { aborted: true, osCreatedCount: 0, equipmentPersistError: null, expectedUnits };
+    return { aborted: true, osCreatedCount: 0, equipmentPersistError: null, expectedUnits, correlationId };
   }
 
   const supabaseClient = getSupabaseBrowserClient();
@@ -140,6 +146,7 @@ export async function persistEquipmentOnComplete(params: PersistEquipmentParams)
         sapTransferId: sapRes.data!.id,
         units: unitsForOS,
         registeredBy,
+        correlationId,
       });
 
       if (batchRes.error) {
@@ -158,5 +165,5 @@ export async function persistEquipmentOnComplete(params: PersistEquipmentParams)
     }
   }
 
-  return { aborted: false, osCreatedCount, equipmentPersistError, expectedUnits };
+  return { aborted: false, osCreatedCount, equipmentPersistError, expectedUnits, correlationId };
 }

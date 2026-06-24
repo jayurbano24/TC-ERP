@@ -1,4 +1,19 @@
 import { receptionRepository } from '../repositories/receptionRepository';
+import { getCurrentReceptionActor } from '@/lib/database/receptionActor';
+import { parseReceptionReceiverFromNotes } from '@/lib/database/traceability';
+
+function resolveReceptionDisplayName(row: {
+  received_by_profile?: { full_name?: string | null } | null;
+  notes?: string | null;
+  received_by?: string | null;
+}): string {
+  const fromProfile = row.received_by_profile?.full_name?.trim();
+  if (fromProfile) return fromProfile;
+  const fromNotes = parseReceptionReceiverFromNotes(row.notes || '');
+  if (fromNotes && fromNotes !== '---') return fromNotes;
+  if (row.received_by && !row.received_by.includes('-')) return row.received_by;
+  return 'SISTEMA';
+}
 
 export const receptionService = {
   getHistory: async (source: 'cac' | 'px') => {
@@ -7,7 +22,7 @@ export const receptionService = {
       return data.map((r: any) => ({
         ...r,
         fecha_formateada: new Date(r.created_at).toLocaleString(),
-        usuario: r.received_by || 'SISTEMA',
+        usuario: resolveReceptionDisplayName(r),
         pilot_display: r.notes?.split('Piloto: ')[1]?.split('\\n')[0] || '---'
       }));
     } catch (error) {
@@ -16,22 +31,27 @@ export const receptionService = {
     }
   },
 
-  finalizeCACReception: async (cacState: any, currentUserFullName: string) => {
+  finalizeCACReception: async (cacState: any, currentUserFullName?: string) => {
+    const actor = await getCurrentReceptionActor();
+    const fullName = currentUserFullName?.trim() || actor.fullName;
+
     const reception = {
       source: 'cac',
       guide_number: cacState.cacScannedItems[0] || 'DESCONOCIDO',
       carrier: cacState.cacCarrier,
       status: 'RECEPCIONADA',
-      notes: `Piloto: ${cacState.cacPilot}\nAgencia: ${cacState.cacAgency || 'N/A'}\nRecibido Por: ${currentUserFullName}\nGuías: ${cacState.cacScannedItems.join(', ')}`,
+      notes: `Piloto: ${cacState.cacPilot}\nAgencia: ${cacState.cacAgency || 'N/A'}\nRecibido Por: ${fullName}\nGuías: ${cacState.cacScannedItems.join(', ')}`,
       processed_guides: [],
       received_units: cacState.cacScannedItems.length,
       expected_units: cacState.cacTotalCajas,
-      received_by: null
+      received_by: actor.userId,
     };
     return await receptionRepository.createCACReception(reception, cacState.cacScannedItems);
   },
 
-  finalizePXReception: async (guideData: any, manifestItems: any[], scannedSeries: any[], systemBrands: any[], systemModels: any[], currentUserFullName: string) => {
+  finalizePXReception: async (guideData: any, manifestItems: any[], scannedSeries: any[], systemBrands: any[], systemModels: any[], currentUserFullName?: string) => {
+    const actor = await getCurrentReceptionActor();
+    const fullName = currentUserFullName?.trim() || actor.fullName;
 
     const headerCheck = await receptionRepository.validatePxHeaderUniqueness(
       guideData.sap || '',
@@ -80,10 +100,10 @@ export const receptionService = {
       sap_document: guideData.sap || 'SIN-PEDIDO',
       carrier: guideData.proveedorPx || 'N/A',
       status: 'CLASIFICADA',
-      notes: `DOC Ref: ${guideData.docReferencia || '---'}\nAgencia: ${guideData.proveedorPx}\nProveedor PX: ${guideData.proveedorPx}\nPiloto: ${guideData.piloto || '---'}\nCourier: ${guideData.courier || '---'}\nBackoffice_Tech: ${manifestItems[0]?.tecnologia || ''}\nCajas: ${boxes.length}\nRecibido Por: ${currentUserFullName}`,
+      notes: `DOC Ref: ${guideData.docReferencia || '---'}\nAgencia: ${guideData.proveedorPx}\nProveedor PX: ${guideData.proveedorPx}\nPiloto: ${guideData.piloto || '---'}\nCourier: ${guideData.courier || '---'}\nBackoffice_Tech: ${manifestItems[0]?.tecnologia || ''}\nCajas: ${boxes.length}\nRecibido Por: ${fullName}`,
       received_units: scannedSeries.length,
       expected_units: manifestItems.reduce((acc, curr) => acc + curr.totalEsperado, 0),
-      received_by: null
+      received_by: actor.userId,
     };
 
     const seriesByBox: Record<string, any[]> = {};

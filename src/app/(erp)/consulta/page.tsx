@@ -3,7 +3,13 @@
 import { useState } from "react";
 import { Search, Loader2, Package, MapPin, Calendar, Clock, User, Activity, AlertCircle, CheckCircle, XCircle, Eraser } from "lucide-react";
 import { searchSeriesDetailed } from "@/lib/database/series";
-import { getSeriesHistory } from "@/lib/database/audit";
+import {
+  fetchCacTrayContext,
+  getEquipmentTraceabilityHistory,
+  resolveTraceabilityResponsibles,
+  resolveTraceabilityStatusLabel,
+  type TraceabilityEvent,
+} from "@/lib/database/traceability";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 export default function ConsultaPage() {
@@ -11,7 +17,7 @@ export default function ConsultaPage() {
   const [loading, setLoading] = useState(false);
   const [seriesData, setSeriesData] = useState<any>(null);
   const [siblingSeries, setSiblingSeries] = useState<any[]>([]);
-  const [history, setHistory] = useState<any[]>([]);
+  const [history, setHistory] = useState<TraceabilityEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const handleSearch = async (e?: React.FormEvent) => {
@@ -51,27 +57,61 @@ export default function ConsultaPage() {
         if (found) exactMatch = found;
       }
 
-      setSeriesData(exactMatch);
-
+      let siblings: any[] = [exactMatch];
       if (exactMatch.service_order_id) {
-        // Fetch all siblings (other series records belonging to the same O.S.)
         const supabase = getSupabaseBrowserClient();
         if (supabase) {
-          const { data: sibs } = await supabase.from('series').select('*').eq('service_order_id', exactMatch.service_order_id).order('created_at', { ascending: true });
-          if (sibs) setSiblingSeries(sibs);
+          const { data: sibs } = await supabase
+            .from('series')
+            .select('*')
+            .eq('service_order_id', exactMatch.service_order_id)
+            .order('created_at', { ascending: true });
+          if (sibs?.length) siblings = sibs;
         }
-      } else {
-        setSiblingSeries([exactMatch]);
       }
+      setSiblingSeries(siblings);
 
       if (exactMatch.id) {
-        const idsToFetch = [exactMatch.id];
-        if (exactMatch.current_reception_id) idsToFetch.push(exactMatch.current_reception_id);
-        if (exactMatch.current_box_id) idsToFetch.push(exactMatch.current_box_id);
-        if (exactMatch.service_order_id) idsToFetch.push(exactMatch.service_order_id);
+        const reception =
+          exactMatch.receptions || exactMatch.service_orders?.receptions || null;
+        const receptionId =
+          exactMatch.current_reception_id ||
+          exactMatch.service_orders?.reception_id ||
+          reception?.id ||
+          null;
+        const sapTransferId =
+          exactMatch.sap_transfer_id ||
+          exactMatch.service_orders?.sap_transfer_id ||
+          exactMatch.service_orders?.sap_transfer_documents?.id ||
+          null;
+        const siblingIds = siblings.map((s: { id: string }) => s.id);
+        const guideNumbers = [
+          ...(reception?.reception_guides?.map((g: { guide_number?: string }) => g.guide_number) ||
+            []),
+          reception?.guide_number,
+        ].filter(Boolean) as string[];
 
-        const hist = await getSeriesHistory(idsToFetch);
-        setHistory(hist || []);
+        const trayCtx = exactMatch.service_order_id
+          ? await fetchCacTrayContext(exactMatch.service_order_id)
+          : null;
+
+        const hist = await getEquipmentTraceabilityHistory({
+          seriesIds: siblingIds,
+          serviceOrderId: exactMatch.service_order_id,
+          receptionId,
+          sapTransferId,
+          boxId: exactMatch.current_box_id,
+          guideNumbers,
+          receptionNotes: reception?.notes || null,
+        });
+        setHistory(hist);
+        setSeriesData({
+          ...exactMatch,
+          receptions: reception,
+          _trayCtx: trayCtx,
+        });
+      } else {
+        setSeriesData(exactMatch);
       }
     } catch (err: any) {
       console.error(err);
@@ -107,21 +147,7 @@ export default function ConsultaPage() {
     }
   };
 
-  const getStatusLabel = (status: string) => {
-    if (!status) return 'DESCONOCIDO';
-    switch (status) {
-      case 'in_central_warehouse': return 'BODEGA CENTRAL';
-      case 'in_workshop': return 'TALLER (DIAGNÓSTICO)';
-      case 'in_refurbish': return 'TALLER (REACONDICIONAMIENTO)';
-      case 'in_repair': return 'TALLER (REPARACIÓN)';
-      case 'in_l3': return 'TALLER (NIVEL 3)';
-      case 'in_qc': 
-      case 'in_validation': return 'CONTROL DE CALIDAD';
-      case 'scrap': return 'SCRAP';
-      case 'RECEPCIONADO_BODEGA_GENERAL': return 'PENDIENTE INGRESO BODEGA GENERAL';
-      default: return status.replace(/_/g, ' ').toUpperCase();
-    }
-  };
+  const getStatusLabel = (status: string) => resolveTraceabilityStatusLabel(status).toUpperCase();
 
   const formatDate = (dateString: string) => {
     if (!dateString) return '';
@@ -144,66 +170,14 @@ export default function ConsultaPage() {
     return match ? match[1].trim() : null;
   };
 
-  // Encontrar a la persona de Recepción (CAC o PX) en el historial
-  const receptionLog = history.find(h => h.action.includes('RECEPCIÓN'));
-  const backofficeLog = history.find(h => h.action.includes('BACKOFFICE'));
-  const bodegaLog = history.find(h => h.action.includes('INGRESO A BODEGA') || h.action.includes('ASIGNACIÓN CAJA'));
-
-  // Parsear la línea de tiempo de notas en caso de que sea un ingreso masivo de CAC sin auditoría de series
-  const parseLogFromNotes = (notes: string, keyword: string) => {
-    if (!notes) return null;
-    const lines = notes.split('\n');
-    for (const line of lines) {
-      if (line.includes(keyword) && line.includes('- Por: ')) {
-        const parts = line.split('- Por: ');
-        const user = parts[1].trim();
-        const dateMatch = line.match(/\[(.*?)\]/);
-        const date = dateMatch ? dateMatch[1].split(',')[0] : null;
-        return { user, date };
-      }
-    }
-    return null;
-  };
-
-  const cacRecLog = parseLogFromNotes(seriesData?.receptions?.notes || '', 'RECEPCIÓN:');
-  const cacBoLog = parseLogFromNotes(seriesData?.receptions?.notes || '', 'CLASIFICACIÓN');
-
-  const recepcionNombre = receptionLog?.profiles?.full_name || seriesData?.receptions?.received_by || cacRecLog?.user || 'N/A';
-  const recepcionFecha = receptionLog ? formatDate(receptionLog.changed_at) : (cacRecLog?.date || (seriesData?.receptions?.created_at ? formatDate(seriesData.receptions.created_at) : '-'));
-
-  const backofficeNombre = backofficeLog?.profiles?.full_name || cacBoLog?.user || (seriesData?.receptions?.source === 'px' ? (seriesData?.receptions?.received_by || 'N/A') : 'N/A');
-  const backofficeFecha = backofficeLog ? formatDate(backofficeLog.changed_at) : (cacBoLog?.date || (seriesData?.receptions?.source === 'px' ? formatDate(seriesData?.receptions?.created_at) : '-'));
-
-  const bodegaNombre = bodegaLog?.profiles?.full_name || 'N/A';
-  const bodegaFecha = bodegaLog ? formatDate(bodegaLog.changed_at) : '-';
-
-  const extractAgency = (receptions: any) => {
-    if (!receptions) return 'N/A';
-
-    // Fase 5: leer desde reception_guides.agency (fuente de verdad)
-    if (receptions.reception_guides?.length > 0) {
-      const rg = receptions.reception_guides.find((g: any) => g.agency);
-      if (rg?.agency) return rg.agency;
-    }
-
-    // Fallback histórico: parsear notes
-    if (receptions.notes) {
-      const parsedAgency = receptions.notes.split('Backoffice_Agency: ')[1]?.split('\n')[0]?.trim();
-      if (parsedAgency) return parsedAgency;
-
-      const parsedAgencia = receptions.notes.split('Agencia: ')[1]?.split('\n')[0]?.trim();
-      if (parsedAgencia) return parsedAgencia;
-    }
-
-    if (receptions.source === 'cac') return receptions.carrier || 'CENTRAL DE ATENCIÓN AL CLIENTE (CAC)';
-
-    return receptions.carrier || 'N/A';
-  };
+  const trayCtx = seriesData?._trayCtx;
+  const receptionProfileName =
+    seriesData?.receptions?.received_by_profile?.full_name || null;
 
   const inferGuideFromNotes = (series: any) => {
+    if (trayCtx?.guide_number) return trayCtx.guide_number;
     if (!series || !series.receptions) return 'N/A';
 
-    // Fase 5: usar reception_guides.category en lugar de regex sobre notes
     if (series.receptions.reception_guides?.length > 0) {
       const techName = series.models?.technologies?.name?.toLowerCase() || '';
       let targetCategory = 'equipo';
@@ -217,13 +191,11 @@ export default function ConsultaPage() {
       );
       if (matchedGuide?.guide_number) return matchedGuide.guide_number;
 
-      // Si hay un solo guide, devolver ese
       if (series.receptions.reception_guides.length === 1) {
         return series.receptions.reception_guides[0].guide_number;
       }
     }
 
-    // Fallback histórico: inferencia desde notes con regex
     if (series.receptions.source !== 'cac') return series.receptions.guide_number;
 
     const techName = series.models?.technologies?.name?.toLowerCase() || '';
@@ -256,6 +228,51 @@ export default function ConsultaPage() {
 
     return series.receptions.guide_number;
   };
+
+  const responsibles = resolveTraceabilityResponsibles(history, {
+    receptionNotes: seriesData?.receptions?.notes || null,
+    receptionProfileName,
+    receptionGuideNumber: inferGuideFromNotes(seriesData),
+    trayReceivedByName: trayCtx?.received_by_name || null,
+    receptionTime: seriesData?.receptions?.reception_time || null,
+    receptionCreatedAt: seriesData?.receptions?.created_at || null,
+    trayClassifiedAt: trayCtx?.classified_at || null,
+  });
+
+  const formatResponsibleDate = (iso: string) => (iso ? formatDate(iso) : '-');
+
+  const recepcionNombre = responsibles.receptionName;
+  const recepcionFecha = formatResponsibleDate(responsibles.receptionDate);
+  const recepcionGuia = responsibles.receptionGuideNumber;
+  const backofficeNombre = responsibles.backofficeName;
+  const backofficeFecha = formatResponsibleDate(responsibles.backofficeDate);
+  const bodegaNombre = responsibles.warehouseName;
+  const bodegaFecha = formatResponsibleDate(responsibles.warehouseDate);
+
+  const extractAgency = (receptions: any) => {
+    if (trayCtx?.agency_name) return trayCtx.agency_name;
+    if (!receptions) return 'N/A';
+
+    // Fase 5: leer desde reception_guides.agency (fuente de verdad)
+    if (receptions.reception_guides?.length > 0) {
+      const rg = receptions.reception_guides.find((g: any) => g.agency);
+      if (rg?.agency) return rg.agency;
+    }
+
+    // Fallback histórico: parsear notes
+    if (receptions.notes) {
+      const parsedAgency = receptions.notes.split('Backoffice_Agency: ')[1]?.split('\n')[0]?.trim();
+      if (parsedAgency) return parsedAgency;
+
+      const parsedAgencia = receptions.notes.split('Agencia: ')[1]?.split('\n')[0]?.trim();
+      if (parsedAgencia) return parsedAgencia;
+    }
+
+    if (receptions.source === 'cac') return receptions.carrier || 'CENTRAL DE ATENCIÓN AL CLIENTE (CAC)';
+
+    return receptions.carrier || 'N/A';
+  };
+
   const clearFilters = () => {
     setFilters({ os: "", imei: "", cliente: "", ticket: "", tracking: "", box: "" });
     setSeriesData(null);
@@ -456,7 +473,12 @@ export default function ConsultaPage() {
                     </div>
                     <div className="flex justify-between items-center text-sm">
                       <span className="text-slate-500">Traslado SAP:</span>
-                      <span className="text-slate-200 truncate max-w-[120px]">{seriesData.receptions?.sap_document || 'N/A'}</span>
+                      <span className="text-slate-200 truncate max-w-[120px]">
+                        {seriesData.receptions?.sap_document ||
+                          seriesData.service_orders?.sap_transfer_documents?.sap_document_number ||
+                          trayCtx?.sap_document_number ||
+                          'N/A'}
+                      </span>
                     </div>
                     <div className="flex justify-between items-center text-sm border-t border-slate-700/50 pt-2 mt-2">
                       <span className="text-slate-500">Ubicación:</span>
@@ -477,6 +499,11 @@ export default function ConsultaPage() {
                       <div className="text-sm text-slate-200 truncate">
                         {recepcionNombre}
                       </div>
+                      {recepcionGuia && recepcionGuia !== 'N/A' && (
+                        <div className="text-[10px] text-slate-400 mt-1 font-mono truncate">
+                          Guía: {recepcionGuia}
+                        </div>
+                      )}
                     </div>
                     <div className="p-3">
                       <div className="flex justify-between items-center mb-1">
@@ -530,36 +557,28 @@ export default function ConsultaPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800/50 bg-slate-900/20">
-                        {history.map((event, index) => {
-                          const newStatus = event.payload?.status || event.action || 'N/A';
-                          const obs = event.payload?.observations || event.action;
-                          const diagResult = event.payload?.diagnosticResult || '';
-                          const repResult = event.payload?.repairs ? 'Reparación Registrada' : '';
-                          const sucursal = event.payload?.source === 'px' ? 'PX' : event.payload?.source === 'cac' ? 'CAC' : 'Casa Matriz';
-                          
-                          return (
-                            <tr key={index} className="hover:bg-slate-800/50 transition-colors">
+                        {history.map((event) => (
+                            <tr key={event.id} className="hover:bg-slate-800/50 transition-colors">
                               <td className="px-4 py-3 text-xs whitespace-nowrap">
                                 <div>{formatDate(event.changed_at)}</div>
                                 <div className="text-slate-500">{formatTime(event.changed_at)}</div>
                               </td>
                               <td className="px-4 py-3 whitespace-nowrap">
-                                  <span className={`px-2 py-1 rounded text-[10px] font-bold tracking-wider ${getStatusColor(newStatus)}`}>
-                                    {getStatusLabel(newStatus)}
+                                  <span className={`px-2 py-1 rounded text-[10px] font-bold tracking-wider ${getStatusColor(event.status)}`}>
+                                    {getStatusLabel(event.status)}
                                   </span>
                               </td>
                               <td className="px-4 py-3 font-medium whitespace-nowrap">
-                                {event.profiles?.full_name || 'SISTEMA'}
+                                {event.actorName}
                               </td>
                               <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">
-                                {sucursal}
+                                {event.module}
                               </td>
                               <td className="px-4 py-3 text-xs text-slate-400 whitespace-normal min-w-[250px]">
-                                {obs}
+                                {event.comment}
                               </td>
                             </tr>
-                          );
-                        })}
+                          ))}
                       </tbody>
                     </table>
                   </div>

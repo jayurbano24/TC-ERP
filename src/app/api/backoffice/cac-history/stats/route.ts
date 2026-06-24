@@ -1,11 +1,12 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import type { CacTrayQueryParams } from '@/lib/backoffice/cacTrayTypes';
 import { queryCacTrayStats } from '@/lib/database/cacTrayUnits';
+import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
 
 export const dynamic = 'force-dynamic';
 
-function parseStatsParams(req: NextRequest): CacTrayQueryParams {
-  const sp = req.nextUrl.searchParams;
+function parseStatsParams(url: URL): CacTrayQueryParams {
+  const sp = url.searchParams;
   return {
     from: sp.get('from') || undefined,
     to: sp.get('to') || undefined,
@@ -24,15 +25,12 @@ function parseStatsParams(req: NextRequest): CacTrayQueryParams {
   };
 }
 
-export async function GET(req: NextRequest) {
-  try {
-    const result = await queryCacTrayStats(parseStatsParams(req));
+export const GET = withErrorHandler(
+  async (req: Request) => {
+    const result = await queryCacTrayStats(parseStatsParams(new URL(req.url)));
     return NextResponse.json(result, {
       headers: { 'Cache-Control': 'private, max-age=30, stale-while-revalidate=120' },
     });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Error al cargar estadísticas CAC';
-    console.error('cac-history/stats:', message);
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
-}
+  },
+  { module: 'backoffice', action: 'cac-history.stats' }
+);

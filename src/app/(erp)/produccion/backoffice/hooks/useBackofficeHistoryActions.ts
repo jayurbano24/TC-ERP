@@ -3,6 +3,7 @@
 import { useCallback } from 'react';
 import { updateReceptionStatus } from '@/lib/database/receptions';
 import { processBlockReturnBySapTransfer } from '@/lib/database/returns';
+import { downloadReportApi, isCentralReportingEnabledClient } from '@/modules/reporting/client/reportingApi';
 import { exportHistoryReport } from '../history/exportHistoryReport';
 import type { HistoryUnitEntry } from '../historyTrayUtils';
 import type { CatalogAgency, CatalogBrand, CatalogModel, CatalogTech } from '../types';
@@ -33,6 +34,13 @@ export function useBackofficeHistoryActions({
 }: Params) {
   const handleExportReport = useCallback(async () => {
     try {
+      if (isCentralReportingEnabledClient()) {
+        await downloadReportApi('CAC_CLASIFICACION_HISTORICO', {
+          from: dateFilterFrom || undefined,
+          to: dateFilterTo || undefined,
+        });
+        return;
+      }
       const entries = await fetchExportEntries();
       await exportHistoryReport(entries, catalogs, dateFilterFrom, dateFilterTo);
     } catch (err) {

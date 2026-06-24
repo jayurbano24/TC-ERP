@@ -113,16 +113,16 @@ export default function BackofficePageClient() {
       title="Recepción de Carga (CAC)"
       category="Logística"
       actions={
-        <div className="flex bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
+        <div className="flex bg-[var(--surface-hover)] p-1.5 rounded-2xl border border-[var(--border)]">
           <button
             type="button"
-            className="px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-[#181c3a] transition-all"
+            className="px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-[var(--muted)] hover:text-[var(--foreground)] transition-all"
           >
             MÓDULO PX
           </button>
           <button
             type="button"
-            className="px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest bg-white text-[#181c3a] shadow-sm"
+            className="px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest bg-[var(--surface)] text-[var(--foreground)] shadow-sm"
           >
             MÓDULO CAC
           </button>

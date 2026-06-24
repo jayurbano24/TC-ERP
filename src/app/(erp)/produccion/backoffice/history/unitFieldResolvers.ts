@@ -139,11 +139,13 @@ export function resolveUnitSapTransferId(rec: any, unit: any[]): string | null {
   return null;
 }
 
+export const UNIT_STATUS_LABEL_BACKOFFICE_PENDING_WAREHOUSE = 'Ingresado a Backoffice';
+
 export function formatUnitStatusLabel(status: string): string {
   switch (status) {
     case 'RECEPCIONADO_BODEGA_GENERAL':
     case 'PENDIENTE_INGRESO_BODEGA':
-      return 'Pendiente de Ingreso a Bodega General';
+      return UNIT_STATUS_LABEL_BACKOFFICE_PENDING_WAREHOUSE;
     case 'in_central_warehouse':
     case 'INGRESADO_BODEGA':
       return 'Ingresado a Bodega General';
@@ -194,7 +196,7 @@ export function resolveUnitStatus(rec: any, unit: any[]): { status: string; labe
   if (seriesStatus === 'RECEPCIONADO_BODEGA_GENERAL' || sapStatus === 'PENDIENTE_INGRESO_BODEGA') {
     return {
       status: 'RECEPCIONADO_BODEGA_GENERAL',
-      label: 'Pendiente de Ingreso a Bodega General',
+      label: UNIT_STATUS_LABEL_BACKOFFICE_PENDING_WAREHOUSE,
     };
   }
   if (seriesStatus) {

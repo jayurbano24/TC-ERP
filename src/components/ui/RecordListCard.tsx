@@ -27,13 +27,13 @@ export function RecordListCard({
   return (
     <Card
       padding="none"
-      className={`${erpCard.list} ${highlight ? 'border-rose-200 ring-1 ring-rose-100' : ''} ${className}`}
+      className={`${erpCard.list} ${highlight ? 'border-rose-400/50 ring-1 ring-rose-400/20' : ''} ${className}`}
     >
       <div className="flex flex-col sm:flex-row">
         <div className={`${erpCard.listMeta} ${erpCard.listMetaAccent[accent]}`}>{meta}</div>
         <div className={erpCard.listBody}>
           {children}
-          {footer && <div className="mt-4 pt-3 border-t border-slate-100">{footer}</div>}
+          {footer && <div className="mt-4 pt-3 border-t border-[var(--border)]">{footer}</div>}
         </div>
       </div>
     </Card>

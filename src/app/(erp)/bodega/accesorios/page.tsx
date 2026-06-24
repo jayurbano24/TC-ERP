@@ -5,11 +5,15 @@ import { Card, Button, Badge } from '@/components/ui';
 import { ModulePage, ModuleToolbar } from '@/components/module-page';
 import { Boxes, Plus, X, ArrowUpRight, ArrowDownRight, Search, Activity, PackageSearch, MoreVertical, Trash2, Edit2, MapPin, ScanLine } from 'lucide-react';
 import { getAccessories, createAccessory, registerAccessoryEntry, registerAccessoryDispatch, getAccessoryMovements, getAccessoryBoxes, updateAccessoryBoxStatus, deleteAccessoryBox, updateAccessoryBox, bulkUpdateAccessoryBoxLocation } from '@/lib/database/accessories';
+import { isHexagonalAccessoriesDispatchEnabled } from '@/modules/accessories-dispatch';
+import { dispatchAccessoryOutApi } from '@/modules/accessories-dispatch/client/accessoriesDispatchApi';
+import { DispatchBatchSelector } from '@/modules/outbound-dispatch/components/DispatchBatchSelector';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 // @ts-ignore
 import Barcode from 'react-barcode';
 
 export default function BodegaAccesoriosPage() {
+  const useAccessoriesDispatchHex = isHexagonalAccessoriesDispatchEnabled();
   const [accessories, setAccessories] = useState<any[]>([]);
   const [movements, setMovements] = useState<any[]>([]);
   const [boxes, setBoxes] = useState<any[]>([]);
@@ -53,6 +57,7 @@ export default function BodegaAccesoriosPage() {
   const [editBoxQty, setEditBoxQty] = useState('');
   const [editBoxLocation, setEditBoxLocation] = useState('');
   const [editBoxOldQty, setEditBoxOldQty] = useState(0);
+  const [selectedDispatchBatchId, setSelectedDispatchBatchId] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -125,6 +130,15 @@ export default function BodegaAccesoriosPage() {
     let res: any;
     if (moveType === 'IN') {
       res = await registerAccessoryEntry(moveAccId, moveCondition, boxQuantities, moveCondition === 'NEW' ? moveSap : undefined, moveCondition === 'RECOVERED' ? moveInitialStatus : undefined);
+    } else if (useAccessoriesDispatchHex) {
+      res = await dispatchAccessoryOutApi({
+        accessoryId: moveAccId,
+        condition: moveCondition,
+        quantity: qtyNum,
+        destination: moveDest,
+        dispatchBatchId: selectedDispatchBatchId,
+        boxId: moveBoxId || null,
+      });
     } else {
       res = await registerAccessoryDispatch(moveAccId, moveCondition, qtyNum, moveDest, undefined, moveBoxId || undefined);
     }
@@ -772,6 +786,13 @@ export default function BodegaAccesoriosPage() {
                       className="w-full bg-rose-50 p-3 rounded-xl border border-rose-200 text-sm font-bold outline-none focus:border-rose-500 text-rose-800"
                     />
                   </div>
+                )}
+
+                {moveType === 'OUT' && useAccessoriesDispatchHex && (
+                  <DispatchBatchSelector
+                    selectedBatchId={selectedDispatchBatchId}
+                    onSelectBatch={(id) => setSelectedDispatchBatchId(id)}
+                  />
                 )}
               </div>
               <div className="p-4 bg-slate-50 flex justify-end gap-3 border-t border-slate-100">

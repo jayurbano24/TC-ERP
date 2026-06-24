@@ -16,14 +16,14 @@ export function BackofficeTabNav({ activeTab, onTabChange }: Props) {
   ];
 
   return (
-    <div className="flex items-center gap-10 mb-8 border-b border-slate-100">
+    <div className="flex items-center gap-10 mb-8 border-b border-[var(--border)]">
       {tabs.map((tab) => (
         <button
           key={tab.id}
           type="button"
           onClick={() => onTabChange(tab.id)}
           className={`pb-4 px-2 text-[10px] font-black uppercase tracking-[0.2em] transition-all relative ${
-            activeTab === tab.id ? 'text-[#181c3a]' : 'text-slate-300 hover:text-slate-400'
+            activeTab === tab.id ? 'text-[var(--heading)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]'
           }`}
         >
           {tab.label}

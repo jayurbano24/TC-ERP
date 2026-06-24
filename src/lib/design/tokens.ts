@@ -9,10 +9,10 @@ export const erpColors = {
 
 export const erpTypography = {
   pageTitle: 'text-2xl sm:text-3xl lg:text-4xl font-black tracking-tight text-[var(--foreground)]',
-  sectionTitle: 'text-lg sm:text-xl font-black text-[#181c3a] uppercase tracking-tight',
-  label: 'text-[10px] sm:text-xs font-black uppercase tracking-widest text-slate-400',
-  body: 'text-sm font-medium text-slate-600',
-  mono: 'font-mono text-sm font-bold text-[#181c3a]',
+  sectionTitle: 'text-lg sm:text-xl font-black text-[var(--heading)] uppercase tracking-tight',
+  label: 'text-[10px] sm:text-xs font-black uppercase tracking-widest text-[var(--muted)]',
+  body: 'text-sm font-medium text-[var(--muted)]',
+  mono: 'font-mono text-sm font-bold text-[var(--foreground)]',
 } as const;
 
 export const erpLayout = {
@@ -25,17 +25,17 @@ export const erpLayout = {
 } as const;
 
 export const erpInputClass =
-  'w-full h-11 sm:h-12 bg-slate-50 border-2 border-slate-100 rounded-xl px-4 text-sm font-bold outline-none focus:border-[#2ec4f1] transition-colors';
+  'w-full h-11 sm:h-12 bg-[var(--surface-hover)] border-2 border-[var(--border)] rounded-xl px-4 text-sm font-bold text-[var(--foreground)] outline-none focus:border-[#2ec4f1] transition-colors placeholder:text-[var(--muted)]';
 
 export const erpCard = {
   /** Tarjeta de listado (bandeja, inbox) — sin bloque sólido oscuro */
-  list: 'overflow-hidden border border-slate-100 bg-white shadow-sm hover:border-slate-200 transition-colors',
-  listMeta: 'p-4 sm:p-5 sm:min-w-[12rem] lg:min-w-[14rem] border-b sm:border-b-0 sm:border-r border-slate-100',
+  list: 'overflow-hidden border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] shadow-sm hover:border-[var(--border)] transition-colors',
+  listMeta: 'p-4 sm:p-5 sm:min-w-[12rem] lg:min-w-[14rem] border-b sm:border-b-0 sm:border-r border-[var(--border)]',
   listMetaAccent: {
-    default: 'bg-slate-50 border-l-4 border-l-[#2ec4f1]',
-    warning: 'bg-rose-50/80 border-l-4 border-l-rose-400',
-    success: 'bg-emerald-50/50 border-l-4 border-l-emerald-500',
-    neutral: 'bg-slate-50 border-l-4 border-l-slate-300',
+    default: 'bg-[var(--surface-hover)] border-l-4 border-l-[#2ec4f1]',
+    warning: 'bg-[var(--surface-hover)] border-l-4 border-l-rose-400',
+    success: 'bg-[var(--surface-hover)] border-l-4 border-l-emerald-500',
+    neutral: 'bg-[var(--surface-hover)] border-l-4 border-l-slate-400',
   },
   listBody: 'flex-1 p-4 sm:p-5 flex flex-col justify-between min-w-0',
 } as const;

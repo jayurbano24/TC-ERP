@@ -16,6 +16,8 @@
 | [ADR-004 Hexagonal](architecture/ADR-004-hexagonal-architecture.md) | **Obligatorio** — Ports & Adapters, escalabilidad |
 | [Layout hexagonal](architecture/hexagonal-layout.md) | Carpetas, ports, legacy bridge, checklist PR |
 | [**Plan maestro por fases**](architecture/roadmap-phases.md) | **Entregables, CHGs, cronograma, criterios salida** |
+| [**Guía de migración (playbook)**](architecture/migration-playbook.md) | **Cómo migrar sin detener operación — reglas, fases A–D, checklist** |
+| [platform-events](modules/platform-events/README.md) | **Fase A** — domain_events, outbox, catálogo v1 |
 | [Glosario](architecture/glossary.md) | Nomenclatura obligatoria |
 | [Catálogo de estados](architecture/entity-status-catalog.md) | Estados canónicos + alias legacy |
 | [Plantilla impacto](architecture/impact-change-template.md) | Obligatoria antes de cada CHG |

@@ -15,22 +15,22 @@ export const ReceptionHeader: React.FC<ReceptionHeaderProps> = ({ moduleMode, se
       <div>
         <div className="flex items-center gap-3 mb-2">
           <div className="w-10 h-10 bg-[#2ec4f1] rounded-xl flex items-center justify-center shadow-lg shadow-[#2ec4f1]/30">
-            {moduleMode === 'cac' ? <Truck className="text-white w-5 h-5" /> : <Box className="text-white w-5 h-5" />}
+            {moduleMode === 'cac' ? <Truck className="text-[#181c3a] w-5 h-5" /> : <Box className="text-[#181c3a] w-5 h-5" />}
           </div>
-          <h1 className="text-3xl font-black text-[#181c3a] tracking-tight">
+          <h1 className="text-3xl font-black text-[var(--heading)] tracking-tight">
             Recepción <span className="text-[#2ec4f1]">{moduleMode === 'cac' ? 'CAC' : 'PX'}</span>
           </h1>
         </div>
-        <p className="text-[#64748b] font-medium text-sm">
+        <p className="text-[var(--muted)] font-medium text-sm">
           {moduleMode === 'cac' ? 'Centros de Atención al Cliente' : 'Planta Externa y Cuadrillas'}
         </p>
       </div>
 
-      <div className="flex items-center gap-2 bg-white p-1 rounded-xl shadow-sm border border-slate-100">
+      <div className="flex items-center gap-2 bg-[var(--surface)] p-1 rounded-xl shadow-sm border border-[var(--border)]">
         <button
           onClick={() => setActiveTab('scan')}
           className={`px-6 py-2.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${
-            activeTab === 'scan' ? 'bg-[#181c3a] text-white shadow-md' : 'text-slate-400 hover:bg-slate-50 hover:text-[#181c3a]'
+            activeTab === 'scan' ? 'bg-[#181c3a] text-white shadow-md' : 'text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]'
           }`}
         >
           Operación
@@ -38,18 +38,18 @@ export const ReceptionHeader: React.FC<ReceptionHeaderProps> = ({ moduleMode, se
         <button
           onClick={() => setActiveTab('history')}
           className={`px-6 py-2.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${
-            activeTab === 'history' ? 'bg-[#181c3a] text-white shadow-md' : 'text-slate-400 hover:bg-slate-50 hover:text-[#181c3a]'
+            activeTab === 'history' ? 'bg-[#181c3a] text-white shadow-md' : 'text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]'
           }`}
         >
           Historial
         </button>
       </div>
 
-      <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl">
+      <div className="flex items-center gap-2 bg-[var(--surface-hover)] p-1 rounded-xl">
         <button
           onClick={() => setModuleMode('cac')}
           className={`px-6 py-2.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${
-            moduleMode === 'cac' ? 'bg-white text-[#2ec4f1] shadow-sm' : 'text-slate-400 hover:text-[#181c3a]'
+            moduleMode === 'cac' ? 'bg-[var(--surface)] text-[#2ec4f1] shadow-sm' : 'text-[var(--muted)] hover:text-[var(--foreground)]'
           }`}
         >
           CAC
@@ -57,7 +57,7 @@ export const ReceptionHeader: React.FC<ReceptionHeaderProps> = ({ moduleMode, se
         <button
           onClick={() => setModuleMode('px')}
           className={`px-6 py-2.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${
-            moduleMode === 'px' ? 'bg-white text-[#2ec4f1] shadow-sm' : 'text-slate-400 hover:text-[#181c3a]'
+            moduleMode === 'px' ? 'bg-[var(--surface)] text-[#2ec4f1] shadow-sm' : 'text-[var(--muted)] hover:text-[var(--foreground)]'
           }`}
         >
           PX

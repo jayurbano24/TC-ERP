@@ -11,6 +11,8 @@ export type ClassifyBatchParams = {
   sapTransferId: string;
   units: EquipmentUnitPayload[];
   registeredBy: string;
+  /** Trazabilidad end-to-end del lote (Fase 2.5). */
+  correlationId?: string;
 };
 
 export type BlockReturnFormData = {

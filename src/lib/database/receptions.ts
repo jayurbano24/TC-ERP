@@ -297,7 +297,10 @@ export async function getReceptions(source?: 'cac' | 'px') {
   return withRetry(async () => {
     let query = supabase
       .from('receptions')
-      .select('*')
+      .select(`
+        *,
+        received_by_profile:received_by (id, full_name)
+      `)
       .order('created_at', { ascending: false });
 
     if (source) {

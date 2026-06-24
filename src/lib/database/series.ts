@@ -47,10 +47,31 @@ export async function searchSeriesDetailed(filters: { os?: string, imei?: string
       carrier,
       notes,
       processed_guides,
-      reception_guides (guide_number, agency, category)
+      reception_time,
+      created_at,
+      reception_guides (guide_number, agency, category),
+      received_by_profile:received_by (full_name)
     ),
     boxes:current_box_id (box_code, rack_location),
-    service_orders:service_order_id (os_label, os_number),
+    service_orders:service_order_id (
+      os_label,
+      os_number,
+      reception_id,
+      sap_transfer_id,
+      receptions:reception_id (
+        source,
+        guide_number,
+        sap_document,
+        carrier,
+        notes,
+        processed_guides,
+        reception_time,
+        created_at,
+        reception_guides (guide_number, agency, category),
+        received_by_profile:received_by (full_name)
+      ),
+      sap_transfer_documents:sap_transfer_id (id, sap_document_number, status)
+    ),
     brands:brand_id (name),
     models:model_id (name, technologies (name))
   `);
@@ -80,9 +101,13 @@ export async function searchSeriesDetailed(filters: { os?: string, imei?: string
     );
   }
   if (filters.ticket) {
-    filtered = filtered.filter((s: any) => 
-      s.receptions?.sap_document?.toLowerCase().includes(filters.ticket!.toLowerCase())
-    );
+    filtered = filtered.filter((s: any) => {
+      const sapDoc =
+        s.receptions?.sap_document ||
+        s.service_orders?.sap_transfer_documents?.sap_document_number ||
+        '';
+      return sapDoc.toLowerCase().includes(filters.ticket!.toLowerCase());
+    });
   }
   if (filters.tracking) {
     filtered = filtered.filter((s: any) => 
@@ -95,7 +120,22 @@ export async function searchSeriesDetailed(filters: { os?: string, imei?: string
     );
   }
 
-  return filtered;
+  return filtered.map((row: any) => {
+    const reception =
+      row.receptions ||
+      row.service_orders?.receptions ||
+      null;
+    const sapDoc =
+      row.service_orders?.sap_transfer_documents?.sap_document_number ||
+      reception?.sap_document ||
+      null;
+    return {
+      ...row,
+      receptions: reception
+        ? { ...reception, sap_document: reception.sap_document || sapDoc }
+        : null,
+    };
+  });
 }
 
 export async function updateSeriesStatus(id: string, status: string, additionalData?: any) {

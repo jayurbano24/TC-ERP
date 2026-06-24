@@ -62,7 +62,7 @@ export function HistoryTrayTable({
       lastHourKey = hourKey;
       hourRows.push(
         <tr key={`hour-${hourKey}`} className="bg-[#2ec4f1]/10">
-          <td colSpan={19} className="px-6 py-3 text-[10px] font-black uppercase tracking-[0.25em] text-[#181c3a]">
+          <td colSpan={19} className="px-6 py-3 text-[10px] font-black uppercase tracking-[0.25em] text-[var(--heading)]">
             {formatHistoryHourLabel(entry.classifiedAtIso)}
           </td>
         </tr>
@@ -95,35 +95,35 @@ export function HistoryTrayTable({
       <div className="overflow-x-auto erp-table-wrap">
         <table className="w-full text-left min-w-[1400px]">
           <thead>
-            <tr className="bg-slate-50 border-b border-slate-100">
-              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">Fecha / Hora</th>
-              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">No. Guía</th>
-              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">Piloto</th>
-              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">Courier</th>
-              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">Recibió</th>
-              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">Estatus</th>
-              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">Orden de Servicio</th>
-              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">Ingreso</th>
-              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">Agencia CAC</th>
-              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">Tecnología</th>
-              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">Marca</th>
-              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">Modelo</th>
-              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">Documento SAP</th>
-              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">Validación SAP</th>
-              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">S-1</th>
-              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">S-2</th>
-              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">S-3</th>
-              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500">S-4</th>
-              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-slate-500 text-right">Acción</th>
+            <tr className="bg-[var(--surface-hover)] border-b border-[var(--border)]">
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-[var(--muted)]">Fecha / Hora</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-[var(--muted)]">No. Guía</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-[var(--muted)]">Piloto</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-[var(--muted)]">Courier</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-[var(--muted)]">Recibió</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-[var(--muted)]">Estatus</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-[var(--muted)]">Orden de Servicio</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-[var(--muted)]">Ingreso</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-[var(--muted)]">Agencia CAC</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-[var(--muted)]">Tecnología</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-[var(--muted)]">Marca</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-[var(--muted)]">Modelo</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-[var(--muted)]">Documento SAP</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-[var(--muted)]">Validación SAP</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-[var(--muted)]">S-1</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-[var(--muted)]">S-2</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-[var(--muted)]">S-3</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-[var(--muted)]">S-4</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.15em] whitespace-nowrap text-[var(--muted)] text-right">Acción</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               Array.from({ length: 8 }).map((_, i) => (
-                <tr key={`sk-${i}`} className="border-b border-slate-50">
+                <tr key={`sk-${i}`} className="border-b border-[var(--border)]">
                   {Array.from({ length: 19 }).map((__, j) => (
                     <td key={j} className="px-4 py-3">
-                      <div className="h-3 bg-slate-100 rounded animate-pulse" />
+                      <div className="h-3 bg-[var(--surface-hover)] rounded animate-pulse" />
                     </td>
                   ))}
                 </tr>
@@ -131,8 +131,8 @@ export function HistoryTrayTable({
             ) : totalCount === 0 ? (
               <tr>
                 <td colSpan={19} className="p-12 text-center">
-                  <Database className="w-12 h-12 text-slate-200 mx-auto mb-4" />
-                  <p className="text-xs font-black text-slate-400 uppercase tracking-widest max-w-lg mx-auto leading-relaxed">
+                  <Database className="w-12 h-12 text-[var(--border)] mx-auto mb-4" />
+                  <p className="text-xs font-black text-[var(--muted)] uppercase tracking-widest max-w-lg mx-auto leading-relaxed">
                     {emptyMessage}
                   </p>
                 </td>

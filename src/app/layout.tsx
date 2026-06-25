@@ -6,6 +6,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { MessageCenter } from "@/components/ui/messaging/MessageCenter";
 import { QueryProvider } from "@/components/providers/QueryProvider";
+import { WebVitalsReporter } from "@/components/observability/WebVitalsReporter";
 
 const manrope = Manrope({
   variable: "--font-manrope",
@@ -43,6 +44,7 @@ export default function RootLayout({
       <body suppressHydrationWarning className="min-h-full flex flex-col">
         <ThemeProvider>
           <QueryProvider>
+            <WebVitalsReporter />
             {children}
             <ThemeToggle />
             <MessageCenter />

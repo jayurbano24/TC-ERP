@@ -41,3 +41,17 @@ yarn-error.log*
 next-env.d.ts
 
 .vercel
+
+# agent/dev scratch files (one-off scripts, transcripts, extractions)
+/query_*.js
+/apply_*.js
+/_*.py
+/_*.txt
+scripts/_*
+scripts/write-backoffice-*
+scripts/backoffice_six_contents.py
+scripts/*_six_files.js
+**/_extract_*.py
+**/_wire_*.py
+**/_migrate_*.py
+**/_commit_msg.txt

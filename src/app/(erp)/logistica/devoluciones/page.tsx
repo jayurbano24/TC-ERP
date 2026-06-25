@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { Card, Badge, Button, notify, confirmDialog, DataTable, type DataTableColumn } from '@/components/ui';
 import { ModulePage, ModuleToolbar } from '@/components/module-page';
@@ -103,8 +104,6 @@ export default function DevolucionesPage() {
   const [agencies, setAgencies] = useState<CatalogAgency[]>([]);
   const [selectedAgencyId, setSelectedAgencyId] = useState('');
   const [selectedDev, setSelectedDev] = useState<Devolucion | null>(null);
-  const [boxRows, setBoxRows] = useState<BoxReturnRow[]>([]);
-  const [devoluciones, setDevoluciones] = useState<Devolucion[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showNewReturnModal, setShowNewReturnModal] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -118,10 +117,33 @@ export default function DevolucionesPage() {
     category: 'EQUIPOS DEVUELTOS' as DevolucionTab
   });
 
-  const [returnReceptionId, setReturnReceptionId] = useState<string | null>(null);
+  const [returnReceptionId, setReturnReceptionId] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return new URLSearchParams(window.location.search).get('reception_id');
+  });
   const [returnReceptionData, setReturnReceptionData] = useState<any>(null);
   const [returnSeriesData, setReturnSeriesData] = useState<any[]>([]);
   const [fullReturnForm, setFullReturnForm] = useState({ motivo: '', guiaSalida: '', observaciones: '' });
+
+  // C6: la lista de devoluciones se sirve por React Query (caché + dedupe).
+  // queryKey incluye activeCategory para recargar al cambiar de pestaña.
+  // Se deshabilita cuando hay reception_id en la URL (flujo de devolución de lote).
+  const {
+    data: returnsData,
+    isFetching: isFetchingReturns,
+    refetch: refetchReturns,
+  } = useQuery({
+    queryKey: ['devoluciones', activeCategory],
+    queryFn: async () => {
+      if (activeCategory === 'BODEGA DEVOLUCIÓN') {
+        return { boxRows: await getBoxReturnRows(), devoluciones: [] as Devolucion[] };
+      }
+      return { boxRows: [] as BoxReturnRow[], devoluciones: (await getSapBlockReturnRows()) as Devolucion[] };
+    },
+    enabled: !returnReceptionId,
+  });
+  const boxRows = returnsData?.boxRows ?? [];
+  const devoluciones = returnsData?.devoluciones ?? [];
   const [dispatchGuiaSalida, setDispatchGuiaSalida] = useState('');
 
   useEffect(() => {
@@ -140,17 +162,12 @@ export default function DevolucionesPage() {
   }, []);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const urlParams = new URLSearchParams(window.location.search);
-      const recId = urlParams.get('reception_id');
-      if (recId) {
-        setReturnReceptionId(recId);
-        loadReceptionForReturn(recId);
-      } else {
-        fetchReturns();
-      }
+    if (returnReceptionId) {
+      void loadReceptionForReturn(returnReceptionId);
     }
-  }, [activeCategory]);
+    // La lista se carga vía React Query (queryKey incluye activeCategory).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCategory, returnReceptionId]);
 
   useEffect(() => {
     setSelectedDev(null);
@@ -222,21 +239,9 @@ export default function DevolucionesPage() {
     }
   };
 
+  // Alias estable: las mutaciones siguen llamando fetchReturns() para refrescar.
   const fetchReturns = async () => {
-    setLoading(true);
-    try {
-      if (activeCategory === 'BODEGA DEVOLUCIÓN') {
-        const rows = await getBoxReturnRows();
-        setBoxRows(rows);
-      } else {
-        const sapBlockRows = await getSapBlockReturnRows();
-        setDevoluciones(sapBlockRows as Devolucion[]);
-      }
-    } catch (err) {
-      console.error("Error in fetchReturns:", err);
-    } finally {
-      setLoading(false);
-    }
+    await refetchReturns();
   };
 
   const filteredBoxRows = useMemo(() => {
@@ -955,7 +960,7 @@ export default function DevolucionesPage() {
           {activeCategory === 'BODEGA DEVOLUCIÓN' ? (
             <BodegaDevolucionTable
               rows={filteredBoxRows}
-              loading={loading}
+              loading={loading || isFetchingReturns}
               agencies={agencies}
               selectedId={selectedDev?.id || null}
               selectedIds={selectedIds}
@@ -973,7 +978,7 @@ export default function DevolucionesPage() {
             />
           ) : (
           <Card padding="none" className="overflow-hidden">
-            {loading && filteredDevoluciones.length === 0 ? (
+            {(loading || isFetchingReturns) && filteredDevoluciones.length === 0 ? (
               <div className="px-6 py-16 text-center">
                 <Loader2 className="w-8 h-8 animate-spin text-[#2ec4f1] mx-auto" />
               </div>

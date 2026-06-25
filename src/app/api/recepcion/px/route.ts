@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(result, { status: 409 });
     }
 
-    return NextResponse.json({ success: true, ...result });
+    return NextResponse.json({ ...result, success: true });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Error al iniciar recepción PX';
     console.error('POST /api/recepcion/px:', message);

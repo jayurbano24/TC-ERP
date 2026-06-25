@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, startTransition, type Dispatch, type SetStateAction } from 'react';
 import type { CurrentEntry, GuideData } from '../types/reception.types';
-import type { PxBoxSnapshot } from '@/lib/database/pxReceptionCapture';
+import type { PxBoxSnapshot, PxLotInput } from '@/lib/database/pxReceptionCapture';
 import { snapshotToGuideData, snapshotToPxUiState } from '@/lib/database/pxReceptionCapture';
 import { getWorkstationLabel } from '../utils/pxWorkstation';
 import { validatePxIncrementalFinalizeReadiness } from '../utils/pxBoxUtils';
@@ -25,7 +25,6 @@ import {
   setIncrementalReceptionIdInSession,
   getIncrementalReceptionIdFromSession,
   updatePxReceptionHeaderApi,
-  type PxLotInput,
 } from '../services/pxIncrementalApi';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 
@@ -245,7 +244,7 @@ export function useReceptionPXIncremental({
 
   useEffect(() => {
     getSupabaseBrowserClient()
-      .auth.getUser()
+      ?.auth.getUser()
       .then(({ data }) => {
         const id = data?.user?.id ?? null;
         operatorIdRef.current = id;

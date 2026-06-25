@@ -46,6 +46,12 @@ const ICON_MAP: Record<string, React.ElementType> = {
 const NAV_PERMS_KEY_PREFIX = 'tcerp_nav_permissions_';
 const LAST_USER_KEY = 'tcerp_last_user_id';
 
+// El acceso de admin vía sesión en localStorage solo se honra cuando el bypass
+// está habilitado explícitamente en desarrollo. En producción
+// (NEXT_PUBLIC_ENABLE_DEV_BYPASS != 'true') una `tcerp_dev_session` forjada se
+// ignora por completo (SEC-02).
+const DEV_BYPASS = process.env.NEXT_PUBLIC_ENABLE_DEV_BYPASS === 'true';
+
 function readCachedPermissions(userId?: string | null): any[] | null {
   if (typeof window === 'undefined') return null;
   const id = userId || localStorage.getItem(LAST_USER_KEY);
@@ -89,7 +95,7 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    if (localStorage.getItem('tcerp_dev_session')) {
+    if (DEV_BYPASS && localStorage.getItem('tcerp_dev_session')) {
       setUserPermissions([{ is_admin: true }]);
       setPermissionsLoading(false);
     } else {
@@ -119,7 +125,7 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
 
     async function loadUser() {
       try {
-        const devRaw = typeof window !== 'undefined' ? localStorage.getItem('tcerp_dev_session') : null;
+        const devRaw = DEV_BYPASS && typeof window !== 'undefined' ? localStorage.getItem('tcerp_dev_session') : null;
         const supabase = getSupabaseBrowserClient();
         const session = supabase ? (await supabase.auth.getSession()).data.session : null;
 

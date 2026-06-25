@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Badge } from '@/components/ui';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Card, Button, Badge, notify, confirmDialog, DataTable, type DataTableColumn } from '@/components/ui';
 import { ModulePage, ModuleToolbar } from '@/components/module-page';
 import { Boxes, Plus, X, ArrowUpRight, ArrowDownRight, Search, Activity, PackageSearch, MoreVertical, Trash2, Edit2, MapPin, ScanLine } from 'lucide-react';
 import { getAccessories, createAccessory, registerAccessoryEntry, registerAccessoryDispatch, getAccessoryMovements, getAccessoryBoxes, updateAccessoryBoxStatus, deleteAccessoryBox, updateAccessoryBox, bulkUpdateAccessoryBoxLocation } from '@/lib/database/accessories';
@@ -12,13 +13,27 @@ import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 // @ts-ignore
 import Barcode from 'react-barcode';
 
+const EMPTY_ARR: any[] = [];
+
 export default function BodegaAccesoriosPage() {
   const useAccessoriesDispatchHex = isHexagonalAccessoriesDispatchEnabled();
-  const [accessories, setAccessories] = useState<any[]>([]);
-  const [movements, setMovements] = useState<any[]>([]);
-  const [boxes, setBoxes] = useState<any[]>([]);
+  const queryClient = useQueryClient();
+  const accessoriesQuery = useQuery({
+    queryKey: ['accessories-page'],
+    queryFn: async () => {
+      const [accs, movs, bxs] = await Promise.all([
+        getAccessories(),
+        getAccessoryMovements(),
+        getAccessoryBoxes(),
+      ]);
+      return { accessories: accs ?? [], movements: movs ?? [], boxes: bxs ?? [] };
+    },
+  });
+  const accessories = accessoriesQuery.data?.accessories ?? EMPTY_ARR;
+  const movements = accessoriesQuery.data?.movements ?? EMPTY_ARR;
+  const boxes = accessoriesQuery.data?.boxes ?? EMPTY_ARR;
   const [activeTab, setActiveTab] = useState<'inventario'|'historial'|'recuperacion'>('inventario');
-  const [loading, setLoading] = useState(true);
+  const loading = accessoriesQuery.isLoading;
   
   // Create accessory modal
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -60,10 +75,6 @@ export default function BodegaAccesoriosPage() {
   const [selectedDispatchBatchId, setSelectedDispatchBatchId] = useState<string | null>(null);
 
   useEffect(() => {
-    loadData();
-  }, []);
-
-  useEffect(() => {
     const num = parseInt(moveNumBoxes) || 0;
     setMoveBoxDetails(prev => {
       if (num === prev.length) return prev;
@@ -73,16 +84,7 @@ export default function BodegaAccesoriosPage() {
   }, [moveNumBoxes]);
 
   const loadData = async () => {
-    setLoading(true);
-    const [accs, movs, bxs] = await Promise.all([
-      getAccessories(),
-      getAccessoryMovements(),
-      getAccessoryBoxes()
-    ]);
-    setAccessories(accs);
-    setMovements(movs);
-    setBoxes(bxs);
-    setLoading(false);
+    await queryClient.invalidateQueries({ queryKey: ['accessories-page'] });
   };
 
   const handleCreateAccessory = async () => {
@@ -90,7 +92,7 @@ export default function BodegaAccesoriosPage() {
     setIsProcessing(true);
     const res = await createAccessory(newAccName, newAccCharacteristics, newAccComments);
     if (res.error) {
-      alert("Error: " + res.error);
+      notify.error('No se pudo crear el accesorio', { description: res.error });
     } else {
       setNewAccName('');
       setNewAccCharacteristics('');
@@ -109,18 +111,18 @@ export default function BodegaAccesoriosPage() {
     if (moveType === 'IN') {
       boxQuantities = moveBoxDetails.map(q => parseInt(q) || 0);
       if (boxQuantities.some(q => q <= 0)) {
-        alert("Debes ingresar una cantidad válida mayor a 0 para todas las cajas.");
+        notify.warning('Cantidad inválida', { description: 'Ingresa una cantidad mayor a 0 para todas las cajas.' });
         return;
       }
     }
     
     if (moveType === 'IN' && moveCondition === 'NEW' && !moveSap.trim()) {
-      alert("Debes ingresar el número de traslado SAP para accesorios nuevos.");
+      notify.warning('Falta el traslado SAP', { description: 'Ingresa el número de traslado SAP para accesorios nuevos.' });
       return;
     }
     
     if (moveType === 'OUT' && !moveDest.trim()) {
-      alert("Debes ingresar el destino del despacho.");
+      notify.warning('Falta el destino', { description: 'Ingresa el destino del despacho.' });
       return;
     }
 
@@ -144,7 +146,7 @@ export default function BodegaAccesoriosPage() {
     }
 
     if (res.error) {
-      alert("Error: " + res.error);
+      notify.error('No se pudo registrar el movimiento', { description: res.error });
     } else {
       setShowMoveModal(false);
       
@@ -230,13 +232,13 @@ export default function BodegaAccesoriosPage() {
   const handleUpdateBox = async () => {
     const qty = parseInt(editBoxQty);
     if (!qty || qty <= 0) {
-      alert("La cantidad debe ser mayor a 0");
+      notify.warning('Cantidad inválida', { description: 'La cantidad debe ser mayor a 0.' });
       return;
     }
     setIsProcessing(true);
     const res = await updateAccessoryBox(editBoxId, editBoxAccId, editBoxOldQty, qty, editBoxLocation);
     if (res.error) {
-      alert("Error actualizando caja: " + res.error);
+      notify.error('No se pudo actualizar la caja', { description: res.error });
     } else {
       setShowEditBoxModal(false);
       await loadData();
@@ -245,11 +247,17 @@ export default function BodegaAccesoriosPage() {
   };
 
   const handleDeleteBox = async (boxId: string, boxQty: number, accId: string) => {
-    if (!confirm("¿Estás seguro de eliminar esta caja? Esto descontará la cantidad del inventario general de Recuperados.")) return;
+    const ok = await confirmDialog({
+      title: 'Eliminar caja',
+      message: '¿Estás seguro de eliminar esta caja? Esto descontará la cantidad del inventario general de Recuperados.',
+      tone: 'error',
+      confirmText: 'Eliminar',
+    });
+    if (!ok) return;
     setIsProcessing(true);
     const res = await deleteAccessoryBox(boxId, boxQty, accId);
     if (res.error) {
-      alert("Error eliminando caja: " + res.error);
+      notify.error('No se pudo eliminar la caja', { description: res.error });
     } else {
       await loadData();
     }
@@ -261,7 +269,7 @@ export default function BodegaAccesoriosPage() {
     setIsProcessing(true);
     const res = await bulkUpdateAccessoryBoxLocation(selectedBoxes, bulkLocationText);
     if (res.error) {
-      alert("Error actualizando ubicaciones: " + res.error);
+      notify.error('No se pudieron actualizar las ubicaciones', { description: res.error });
     } else {
       setShowBulkLocationModal(false);
       setSelectedBoxes([]);
@@ -295,6 +303,177 @@ export default function BodegaAccesoriosPage() {
       }
     }
   };
+
+  const recuperacionColumns: DataTableColumn<any>[] = [
+    {
+      id: 'select',
+      header: (
+        <input
+          type="checkbox"
+          onChange={handleSelectAllBoxes}
+          checked={boxes.length > 0 && selectedBoxes.length === boxes.length}
+          className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+        />
+      ),
+      width: '48px',
+      cell: (box: any) => (
+        <input
+          type="checkbox"
+          checked={selectedBoxes.includes(box.id)}
+          onChange={() => toggleSelectBox(box.id)}
+          className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+        />
+      ),
+    },
+    {
+      id: 'orden',
+      header: 'Orden de Recup.',
+      width: '150px',
+      cellClassName: 'text-sm font-black text-[#181c3a] font-mono',
+      cell: (box: any) => box.recovery_order,
+    },
+    {
+      id: 'fecha',
+      header: 'Fecha',
+      width: '110px',
+      cellClassName: 'text-slate-500',
+      cell: (box: any) => new Date(box.created_at).toLocaleDateString(),
+    },
+    {
+      id: 'accesorio',
+      header: 'Accesorio',
+      width: 'minmax(140px,1fr)',
+      cellClassName: 'text-sm text-slate-700',
+      cell: (box: any) => box.accessories?.name,
+    },
+    {
+      id: 'cant',
+      header: 'Cant.',
+      width: '80px',
+      cellClassName: 'text-sm text-slate-700',
+      cell: (box: any) => box.quantity,
+    },
+    {
+      id: 'ubicacion',
+      header: 'Ubicación (Rack)',
+      width: '130px',
+      cellClassName: 'text-sm text-slate-700',
+      cell: (box: any) => box.location || '-',
+    },
+    {
+      id: 'estado',
+      header: 'Estado Actual',
+      width: '190px',
+      cell: (box: any) => (
+        <Badge className={
+          box.status.includes('Limpiar') ? 'bg-rose-50 text-rose-600' :
+          box.status.includes('Probar') ? 'bg-amber-50 text-amber-600' :
+          'bg-emerald-50 text-emerald-600'
+        }>
+          {box.status}
+        </Badge>
+      ),
+    },
+    {
+      id: 'acciones',
+      header: 'Acciones',
+      width: '210px',
+      align: 'right',
+      cell: (box: any) => (
+        <div className="flex items-center justify-end gap-1">
+          {box.status === 'Clasificado, Pendiente de Limpiar' && (
+            <Button
+              variant="outline"
+              className="text-xs py-1 px-2 h-auto"
+              onClick={() => handleUpdateBoxStatus(box.id, 'Clasificado, Pendiente de Probar')}
+            >
+              Marcar Limpio
+            </Button>
+          )}
+          {box.status === 'Clasificado, Pendiente de Probar' && (
+            <Button
+              className="bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border-none shadow-none text-xs py-1 px-2 h-auto"
+              onClick={() => handleUpdateBoxStatus(box.id, 'Clasificado Y Limpio')}
+            >
+              Aprobar Pruebas
+            </Button>
+          )}
+          <button onClick={() => openEditBoxModal(box)} className="p-1 text-slate-400 hover:text-indigo-600 transition-colors ml-2" title="Editar Cantidad/Ubicación">
+            <Edit2 className="w-4 h-4" />
+          </button>
+          <button onClick={() => openPartialDispatch(box)} className="p-1 text-slate-400 hover:text-emerald-600 transition-colors" title="Despacho Parcial">
+            <PackageSearch className="w-4 h-4" />
+          </button>
+          <button onClick={() => handleDeleteBox(box.id, box.quantity, box.accessory_id)} className="p-1 text-slate-400 hover:text-rose-600 transition-colors" title="Eliminar Caja">
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      ),
+    },
+  ];
+
+  const movimientosColumns: DataTableColumn<any>[] = [
+    {
+      id: 'fecha',
+      header: 'Fecha',
+      width: '160px',
+      cellClassName: 'text-slate-500',
+      cell: (mov: any) => new Date(mov.created_at).toLocaleString(),
+    },
+    {
+      id: 'accesorio',
+      header: 'Accesorio',
+      width: 'minmax(140px,1fr)',
+      cellClassName: 'text-sm font-black text-[#181c3a]',
+      cell: (mov: any) => mov.accessories?.name,
+    },
+    {
+      id: 'tipo',
+      header: 'Tipo',
+      width: '200px',
+      cell: (mov: any) => (
+        <div className="flex items-center gap-2">
+          {mov.movement_type === 'IN' ? (
+            <Badge className="bg-emerald-50 text-emerald-600">Entrada</Badge>
+          ) : (
+            <Badge className="bg-rose-50 text-rose-600">Salida</Badge>
+          )}
+          <Badge className={mov.condition === 'NEW' ? 'bg-indigo-50 text-indigo-600' : 'bg-amber-50 text-amber-600'}>
+            {mov.condition === 'NEW' ? 'Nuevo' : 'Recuperado'}
+          </Badge>
+        </div>
+      ),
+    },
+    {
+      id: 'cantidad',
+      header: 'Cantidad',
+      width: '100px',
+      cellClassName: 'text-sm text-slate-700',
+      cell: (mov: any) => mov.quantity,
+    },
+    {
+      id: 'detalles',
+      header: 'Detalles',
+      width: '170px',
+      cell: (mov: any) => (
+        <>
+          {mov.movement_type === 'IN' && mov.condition === 'NEW' && (
+            <span className="text-xs font-mono font-bold text-slate-500">SAP: {mov.sap_transfer_number}</span>
+          )}
+          {mov.movement_type === 'OUT' && (
+            <span className="text-xs font-bold text-slate-500">Dest: {mov.destination}</span>
+          )}
+        </>
+      ),
+    },
+    {
+      id: 'usuario',
+      header: 'Usuario',
+      width: '140px',
+      cellClassName: 'text-slate-500',
+      cell: (mov: any) => mov.profiles?.full_name || 'Sistema',
+    },
+  ];
 
   return (
     <ModulePage
@@ -405,100 +584,17 @@ export default function BodegaAccesoriosPage() {
                     </Button>
                   </div>
                 )}
-                <table className="w-full text-left">
-                  <thead>
-                    <tr className="bg-slate-50 border-b border-slate-100">
-                      <th className="px-4 py-4 w-10">
-                        <input 
-                          type="checkbox" 
-                          onChange={handleSelectAllBoxes}
-                          checked={boxes.length > 0 && selectedBoxes.length === boxes.length}
-                          className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
-                        />
-                      </th>
-                      <th className="px-2 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Orden de Recup.</th>
-                      <th className="px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Fecha</th>
-                      <th className="px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Accesorio</th>
-                      <th className="px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Cant.</th>
-                      <th className="px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Ubicación (Rack)</th>
-                      <th className="px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Estado Actual</th>
-                      <th className="px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {boxes.map((box) => (
-                      <tr key={box.id} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="px-4 py-4">
-                          <input 
-                            type="checkbox" 
-                            checked={selectedBoxes.includes(box.id)}
-                            onChange={() => toggleSelectBox(box.id)}
-                            className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
-                          />
-                        </td>
-                        <td className="px-2 py-4">
-                          <span className="text-sm font-black text-[#181c3a] font-mono">{box.recovery_order}</span>
-                        </td>
-                        <td className="px-4 py-4">
-                          <span className="text-xs font-bold text-slate-500">{new Date(box.created_at).toLocaleDateString()}</span>
-                        </td>
-                        <td className="px-4 py-4">
-                          <span className="text-sm font-bold text-slate-700">{box.accessories?.name}</span>
-                        </td>
-                        <td className="px-4 py-4">
-                          <span className="text-sm font-bold text-slate-700">{box.quantity}</span>
-                        </td>
-                        <td className="px-4 py-4">
-                          <span className="text-sm font-bold text-slate-700">{box.location || '-'}</span>
-                        </td>
-                        <td className="px-4 py-4">
-                          <Badge className={
-                            box.status.includes('Limpiar') ? 'bg-rose-50 text-rose-600' :
-                            box.status.includes('Probar') ? 'bg-amber-50 text-amber-600' :
-                            'bg-emerald-50 text-emerald-600'
-                          }>
-                            {box.status}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-4 text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            {box.status === 'Clasificado, Pendiente de Limpiar' && (
-                              <Button 
-                                variant="outline" 
-                                className="text-xs py-1 px-2 h-auto"
-                                onClick={() => handleUpdateBoxStatus(box.id, 'Clasificado, Pendiente de Probar')}
-                              >
-                                Marcar Limpio
-                              </Button>
-                            )}
-                            {box.status === 'Clasificado, Pendiente de Probar' && (
-                              <Button 
-                                className="bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border-none shadow-none text-xs py-1 px-2 h-auto"
-                                onClick={() => handleUpdateBoxStatus(box.id, 'Clasificado Y Limpio')}
-                              >
-                                Aprobar Pruebas
-                              </Button>
-                            )}
-                            <button onClick={() => openEditBoxModal(box)} className="p-1 text-slate-400 hover:text-indigo-600 transition-colors ml-2" title="Editar Cantidad/Ubicación">
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            <button onClick={() => openPartialDispatch(box)} className="p-1 text-slate-400 hover:text-emerald-600 transition-colors" title="Despacho Parcial">
-                              <PackageSearch className="w-4 h-4" />
-                            </button>
-                            <button onClick={() => handleDeleteBox(box.id, box.quantity, box.accessory_id)} className="p-1 text-slate-400 hover:text-rose-600 transition-colors" title="Eliminar Caja">
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {boxes.length === 0 && !loading && (
-                      <tr>
-                        <td colSpan={6} className="py-12 text-center text-slate-400 text-sm">No hay cajas en proceso de recuperación.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+                <DataTable
+                  columns={recuperacionColumns}
+                  data={boxes}
+                  getRowId={(box: any) => box.id}
+                  rowHeight={56}
+                  maxBodyHeight={620}
+                  minWidth={1018}
+                  headerClassName="bg-slate-50 border-b border-slate-100"
+                  headerTextClassName="text-slate-400"
+                  emptyMessage="No hay cajas en proceso de recuperación."
+                />
               </div>
             </Card>
           </div>
@@ -506,61 +602,17 @@ export default function BodegaAccesoriosPage() {
           <div className="space-y-6 animate-in fade-in">
             <Card padding="none" className="overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead>
-                    <tr className="bg-slate-50 border-b border-slate-100">
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Fecha</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Accesorio</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Tipo</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Cantidad</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Detalles</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Usuario</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {movements.map((mov) => (
-                      <tr key={mov.id} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="px-6 py-4">
-                          <span className="text-xs font-bold text-slate-500">{new Date(mov.created_at).toLocaleString()}</span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="text-sm font-black text-[#181c3a]">{mov.accessories?.name}</span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-2">
-                            {mov.movement_type === 'IN' ? (
-                              <Badge className="bg-emerald-50 text-emerald-600">Entrada</Badge>
-                            ) : (
-                              <Badge className="bg-rose-50 text-rose-600">Salida</Badge>
-                            )}
-                            <Badge className={mov.condition === 'NEW' ? 'bg-indigo-50 text-indigo-600' : 'bg-amber-50 text-amber-600'}>
-                              {mov.condition === 'NEW' ? 'Nuevo' : 'Recuperado'}
-                            </Badge>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="text-sm font-bold text-slate-700">{mov.quantity}</span>
-                        </td>
-                        <td className="px-6 py-4">
-                          {mov.movement_type === 'IN' && mov.condition === 'NEW' && (
-                            <span className="text-xs font-mono font-bold text-slate-500">SAP: {mov.sap_transfer_number}</span>
-                          )}
-                          {mov.movement_type === 'OUT' && (
-                            <span className="text-xs font-bold text-slate-500">Dest: {mov.destination}</span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="text-xs font-bold text-slate-500">{mov.profiles?.full_name || 'Sistema'}</span>
-                        </td>
-                      </tr>
-                    ))}
-                    {movements.length === 0 && !loading && (
-                      <tr>
-                        <td colSpan={6} className="py-12 text-center text-slate-400 text-sm">No hay movimientos registrados.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+                <DataTable
+                  columns={movimientosColumns}
+                  data={movements}
+                  getRowId={(mov: any) => mov.id}
+                  rowHeight={56}
+                  maxBodyHeight={620}
+                  minWidth={910}
+                  headerClassName="bg-slate-50 border-b border-slate-100"
+                  headerTextClassName="text-slate-400"
+                  emptyMessage="No hay movimientos registrados."
+                />
               </div>
             </Card>
           </div>

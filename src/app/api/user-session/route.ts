@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
+
+/** SEC-04: el body solo debe contener un `userId` no vacío. */
+const SessionSchema = z.object({ userId: z.string().trim().min(1, 'Missing userId').max(200) });
 
 export async function POST(request: Request) {
   try {
@@ -15,12 +19,14 @@ export async function POST(request: Request) {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const body = await request.json();
-    const { userId } = body;
-
-    if (!userId) {
-      return NextResponse.json({ error: 'Missing userId' }, { status: 400 });
+    const parsed = SessionSchema.safeParse(await request.json().catch(() => ({})));
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: parsed.error.issues[0]?.message ?? 'Invalid body' },
+        { status: 400 }
+      );
     }
+    const { userId } = parsed.data;
 
     // Obtener IP
     const forwardedFor = request.headers.get('x-forwarded-for');

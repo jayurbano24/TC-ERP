@@ -1,14 +1,32 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+
+/**
+ * SEC-04: el número de serie es input no confiable. Se acota longitud y charset
+ * (alfanumérico + separadores habituales) antes de usarlo en la consulta.
+ */
+const QuerySchema = z.object({
+  sn: z
+    .string()
+    .trim()
+    .min(1, "Parámetro 'sn' es requerido")
+    .max(120)
+    .regex(/^[A-Za-z0-9._\-/ ]+$/, "Formato de serie inválido"),
+});
 
 export async function GET(request: Request) {
   const supabase = getSupabaseServerClient();
   const { searchParams } = new URL(request.url);
-  const sn = searchParams.get('sn');
 
-  if (!sn) {
-    return NextResponse.json({ success: false, error: "Parámetro 'sn' es requerido" }, { status: 400 });
+  const parsed = QuerySchema.safeParse({ sn: searchParams.get('sn') ?? '' });
+  if (!parsed.success) {
+    return NextResponse.json(
+      { success: false, error: parsed.error.issues[0]?.message ?? "Parámetro 'sn' inválido" },
+      { status: 400 }
+    );
   }
+  const sn = parsed.data.sn;
 
   try {
     // 1. Fetch series and service order

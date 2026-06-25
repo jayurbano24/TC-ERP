@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
+import { notify } from '@/components/ui/messaging/messageStore';
+import { apiFetch } from '@/lib/http/apiFetch';
 import type { MassTransferForm } from '../../components/modals/MassTransferModal';
 import type { CatalogBrand, CatalogModel } from '../../types';
 
@@ -53,7 +55,7 @@ export function useMassTransferModal({
       !massTransferData.modelId ||
       !massTransferData.quantity
     ) {
-      alert('Por favor completa todos los campos.');
+      notify.warning('Por favor completa todos los campos.');
       return;
     }
 
@@ -63,7 +65,7 @@ export function useMassTransferModal({
         brandId: massTransferData.brandId,
         modelId: massTransferData.modelId,
       });
-      const res = await fetch(`/api/backoffice/cac-history/transfer-eligible?${params}`, {
+      const res = await apiFetch(`/api/backoffice/cac-history/transfer-eligible?${params}`, {
         cache: 'no-store',
       });
       const payload = await res.json();
@@ -75,9 +77,9 @@ export function useMassTransferModal({
       }));
 
       if (eligibleSeriesList.length < Number(massTransferData.quantity)) {
-        alert(
-          `No hay suficientes equipos disponibles en la selección. Disponibles: ${eligibleSeriesList.length}`
-        );
+        notify.warning('Equipos insuficientes', {
+          description: `No hay suficientes equipos disponibles en la selección. Disponibles: ${eligibleSeriesList.length}`,
+        });
         return;
       }
 
@@ -88,7 +90,7 @@ export function useMassTransferModal({
       setShowMassTransferModal(false);
     } catch (err) {
       console.error(err);
-      alert(err instanceof Error ? err.message : 'Error al preparar traslado.');
+      notify.error(err instanceof Error ? err.message : 'Error al preparar traslado.');
     }
   }, [massTransferData]);
 
@@ -97,20 +99,20 @@ export function useMassTransferModal({
       if (e.key === 'Enter' && currentScanInput.trim()) {
         e.preventDefault();
         if (scannedTransferSeries.length >= Number(massTransferData.quantity)) {
-          alert('Ya has alcanzado la cantidad solicitada a trasladar.');
+          notify.warning('Ya has alcanzado la cantidad solicitada a trasladar.');
           return;
         }
         const sn = currentScanInput.trim();
         if (scannedTransferSeries.includes(sn)) {
-          alert('Esta serie ya fue escaneada para traslado.');
+          notify.warning('Esta serie ya fue escaneada para traslado.');
           setCurrentScanInput('');
           return;
         }
         const isEligible = eligibleSeriesIdsList.find((s) => s.sn === sn);
         if (!isEligible) {
-          alert(
-            'La serie ingresada NO corresponde a la tecnología, marca y modelo seleccionados, o no está disponible en la bandeja.'
-          );
+          notify.warning('Serie no válida', {
+            description: 'La serie ingresada NO corresponde a la tecnología, marca y modelo seleccionados, o no está disponible en la bandeja.',
+          });
           setCurrentScanInput('');
           return;
         }
@@ -123,7 +125,7 @@ export function useMassTransferModal({
 
   const handleConfirmMassTransfer = useCallback(async () => {
     if (scannedTransferSeries.length !== Number(massTransferData.quantity)) {
-      alert(`Debe escanear exactamente ${massTransferData.quantity} series.`);
+      notify.warning(`Debe escanear exactamente ${massTransferData.quantity} series.`);
       return;
     }
     setMassTransferLoading(true);
@@ -135,14 +137,14 @@ export function useMassTransferModal({
       const { transferMassiveToWorkshop } = await import('@/lib/database/workshop');
       const result = await transferMassiveToWorkshop(seriesToTransfer);
       if (result.error) throw new Error(result.error);
-      alert(`Se trasladaron exitosamente ${seriesToTransfer.length} equipos al Taller.`);
+      notify.success(`Se trasladaron ${seriesToTransfer.length} equipos al Taller.`);
       setIsScanningForTransfer(false);
       setScannedTransferSeries([]);
       setMassTransferData({ techId: '', brandId: '', modelId: '', quantity: '' });
       await fetchHistory();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      alert('Error en el traslado: ' + message);
+      notify.error('Error en el traslado', { description: message });
     }
     setMassTransferLoading(false);
   }, [eligibleSeriesIdsList, fetchHistory, massTransferData.quantity, scannedTransferSeries]);

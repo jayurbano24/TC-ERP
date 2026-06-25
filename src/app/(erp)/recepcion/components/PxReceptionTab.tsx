@@ -3,6 +3,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { TablePagination } from '@/components/ui/TablePagination';
+import { notify, confirmDialog, promptDialog } from '@/components/ui';
 import { useClientPagination } from '@/hooks/useClientPagination';
 import { Scan, Box, Pencil, Trash2, CheckCircle2, Plus, FileText, ArrowRight, ArrowLeft, Lock, LockOpen } from 'lucide-react';
 import {
@@ -65,7 +66,7 @@ export const PxReceptionTab = ({
       const result = await receptionRepository.validatePxHeaderUniqueness(sap, docReferencia);
       if (!result.ok) {
         setHeaderFieldErrors({ [result.field]: result.message });
-        if (showAlert) alert(result.message);
+        if (showAlert) notify.warning(result.message);
         return false;
       }
       setHeaderFieldErrors({});
@@ -73,7 +74,7 @@ export const PxReceptionTab = ({
     } catch (e) {
       console.error(e);
       const message = 'No se pudo verificar duplicados. Verifique conexión e intente de nuevo.';
-      if (showAlert) alert(message);
+      if (showAlert) notify.error(message);
       return false;
     } finally {
       setIsCheckingHeader(false);
@@ -175,7 +176,7 @@ export const PxReceptionTab = ({
 
   const saveHeaderEdit = async () => {
     if (!guideData.sap || !guideData.proveedorPx) {
-      alert('Por favor complete al menos el Número de Pedido y Proveedor PX');
+      notify.warning('Por favor complete al menos el Número de Pedido y Proveedor PX');
       return;
     }
     const isValid = await checkHeaderFields(guideData.sap, guideData.docReferencia, true);
@@ -194,12 +195,15 @@ export const PxReceptionTab = ({
     setHeaderDraft(null);
   };
 
-  const handleAbandonReception = () => {
+  const handleAbandonReception = async () => {
     if (
       workInProgress &&
-      !window.confirm(
-        '¿Abandonar esta recepción? Se perderán todas las cajas y series escaneadas.'
-      )
+      !(await confirmDialog({
+        title: 'Abandonar recepción',
+        message: '¿Abandonar esta recepción? Se perderán todas las cajas y series escaneadas.',
+        tone: 'error',
+        confirmText: 'Abandonar',
+      }))
     ) {
       return;
     }
@@ -231,7 +235,7 @@ export const PxReceptionTab = ({
   // Funciones locales para el nuevo flujo
   const handleStartReception = async () => {
     if (!guideData.sap || !guideData.proveedorPx) {
-      alert("Por favor complete al menos el Número de Pedido y Proveedor PX");
+      notify.warning("Por favor complete al menos el Número de Pedido y Proveedor PX");
       return;
     }
     if (useIncrementalCapture && onStartReceptionIncremental) {
@@ -257,7 +261,7 @@ export const PxReceptionTab = ({
       setViewMode('dashboard');
     } catch (e) {
       console.error(e);
-      alert('No se pudo asignar número de recepción (REC). Verifique conexión e intente de nuevo.');
+      notify.error('No se pudo asignar número de recepción (REC)', { description: 'Verifique conexión e intente de nuevo.' });
     }
   };
 
@@ -265,7 +269,7 @@ export const PxReceptionTab = ({
     if (useIncrementalCapture) {
       const limitCheck = canCreateNewPxBox(boxMetaByCode || {}, guideData.totalCajasEsperadas || 1);
       if (!limitCheck.ok) {
-        alert(limitCheck.reason);
+        notify.warning(limitCheck.reason);
         return;
       }
     }
@@ -320,7 +324,7 @@ export const PxReceptionTab = ({
         ? boxMetaByCode[boxCode].status === 'cerrada' || boxMetaByCode[boxCode].status === 'closed'
         : closedBoxes.includes(boxCode);
     if (isClosed) {
-      alert('No puede eliminar una caja cerrada. Reábrala primero si necesita modificarla.');
+      notify.warning('No puede eliminar una caja cerrada. Reábrala primero si necesita modificarla.');
       return;
     }
 
@@ -341,7 +345,7 @@ export const PxReceptionTab = ({
       lotsInBox > 0 || seriesInBox > 0
         ? `¿Eliminar ${boxCode}? Se quitarán ${lotsInBox} lote(s) y ${seriesInBox} equipo(s) escaneado(s).`
         : `¿Eliminar la caja vacía ${boxCode}?`;
-    if (!window.confirm(message)) return;
+    if (!(await confirmDialog({ title: 'Eliminar caja', message, tone: 'error', confirmText: 'Eliminar' }))) return;
 
     setManifestItems(manifestItems.filter((i: any) => i.boxCode !== boxCode));
     setScannedSeries(scannedSeries.filter((s: any) => s.boxCode !== boxCode));
@@ -361,7 +365,7 @@ export const PxReceptionTab = ({
       return;
     }
 
-    if (!window.confirm(`¿Eliminar el equipo con serie ${item.sn}?`)) return;
+    if (!(await confirmDialog({ title: 'Eliminar equipo', message: `¿Eliminar el equipo con serie ${item.sn}?`, tone: 'error', confirmText: 'Eliminar' }))) return;
     setScannedSeries(
       scannedSeries.filter((x: any) =>
         item.equipmentId ? x.equipmentId !== item.equipmentId : !(x.boxCode === boxCode && x.sn === item.sn)
@@ -387,13 +391,15 @@ export const PxReceptionTab = ({
     }
     const check = canClosePxBox(boxCode, manifestItems, scannedSeries);
     if (!check.ok) {
-      alert(check.reason);
+      notify.warning(check.reason);
       return;
     }
     if (
-      !window.confirm(
-        `¿Cerrar ${boxCode}?\n\nLos datos quedan guardados en este navegador. No podrá editar la caja hasta reabrirla.`
-      )
+      !(await confirmDialog({
+        title: `Cerrar ${boxCode}`,
+        message: 'Los datos quedan guardados en este navegador. No podrá editar la caja hasta reabrirla.',
+        confirmText: 'Cerrar caja',
+      }))
     ) {
       return;
     }
@@ -408,9 +414,11 @@ export const PxReceptionTab = ({
       return;
     }
     if (
-      !window.confirm(
-        `¿Reabrir ${boxCode}?\n\nPodrá volver a editar lotes y series. Debe cerrarla nuevamente antes de finalizar la recepción.`
-      )
+      !(await confirmDialog({
+        title: `Reabrir ${boxCode}`,
+        message: 'Podrá volver a editar lotes y series. Debe cerrarla nuevamente antes de finalizar la recepción.',
+        confirmText: 'Reabrir',
+      }))
     ) {
       return;
     }
@@ -424,7 +432,7 @@ export const PxReceptionTab = ({
       ? meta.status === 'cerrada' || meta.status === 'closed'
       : closedBoxes.includes(targetBoxCode);
     if (isClosed) {
-      alert('Esta caja está cerrada. Reábrala para agregar lotes.');
+      notify.warning('Esta caja está cerrada. Reábrala para agregar lotes.');
       return;
     }
     if (useIncrementalCapture && onAddLotToBoxIncremental) {
@@ -438,7 +446,7 @@ export const PxReceptionTab = ({
       return;
     }
     if (!currentEntry.tecnologia || !currentEntry.marca || !currentEntry.modelo || !currentEntry.totalEsperado) {
-      alert("Por favor, complete tecnología, marca, modelo y cantidad esperada para este lote.");
+      notify.warning("Complete tecnología, marca, modelo y cantidad esperada para este lote.");
       return;
     }
 
@@ -681,7 +689,7 @@ export const PxReceptionTab = ({
               variant="primary" 
               onClick={() => {
                 if (!canFinalize) {
-                  alert(!finalizeCheck.ok ? finalizeCheck.reason : 'Complete y cierre todas las cajas antes de finalizar.');
+                  notify.warning(!finalizeCheck.ok ? finalizeCheck.reason : 'Complete y cierre todas las cajas antes de finalizar.');
                   return;
                 }
                 handleFinalizePX();
@@ -869,21 +877,22 @@ export const PxReceptionTab = ({
 
   const handleAdjustQuantityClick = async () => {
     if (!useIncrementalCapture || !onAdjustBoxQuantity || !boxMeta) return;
-    const newQtyStr = window.prompt(
-      `Cantidad actual declarada: ${totalExpected}\nCapturados: ${received}\n\nNueva cantidad a recibir en esta caja:`,
-      String(totalExpected)
-    );
+    const newQtyStr = await promptDialog({
+      title: 'Ajustar cantidad de la caja',
+      message: `Cantidad actual declarada: ${totalExpected} · Capturados: ${received}`,
+      prompt: { defaultValue: String(totalExpected), placeholder: 'Nueva cantidad a recibir' },
+    });
     if (!newQtyStr) return;
     const newQty = parseInt(newQtyStr, 10);
     if (!Number.isFinite(newQty) || newQty < 1) {
-      alert('Cantidad inválida.');
+      notify.warning('Cantidad inválida.');
       return;
     }
     if (newQty < received) {
-      alert(`No puede ser menor a ${received} (ya capturados).`);
+      notify.warning(`No puede ser menor a ${received} (ya capturados).`);
       return;
     }
-    const reason = window.prompt('Motivo del ajuste de cantidad (obligatorio):')?.trim();
+    const reason = (await promptDialog({ title: 'Motivo del ajuste de cantidad', prompt: { required: true, multiline: true } }))?.trim();
     if (!reason) return;
     await onAdjustBoxQuantity(targetBox, newQty, reason);
   };
@@ -1127,12 +1136,12 @@ export const PxReceptionTab = ({
                 <form onSubmit={(e) => {
                   if (isBoxClosed) {
                     e.preventDefault();
-                    alert('Esta caja está cerrada. Reábrala para escanear más equipos.');
+                    notify.warning('Esta caja está cerrada. Reábrala para escanear más equipos.');
                     return;
                   }
                   if (boxEditDisabled) {
                     e.preventDefault();
-                    alert('No tiene control de esta caja. Espere a que el otro operador libere el lock.');
+                    notify.warning('No tiene control de esta caja. Espere a que el otro operador libere el lock.');
                     return;
                   }
                   handleAddSN_PX(e);

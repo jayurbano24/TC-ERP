@@ -1,11 +1,12 @@
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { apiFetch } from '@/lib/http/apiFetch';
 
 /** Registra sesión única por PC (API con service role, fallback Supabase cliente). */
 export async function registerUserSession(userId: string): Promise<string | null> {
   if (!userId || userId === 'dev-user') return null;
 
   try {
-    const res = await fetch('/api/user-session', {
+    const res = await apiFetch('/api/user-session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId }),

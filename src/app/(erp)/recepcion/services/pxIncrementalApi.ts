@@ -1,5 +1,6 @@
 import type { GuideData } from '../types/reception.types';
 import type { PxLotInput, PxReceptionSnapshot } from '@/lib/database/pxReceptionCapture';
+import { apiFetch } from '@/lib/http/apiFetch';
 
 const INCREMENTAL_SESSION_KEY = 'tc_erp_px_incremental_reception_id';
 export const PX_INCREMENTAL_ACTIVE_STATUS = 'EN_PROCESO';
@@ -28,7 +29,7 @@ export function setIncrementalReceptionIdInSession(receptionId: string | null) {
 }
 
 export async function fetchPxInProgressList() {
-  const res = await fetch('/api/recepcion/px');
+  const res = await apiFetch('/api/recepcion/px');
   const json = await res.json();
   if (!json.success) throw new Error(json.error || 'Error al listar recepciones');
   return json.data as Array<{
@@ -46,7 +47,7 @@ export async function joinOrStartPxReceptionApi(input: {
   operatorId?: string | null;
   preferredGuideNumber?: string;
 }) {
-  const res = await fetch('/api/recepcion/px', {
+  const res = await apiFetch('/api/recepcion/px', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -67,7 +68,7 @@ export async function joinOrStartPxReceptionApi(input: {
 export const startPxReceptionApi = joinOrStartPxReceptionApi;
 
 export async function fetchPxReceptionSnapshot(receptionId: string) {
-  const res = await fetch(`/api/recepcion/px/${receptionId}`);
+  const res = await apiFetch(`/api/recepcion/px/${receptionId}`);
   const json = await res.json();
   if (!json.success) throw new Error(json.error || 'Recepción no encontrada');
   return json.data as PxReceptionSnapshot;
@@ -78,7 +79,7 @@ export async function createPxBoxApi(
   boxCode: string,
   lots: PxLotInput[]
 ) {
-  const res = await fetch(`/api/recepcion/px/${receptionId}/boxes`, {
+  const res = await apiFetch(`/api/recepcion/px/${receptionId}/boxes`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ boxCode, lots }),
@@ -93,7 +94,7 @@ export async function acquireBoxLockApi(input: {
   operatorId?: string | null;
   operatorName?: string;
 }) {
-  const res = await fetch(`/api/recepcion/px/boxes/${input.boxId}/lock`, {
+  const res = await apiFetch(`/api/recepcion/px/boxes/${input.boxId}/lock`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -112,7 +113,7 @@ export async function releaseBoxLockApi(input: {
   operatorId?: string | null;
   reason?: string;
 }) {
-  const res = await fetch(`/api/recepcion/px/boxes/${input.boxId}/lock`, {
+  const res = await apiFetch(`/api/recepcion/px/boxes/${input.boxId}/lock`, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -130,7 +131,7 @@ export async function adjustPxBoxQuantityApi(input: {
   operatorId?: string | null;
   operatorName?: string;
 }) {
-  const res = await fetch(`/api/recepcion/px/boxes/${input.boxId}/quantity`, {
+  const res = await apiFetch(`/api/recepcion/px/boxes/${input.boxId}/quantity`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -147,7 +148,7 @@ export async function closePxBoxApi(input: {
   operatorId?: string | null;
   operatorName?: string;
 }) {
-  const res = await fetch(`/api/recepcion/px/boxes/${input.boxId}/close`, {
+  const res = await apiFetch(`/api/recepcion/px/boxes/${input.boxId}/close`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -162,7 +163,7 @@ export async function promotePxBoxApi(input: {
   operatorId?: string | null;
   operatorName?: string;
 }) {
-  const res = await fetch(`/api/recepcion/px/boxes/${input.boxId}/promote`, {
+  const res = await apiFetch(`/api/recepcion/px/boxes/${input.boxId}/promote`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -179,7 +180,7 @@ export async function reopenPxBoxApi(input: {
   operatorId?: string | null;
   operatorName?: string;
 }) {
-  const res = await fetch(`/api/recepcion/px/boxes/${input.boxId}/reopen`, {
+  const res = await apiFetch(`/api/recepcion/px/boxes/${input.boxId}/reopen`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -195,7 +196,7 @@ export async function updatePxReceptionHeaderApi(input: {
   operatorName: string;
   expectedVersion: number;
 }) {
-  const res = await fetch(`/api/recepcion/px/${input.receptionId}`, {
+  const res = await apiFetch(`/api/recepcion/px/${input.receptionId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -206,7 +207,7 @@ export async function updatePxReceptionHeaderApi(input: {
 }
 
 export async function appendPxCaptureLotsApi(boxId: string, lots: PxLotInput[]) {
-  const res = await fetch(`/api/recepcion/px/boxes/${boxId}/lots`, {
+  const res = await apiFetch(`/api/recepcion/px/boxes/${boxId}/lots`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ lots }),
@@ -238,7 +239,7 @@ export async function scanPxEquipmentApi(input: {
   operatorName?: string;
   workstationLabel?: string | null;
 }): Promise<ScanPxEquipmentResult> {
-  const res = await fetch(`/api/recepcion/px/boxes/${input.boxId}/scan`, {
+  const res = await apiFetch(`/api/recepcion/px/boxes/${input.boxId}/scan`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -279,7 +280,7 @@ export async function voidPxEquipmentApi(input: {
   operatorName?: string;
 }): Promise<VoidPxEquipmentResult> {
   const equipmentKey = input.equipmentId || 'pending';
-  const res = await fetch(
+  const res = await apiFetch(
     `/api/recepcion/px/boxes/${input.boxId}/equipment/${encodeURIComponent(equipmentKey)}`,
     {
       method: 'DELETE',
@@ -305,7 +306,7 @@ export async function deletePxCaptureBoxApi(input: {
   operatorId?: string | null;
   operatorName?: string;
 }) {
-  const res = await fetch(`/api/recepcion/px/boxes/${input.boxId}`, {
+  const res = await apiFetch(`/api/recepcion/px/boxes/${input.boxId}`, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -322,7 +323,7 @@ export async function finalizePxReceptionApi(input: {
   operatorId?: string | null;
   operatorName?: string;
 }) {
-  const res = await fetch(`/api/recepcion/px/${input.receptionId}/finalize`, {
+  const res = await apiFetch(`/api/recepcion/px/${input.receptionId}/finalize`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),

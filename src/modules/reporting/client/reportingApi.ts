@@ -1,8 +1,9 @@
 import { isCentralReportingEnabledClient } from '../infrastructure/feature-flags';
 import type { ExportFormat, ReportFilterParams } from '../domain/types/report.types';
+import { apiFetch } from '@/lib/http/apiFetch';
 
 export async function fetchReportCatalogApi() {
-  const res = await fetch('/api/reports/catalog', { cache: 'no-store' });
+  const res = await apiFetch('/api/reports/catalog', { cache: 'no-store' });
   const json = await res.json();
   if (!res.ok) throw new Error(json.error || 'Error al cargar catálogo');
   return json.reports as Array<{
@@ -20,7 +21,7 @@ export async function downloadReportApi(
   filters: ReportFilterParams,
   format: ExportFormat = 'XLSX'
 ) {
-  const res = await fetch(`/api/reports/${encodeURIComponent(code)}/export`, {
+  const res = await apiFetch(`/api/reports/${encodeURIComponent(code)}/export`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ format, filters }),

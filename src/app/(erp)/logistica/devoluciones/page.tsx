@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState } from 'react';
-import { Card, Badge, Button } from '@/components/ui';
+import React, { useState, useMemo } from 'react';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { Card, Badge, Button, notify, confirmDialog, DataTable, type DataTableColumn } from '@/components/ui';
 import { ModulePage, ModuleToolbar } from '@/components/module-page';
 import { 
   RotateCcw, 
@@ -97,6 +98,8 @@ const RETURN_REASONS = [
 export default function DevolucionesPage() {
   const [activeCategory, setActiveCategory] = useState<DevolucionTab>('BODEGA DEVOLUCIÓN');
   const [searchTerm, setSearchTerm] = useState('');
+  // C5: el input sigue ligado a searchTerm; el filtrado se recomputa con el debounced.
+  const debouncedSearch = useDebouncedValue(searchTerm, 250);
   const [agencies, setAgencies] = useState<CatalogAgency[]>([]);
   const [selectedAgencyId, setSelectedAgencyId] = useState('');
   const [selectedDev, setSelectedDev] = useState<Devolucion | null>(null);
@@ -201,7 +204,7 @@ export default function DevolucionesPage() {
 
   const handleProcessFullReturn = async () => {
     if (!fullReturnForm.motivo || !fullReturnForm.guiaSalida) {
-      alert("Motivo y Guía de Salida son obligatorios.");
+      notify.warning("Motivo y Guía de Salida son obligatorios.");
       return;
     }
     setLoading(true);
@@ -212,9 +215,9 @@ export default function DevolucionesPage() {
     const res = await processFullReceptionReturn(returnReceptionId!, fullReturnForm, userName);
     setLoading(false);
     if (res.error) {
-      alert("Error: " + res.error);
+      notify.error("Error: " + res.error);
     } else {
-      alert("Devolución procesada. El lote y sus equipos ahora están en la bandeja de Devoluciones pendientes.");
+      notify.success("Devolución procesada", { description: "El lote y sus equipos ahora están en la bandeja de Devoluciones pendientes." });
       window.location.href = '/logistica/devoluciones';
     }
   };
@@ -236,21 +239,25 @@ export default function DevolucionesPage() {
     }
   };
 
-  const filteredBoxRows = boxRows.filter((row) => {
-    if (!searchTerm.trim()) return true;
-    const q = searchTerm.trim().toLowerCase();
-    return [row.id, row.sn, row.cliente, row.motivo, row.processUser, row.transferNotes, row.agencyRaw]
-      .filter(Boolean)
-      .some((field) => String(field).toLowerCase().includes(q));
-  });
+  const filteredBoxRows = useMemo(() => {
+    const q = debouncedSearch.trim().toLowerCase();
+    if (!q) return boxRows;
+    return boxRows.filter((row) =>
+      [row.id, row.sn, row.cliente, row.motivo, row.processUser, row.transferNotes, row.agencyRaw]
+        .filter(Boolean)
+        .some((field) => String(field).toLowerCase().includes(q))
+    );
+  }, [boxRows, debouncedSearch]);
 
-  const filteredDevoluciones = devoluciones.filter((dev) => {
-    if (!searchTerm.trim()) return true;
-    const q = searchTerm.trim().toLowerCase();
-    return [dev.id, dev.sn, dev.cliente, dev.motivo, dev.os, dev.classifiedBy, dev.guiaEnvio]
-      .filter(Boolean)
-      .some((field) => String(field).toLowerCase().includes(q));
-  });
+  const filteredDevoluciones = useMemo(() => {
+    const q = debouncedSearch.trim().toLowerCase();
+    if (!q) return devoluciones;
+    return devoluciones.filter((dev) =>
+      [dev.id, dev.sn, dev.cliente, dev.motivo, dev.os, dev.classifiedBy, dev.guiaEnvio]
+        .filter(Boolean)
+        .some((field) => String(field).toLowerCase().includes(q))
+    );
+  }, [devoluciones, debouncedSearch]);
 
   const printConduce = (items: any[]) => {
     const printWindow = window.open('', '', 'width=800,height=600');
@@ -341,9 +348,11 @@ export default function DevolucionesPage() {
       if (result.error) {
         const block = result as { error: string; requiresBlockReturn?: boolean; sapTransferId?: string };
         if (block.requiresBlockReturn && block.sapTransferId) {
-          const proceed = confirm(
-            `${block.error}\n\n¿Desea procesar la devolución en bloque de todo el Documento SAP ahora?`
-          );
+          const proceed = await confirmDialog({
+            title: 'Devolución en bloque',
+            message: `${block.error}\n\n¿Desea procesar la devolución en bloque de todo el Documento SAP ahora?`,
+            confirmText: 'Procesar en bloque',
+          });
           if (proceed) {
             const userName = (await supabase?.auth.getUser())?.data?.user?.email || 'SISTEMA';
             const blockRes = await processBlockReturnBySapTransfer(
@@ -355,22 +364,22 @@ export default function DevolucionesPage() {
               userName
             );
             if (blockRes.error) {
-              alert(blockRes.error);
+              notify.error(blockRes.error);
             } else {
               await fetchReturns();
               setShowNewReturnModal(false);
               setNewReturn({ originalGuide: '', sn: '', cliente: '', motivo: RETURN_REASONS[0], guiaSalida: '', category: activeCategory });
-              alert(`Devolución en bloque aplicada a ${blockRes.unitsCount} equipos del mismo Documento SAP.`);
+              notify.success(`Devolución en bloque aplicada a ${blockRes.unitsCount} equipos del mismo Documento SAP.`);
             }
           }
         } else {
-          alert(result.error);
+          notify.error(result.error);
         }
       } else {
         await fetchReturns();
         setShowNewReturnModal(false);
         setNewReturn({ originalGuide: '', sn: '', cliente: '', motivo: RETURN_REASONS[0], guiaSalida: '', category: activeCategory });
-        alert("Retorno registrado exitosamente.");
+        notify.success("Retorno registrado exitosamente.");
       }
     } finally {
       isSubmittingRef.current = false;
@@ -381,14 +390,14 @@ export default function DevolucionesPage() {
   const handleDespachoMasivo = async () => {
     const guia = dispatchGuiaSalida.trim();
     if (!guia) {
-      alert('Ingrese la guía de salida antes de confirmar el despacho.');
+      notify.warning('Ingrese la guía de salida antes de confirmar el despacho.');
       return;
     }
     if (activeCategory === 'BODEGA DEVOLUCIÓN' && !selectedAgencyId) {
-      alert('Seleccione la agencia de destino antes de despachar.');
+      notify.warning('Seleccione la agencia de destino antes de despachar.');
       return;
     }
-    if (!confirm(`¿Despachar ${selectedIds.length} retorno(s) con guía ${guia}?`)) return;
+    if (!(await confirmDialog({ title: 'Despacho masivo', message: `¿Despachar ${selectedIds.length} retorno(s) con guía ${guia}?`, confirmText: 'Despachar' }))) return;
 
     setLoading(true);
     try {
@@ -401,15 +410,15 @@ export default function DevolucionesPage() {
           .map((item) => buildBoxDispatchTarget(item as Devolucion))
           .filter((t): t is BoxReturnDispatchTarget => t !== null);
         if (targets.length === 0) {
-          alert('Los ítems seleccionados ya fueron despachados o no son válidos.');
+          notify.warning('Los ítems seleccionados ya fueron despachados o no son válidos.');
           return;
         }
         const res = await dispatchBoxReturns(targets, guia, userName, destinationAgency);
         if (res.error) {
-          alert(res.error);
+          notify.error(res.error);
           return;
         }
-        alert(`Despacho confirmado (${res.dispatchedCount || 0} caja(s)). Se generará el conduce.`);
+        notify.success(`Despacho confirmado (${res.dispatchedCount || 0} caja(s)). Se generará el conduce.`);
         printConduce(itemsToUpdate);
       } else {
         const itemsToUpdate = filteredDevoluciones.filter((d) => selectedIds.includes(d.id));
@@ -417,15 +426,15 @@ export default function DevolucionesPage() {
           .map((item) => buildEquipmentDispatchTarget(item))
           .filter((t): t is ReturnDispatchTarget => t !== null);
         if (targets.length === 0) {
-          alert('Los ítems seleccionados ya fueron despachados o no son válidos.');
+          notify.warning('Los ítems seleccionados ya fueron despachados o no son válidos.');
           return;
         }
         const res = await dispatchReturnItems(targets, guia, userName);
         if (res.error) {
-          alert(res.error);
+          notify.error(res.error);
           return;
         }
-        alert(`Despacho confirmado (${res.dispatchedCount || 0} serie(s)). Se generará el conduce.`);
+        notify.success(`Despacho confirmado (${res.dispatchedCount || 0} serie(s)). Se generará el conduce.`);
         printConduce(itemsToUpdate);
       }
 
@@ -433,7 +442,7 @@ export default function DevolucionesPage() {
       setDispatchGuiaSalida('');
       await fetchReturns();
     } catch (err: any) {
-      alert('Error en despacho masivo: ' + err.message);
+      notify.error('Error en despacho masivo: ' + err.message);
     } finally {
       setLoading(false);
     }
@@ -443,16 +452,16 @@ export default function DevolucionesPage() {
     if (!selectedDev) return;
     const guia = dispatchGuiaSalida.trim();
     if (!guia) {
-      alert('Ingrese la guía de salida (courier) antes de despachar.');
+      notify.warning('Ingrese la guía de salida (courier) antes de despachar.');
       return;
     }
     if (activeCategory === 'BODEGA DEVOLUCIÓN' && !selectedAgencyId) {
-      alert('Seleccione la agencia de destino antes de despachar.');
+      notify.warning('Seleccione la agencia de destino antes de despachar.');
       return;
     }
 
     const label = selectedDev.os && selectedDev.os !== '---' ? selectedDev.os : selectedDev.sn;
-    if (!confirm(`¿Despachar ${label} con guía ${guia}?`)) return;
+    if (!(await confirmDialog({ title: 'Despachar retorno', message: `¿Despachar ${label} con guía ${guia}?`, confirmText: 'Despachar' }))) return;
 
     setLoading(true);
     try {
@@ -462,27 +471,27 @@ export default function DevolucionesPage() {
       if (selectedDev.isBoxReturn || activeCategory === 'BODEGA DEVOLUCIÓN') {
         const target = buildBoxDispatchTarget(selectedDev);
         if (!target) {
-          alert('Este retorno ya fue despachado o no se puede procesar.');
+          notify.warning('Este retorno ya fue despachado o no se puede procesar.');
           return;
         }
         const res = await dispatchBoxReturns([target], guia, userName, destinationAgency);
         if (res.error) {
-          alert(res.error);
+          notify.error(res.error);
           return;
         }
-        alert(`Despacho de caja confirmado (${res.dispatchedCount || 0}).`);
+        notify.success(`Despacho de caja confirmado (${res.dispatchedCount || 0}).`);
       } else {
         const target = buildEquipmentDispatchTarget(selectedDev);
         if (!target) {
-          alert('Este retorno ya fue despachado o no se puede procesar.');
+          notify.warning('Este retorno ya fue despachado o no se puede procesar.');
           return;
         }
         const res = await dispatchReturnItems([target], guia, userName);
         if (res.error) {
-          alert(res.error);
+          notify.error(res.error);
           return;
         }
-        alert(`Despacho confirmado (${res.dispatchedCount || 0} serie(s)).`);
+        notify.success(`Despacho confirmado (${res.dispatchedCount || 0} serie(s)).`);
       }
 
       printConduce([selectedDev]);
@@ -490,7 +499,7 @@ export default function DevolucionesPage() {
       setDispatchGuiaSalida('');
       await fetchReturns();
     } catch (err: any) {
-      alert('Error al despachar: ' + err.message);
+      notify.error('Error al despachar: ' + err.message);
     } finally {
       setLoading(false);
     }
@@ -501,7 +510,7 @@ export default function DevolucionesPage() {
     if (!targetDev) return;
 
     if (targetDev.isBoxReturn && targetDev.dbId && targetDev.receptionId) {
-      if (!confirm(`¿Regresar la guía ${targetDev.sn} a Clasificación en Backoffice?`)) return;
+      if (!(await confirmDialog({ title: 'Regresar a Clasificación', message: `¿Regresar la guía ${targetDev.sn} a Clasificación en Backoffice?`, confirmText: 'Regresar' }))) return;
       setLoading(true);
       try {
         const userName = (await getActualUserFullName()) || 'SISTEMA';
@@ -512,11 +521,11 @@ export default function DevolucionesPage() {
           userName
         );
         if (res.error) throw new Error(res.error);
-        alert('La caja ha regresado a Clasificación en Backoffice.');
+        notify.success('La caja ha regresado a Clasificación en Backoffice.');
         await fetchReturns();
         setSelectedDev(null);
       } catch (err: any) {
-        alert('Error al intentar revertir: ' + err.message);
+        notify.error('Error al intentar revertir: ' + err.message);
       } finally {
         setLoading(false);
       }
@@ -524,23 +533,23 @@ export default function DevolucionesPage() {
     }
 
     if (targetDev.receptionId && !targetDev.isBoxReturn) {
-      if (!confirm(`Se revertirá la devolución de todos los equipos asociados a la guía del lote. ¿Está seguro de continuar?`)) return;
+      if (!(await confirmDialog({ title: 'Revertir devolución', message: `Se revertirá la devolución de todos los equipos asociados a la guía del lote. ¿Está seguro de continuar?`, confirmText: 'Revertir' }))) return;
       setLoading(true);
       try {
         const res = await undoFullReceptionReturn(targetDev.receptionId);
         if (res.error) throw new Error(res.error);
-        alert("El lote y todos sus equipos han regresado a Clasificación.");
+        notify.success("El lote y todos sus equipos han regresado a Clasificación.");
         await fetchReturns();
         setSelectedDev(null);
       } catch (err: any) {
-        alert("Error al intentar revertir: " + err.message);
+        notify.error("Error al intentar revertir: " + err.message);
       } finally {
         setLoading(false);
       }
       return;
     }
 
-    if (!confirm(`¿Está seguro de regresar la guía ${targetDev.sn} a Clasificación (Backoffice)? Esto eliminará la devolución actual.`)) return;
+    if (!(await confirmDialog({ title: 'Regresar a Clasificación', message: `¿Está seguro de regresar la guía ${targetDev.sn} a Clasificación (Backoffice)? Esto eliminará la devolución actual.`, confirmText: 'Regresar' }))) return;
     
     setLoading(true);
     try {
@@ -596,39 +605,39 @@ export default function DevolucionesPage() {
         }).eq('id', masterRec.id);
       }
 
-      alert("La guía ha sido regresada a Backoffice exitosamente. Verifique en Consultador la Línea de Tiempo.");
+      notify.success("La guía ha sido regresada a Backoffice exitosamente", { description: "Verifique en Consultador la Línea de Tiempo." });
       await fetchReturns();
       setSelectedDev(null);
     } catch (err: any) {
       console.error(err);
-      alert("Error al intentar revertir: " + err.message);
+      notify.error("Error al intentar revertir: " + err.message);
     } finally {
       setLoading(false);
     }
   };
 
   const handleDeleteDevolution = async (dev: Devolucion) => {
-    if (!confirm(`¿Está seguro de OCULTAR/DESCARTAR el registro ${dev.sn}? El registro se conservará pero ya no aparecerá en esta lista.`)) return;
+    if (!(await confirmDialog({ title: 'Descartar registro', message: `¿Está seguro de OCULTAR/DESCARTAR el registro ${dev.sn}? El registro se conservará pero ya no aparecerá en esta lista.`, tone: 'error', confirmText: 'Descartar' }))) return;
     setLoading(true);
     try {
       const supabase = getSupabaseBrowserClient();
       if (!supabase) throw new Error("Supabase not configured");
 
       if (dev.isBoxReturn && dev.receptionId) {
-        if (!confirm(`¿Ocultar la devolución de caja ${dev.sn}? La recepción se archivará.`)) {
+        if (!(await confirmDialog({ title: 'Ocultar devolución', message: `¿Ocultar la devolución de caja ${dev.sn}? La recepción se archivará.`, confirmText: 'Ocultar' }))) {
           setLoading(false);
           return;
         }
         await supabase.from('receptions').update({ status: 'ARCHIVADO' }).eq('id', dev.receptionId);
       } else if ((dev as any).isReception) {
-         if (!confirm(`Este registro representa un Lote de Devolución de Backoffice. ¿Desea descartar y ocultar todo el Lote completo?`)) {
+         if (!(await confirmDialog({ title: 'Descartar lote completo', message: `Este registro representa un Lote de Devolución de Backoffice. ¿Desea descartar y ocultar todo el Lote completo?`, tone: 'error', confirmText: 'Descartar lote' }))) {
              setLoading(false);
              return;
          }
          await supabase.from('receptions').update({ status: 'ARCHIVADO' }).eq('id', (dev as any).dbId);
       } else {
          if (dev.receptionId) {
-            if (!confirm(`Este equipo pertenece a un lote de devolución procesado. ¿Desea descartar TODO el lote y ocultar todos sus equipos asociados?`)) {
+            if (!(await confirmDialog({ title: 'Descartar lote completo', message: `Este equipo pertenece a un lote de devolución procesado. ¿Desea descartar TODO el lote y ocultar todos sus equipos asociados?`, tone: 'error', confirmText: 'Descartar lote' }))) {
                 setLoading(false);
                 return;
             }
@@ -639,11 +648,11 @@ export default function DevolucionesPage() {
          }
       }
 
-      alert("Registro descartado y ocultado exitosamente.");
+      notify.success("Registro descartado y ocultado exitosamente.");
       await fetchReturns();
       setSelectedDev(null);
     } catch (e: any) {
-      alert("Error al descartar: " + e.message);
+      notify.error("Error al descartar: " + e.message);
     } finally {
       setLoading(false);
     }
@@ -719,6 +728,129 @@ export default function DevolucionesPage() {
       </ModulePage>
     );
   }
+
+  const allDevolucionesSelected =
+    filteredDevoluciones.length > 0 && selectedIds.length === filteredDevoluciones.length;
+
+  const devolucionColumns: DataTableColumn<Devolucion>[] = [
+    {
+      id: 'select',
+      header: (
+        <input
+          type="checkbox"
+          checked={allDevolucionesSelected}
+          onChange={(e) => {
+            if (e.target.checked) setSelectedIds(filteredDevoluciones.map((d) => d.id));
+            else setSelectedIds([]);
+          }}
+          className="w-4 h-4 accent-[#2ec4f1] rounded border-slate-300 cursor-pointer"
+        />
+      ),
+      width: '52px',
+      align: 'center',
+      cell: (dev) => (
+        <div onClick={(e) => e.stopPropagation()} className="flex justify-center">
+          <input
+            type="checkbox"
+            checked={selectedIds.includes(dev.id)}
+            onChange={(e) => {
+              if (e.target.checked) setSelectedIds((prev) => [...prev, dev.id]);
+              else setSelectedIds((prev) => prev.filter((id) => id !== dev.id));
+            }}
+            className="w-4 h-4 accent-[#2ec4f1] rounded border-slate-300 cursor-pointer"
+          />
+        </div>
+      ),
+    },
+    {
+      id: 'idfecha',
+      header: 'ID / Fecha',
+      width: 'minmax(140px,1fr)',
+      cell: (dev) => (
+        <div className="flex flex-col">
+          <span className="text-sm font-black text-[#181c3a]">{dev.id}</span>
+          <span className="text-[10px] font-medium text-slate-400">{dev.fecha}</span>
+        </div>
+      ),
+    },
+    {
+      id: 'sn',
+      header: 'Serie (SN)',
+      width: 'minmax(140px,1fr)',
+      cell: (dev) => <span className="text-sm font-mono font-bold text-slate-600">{dev.sn}</span>,
+    },
+    {
+      id: 'cliente',
+      header: 'Cliente / Origen',
+      width: 'minmax(140px,1fr)',
+      cell: (dev) => <span className="text-xs font-bold text-slate-700">{dev.cliente}</span>,
+    },
+    {
+      id: 'motivo',
+      header: 'Motivo',
+      width: 'minmax(160px,1.2fr)',
+      cell: (dev) => (
+        <span className="text-[10px] font-black uppercase tracking-tight text-slate-500 bg-slate-100 px-2 py-1 rounded-md">
+          {(dev as any).motivo}
+        </span>
+      ),
+    },
+    {
+      id: 'os',
+      header: 'Orden de Servicio',
+      width: '150px',
+      cell: (dev) => (
+        <Badge className="bg-blue-50 text-blue-600 border-none font-black text-[10px] px-2 py-0.5">
+          {dev.os || '---'}
+        </Badge>
+      ),
+    },
+    {
+      id: 'estatus',
+      header: 'Estatus',
+      width: '140px',
+      cell: (dev) => (
+        <div className="flex items-center gap-2">
+          <div
+            className={`w-1.5 h-1.5 rounded-full ${
+              dev.estatus === 'Procesado' ? 'bg-emerald-500' : dev.estatus === 'Pendiente' ? 'bg-amber-400' : 'bg-rose-500'
+            }`}
+          />
+          <span className="text-[10px] font-black uppercase tracking-tight text-slate-600">{dev.estatus}</span>
+        </div>
+      ),
+    },
+    {
+      id: 'accion',
+      header: 'Acción',
+      width: '150px',
+      align: 'right',
+      cell: (dev) => (
+        <div className="flex items-center justify-end gap-2">
+          <button
+            className="w-8 h-8 flex items-center justify-center rounded-xl bg-rose-50 text-rose-400 hover:bg-rose-500 hover:text-white transition-colors"
+            title="Deshacer Devolución (Regresar a Backoffice)"
+            onClick={(e) => { e.stopPropagation(); handleUndoDevolution(dev); }}
+          >
+            <RotateCcw className="w-4 h-4" />
+          </button>
+          <button
+            className="w-8 h-8 flex items-center justify-center rounded-xl bg-slate-50 text-slate-400 hover:bg-[#2ec4f1] hover:text-white transition-colors"
+            title="Ver Detalles"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+          </button>
+          <button
+            className="w-8 h-8 flex items-center justify-center rounded-xl bg-red-50 text-red-500 hover:bg-red-600 hover:text-white transition-colors"
+            title="Eliminar Registro"
+            onClick={(e) => { e.stopPropagation(); handleDeleteDevolution(dev); }}
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      ),
+    },
+  ];
 
   return (
     <ModulePage
@@ -841,122 +973,26 @@ export default function DevolucionesPage() {
             />
           ) : (
           <Card padding="none" className="overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-100">
-                    <th className="px-6 py-4 w-12 text-center">
-                      <input 
-                        type="checkbox" 
-                        checked={filteredDevoluciones.length > 0 && selectedIds.length === filteredDevoluciones.length}
-                        onChange={(e) => {
-                          if (e.target.checked) setSelectedIds(filteredDevoluciones.map(d => d.id));
-                          else setSelectedIds([]);
-                        }}
-                        className="w-4 h-4 accent-[#2ec4f1] rounded border-slate-300 cursor-pointer"
-                      />
-                    </th>
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">ID / Fecha</th>
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Serie (SN)</th>
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Cliente / Origen</th>
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Motivo</th>
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Orden de Servicio</th>
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Estatus</th>
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Acción</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {loading && filteredDevoluciones.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="px-6 py-16 text-center">
-                        <Loader2 className="w-8 h-8 animate-spin text-[#2ec4f1] mx-auto" />
-                      </td>
-                    </tr>
-                  ) : filteredDevoluciones.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="px-6 py-16 text-center text-xs font-bold text-slate-400 uppercase tracking-widest">
-                        No hay equipos pendientes de devolución en bodega
-                      </td>
-                    </tr>
-                  ) : filteredDevoluciones.map((dev) => (
-                    <tr 
-                      key={dev.id} 
-                      className={`hover:bg-slate-50/50 transition-colors cursor-pointer group ${selectedDev?.id === dev.id ? 'bg-[#2ec4f1]/5' : ''} ${selectedIds.includes(dev.id) ? 'bg-blue-50/50' : ''}`}
-                      onClick={() => {
-                        setSelectedDev(dev);
-                        setDispatchGuiaSalida('');
-                      }}
-                    >
-                      <td className="px-6 py-5 text-center" onClick={(e) => e.stopPropagation()}>
-                        <input 
-                          type="checkbox" 
-                          checked={selectedIds.includes(dev.id)} 
-                          onChange={(e) => {
-                            if (e.target.checked) setSelectedIds(prev => [...prev, dev.id]);
-                            else setSelectedIds(prev => prev.filter(id => id !== dev.id));
-                          }}
-                          className="w-4 h-4 accent-[#2ec4f1] rounded border-slate-300 cursor-pointer"
-                        />
-                      </td>
-                      <td className="px-6 py-5">
-                        <div className="flex flex-col">
-                          <span className="text-sm font-black text-[#181c3a]">{dev.id}</span>
-                          <span className="text-[10px] font-medium text-slate-400">{dev.fecha}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-5">
-                        <span className="text-sm font-mono font-bold text-slate-600">{dev.sn}</span>
-                      </td>
-                      <td className="px-6 py-5">
-                        <span className="text-xs font-bold text-slate-700">{dev.cliente}</span>
-                      </td>
-                      <td className="px-6 py-5">
-                        <span className="text-[10px] font-black uppercase tracking-tight text-slate-500 bg-slate-100 px-2 py-1 rounded-md">{(dev as any).motivo}</span>
-                      </td>
-                      <td className="px-6 py-5">
-                        <Badge className="bg-blue-50 text-blue-600 border-none font-black text-[10px] px-2 py-0.5">{dev.os || '---'}</Badge>
-                      </td>
-                      <td className="px-6 py-5">
-                        <div className="flex items-center gap-2">
-                          <div className={`w-1.5 h-1.5 rounded-full ${dev.estatus === 'Procesado' ? 'bg-emerald-500' : dev.estatus === 'Pendiente' ? 'bg-amber-400' : 'bg-rose-500'}`} />
-                          <span className="text-[10px] font-black uppercase tracking-tight text-slate-600">{dev.estatus}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-5 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <button 
-                            className="w-8 h-8 flex items-center justify-center rounded-xl bg-rose-50 text-rose-400 hover:bg-rose-500 hover:text-white transition-colors"
-                            title="Deshacer Devolución (Regresar a Backoffice)"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleUndoDevolution(dev);
-                            }}
-                          >
-                            <RotateCcw className="w-4 h-4" />
-                          </button>
-                          <button 
-                            className="w-8 h-8 flex items-center justify-center rounded-xl bg-slate-50 text-slate-400 hover:bg-[#2ec4f1] hover:text-white transition-colors"
-                            title="Ver Detalles"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-                          </button>
-                          <button 
-                            className="w-8 h-8 flex items-center justify-center rounded-xl bg-red-50 text-red-500 hover:bg-red-600 hover:text-white transition-colors"
-                            title="Eliminar Registro"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteDevolution(dev);
-                            }}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            {loading && filteredDevoluciones.length === 0 ? (
+              <div className="px-6 py-16 text-center">
+                <Loader2 className="w-8 h-8 animate-spin text-[#2ec4f1] mx-auto" />
+              </div>
+            ) : (
+              <DataTable
+                columns={devolucionColumns}
+                data={filteredDevoluciones}
+                getRowId={(dev: Devolucion) => dev.id}
+                onRowClick={(dev: Devolucion) => { setSelectedDev(dev); setDispatchGuiaSalida(''); }}
+                rowHeight={68}
+                maxBodyHeight={600}
+                minWidth={1040}
+                headerClassName="bg-slate-50"
+                emptyMessage="No hay equipos pendientes de devolución en bodega"
+                rowClassName={(dev: Devolucion) =>
+                  `group ${selectedDev?.id === dev.id ? 'bg-[#2ec4f1]/5' : ''} ${selectedIds.includes(dev.id) ? 'bg-blue-50/50' : ''}`
+                }
+              />
+            )}
           </Card>
           )}
         </div>

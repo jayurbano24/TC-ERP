@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback } from 'react';
+import { notify, confirmDialog, promptDialog } from '@/components/ui/messaging/messageStore';
 import { updateReceptionStatus } from '@/lib/database/receptions';
 import { processBlockReturnBySapTransfer } from '@/lib/database/returns';
 import { downloadReportApi, isCentralReportingEnabledClient } from '@/modules/reporting/client/reportingApi';
@@ -45,25 +46,26 @@ export function useBackofficeHistoryActions({
       await exportHistoryReport(entries, catalogs, dateFilterFrom, dateFilterTo);
     } catch (err) {
       console.error(err);
-      alert(err instanceof Error ? err.message : 'Error al exportar el reporte.');
+      notify.error(err instanceof Error ? err.message : 'Error al exportar el reporte.');
     }
   }, [catalogs, dateFilterFrom, dateFilterTo, fetchExportEntries]);
 
   const handleReturnToPending = useCallback(
     async (receptionId: string) => {
-      if (!confirm('¿Está seguro de regresar este lote a estado PENDIENTE?')) return;
+      const ok = await confirmDialog({ title: 'Regresar a Pendiente', message: '¿Está seguro de regresar este lote a estado PENDIENTE?', confirmText: 'Regresar' });
+      if (!ok) return;
       try {
         const { success, error } = await updateReceptionStatus(receptionId, 'PENDIENTE_BACKOFFICE');
         if (success) {
-          alert('Lote regresado a Pendiente con éxito.');
+          notify.success('Lote regresado a Pendiente con éxito.');
           await fetchPending();
           await fetchHistory();
         } else {
-          alert(`Error: ${error}`);
+          notify.error('No se pudo regresar el lote', { description: String(error) });
         }
       } catch (err) {
         console.error(err);
-        alert('Error al procesar la solicitud.');
+        notify.error('Error al procesar la solicitud.');
       }
     },
     [fetchHistory, fetchPending]
@@ -82,10 +84,11 @@ export function useBackofficeHistoryActions({
         `Se revertirán TODAS las unidades asociadas a este documento SAP en la guía (no solo esta fila).
 
 ¿Continuar?`;
-      if (!confirm(msg)) return;
-      const motivo = prompt('Motivo de la devolución:');
+      const ok = await confirmDialog({ title: 'Devolución en bloque', message: msg, confirmText: 'Continuar' });
+      if (!ok) return;
+      const motivo = await promptDialog({ title: 'Motivo de la devolución', prompt: { required: true, multiline: true } });
       if (!motivo?.trim()) return;
-      const guiaSalida = prompt('Guía de salida / tracking:');
+      const guiaSalida = await promptDialog({ title: 'Guía de salida / tracking', prompt: { required: true } });
       if (!guiaSalida?.trim()) return;
       try {
         const res = await processBlockReturnBySapTransfer(
@@ -94,18 +97,18 @@ export function useBackofficeHistoryActions({
           currentUserFullName
         );
         if (res.error) {
-          alert(res.error);
+          notify.error('No se pudo procesar la devolución', { description: res.error });
           return;
         }
-        alert(
-          `Devolución en bloque aplicada (${res.unitsCount ?? unitCount} equipo(s) del Documento SAP ${entry.unitSap}).`
-        );
+        notify.success('Devolución en bloque aplicada', {
+          description: `${res.unitsCount ?? unitCount} equipo(s) del Documento SAP ${entry.unitSap}.`,
+        });
         await fetchHistory();
       } catch (err: unknown) {
         const message =
           err instanceof Error ? err.message : 'Error de conexión al procesar la devolución. Intente de nuevo.';
         console.error(err);
-        alert(message);
+        notify.error('Error al procesar la devolución', { description: message });
       }
     },
     [currentUserFullName, fetchHistory]

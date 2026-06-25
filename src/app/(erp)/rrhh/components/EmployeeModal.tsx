@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Button, Spinner } from '@/components/ui';
+import { Button, Spinner, notify, confirmDialog } from '@/components/ui';
 import { X, Camera, UploadCloud, User, Briefcase, Fingerprint, Banknote, Trash2 } from 'lucide-react';
 import * as faceapi from 'face-api.js';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
@@ -115,7 +115,12 @@ export default function EmployeeModal({
        setFaceEmbedding(null);
        return;
     }
-    const confirmDelete = window.confirm('¿Está seguro de que desea eliminar el rostro registrado de este empleado?');
+    const confirmDelete = await confirmDialog({
+      title: 'Eliminar rostro',
+      message: '¿Está seguro de que desea eliminar el rostro registrado de este empleado?',
+      tone: 'error',
+      confirmText: 'Eliminar',
+    });
     if (!confirmDelete) return;
     
     setLoading(true);
@@ -125,13 +130,13 @@ export default function EmployeeModal({
          const { error } = await supabase.from('employees').update({ face_embedding: null }).eq('id', employee.id);
          if (!error) {
            setFaceEmbedding(null);
-           alert('Rostro eliminado correctamente. Ya puede registrar este rostro en otro usuario.');
+           notify.success('Rostro eliminado correctamente', { description: 'Ya puede registrar este rostro en otro usuario.' });
          } else {
-           alert('Error eliminando rostro: ' + error.message);
+           notify.error('Error eliminando rostro', { description: error.message });
          }
       }
     } catch (err: any) {
-      alert('Error eliminando rostro: ' + err.message);
+      notify.error('Error eliminando rostro', { description: err.message });
     } finally {
       setLoading(false);
     }
@@ -198,7 +203,7 @@ export default function EmployeeModal({
                   }
                 }
                 if (isDuplicate) {
-                  alert(`Este rostro ya está registrado en el sistema bajo el empleado: ${duplicateName}. No se permiten duplicados.`);
+                  notify.warning('Rostro duplicado', { description: `Este rostro ya está registrado bajo el empleado: ${duplicateName}. No se permiten duplicados.` });
                   setBiometricStatus('idle');
                   stopCamera(stream);
                   setIsCameraActive(false);
@@ -320,7 +325,7 @@ export default function EmployeeModal({
       onSuccess();
       onClose();
     } catch (err: any) {
-      alert("Error guardando empleado: " + err.message);
+      notify.error('Error guardando empleado', { description: err.message });
     } finally {
       setLoading(false);
     }

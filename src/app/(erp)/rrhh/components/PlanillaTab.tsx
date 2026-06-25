@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from 'react';
-import { Card, Button, Spinner } from '@/components/ui';
+import { Card, Button, Spinner, notify } from '@/components/ui';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { Calculator, Download, CheckCircle2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -146,7 +146,7 @@ export default function PlanillaTab() {
     });
 
     if (exportData.length === 0) {
-       alert("No hay datos calculados para exportar. Por favor procese la planilla primero.");
+       notify.warning('Sin datos para exportar', { description: 'Por favor procese la planilla primero.' });
        return;
     }
 

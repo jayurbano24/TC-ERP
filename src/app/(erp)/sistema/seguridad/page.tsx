@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Card, Badge, Button } from '@/components/ui';
+import { Card, Badge, Button, notify } from '@/components/ui';
 import { ModulePage } from '@/components/module-page';
 import { 
   ShieldCheck, 
@@ -40,6 +40,7 @@ import { getAdvancedAuditLogs, logAdvancedAudit } from '@/lib/database/audit';
 import { getRoles, getRolePermissions, updateRolePermission, getUsersWithRoles, getUserSecurity, updateUserSecurity, changeUserRole } from '@/lib/database/roles';
 import { adminUpdateUserPassword, adminToggleUserStatus, adminCreateUser } from '@/lib/actions/users';
 import { uploadAvatar } from '@/lib/database/storage';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { Camera, Image as ImageIcon } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -55,6 +56,8 @@ export default function SeguridadPage() {
   const [page, setPage] = useState(1);
   const limit = 50;
   const [searchTerm, setSearchTerm] = useState('');
+  // C5: la búsqueda de auditoría se resuelve server-side (.ilike) con debounce.
+  const debouncedSearch = useDebouncedValue(searchTerm, 350);
   const [filterSeverity, setFilterSeverity] = useState('');
   const [filterModule, setFilterModule] = useState('');
   const [filterAction, setFilterAction] = useState('');
@@ -108,9 +111,14 @@ export default function SeguridadPage() {
     }
   }, [activeTab]);
 
+  // C5: al cambiar la búsqueda volvemos a la primera página (la consulta es server-side).
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch]);
+
   useEffect(() => {
     if (activeTab === 'audit') loadAuditLogs();
-  }, [page, filterSeverity, filterModule, filterAction]);
+  }, [page, filterSeverity, filterModule, filterAction, debouncedSearch]);
 
   useEffect(() => {
     if (selectedRole && activeTab === 'roles') {
@@ -127,6 +135,7 @@ export default function SeguridadPage() {
       severity: filterSeverity || undefined,
       module: filterModule || undefined,
       action: filterAction || undefined,
+      search: debouncedSearch || undefined,
       limit,
       offset: (page - 1) * limit
     });
@@ -241,7 +250,7 @@ export default function SeguridadPage() {
       if (!userProfileModal.isNew) {
         const res = await uploadAvatar(userProfileModal.id, profileFile);
         if (res.error) {
-          alert("Error al subir foto: " + res.error);
+          notify.error('Error al subir foto', { description: res.error });
           setActionLoading(false);
           return;
         }
@@ -252,7 +261,7 @@ export default function SeguridadPage() {
     if (userProfileModal.isNew) {
       // Create new user
       if (!profileData.email || !newPassword || !profileData.full_name) {
-        alert("Correo, Contraseña y Nombre son obligatorios para nuevos usuarios.");
+        notify.warning('Datos incompletos', { description: 'Correo, Contraseña y Nombre son obligatorios para nuevos usuarios.' });
         setActionLoading(false);
         return;
       }
@@ -264,7 +273,7 @@ export default function SeguridadPage() {
         profileData.employee_id
       );
       if (res.error) {
-        alert("Error creando usuario: " + res.error);
+        notify.error('Error creando usuario', { description: res.error });
         setActionLoading(false);
         return;
       }
@@ -289,7 +298,7 @@ export default function SeguridadPage() {
          if (r) {
            const res = await changeUserRole(userProfileModal.id, r.id, r.name);
            if (res.error) {
-             alert("Error cambiando rol: " + res.error);
+             notify.error('Error cambiando rol', { description: res.error });
            }
          }
       }
@@ -344,17 +353,6 @@ export default function SeguridadPage() {
       default: return <Badge className="bg-blue-50 text-blue-600 border-blue-100 font-black"><Info size={12} className="mr-1"/> INFO</Badge>;
     }
   };
-
-  // Filtrado de auditoría
-  const filteredLogs = logs.filter(log => {
-    if (!searchTerm) return true;
-    const term = searchTerm.toLowerCase();
-    return (
-      (log.table_name && log.table_name.toLowerCase().includes(term)) ||
-      (log.record_id && log.record_id.toLowerCase().includes(term)) ||
-      (log.profiles?.full_name && log.profiles.full_name.toLowerCase().includes(term))
-    );
-  });
 
   // Filtrado de Usuarios para la pestaña "users"
   const filteredUsers = users.filter(u => {
@@ -751,7 +749,7 @@ export default function SeguridadPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {filteredLogs.map(log => (
+                    {logs.map(log => (
                       <tr key={log.id} className="hover:bg-slate-50 transition-colors">
                         <td className="px-6 py-3 text-slate-500 font-mono">
                           {new Date(log.created_at).toLocaleString()}

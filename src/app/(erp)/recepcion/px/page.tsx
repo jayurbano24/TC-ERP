@@ -1,7 +1,7 @@
 "use client";
 // Force Rebuild - V3
 import React, { useState } from 'react';
-import { Card, Badge, Button } from '@/components/ui';
+import { Card, Badge, Button, notify } from '@/components/ui';
 import { ModulePage, ModuleToolbar } from '@/components/module-page';
 import { 
   Scan, 
@@ -64,12 +64,12 @@ export default function RecepcionPxPage() {
     // Validar cantidad máxima
     const scannedCount = scannedSeries.filter((s: any) => s.modelo === selectedModelForScan).length;
     if (scannedCount >= item.totalEsperado) {
-      alert(`Límite alcanzado para el modelo ${selectedModelForScan}`);
+      notify.warning(`Límite alcanzado para el modelo ${selectedModelForScan}`);
       return;
     }
 
     if (scannedSeries.find((s: any) => s.sn === currentSN)) {
-      alert("Serie ya escaneada");
+      notify.warning('Serie ya escaneada');
       return;
     }
 
@@ -206,7 +206,7 @@ export default function RecepcionPxPage() {
                   variant="outline" 
                   className="w-full border-dashed border-2 border-slate-200 text-slate-500 hover:border-[#2ec4f1] hover:text-[#2ec4f1] hover:bg-[#2ec4f1]/5 font-black text-[10px] uppercase tracking-widest h-12"
                   onClick={() => {
-                    if (currentEntry.totalEsperado <= 0) return alert("Ingrese una cantidad válida");
+                    if (currentEntry.totalEsperado <= 0) return notify.warning("Ingrese una cantidad válida");
                     setManifestItems([...manifestItems, { ...currentEntry, id: Math.random().toString(36).substr(2, 9) }]);
                     if (!selectedModelForScan) setSelectedModelForScan(currentEntry.modelo);
                   }}

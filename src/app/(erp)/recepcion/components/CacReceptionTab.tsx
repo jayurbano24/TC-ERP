@@ -5,6 +5,7 @@ import { TablePagination } from '@/components/ui/TablePagination';
 import BarcodeScanner from '@/components/BarcodeScanner';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
+import { notify, confirmDialog, promptDialog } from '@/components/ui';
 import { Scan, FileText, Upload, Camera, AlertCircle, Truck, Barcode, QrCode, Pencil, Trash2, Loader2, CheckCircle2 } from 'lucide-react';
 import { useClientPagination } from '@/hooks/useClientPagination';
 
@@ -44,8 +45,11 @@ export const CacReceptionTab = ({
     scanInputRef.current?.focus();
   };
 
-  const handleEditCACSeries = (index: number) => {
-    const newVal = prompt("Editar serie:", cacScannedItems[index]);
+  const handleEditCACSeries = async (index: number) => {
+    const newVal = await promptDialog({
+      title: 'Editar serie',
+      prompt: { defaultValue: cacScannedItems[index] },
+    });
     if (newVal && newVal.trim()) {
       const updated = [...cacScannedItems];
       updated[index] = newVal.trim().toUpperCase();
@@ -53,8 +57,9 @@ export const CacReceptionTab = ({
     }
   };
 
-  const handleDeleteCACSeries = (index: number) => {
-    if (confirm("¿Eliminar esta serie?")) {
+  const handleDeleteCACSeries = async (index: number) => {
+    const ok = await confirmDialog({ title: 'Eliminar serie', message: '¿Eliminar esta serie?', tone: 'error', confirmText: 'Eliminar' });
+    if (ok) {
       const updated = [...cacScannedItems];
       updated.splice(index, 1);
       setCacScannedItems(updated);
@@ -278,8 +283,8 @@ export const CacReceptionTab = ({
                 <div className="flex justify-end gap-3 pt-6">
                   <Button 
                     variant="outline" 
-                    onClick={() => {
-                      if(confirm("¿Seguro que desea cancelar la recepción actual?")) {
+                    onClick={async () => {
+                      if (await confirmDialog({ title: 'Cancelar recepción', message: '¿Seguro que desea cancelar la recepción actual?', confirmText: 'Sí, cancelar' })) {
                         setIsIndustrialScanning(false);
                         setCacScannedItems([]);
                         setCacError('');

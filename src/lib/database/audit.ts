@@ -1,4 +1,5 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { apiFetch } from "@/lib/http/apiFetch";
 
 export type AuditSeverity = 'INFO' | 'WARNING' | 'CRITICAL';
 
@@ -49,7 +50,7 @@ export async function logAdvancedAudit(params: AdvancedAuditPayload) {
     const baseUrl = isServer ? (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000') : '';
 
     // Use the server-side API route to bypass RLS on erp_audit_logs
-    const response = await fetch(`${baseUrl}/api/audit`, {
+    const response = await apiFetch(`${baseUrl}/api/audit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -154,6 +155,7 @@ export async function getAdvancedAuditLogs(filters?: {
   module?: string;
   severity?: string;
   action?: string;
+  search?: string;
   startDate?: string;
   endDate?: string;
   limit?: number;
@@ -171,6 +173,15 @@ export async function getAdvancedAuditLogs(filters?: {
   if (filters?.action) query = query.eq('action', filters.action);
   if (filters?.startDate) query = query.gte('created_at', filters.startDate);
   if (filters?.endDate) query = query.lte('created_at', filters.endDate);
+
+  // C5: búsqueda server-side por tabla / ID de registro (.ilike). Se sanitiza
+  // para no romper la sintaxis de PostgREST .or() ni inyectar comodines.
+  if (filters?.search) {
+    const safe = filters.search.replace(/[%,()*]/g, '').trim();
+    if (safe) {
+      query = query.or(`table_name.ilike.%${safe}%,record_id.ilike.%${safe}%`);
+    }
+  }
 
   const limit = filters?.limit || 100;
   const offset = filters?.offset || 0;

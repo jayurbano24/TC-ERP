@@ -1,5 +1,6 @@
 import type { ProductionOrderSummary } from '../domain/types/production-order.types';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { apiFetch } from '@/lib/http/apiFetch';
 
 async function getOperatorContext() {
   const supabase = getSupabaseBrowserClient();
@@ -17,7 +18,7 @@ export async function fetchActiveProductionOrders(): Promise<{
   data?: ProductionOrderSummary[];
   error?: string;
 }> {
-  const res = await fetch('/api/production-orders', { cache: 'no-store' });
+  const res = await apiFetch('/api/production-orders', { cache: 'no-store' });
   const json = await res.json();
   if (!res.ok) return { success: false, error: json.error || 'Error al listar PO' };
   return { success: true, data: json.data };
@@ -30,7 +31,7 @@ export async function createProductionOrderApi(input: {
   notes?: string;
 }) {
   const operator = await getOperatorContext();
-  const res = await fetch('/api/production-orders', {
+  const res = await apiFetch('/api/production-orders', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...input, ...operator }),
@@ -42,7 +43,7 @@ export async function createProductionOrderApi(input: {
 
 export async function approveProductionOrderApi(poId: string) {
   const operator = await getOperatorContext();
-  const res = await fetch(`/api/production-orders/${poId}/approve`, {
+  const res = await apiFetch(`/api/production-orders/${poId}/approve`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(operator),
@@ -53,7 +54,7 @@ export async function approveProductionOrderApi(poId: string) {
 }
 
 export async function assignOsToProductionOrderApi(poId: string, serviceOrderId: string) {
-  const res = await fetch(`/api/production-orders/${poId}/assign-os`, {
+  const res = await apiFetch(`/api/production-orders/${poId}/assign-os`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ serviceOrderId }),

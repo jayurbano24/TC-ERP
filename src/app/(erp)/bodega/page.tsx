@@ -1,31 +1,25 @@
 "use client";
 
-import { useState, useEffect } from 'react';
 import { ModulePage } from "@/components/module-page";
 import { Loader2 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { apiFetch } from '@/lib/http/apiFetch';
+
+async function fetchInventarioDashboardKpis() {
+  const res = await apiFetch('/api/inventario/dashboard');
+  if (!res.ok) throw new Error('Dashboard CQRS no disponible');
+  const data = await res.json();
+  return data?.data?.kpis ?? null;
+}
 
 export default function BodegaPage() {
-  const [useNewDashboard, setUseNewDashboard] = useState(false);
-  const [dashboardKpis, setDashboardKpis] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const checkFeatureFlag = async () => {
-      try {
-        const res = await fetch('/api/inventario/dashboard');
-        if (res.ok) {
-          const data = await res.json();
-          setUseNewDashboard(true);
-          setDashboardKpis(data.data.kpis);
-        }
-      } catch (e) {
-        console.error('Feature Flag CQRS Dashboard no activo');
-      } finally {
-        setLoading(false);
-      }
-    };
-    checkFeatureFlag();
-  }, []);
+  // C6: TanStack Query — cachea el resultado y evita re-consultar en cada montaje
+  // o al navegar dentro de la ventana de staleTime.
+  const { data: dashboardKpis, isLoading: loading } = useQuery({
+    queryKey: ['inventario-dashboard'],
+    queryFn: fetchInventarioDashboardKpis,
+  });
+  const useNewDashboard = Boolean(dashboardKpis);
 
   return (
     <ModulePage

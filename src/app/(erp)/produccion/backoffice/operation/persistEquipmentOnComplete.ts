@@ -1,6 +1,7 @@
 'use client';
 
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { notify } from '@/components/ui/messaging/messageStore';
 import { createServiceOrders } from '@/lib/database/receptions';
 import { createOrGetSapTransfer, classifyEquipmentBatch } from '@/lib/database/sapTransfers';
 import { generateClientCorrelationId } from '@/shared/infrastructure/http/correlationId.client';
@@ -47,11 +48,9 @@ export async function persistEquipmentOnComplete(params: PersistEquipmentParams)
   const requiredUnits = guideItems.reduce((sum, item) => sum + item.cantidad, 0);
 
   if (requiredUnits > 0 && expectedUnits < requiredUnits) {
-    alert(
-      `Complete el pistoleo de series: ${expectedUnits}/${requiredUnits} unidades listas.
-` +
-        `Cada unidad debe tener todas sus series antes de finalizar.`
-    );
+    notify.warning(`Complete el pistoleo de series: ${expectedUnits}/${requiredUnits} unidades listas.`, {
+      description: 'Cada unidad debe tener todas sus series antes de finalizar.',
+    });
     return { aborted: true, osCreatedCount: 0, equipmentPersistError: null, expectedUnits, correlationId };
   }
 
@@ -74,7 +73,7 @@ export async function persistEquipmentOnComplete(params: PersistEquipmentParams)
         : [];
 
   if (groupsToProcess.length === 0) {
-    alert('Debe registrar al menos un Documento SAP con equipos antes de finalizar.');
+    notify.warning('Debe registrar al menos un Documento SAP con equipos antes de finalizar.');
     return { aborted: true, osCreatedCount: 0, equipmentPersistError: null, expectedUnits, correlationId };
   }
 
@@ -137,7 +136,7 @@ export async function persistEquipmentOnComplete(params: PersistEquipmentParams)
 
       if (sapRes.error) {
         equipmentPersistError = sapRes.error;
-        alert(`❌ Error Documento SAP ${sapGroup.sapDocument}: ${sapRes.error}`);
+        notify.error(`Error Documento SAP ${sapGroup.sapDocument}`, { description: sapRes.error, duration: 0 });
         continue;
       }
 
@@ -151,7 +150,7 @@ export async function persistEquipmentOnComplete(params: PersistEquipmentParams)
 
       if (batchRes.error) {
         equipmentPersistError = batchRes.error;
-        alert(`❌ Error al clasificar equipos (SAP ${sapGroup.sapDocument}): ${batchRes.error}`);
+        notify.error(`Error al clasificar equipos (SAP ${sapGroup.sapDocument})`, { description: batchRes.error, duration: 0 });
       } else if (batchRes.data) {
         osCreatedCount += batchRes.data.length;
       }

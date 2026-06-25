@@ -1,40 +1,42 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { Card, Badge, Button, TablePagination } from '@/components/ui';
+import React, { useState, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Card, Badge, Button, DataTable, type DataTableColumn } from '@/components/ui';
 import { ModulePage, ModuleToolbar } from '@/components/module-page';
 import { Search, MapPin, Package, Download, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { getInventoryDetails, resolveWarehouseStatusLabel } from '@/lib/database/warehouse';
-import { useClientPagination } from '@/hooks/useClientPagination';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+
+const EMPTY_ITEMS: any[] = [];
+
+// C1: función pura a nivel de módulo (estable) para que las columnas memoizadas
+// no se recreen en cada render.
+function extractField(notes: string, fieldKey: string) {
+  if (!notes) return '';
+  const normalizedNotes = notes.replace(/\\n/g, '\n');
+  const regex = new RegExp(fieldKey + ':\\s*(.*?)(?=\\s+[A-Za-z_]+:|\\s*---|\\s*$)', 'i');
+  const match = normalizedNotes.match(regex);
+  return match ? match[1].trim() : '';
+}
 
 export default function InventarioDetallePage() {
-  const [loading, setLoading] = useState(true);
-  const [items, setItems] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  // C5: el input sigue ligado a searchTerm (fluido); el filtrado costoso sobre
+  // la lista completa solo se recomputa con el término debounced.
+  const debouncedSearch = useDebouncedValue(searchTerm, 250);
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const extractField = (notes: string, fieldKey: string) => {
-    if (!notes) return '';
-    const normalizedNotes = notes.replace(/\\n/g, '\n');
-    const regex = new RegExp(fieldKey + ':\\s*(.*?)(?=\\s+[A-Za-z_]+:|\\s*---|\\s*$)', 'i');
-    const match = normalizedNotes.match(regex);
-    return match ? match[1].trim() : '';
-  };
-
-  const fetchData = async () => {
-    setLoading(true);
-    const result: any = await getInventoryDetails();
-    if (result && result.data) {
-      setItems(result.data);
-    } else if (result && result.error) {
-      console.error(result.error);
-    }
-    setLoading(false);
-  };
+  const inventoryQuery = useQuery({
+    queryKey: ['inventory-details'],
+    queryFn: async () => {
+      const result: any = await getInventoryDetails();
+      if (result?.error) throw new Error(result.error);
+      return (result?.data ?? []) as any[];
+    },
+  });
+  const items = inventoryQuery.data ?? EMPTY_ITEMS;
+  const loading = inventoryQuery.isLoading;
 
   const exportToExcel = () => {
     const headers = [
@@ -116,8 +118,8 @@ export default function InventarioDetallePage() {
 
   const filteredItems = useMemo(() => {
     return groupedItems.filter((i) => {
-      if (!searchTerm) return true;
-      const s = searchTerm.toLowerCase();
+      if (!debouncedSearch) return true;
+      const s = debouncedSearch.toLowerCase();
       return (
         (i.s1 || '').toLowerCase().includes(s) ||
         (i.s2 || '').toLowerCase().includes(s) ||
@@ -131,9 +133,176 @@ export default function InventarioDetallePage() {
         (i.models?.name || '').toLowerCase().includes(s)
       );
     });
-  }, [groupedItems, searchTerm]);
+  }, [groupedItems, debouncedSearch]);
 
-  const tablePagination = useClientPagination(filteredItems, 50, [searchTerm]);
+  const inventarioColumns = useMemo<DataTableColumn<any>[]>(() => [
+    {
+      id: 'fecha',
+      header: 'Fecha / Hora',
+      width: '150px',
+      cellClassName: 'whitespace-nowrap',
+      cell: (item: any) => (item.created_at ? new Date(item.created_at).toLocaleString() : 'N/A'),
+    },
+    {
+      id: 'guia',
+      header: 'No. Guía',
+      width: '95px',
+      cellClassName: 'font-black text-[#181c3a]',
+      cell: (item: any) => (item.receptions || {}).guide_number || 'PX',
+    },
+    {
+      id: 'piloto',
+      header: 'Piloto',
+      width: '120px',
+      cellClassName: 'uppercase',
+      cell: (item: any) => extractField((item.receptions || {}).notes, 'Piloto') || 'N/A',
+    },
+    {
+      id: 'courier',
+      header: 'Courier',
+      width: '120px',
+      cellClassName: 'uppercase',
+      cell: (item: any) => {
+        const r = item.receptions || {};
+        return r.carrier || extractField(r.notes, 'Courier') || 'REDESIS';
+      },
+    },
+    {
+      id: 'recibio',
+      header: 'Recibió',
+      width: '120px',
+      cell: (item: any) => {
+        const r = item.receptions || {};
+        return extractField(r.notes, 'Recibido Por') || r.received_by || 'SISTEMA';
+      },
+    },
+    {
+      id: 'estatus',
+      header: 'Estatus',
+      width: '140px',
+      cell: (item: any) => {
+        const statusLabel = resolveWarehouseStatusLabel(item.current_status);
+        const statusVariant = item.current_status === 'in_central_warehouse' ? 'green' : 'purple';
+        return <Badge variant={statusVariant}>{statusLabel}</Badge>;
+      },
+    },
+    {
+      id: 'os',
+      header: 'Orden Servicio',
+      width: '120px',
+      cellClassName: 'font-black',
+      cell: (item: any) => item.service_orders?.os_label || 'TC-00012',
+    },
+    {
+      id: 'ingreso',
+      header: 'Ingreso',
+      width: '90px',
+      cell: () => '1° Ingreso',
+    },
+    {
+      id: 'origen',
+      header: 'Origen',
+      width: '80px',
+      cellClassName: 'font-bold text-slate-600',
+      cell: (item: any) => ((item.receptions || {}).source === 'cac' ? 'CAC' : 'PX'),
+    },
+    {
+      id: 'agencia',
+      header: 'Agencia / Proveedor',
+      width: '150px',
+      cellClassName: 'uppercase',
+      cell: (item: any) => {
+        const r = item.receptions || {};
+        return extractField(r.notes, 'Backoffice_Agency') || extractField(r.notes, 'Agencia') || r.carrier || '---';
+      },
+    },
+    {
+      id: 'tecnologia',
+      header: 'Tecnología',
+      width: '110px',
+      cellClassName: 'uppercase',
+      cell: (item: any) =>
+        item.models?.technologies?.name || extractField((item.receptions || {}).notes, 'Backoffice_Tech') || 'N/A',
+    },
+    {
+      id: 'marca',
+      header: 'Marca',
+      width: '100px',
+      cellClassName: 'uppercase',
+      cell: (item: any) =>
+        item.brands?.name || extractField((item.receptions || {}).notes, 'Backoffice_Brand') || 'N/A',
+    },
+    {
+      id: 'modelo',
+      header: 'Modelo',
+      width: '120px',
+      cellClassName: 'uppercase',
+      cell: (item: any) =>
+        item.models?.name || extractField((item.receptions || {}).notes, 'Backoffice_Model') || 'N/A',
+    },
+    {
+      id: 'caja',
+      header: 'Caja',
+      width: '100px',
+      cellClassName: 'font-black text-amber-500',
+      cell: (item: any) => item.boxes?.box_code || item.boxes?.id || 'SIN CAJA',
+    },
+    {
+      id: 's1',
+      header: 'S-1',
+      width: '120px',
+      cellClassName: 'font-black text-[#2ec4f1]',
+      cell: (item: any) => item.s1 || item.serial_number,
+    },
+    {
+      id: 's2',
+      header: 'S-2',
+      width: '100px',
+      cellClassName: 'text-slate-500',
+      cell: (item: any) => item.s2 || '---',
+    },
+    {
+      id: 's3',
+      header: 'S-3',
+      width: '100px',
+      cellClassName: 'text-slate-500',
+      cell: (item: any) => item.s3 || '---',
+    },
+    {
+      id: 's4',
+      header: 'S-4',
+      width: '100px',
+      cellClassName: 'text-slate-500',
+      cell: (item: any) => item.s4 || '---',
+    },
+    {
+      id: 'material',
+      header: 'Material',
+      width: '100px',
+      cellClassName: 'font-bold',
+      cell: (item: any) => item.material || '---',
+    },
+    {
+      id: 'lote',
+      header: 'Lote',
+      width: '120px',
+      cell: (item: any) => item.valuation || '---',
+    },
+  ], []);
+
+  // C1: KPIs por tecnología memoizados (antes se recomputaban en cada render).
+  const techStats = useMemo(() => {
+    const technologies = ['ADSL', 'DTH', 'EMTA', 'IPTV', 'ONT', 'STB-HFC', 'WTTH'];
+    const techCounts = technologies.reduce((acc, tech) => {
+      acc[tech] = filteredItems.filter(i => {
+        const itemTech = (i.models?.technologies?.name || extractField(i.receptions?.notes, 'Backoffice_Tech') || '').toUpperCase();
+        return itemTech === tech;
+      }).length;
+      return acc;
+    }, {} as Record<string, number>);
+    const uniqueOs = new Set(filteredItems.map(i => i.service_orders?.os_label).filter(Boolean)).size;
+    return { technologies, techCounts, uniqueOs };
+  }, [filteredItems]);
 
   return (
     <ModulePage
@@ -177,16 +346,7 @@ export default function InventarioDetallePage() {
 
         {/* KPI Cards: Technology Breakdown */}
         {(() => {
-          const technologies = ['ADSL', 'DTH', 'EMTA', 'IPTV', 'ONT', 'STB-HFC', 'WTTH'];
-          const techCounts = technologies.reduce((acc, tech) => {
-            acc[tech] = filteredItems.filter(i => {
-              const itemTech = (i.models?.technologies?.name || extractField(i.receptions?.notes, 'Backoffice_Tech') || '').toUpperCase();
-              return itemTech === tech;
-            }).length;
-            return acc;
-          }, {} as Record<string, number>);
-          
-          const uniqueOs = new Set(filteredItems.map(i => i.service_orders?.os_label).filter(Boolean)).size;
+          const { technologies, techCounts, uniqueOs } = techStats;
 
           return (
             <div className="flex gap-4 overflow-x-auto pb-4 custom-scrollbar">
@@ -212,81 +372,21 @@ export default function InventarioDetallePage() {
         })()}
 
         <Card className="overflow-hidden border-2 border-slate-100 shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left whitespace-nowrap">
-              <thead className="bg-[#181c3a] text-white font-black uppercase tracking-widest text-[10px]">
-                <tr>
-                  <th className="px-4 py-4">Fecha / Hora</th>
-                  <th className="px-4 py-4">No. Guía</th>
-                  <th className="px-4 py-4">Piloto</th>
-                  <th className="px-4 py-4">Courier</th>
-                  <th className="px-4 py-4">Recibió</th>
-                  <th className="px-4 py-4">Estatus</th>
-                  <th className="px-4 py-4">Orden Servicio</th>
-                  <th className="px-4 py-4">Ingreso</th>
-                  <th className="px-4 py-4">Origen</th>
-                  <th className="px-4 py-4">Agencia / Proveedor</th>
-                  <th className="px-4 py-4">Tecnología</th>
-                  <th className="px-4 py-4">Marca</th>
-                  <th className="px-4 py-4">Modelo</th>
-                  <th className="px-4 py-4">Caja</th>
-                  <th className="px-4 py-4">S-1</th>
-                  <th className="px-4 py-4">S-2</th>
-                  <th className="px-4 py-4">S-3</th>
-                  <th className="px-4 py-4">S-4</th>
-                  <th className="px-4 py-4">Material</th>
-                  <th className="px-4 py-4">Lote</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-xs">
-                {loading ? (
-                  <tr><td colSpan={19} className="p-8 text-center text-slate-400">Cargando inventario...</td></tr>
-                ) : filteredItems.length === 0 ? (
-                  <tr><td colSpan={19} className="p-8 text-center text-slate-400 font-bold">No se encontraron unidades</td></tr>
-                ) : tablePagination.slice.map((item, idx) => {
-                  const r = item.receptions || {};
-                  const statusLabel = resolveWarehouseStatusLabel(item.current_status);
-                  const statusVariant =
-                    item.current_status === 'in_central_warehouse' ? 'green' : 'purple';
-                  return (
-                  <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-4 py-4">{item.created_at ? new Date(item.created_at).toLocaleString() : 'N/A'}</td>
-                    <td className="px-4 py-4 font-black text-[#181c3a]">{r.guide_number || 'PX'}</td>
-                    <td className="px-4 py-4 uppercase">{extractField(r.notes, 'Piloto') || 'N/A'}</td>
-                    <td className="px-4 py-4 uppercase">{r.carrier || extractField(r.notes, 'Courier') || 'REDESIS'}</td>
-                    <td className="px-4 py-4">{extractField(r.notes, 'Recibido Por') || r.received_by || 'SISTEMA'}</td>
-                    <td className="px-4 py-4">
-                      <Badge variant={statusVariant}>{statusLabel}</Badge>
-                    </td>
-                    <td className="px-4 py-4 font-black">{item.service_orders?.os_label || 'TC-00012'}</td>
-                    <td className="px-4 py-4">1° Ingreso</td>
-                    <td className="px-4 py-4 font-bold text-slate-600">{r.source === 'cac' ? 'CAC' : 'PX'}</td>
-                    <td className="px-4 py-4 uppercase">{extractField(r.notes, 'Backoffice_Agency') || extractField(r.notes, 'Agencia') || r.carrier || '---'}</td>
-                    <td className="px-4 py-4 uppercase">{item.models?.technologies?.name || extractField(r.notes, 'Backoffice_Tech') || 'N/A'}</td>
-                    <td className="px-4 py-4 uppercase">{item.brands?.name || extractField(r.notes, 'Backoffice_Brand') || 'N/A'}</td>
-                    <td className="px-4 py-4 uppercase">{item.models?.name || extractField(r.notes, 'Backoffice_Model') || 'N/A'}</td>
-                    <td className="px-4 py-4 font-black text-amber-500">{item.boxes?.box_code || item.boxes?.id || 'SIN CAJA'}</td>
-                    <td className="px-4 py-4 font-black text-[#2ec4f1]">{item.s1 || item.serial_number}</td>
-                    <td className="px-4 py-4 text-slate-500">{item.s2 || '---'}</td>
-                    <td className="px-4 py-4 text-slate-500">{item.s3 || '---'}</td>
-                    <td className="px-4 py-4 text-slate-500">{item.s4 || '---'}</td>
-                    <td className="px-4 py-4 font-bold">{item.material || '---'}</td>
-                    <td className="px-4 py-4">{item.valuation || '---'}</td>
-                  </tr>
-                )})}
-              </tbody>
-            </table>
-          </div>
-          <TablePagination
-            totalCount={tablePagination.totalCount}
-            page={tablePagination.page}
-            totalPages={tablePagination.totalPages}
-            startItem={tablePagination.startItem}
-            endItem={tablePagination.endItem}
-            pageSize={tablePagination.pageSize}
-            onPageChange={tablePagination.setPage}
-            itemLabel="unidades"
-          />
+          {loading ? (
+            <div className="p-8 text-center text-slate-400">Cargando inventario...</div>
+          ) : (
+            <DataTable
+              columns={inventarioColumns}
+              data={filteredItems}
+              getRowId={(_item: any, index: number) => index}
+              rowHeight={56}
+              maxBodyHeight={620}
+              minWidth={2255}
+              headerClassName="bg-[#181c3a]"
+              headerTextClassName="text-white/90"
+              emptyMessage="No se encontraron unidades"
+            />
+          )}
         </Card>
       </div>
     </ModulePage>

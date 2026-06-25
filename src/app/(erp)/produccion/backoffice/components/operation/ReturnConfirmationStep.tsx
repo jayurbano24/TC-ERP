@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Button, Card } from '@/components/ui';
+import { Button, Card, notify } from '@/components/ui';
 import { Camera, ChevronLeft, FileText, X } from 'lucide-react';
 import type { OperationContext } from '../../operation/operationContext';
 
@@ -119,7 +119,7 @@ export function ReturnConfirmationStep({ ctx }: Props) {
                     if (e.target.files) {
                       const files = Array.from(e.target.files);
                       if (accessoryPhotos.length + files.length > 5) {
-                        alert("Solo puedes subir un máximo de 5 fotos.");
+                        notify.warning("Solo puedes subir un máximo de 5 fotos.");
                         return;
                       }
                       try {
@@ -127,7 +127,7 @@ export function ReturnConfirmationStep({ ctx }: Props) {
                         setAccessoryPhotos(prev => [...prev, ...compressed]);
                       } catch (err) {
                         console.error(err);
-                        alert("Error al procesar las imágenes.");
+                        notify.error("Error al procesar las imágenes.");
                       }
                     }
                   }}

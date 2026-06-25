@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Card, Badge, Button, TablePagination } from '@/components/ui';
+import { Card, Badge, Button, DataTable, type DataTableColumn, notify, confirmDialog } from '@/components/ui';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { assertSapOperationAllowed, resolveUnitSapStatus } from '@/lib/sap/sapValidationStatus';
@@ -39,7 +39,14 @@ import { DispatchBatchSelector } from '@/modules/outbound-dispatch/components/Di
 import { isHexagonalOutboundDispatchEnabled } from '@/modules/outbound-dispatch';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { getTechnologies, getBrands, getModels } from '@/lib/database/config';
-import { useClientPagination } from '@/hooks/useClientPagination';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { PrintBoxModal } from './components/PrintBoxModal';
+import { RackModal } from './components/RackModal';
+import { TimelineModal } from './components/TimelineModal';
+import { DispatchModal } from './components/DispatchModal';
+import { TransferModal } from './components/TransferModal';
+import { NewBoxModal } from './components/NewBoxModal';
+import { DetalleCajaModal } from './components/DetalleCajaModal';
 
 // --- MOCK MASTER REGISTRY (Simulando datos de Recepción/Backoffice) ---
 const masterSeriesRegistry = [
@@ -76,6 +83,8 @@ const mockInventory = [
 export default function BodegaGestionPage() {
   const pathname = usePathname();
   const [searchTerm, setSearchTerm] = useState('');
+  // C5: filtrado de inventario sobre término debounced (input fluido).
+  const debouncedSearch = useDebouncedValue(searchTerm, 250);
   const [showNewBoxModal, setShowNewBoxModal] = useState(false);
   const [selectedBox, setSelectedBox] = useState<any | null>(null);
   const [inventory, setInventory] = useState<any[]>([]);
@@ -117,8 +126,8 @@ export default function BodegaGestionPage() {
       if (filterStatus === 'Full' && !isFull) return false;
       if (filterStatus === 'Partial' && item.status !== 'Parcial') return false;
 
-      if (!searchTerm) return true;
-      const term = searchTerm.toLowerCase();
+      if (!debouncedSearch) return true;
+      const term = debouncedSearch.toLowerCase();
       const marcaName = catMarcas.find((b) => b.id === item.marca)?.name || item.marca || '';
       const modeloName = catModelos.find((m) => m.id === item.modelo)?.name || item.modelo || '';
       const techName = catTecnologias.find((t) => t.id === item.tecnologia)?.name || item.tecnologia || '';
@@ -132,13 +141,7 @@ export default function BodegaGestionPage() {
         rackName.toLowerCase().includes(term)
       );
     });
-  }, [inventory, filterTech, filterStatus, searchTerm, catMarcas, catModelos, catTecnologias]);
-
-  const inventoryPagination = useClientPagination(filteredInventory, 25, [
-    filterTech,
-    filterStatus,
-    searchTerm,
-  ]);
+  }, [inventory, filterTech, filterStatus, debouncedSearch, catMarcas, catModelos, catTecnologias]);
 
   useEffect(() => {
     if (pathname !== '/bodega/gestion') return;
@@ -180,12 +183,12 @@ export default function BodegaGestionPage() {
 
   const handleDispatchBox = async (boxId: string, realDbId?: string) => {
     if (dispatchAction === 'despacho' && !dispatchDestination.trim()) {
-      alert("Por favor ingresa un destino o guía de salida.");
+      notify.warning("Por favor ingresa un destino o guía de salida.");
       return;
     }
     
     if (dispatchMode === 'specific' && selectedSeriesForDispatch.length === 0) {
-      alert("Debes seleccionar al menos una serie para procesar.");
+      notify.warning("Debes seleccionar al menos una serie para procesar.");
       return;
     }
 
@@ -205,14 +208,14 @@ export default function BodegaGestionPage() {
         if (dispatchAction === 'despacho') {
           const check = assertSapOperationAllowed(sapStatus, 'dispatch');
           if (!check.ok) {
-            alert(`⚠️ ${check.message} Equipo ${s.sn}.`);
+            notify.warning(`${check.message} Equipo ${s.sn}.`);
             return;
           }
         } else if (dispatchAction === 'traslado') {
           if (dispatchArea !== 'Diagnóstico' && dispatchArea !== 'Reparación') {
             const check = assertSapOperationAllowed(sapStatus, 'transfer');
             if (!check.ok) {
-              alert(`⚠️ ${check.message} Equipo ${s.sn}.`);
+              notify.warning(`${check.message} Equipo ${s.sn}.`);
               return;
             }
           }
@@ -255,7 +258,7 @@ export default function BodegaGestionPage() {
       }
       
       if (error) {
-        alert("Error despachando: " + error);
+        notify.error('Error despachando', { description: String(error) });
       } else {
         await fetchBoxes();
         setShowDispatchModal(null);
@@ -267,7 +270,7 @@ export default function BodegaGestionPage() {
       }
     } catch (err) {
       console.error(err);
-      alert("Error inesperado al despachar.");
+      notify.error("Error inesperado al despachar.");
     }
     setIsDispatching(false);
   };
@@ -322,7 +325,7 @@ export default function BodegaGestionPage() {
     try {
       const result = await getInventoryBoxes() as any;
       if (result.error) {
-        alert("Error al cargar inventario: " + result.error);
+        notify.error('Error al cargar inventario', { description: result.error });
         return;
       }
     
@@ -506,12 +509,12 @@ export default function BodegaGestionPage() {
 
     try {
       if (tempSerials.length === 0) {
-        alert("⚠️ Debe escanear al menos una serie para poder guardar la caja.");
+        notify.warning("Debe escanear al menos una serie para poder guardar la caja.");
         return;
       }
 
       if (!tempSerials[0]?.reception_id) {
-        alert("⚠️ La serie escaneada no tiene recepción de origen. Verifique clasificación en Backoffice.");
+        notify.warning('Serie sin recepción de origen', { description: 'Verifique clasificación en Backoffice.' });
         return;
       }
 
@@ -527,7 +530,7 @@ export default function BodegaGestionPage() {
       });
 
       if (result.error) {
-        alert("Error al guardar la caja: " + result.error);
+        notify.error('Error al guardar la caja', { description: result.error });
         return;
       }
 
@@ -546,9 +549,9 @@ export default function BodegaGestionPage() {
   const handleScanForNewBox = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentSN) return;
-    if (tempSerials.length >= newBox.cantidad) return alert("Cantidad completada");
+    if (tempSerials.length >= newBox.cantidad) return notify.warning("Cantidad completada");
 
-    if (tempSerials.find(s => s.sn === currentSN)) return alert("Serie ya escaneada");
+    if (tempSerials.find(s => s.sn === currentSN)) return notify.warning("Serie ya escaneada");
 
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
@@ -564,7 +567,7 @@ export default function BodegaGestionPage() {
       .single();
 
     if (error || !mainSeries) {
-      alert("⚠️ Serie no encontrada en Recepción CAC o Backoffice.");
+      notify.warning("Serie no encontrada en Recepción CAC o Backoffice.");
       return;
     }
 
@@ -576,11 +579,11 @@ export default function BodegaGestionPage() {
     );
     if (!ingresoGate.ok) {
       if (ingresoGate.reason === 'already_ingresado') {
-        alert(`⚠️ La serie ${currentSN} ya está ingresada en Bodega General.`);
+        notify.warning(`La serie ${currentSN} ya está ingresada en Bodega General.`);
       } else {
-        alert(
-          `⚠️ El equipo con serie ${currentSN} no está listo para ingreso a almacén.\nEstatus recepción: ${mainSeries.receptions?.status || 'SIN RECEPCIÓN'}\nEstatus serie: ${mainSeries.current_status || 'N/A'}.`
-        );
+        notify.warning(`El equipo ${currentSN} no está listo para ingreso a almacén`, {
+          description: `Estatus recepción: ${mainSeries.receptions?.status || 'SIN RECEPCIÓN'} · Estatus serie: ${mainSeries.current_status || 'N/A'}.`,
+        });
       }
       return;
     }
@@ -638,7 +641,10 @@ export default function BodegaGestionPage() {
 
     // Validar que la serie escaneada coincida con la configuración de la caja actual
     if (!isTechMatch || !isBrandMatch || !isModelMatch) {
-      alert(`⚠️ Validación Fallida: El Modelo, Marca y/o Tecnología del equipo escaneado NO coinciden con los configurados para esta caja.\n\nEscaneado: ${tecnologiaBO} / ${marcaBO} / ${modeloBO}\nEsperado: ${selectedTechName || newBox.tecnologia} / ${selectedBrandName || newBox.marca} / ${selectedModelName || newBox.modelo}`);
+      notify.warning('Validación fallida: Modelo/Marca/Tecnología no coinciden', {
+        description: `Escaneado: ${tecnologiaBO} / ${marcaBO} / ${modeloBO} · Esperado: ${selectedTechName || newBox.tecnologia} / ${selectedBrandName || newBox.marca} / ${selectedModelName || newBox.modelo}`,
+        duration: 0,
+      });
       return;
     }
 
@@ -807,7 +813,7 @@ export default function BodegaGestionPage() {
     e.preventDefault();
     if (!currentSN || !selectedBox) return;
     
-    if (selectedBox.series.find((s: any) => s.sn === currentSN)) return alert("Serie ya escaneada en esta caja");
+    if (selectedBox.series.find((s: any) => s.sn === currentSN)) return notify.warning("Serie ya escaneada en esta caja");
 
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
@@ -824,7 +830,7 @@ export default function BodegaGestionPage() {
       .single();
 
     if (error || !mainSeries) {
-      alert("⚠️ Serie no encontrada en Recepción o Backoffice. Verifique el registro previo.");
+      notify.warning('Serie no encontrada', { description: 'No está en Recepción o Backoffice. Verifique el registro previo.' });
       return;
     }
 
@@ -836,11 +842,11 @@ export default function BodegaGestionPage() {
     );
     if (!ingresoGate.ok) {
       if (ingresoGate.reason === 'already_ingresado') {
-        alert(`⚠️ La serie ${currentSN} ya está ingresada en Bodega General.`);
+        notify.warning(`La serie ${currentSN} ya está ingresada en Bodega General.`);
       } else {
-        alert(
-          `⚠️ El equipo con serie ${currentSN} no está listo para ingreso a almacén.\nEstatus recepción: ${mainSeries.receptions?.status || 'SIN RECEPCIÓN'}\nEstatus serie: ${mainSeries.current_status || 'N/A'}.`
-        );
+        notify.warning(`El equipo ${currentSN} no está listo para ingreso a almacén`, {
+          description: `Estatus recepción: ${mainSeries.receptions?.status || 'SIN RECEPCIÓN'} · Estatus serie: ${mainSeries.current_status || 'N/A'}.`,
+        });
       }
       return;
     }
@@ -918,7 +924,7 @@ export default function BodegaGestionPage() {
     const result = await addSeriesToBox(selectedBox.realDbId || selectedBox.id, seriesToUpdate);
 
     if (result.error) {
-      alert("⚠️ Error al vincular la serie a la caja en la base de datos.");
+      notify.error("Error al vincular la serie a la caja en la base de datos.");
       return;
     }
 
@@ -931,7 +937,7 @@ export default function BodegaGestionPage() {
   };
 
   const handleDeleteBox = async (boxId: string, realDbId: string) => {
-    if (!window.confirm('¿Está seguro de eliminar esta caja y TODO su contenido (series y órdenes de servicio asociadas)? Esta acción no se puede deshacer.')) return;
+    if (!(await confirmDialog({ title: 'Eliminar caja', message: '¿Eliminar esta caja y TODO su contenido (series y órdenes de servicio asociadas)? Esta acción no se puede deshacer.', tone: 'error', confirmText: 'Eliminar' }))) return;
 
     try {
       const supabase = getSupabaseBrowserClient();
@@ -960,7 +966,7 @@ export default function BodegaGestionPage() {
       setInventory(prev => prev.filter(b => b.id !== boxId));
     } catch (err) {
       console.error("Error al eliminar caja:", err);
-      alert("Error al intentar eliminar la caja y sus series.");
+      notify.error("Error al intentar eliminar la caja y sus series.");
     }
   };
 
@@ -979,7 +985,7 @@ export default function BodegaGestionPage() {
       const realId = showRackModal.realDbId || showRackModal.id;
       const { error } = await supabase.from('boxes').update({ rack_location: finalRack }).eq('id', realId);
       if (error) {
-        alert('Error al actualizar la ubicación: ' + error.message);
+        notify.error('Error al actualizar la ubicación', { description: error.message });
       } else {
         await fetchBoxes();
       }
@@ -1003,12 +1009,12 @@ export default function BodegaGestionPage() {
     const { error } = await transferBoxesToArea(realBoxIds, destinationArea, undefined, 'Admin User');
     
     if (error) {
-      alert(`Error: ${error}`);
+      notify.error('Error en la transferencia', { description: String(error) });
     } else {
       await fetchBoxes();
       setShowTransferModal(false);
       setSelectedBoxesForTransfer([]);
-      alert(`✅ Transferencia exitosa: ${selectedBoxesForTransfer.length} cajas movidas a ${destinationArea}`);
+      notify.success('Transferencia exitosa', { description: `${selectedBoxesForTransfer.length} cajas movidas a ${destinationArea}.` });
     }
     setLoading(false);
   };
@@ -1019,7 +1025,7 @@ export default function BodegaGestionPage() {
 
     const box = inventory.find(b => b.id.toUpperCase() === transferScanInput.toUpperCase());
     if (!box) {
-      alert("⚠️ Caja no encontrada en inventario");
+      notify.warning("Caja no encontrada en inventario");
       setTransferScanInput('');
       return;
     }
@@ -1029,6 +1035,225 @@ export default function BodegaGestionPage() {
     }
     setTransferScanInput('');
   };
+
+  const inventoryColumns: DataTableColumn<any>[] = [
+    {
+      id: 'id',
+      header: 'ID Caja',
+      width: '160px',
+      cell: (item) => (
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-black text-[#181c3a] font-mono">{item.id}</span>
+          {item.fuente && (
+            <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest ${item.fuente === 'CAC' ? 'bg-[#181c3a] text-white' : 'bg-[#2ec4f1] text-[#181c3a]'}`}>
+              {item.fuente}
+            </span>
+          )}
+        </div>
+      ),
+    },
+    {
+      id: 'fechaIngreso',
+      header: 'Fecha Ingreso',
+      width: '120px',
+      cellClassName: 'text-[10px] font-bold text-slate-700',
+      cell: (item) => item.fechaIngreso,
+    },
+    {
+      id: 'tecnologia',
+      header: 'Tecnología',
+      width: '110px',
+      cellClassName: 'text-[10px] font-bold text-cyan-800',
+      cell: (item) => catTecnologias.find(t => t.id === item.tecnologia)?.name || item.tecnologia || '---',
+    },
+    {
+      id: 'usuario',
+      header: 'Usuario Ingreso',
+      width: '120px',
+      cellClassName: 'text-[10px] font-bold text-slate-700',
+      cell: (item) => (item.usuarioIngreso || 'SISTEMA').split('@')[0],
+    },
+    {
+      id: 'ubicacion',
+      header: 'Ubicación / Área',
+      width: '180px',
+      cell: (item) => (
+        <div
+          className="flex flex-col group/loc cursor-pointer w-fit"
+          onClick={(e) => {
+            e.stopPropagation();
+            const r = item.rack || '';
+            let rn = '', rnl = '', rp = '';
+            const parts = r.split(' - ');
+            if (parts.length === 3) {
+              rn = parts[0].replace('RACK-', '');
+              rnl = parts[1].replace('NIVEL-', '');
+              rp = parts[2].replace('POSICION-', '');
+            } else {
+              rn = r;
+            }
+
+            setRackNum(rn);
+            setRackNivel(rnl);
+            setRackPosicion(rp);
+            setShowRackModal(item);
+          }}
+          title="Cambiar Ubicación de la Caja"
+        >
+          <div className="flex items-center gap-2 mb-1">
+            <MapPin className="w-3.5 h-3.5 text-[#2ec4f1] group-hover/loc:text-amber-500 transition-colors" />
+            {(() => {
+              const r = item.rack || '';
+              if (r === 'SIN RACK' || !r) {
+                return <span className="text-xs font-bold text-slate-600">Sin Asignar</span>;
+              }
+              const parts = r.split(' - ').map((p: string) => p.replace('RACK-', '').replace('NIVEL-', '').replace('POSICION-', ''));
+              return (
+                <div className="flex gap-1">
+                  {parts.map((p: string, idx: number) => (
+                    <span key={idx} className="px-1.5 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-black rounded-md border border-slate-200">
+                      {p}
+                    </span>
+                  ))}
+                </div>
+              );
+            })()}
+            <Pencil className="w-3 h-3 text-slate-300 opacity-0 group-hover/loc:opacity-100 transition-opacity" />
+          </div>
+          <span className="text-[9px] font-black uppercase text-slate-600 mt-0.5">
+            {item.area || 'Sin Área'}
+          </span>
+        </div>
+      ),
+    },
+    {
+      id: 'marcaModelo',
+      header: 'Marca / Modelo',
+      width: '140px',
+      cell: (item) => (
+        <div className="flex flex-col">
+          <span className="text-xs font-bold text-slate-700">
+            {catMarcas.find(b => b.id === item.marca)?.name || item.marca || 'N/A'}
+          </span>
+          <span className="text-[10px] font-medium text-slate-600">
+            {catModelos.find(m => m.id === item.modelo)?.name || item.modelo || 'N/A'}
+          </span>
+        </div>
+      ),
+    },
+    {
+      id: 'cantidad',
+      header: 'Cantidad',
+      width: '140px',
+      cell: (item) => (
+        <div className="flex items-center gap-2">
+          <div className="w-16 h-2 bg-slate-100 rounded-full overflow-hidden">
+            <div
+              className={`h-full ${item.status === 'Full' ? 'bg-[#2ec4f1]' : 'bg-amber-400'}`}
+              style={{ width: `${Math.min(((item.unitCount || item.series?.length || 0) / Math.max(item.cantidad || 1, 1)) * 100, 100)}%` }}
+            />
+          </div>
+          <span className="text-xs font-bold text-slate-700">
+            {item.unitCount ?? item.series?.length ?? 0}
+            {item.cantidad ? ` / ${item.cantidad}` : ''}
+          </span>
+        </div>
+      ),
+    },
+    {
+      id: 'estatus',
+      header: 'Estatus',
+      width: '110px',
+      cell: (item) => (
+        <Badge variant={item.status === 'Full' ? 'green' : item.status === 'Parcial' ? 'yellow' : 'default'}>{item.status}</Badge>
+      ),
+    },
+    {
+      id: 'acciones',
+      header: 'Acciones',
+      width: '210px',
+      align: 'right',
+      cell: (item) => (
+        <div className="flex items-center justify-end gap-4 transition-opacity">
+          <button className="text-slate-400 hover:text-[#2ec4f1] transition-all hover:scale-110" title="Ver Eventos" onClick={(e) => {
+            e.stopPropagation();
+            if (item.series && item.series.length > 0) {
+               setShowTimeline({
+                 box_id: item.realDbId,
+                 box_code: item.box_code || item.id,
+                 notes: item.series[0].notes,
+                 guide_number: item.series[0].guia,
+                 status: item.status,
+                 agencia: item.series[0].agenciaCAC
+               });
+            } else {
+               notify.info('No hay eventos registrados para esta caja porque está vacía.');
+            }
+          }}>
+            <History size={22} strokeWidth={2} />
+          </button>
+
+          <button className="text-slate-400 hover:text-slate-700 transition-all hover:scale-110" title="Imprimir Etiqueta" onClick={(e) => {
+            e.stopPropagation();
+            setShowPrintModal(item);
+          }}>
+            <Printer size={22} strokeWidth={2} />
+          </button>
+
+          <button className="text-slate-400 hover:text-emerald-500 transition-all hover:scale-110" title="Despachar de Inventario" onClick={async (e) => {
+            e.stopPropagation();
+            setDispatchMode('specific');
+            setDispatchAction('despacho');
+            setShowDispatchModal(item);
+            setDispatchDestination('Calculando...');
+
+            const supabase = getSupabaseBrowserClient();
+            if (supabase) {
+              const { data } = await supabase
+                .from('dispatches')
+                .select('guide_number')
+                .like('guide_number', 'TC-INV-%');
+
+              let nextId = 100;
+              if (data && data.length > 0) {
+                let max = 99;
+                data.forEach((d: any) => {
+                  const numStr = d.guide_number.replace('TC-INV-', '');
+                  const num = parseInt(numStr, 10);
+                  if (!isNaN(num) && num > max) max = num;
+                });
+                nextId = max + 1;
+              }
+              setDispatchDestination(`TC-INV-${String(nextId).padStart(3, '0')}`);
+            } else {
+              setDispatchDestination(`TC-INV-100`);
+            }
+          }}>
+            <Truck size={22} strokeWidth={2} />
+          </button>
+
+          <button className="text-slate-400 hover:text-amber-500 transition-all hover:scale-110" title="Transferir a Otra Bodega" onClick={(e) => {
+            e.stopPropagation();
+            setSelectedBoxesForTransfer([item.id]);
+            setShowTransferModal(true);
+          }}>
+            <ArrowLeftRight size={22} strokeWidth={2} />
+          </button>
+
+          <button
+            className="text-slate-400 hover:text-rose-500 transition-all hover:scale-110"
+            title="Eliminar Caja"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleDeleteBox(item.id, item.realDbId);
+            }}
+          >
+            <Trash2 size={22} strokeWidth={2} />
+          </button>
+        </div>
+      ),
+    },
+  ];
 
   return (
     <ModulePage
@@ -1170,1308 +1395,204 @@ export default function BodegaGestionPage() {
           />
 
           <Card padding="none" className="overflow-hidden border-2 border-slate-100 shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="bg-[#181c3a] border-b border-[#181c3a]">
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-white/80">ID Caja</th>
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-white/80">Fecha Ingreso</th>
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-white/80">Tecnología</th>
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-white/80">Usuario Ingreso</th>
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-white/80">Ubicación / Área</th>
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-white/80">Marca / Modelo</th>
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-white/80">Cantidad</th>
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-white/80">Estatus</th>
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-white/80 text-right">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {inventoryPagination.slice.map((item) => (
-                    <tr 
-                      key={item.id} 
-                      className="hover:bg-slate-50/50 transition-colors group cursor-pointer"
-                      onClick={() => setSelectedBox(item)}
-                    >
-                      <td className="px-6 py-5 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-black text-[#181c3a] font-mono">{item.id}</span>
-                          {item.fuente && (
-                            <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest ${item.fuente === 'CAC' ? 'bg-[#181c3a] text-white' : 'bg-[#2ec4f1] text-[#181c3a]'}`}>
-                              {item.fuente}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-5 whitespace-nowrap">
-                        <span className="text-[10px] font-bold text-slate-700">{item.fechaIngreso}</span>
-                      </td>
-                      <td className="px-6 py-5">
-                        <span className="text-[10px] font-bold text-cyan-800">{catTecnologias.find(t => t.id === item.tecnologia)?.name || item.tecnologia || '---'}</span>
-                      </td>
-                      <td className="px-6 py-5">
-                        <span className="text-[10px] font-bold text-slate-700">{(item.usuarioIngreso || 'SISTEMA').split('@')[0]}</span>
-                      </td>
-                      <td className="px-6 py-5">
-                        <div 
-                          className="flex flex-col group/loc cursor-pointer w-fit"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const r = item.rack || '';
-                            let rn = '', rnl = '', rp = '';
-                            const parts = r.split(' - ');
-                            if (parts.length === 3) {
-                              rn = parts[0].replace('RACK-', '');
-                              rnl = parts[1].replace('NIVEL-', '');
-                              rp = parts[2].replace('POSICION-', '');
-                            } else {
-                              rn = r;
-                            }
-                            
-                            setRackNum(rn);
-                            setRackNivel(rnl);
-                            setRackPosicion(rp);
-                            setShowRackModal(item);
-                          }}
-                          title="Cambiar Ubicación de la Caja"
-                        >
-                          <div className="flex items-center gap-2 mb-1">
-                            <MapPin className="w-3.5 h-3.5 text-[#2ec4f1] group-hover/loc:text-amber-500 transition-colors" />
-                            {(() => {
-                              const r = item.rack || '';
-                              if (r === 'SIN RACK' || !r) {
-                                return <span className="text-xs font-bold text-slate-600">Sin Asignar</span>;
-                              }
-                              const parts = r.split(' - ').map((p: string) => p.replace('RACK-', '').replace('NIVEL-', '').replace('POSICION-', ''));
-                              return (
-                                <div className="flex gap-1">
-                                  {parts.map((p: string, idx: number) => (
-                                    <span key={idx} className="px-1.5 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-black rounded-md border border-slate-200">
-                                      {p}
-                                    </span>
-                                  ))}
-                                </div>
-                              );
-                            })()}
-                            <Pencil className="w-3 h-3 text-slate-300 opacity-0 group-hover/loc:opacity-100 transition-opacity" />
-                          </div>
-                          <span className="text-[9px] font-black uppercase text-slate-600 mt-0.5">
-                            {item.area || 'Sin Área'}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-5">
-                        <div className="flex flex-col">
-                          <span className="text-xs font-bold text-slate-700">
-                            {catMarcas.find(b => b.id === item.marca)?.name || item.marca || 'N/A'}
-                          </span>
-                          <span className="text-[10px] font-medium text-slate-600">
-                            {catModelos.find(m => m.id === item.modelo)?.name || item.modelo || 'N/A'}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-5">
-                        <div className="flex items-center gap-2">
-                          <div className="w-16 h-2 bg-slate-100 rounded-full overflow-hidden">
-                            <div 
-                              className={`h-full ${item.status === 'Full' ? 'bg-[#2ec4f1]' : 'bg-amber-400'}`} 
-                              style={{ width: `${Math.min(((item.unitCount || item.series?.length || 0) / Math.max(item.cantidad || 1, 1)) * 100, 100)}%` }}
-                            />
-                          </div>
-                          <span className="text-xs font-bold text-slate-700">
-                            {item.unitCount ?? item.series?.length ?? 0}
-                            {item.cantidad ? ` / ${item.cantidad}` : ''}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-5">
-                        <Badge variant={item.status === 'Full' ? 'green' : item.status === 'Parcial' ? 'yellow' : 'default'}>{item.status}</Badge>
-                      </td>
-                      <td className="px-6 py-5 text-right">
-                        <div className="flex items-center justify-end gap-4 transition-opacity">
-                          <button className="text-slate-400 hover:text-[#2ec4f1] transition-all hover:scale-110" title="Ver Eventos" onClick={(e) => {
-                            e.stopPropagation();
-                            if (item.series && item.series.length > 0) {
-                               setShowTimeline({
-                                 box_id: item.realDbId,
-                                 box_code: item.box_code || item.id,
-                                 notes: item.series[0].notes,
-                                 guide_number: item.series[0].guia,
-                                 status: item.status,
-                                 agencia: item.series[0].agenciaCAC
-                               });
-                            } else {
-                               alert('No hay eventos registrados para esta caja porque está vacía.');
-                            }
-                          }}>
-                            <History size={22} strokeWidth={2} />
-                          </button>
-
-                          <button className="text-slate-400 hover:text-slate-700 transition-all hover:scale-110" title="Imprimir Etiqueta" onClick={(e) => {
-                            e.stopPropagation();
-                            setShowPrintModal(item);
-                          }}>
-                            <Printer size={22} strokeWidth={2} />
-                          </button>
-                          
-                          <button className="text-slate-400 hover:text-emerald-500 transition-all hover:scale-110" title="Despachar de Inventario" onClick={async (e) => {
-                            e.stopPropagation();
-                            setDispatchMode('specific');
-                            setDispatchAction('despacho');
-                            setShowDispatchModal(item);
-                            setDispatchDestination('Calculando...');
-                            
-                            const supabase = getSupabaseBrowserClient();
-                            if (supabase) {
-                              const { data } = await supabase
-                                .from('dispatches')
-                                .select('guide_number')
-                                .like('guide_number', 'TC-INV-%');
-                              
-                              let nextId = 100;
-                              if (data && data.length > 0) {
-                                let max = 99;
-                                data.forEach((d: any) => {
-                                  const numStr = d.guide_number.replace('TC-INV-', '');
-                                  const num = parseInt(numStr, 10);
-                                  if (!isNaN(num) && num > max) max = num;
-                                });
-                                nextId = max + 1;
-                              }
-                              setDispatchDestination(`TC-INV-${String(nextId).padStart(3, '0')}`);
-                            } else {
-                              setDispatchDestination(`TC-INV-100`);
-                            }
-                          }}>
-                            <Truck size={22} strokeWidth={2} />
-                          </button>
-
-                          <button className="text-slate-400 hover:text-amber-500 transition-all hover:scale-110" title="Transferir a Otra Bodega" onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedBoxesForTransfer([item.id]);
-                            setShowTransferModal(true);
-                          }}>
-                            <ArrowLeftRight size={22} strokeWidth={2} />
-                          </button>
-                          
-                          <button 
-                            className="text-slate-400 hover:text-rose-500 transition-all hover:scale-110"
-                            title="Eliminar Caja"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteBox(item.id, item.realDbId);
-                            }}
-                          >
-                            <Trash2 size={22} strokeWidth={2} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <TablePagination
-              totalCount={inventoryPagination.totalCount}
-              page={inventoryPagination.page}
-              totalPages={inventoryPagination.totalPages}
-              startItem={inventoryPagination.startItem}
-              endItem={inventoryPagination.endItem}
-              pageSize={inventoryPagination.pageSize}
-              onPageChange={inventoryPagination.setPage}
-              itemLabel="cajas"
+            <DataTable
+              columns={inventoryColumns}
+              data={filteredInventory}
+              getRowId={(item) => item.id}
+              onRowClick={(item) => setSelectedBox(item)}
+              rowHeight={72}
+              maxBodyHeight={640}
+              minWidth={1290}
+              headerClassName="bg-[#181c3a] border-b border-[#181c3a]"
+              headerTextClassName="text-white/80"
+              emptyMessage="No hay cajas en inventario"
             />
           </Card>
         </div>
 
         {/* Modal Nueva Caja */}
         {showNewBoxModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#181c3a]/40 backdrop-blur-sm p-6">
-            <Card className={`${newBoxStep === 'scanning' ? 'max-w-5xl' : 'max-w-lg'} w-full shadow-2xl animate-rise-in p-0 overflow-hidden transition-all duration-500`}>
-              <div className="bg-[#181c3a] p-6 text-white flex justify-between items-center">
-                <div className="flex items-center gap-3">
-                  <Box className="w-6 h-6 text-[#2ec4f1]" />
-                  <h3 className="text-xl font-bold flex items-center gap-3">
-                    {newBoxStep === 'scanning' && newBox.correlativo 
-                      ? newBox.correlativo 
-                      : 'Ingresar Almacén TC Caja'}
-                    {newBoxStep === 'scanning' && newBox.correlativo && (
-                      <Badge variant="outline" className="bg-white/10 text-white border-white/20 text-[10px] tracking-widest">EN PROCESO</Badge>
-                    )}
-                  </h3>
-                </div>
-                <button onClick={() => {
-                  setShowNewBoxModal(false);
-                  setNewBoxLastScannedInfo(null);
-                }} className="text-white/40 hover:text-white">✕</button>
-              </div>
-              
-              {newBoxStep === 'form' ? (
-                <div className="p-8 space-y-6">
-                  {/* Número de correlativo de la caja (Auto-generado y No Editable) */}
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Número de correlativo de la caja (Auto-generado)</label>
-                    <input 
-                      type="text"
-                      className="w-full bg-slate-100 p-3 rounded-xl border border-slate-200 font-bold text-sm outline-none text-slate-500 cursor-not-allowed"
-                      value={newBox.correlativo}
-                      disabled
-                      placeholder="Se asigna al pulsar «Siguiente»"
-                    />
-                  </div>
+          <NewBoxModal
+            newBox={newBox}
+            setNewBox={setNewBox}
+            newBoxStep={newBoxStep}
+            setNewBoxStep={setNewBoxStep}
+            catTecnologias={catTecnologias}
+            catMarcas={catMarcas}
+            catModelos={catModelos}
+            loading={loading}
+            tempSerials={tempSerials}
+            setTempSerials={setTempSerials}
+            currentSN={currentSN}
+            setCurrentSN={setCurrentSN}
+            isSavingNewBox={isSavingNewBox}
+            onScanSubmit={handleScanForNewBox}
+            onAddBox={handleAddBox}
+            onClose={() => {
+              setShowNewBoxModal(false);
+              setNewBoxLastScannedInfo(null);
+            }}
+            onNext={async () => {
+              if (!newBox.cantidad || !newBox.rack || loading) return;
 
-                  <div className="grid grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Tecnología</label>
-                      <select 
-                        className="w-full bg-slate-50 p-3 rounded-xl border border-slate-200 font-bold text-sm outline-none focus:border-[#2ec4f1]"
-                        value={newBox.tecnologia}
-                        onChange={e => setNewBox({...newBox, tecnologia: e.target.value, marca: '', modelo: ''})}
-                      >
-                        <option value="">-- Seleccione --</option>
-                        {catTecnologias.map(t => (
-                          <option key={t.id} value={t.id}>{t.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Marca</label>
-                      <select 
-                        className="w-full bg-slate-50 p-3 rounded-xl border border-slate-200 font-bold text-sm outline-none focus:border-[#2ec4f1]"
-                        value={newBox.marca}
-                        onChange={e => setNewBox({...newBox, marca: e.target.value, modelo: ''})}
-                        disabled={!newBox.tecnologia}
-                      >
-                        <option value="">-- Seleccione --</option>
-                        {catMarcas.map(b => (
-                          <option key={b.id} value={b.id}>{b.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
+              setLoading(true);
+              const reserved = await reserveNextBoxCode();
+              setLoading(false);
 
-                  <div className="grid grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Modelo</label>
-                      <select 
-                        className="w-full bg-slate-50 p-3 rounded-xl border border-slate-200 font-bold text-sm outline-none focus:border-[#2ec4f1]"
-                        value={newBox.modelo}
-                        onChange={e => setNewBox({...newBox, modelo: e.target.value})}
-                        disabled={!newBox.marca}
-                      >
-                        <option value="">-- Seleccione --</option>
-                        {catModelos
-                          .filter(m => 
-                            (!newBox.tecnologia || m.technology_id === newBox.tecnologia) &&
-                            (!newBox.marca || m.brand_id === newBox.marca)
-                          )
-                          .map(m => (
-                            <option key={m.id} value={m.id}>{m.name}</option>
-                          ))
-                        }
-                      </select>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Cantidad</label>
-                      <input 
-                        type="number"
-                        className="w-full bg-slate-50 p-3 rounded-xl border border-slate-200 font-bold text-sm outline-none focus:border-[#2ec4f1]"
-                        value={newBox.cantidad || ''}
-                        onChange={e => setNewBox({...newBox, cantidad: parseInt(e.target.value) || 0})}
-                        placeholder="0"
-                      />
-                    </div>
-                  </div>
+              if (reserved.error || !reserved.code) {
+                notify.error('No se pudo reservar el correlativo de caja', { description: reserved.error || undefined });
+                return;
+              }
 
+              const correlativoVal = reserved.code.trim().toUpperCase();
+              const existsLocal = inventory.some(
+                (box) =>
+                  box.id.toUpperCase() === correlativoVal ||
+                  (box.box_code && box.box_code.toUpperCase() === correlativoVal)
+              );
+              if (existsLocal) {
+                notify.warning(`El correlativo "${correlativoVal}" ya aparece en pantalla. Recargue e intente de nuevo.`);
+                return;
+              }
 
-                  <div className="flex gap-4 pt-4">
-                    <Button variant="outline" className="flex-1" onClick={() => {
-                      setShowNewBoxModal(false);
-                      setNewBoxLastScannedInfo(null);
-                    }}>Cancelar</Button>
-                    <Button 
-                      variant="primary" 
-                      className="flex-1" 
-                      onClick={async () => {
-                        if (!newBox.cantidad || !newBox.rack || loading) return;
-
-                        setLoading(true);
-                        const reserved = await reserveNextBoxCode();
-                        setLoading(false);
-
-                        if (reserved.error || !reserved.code) {
-                          alert(reserved.error || 'No se pudo reservar el correlativo de caja.');
-                          return;
-                        }
-
-                        const correlativoVal = reserved.code.trim().toUpperCase();
-                        const existsLocal = inventory.some(
-                          (box) =>
-                            box.id.toUpperCase() === correlativoVal ||
-                            (box.box_code && box.box_code.toUpperCase() === correlativoVal)
-                        );
-                        if (existsLocal) {
-                          alert(`⚠️ El correlativo "${correlativoVal}" ya aparece en pantalla. Recargue e intente de nuevo.`);
-                          return;
-                        }
-
-                        setNewBox((prev) => ({ ...prev, correlativo: correlativoVal }));
-                        setNewBoxStep('scanning');
-                      }}
-                      disabled={!newBox.cantidad || !newBox.rack || loading}
-                    >
-                      {loading ? 'Validando...' : 'Siguiente: Cargar Series'}
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="p-6 space-y-6">
-                  <div className="flex gap-6 h-[500px]">
-                    {/* Columna Izquierda: Formulario y Progreso */}
-                    <div className="flex-1 flex flex-col gap-6">
-                      <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 shrink-0">
-                        <div className="flex justify-between items-end mb-4">
-                          <div>
-                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 leading-none">Progreso de la Caja</span>
-                            <h4 className="text-lg font-black text-[#181c3a]">
-                              {catMarcas.find(b => b.id === newBox.marca)?.name || newBox.marca || '—'}{' '}
-                              {catModelos.find(m => m.id === newBox.modelo)?.name || newBox.modelo || '—'}
-                            </h4>
-                          </div>
-                          <div className="text-right">
-                            <span className={`text-2xl font-black leading-none ${tempSerials.length > 0 ? 'text-emerald-500' : 'text-[#2ec4f1]'}`}>
-                              {tempSerials.length}
-                              <span className="text-sm text-slate-300"> / {newBox.cantidad}</span>
-                            </span>
-                            {tempSerials.length > 0 && tempSerials.length < newBox.cantidad && (
-                              <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest mt-0.5">
-                                Faltan {newBox.cantidad - tempSerials.length}
-                              </p>
-                            )}
-                            {tempSerials.length >= newBox.cantidad && (
-                              <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mt-0.5">
-                                ✓ Completo
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                        <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
-                          <div 
-                            className="h-full bg-[#2ec4f1] transition-all duration-500"
-                            style={{ width: `${(tempSerials.length / newBox.cantidad) * 100}%` }}
-                          />
-                        </div>
-                      </div>
-
-                      <form onSubmit={handleScanForNewBox} className="relative group shrink-0">
-                        <QrCode className="absolute left-6 top-1/2 -translate-y-1/2 w-6 h-6 text-slate-200 group-focus-within:text-[#2ec4f1] transition-colors" />
-                        <input 
-                          type="text" 
-                          autoFocus
-                          placeholder="PISTOLÉE SERIE (SN)..."
-                          className="w-full h-20 pl-16 pr-6 bg-slate-50 border-2 border-slate-100 rounded-2xl text-2xl font-mono font-black outline-none focus:border-[#2ec4f1] focus:bg-white transition-all uppercase"
-                          value={currentSN}
-                          onChange={e => setCurrentSN(e.target.value)}
-                        />
-                      </form>
-
-
-                      <div className="flex gap-4 pt-4 mt-auto shrink-0">
-                        <Button variant="outline" className="flex-1" onClick={() => setNewBoxStep('form')}>Atrás</Button>
-                        <Button 
-                          variant="primary" 
-                          className={`flex-1 border-none shadow-xl transition-all ${
-                            tempSerials.length === 0
-                              ? 'bg-slate-300 shadow-slate-200/20 cursor-not-allowed'
-                              : tempSerials.length >= newBox.cantidad
-                              ? 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/20'
-                              : 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/20'
-                          }`}
-                          onClick={handleAddBox}
-                          disabled={tempSerials.length === 0 || isSavingNewBox}
-                        >
-                          {isSavingNewBox
-                            ? 'Guardando...'
-                            : tempSerials.length === 0
-                            ? 'Pistolee 1 serie'
-                            : tempSerials.length >= newBox.cantidad
-                            ? '✓ Finalizar Caja'
-                            : `Guardar Caja (${tempSerials.length})`
-                          }
-                        </Button>
-                      </div>
-                    </div>
-
-                    {/* Columna Derecha: Lista de Escaneados */}
-                    <div className="w-[45%] bg-slate-50 rounded-3xl border border-slate-100 p-5 flex flex-col">
-                      <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-400 mb-4 shrink-0">Contenido de la Caja</h4>
-                      
-                      <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-2">
-                        {/* Se renderizan en reversa para ver el ultimo escaneado arriba */}
-                        {[...tempSerials].reverse().map((s, index) => {
-                          const originalIndex = tempSerials.length - 1 - index;
-                          return (
-                            <div key={originalIndex} className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-xl hover:border-[#2ec4f1]/30 transition-colors animate-rise-in group">
-                              <div className="flex items-center gap-3">
-                                <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-[10px] font-black shrink-0">
-                                  {originalIndex + 1}
-                                </div>
-                                <Badge variant="green" className="bg-emerald-500 text-white text-[9px] py-0.5 px-1.5 shrink-0">OK (SN)</Badge>
-                                <span className="text-[11px] font-mono font-black text-[#181c3a] break-all">{s.sn}</span>
-                              </div>
-                              <div className="flex items-center gap-2 shrink-0">
-                                <span className="text-[10px] font-bold text-slate-400 truncate max-w-[60px]" title={s.recibio}>{s.recibio || 'Admin'}</span>
-                                <button 
-                                  onClick={() => {
-                                    if (window.confirm(`¿Eliminar la serie ${s.sn} de la caja actual?`)) {
-                                      setTempSerials(tempSerials.filter((_, i) => i !== originalIndex));
-                                    }
-                                  }}
-                                  className="text-slate-300 hover:text-rose-500 p-1 transition-colors"
-                                  title="Eliminar de la caja"
-                                >
-                                  <Trash2 size={14} />
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })}
-                        
-                        {tempSerials.length === 0 && (
-                          <div className="h-full flex flex-col items-center justify-center text-slate-400 gap-3 opacity-50">
-                            <Box size={40} />
-                            <p className="text-[10px] font-black uppercase tracking-widest">Caja Vacía</p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </Card>
-          </div>
+              setNewBox((prev) => ({ ...prev, correlativo: correlativoVal }));
+              setNewBoxStep('scanning');
+            }}
+          />
         )}
 
         {/* Modal Detalle / Cierre de Caja (Ingreso Inteligente) */}
-        {selectedBox && (() => {
-          const uniqueEquipmentsCount = new Set(selectedBox.series?.map((s: any) => s.service_orders?.id || s.serial_number)).size;
-          return (
-          <div className="fixed inset-0 z-50 flex items-center justify-end bg-[#181c3a]/40 backdrop-blur-sm">
-            <div className="w-[95vw] max-w-none h-full bg-white shadow-2xl animate-slide-in-right flex flex-col">
-              <div className="bg-[#181c3a] p-8 text-white relative overflow-hidden">
-                <div className="absolute top-0 right-0 p-8 opacity-10">
-                  <Warehouse className="w-40 h-40" />
-                </div>
-                
-                <div className="relative z-10">
-                  <div className="flex justify-between items-start mb-6">
-                    <div>
-                      <div className="flex items-center gap-2 mb-2">
-                        <Badge variant="blue" className="bg-[#2ec4f1] text-[#181c3a]">ID: {selectedBox.id}</Badge>
-                        <Badge variant="slate" className="bg-white/10 text-white/60">INGRESO INTELIGENTE</Badge>
-                      </div>
-                      <h3 className="text-3xl font-black">
-                        {catMarcas.find(b => b.id === selectedBox.marca)?.name || selectedBox.marca} - {catModelos.find(m => m.id === selectedBox.modelo)?.name || selectedBox.modelo}
-                      </h3>
-                      <div className="flex items-center gap-4 mt-2 text-white/60">
-                        <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest">
-                          <Cpu className="w-3 h-3 text-[#2ec4f1]" /> {catTecnologias.find(t => t.id === selectedBox.series[0]?.tecnologia)?.name || selectedBox.series[0]?.tecnologia || 'N/A'}
-                        </div>
-                        <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest">
-                          <MapPin className="w-3 h-3 text-[#2ec4f1]" /> {selectedBox.rack}
-                        </div>
-                      </div>
-                    </div>
-                    <button onClick={() => { setSelectedBox(null); setLastScannedInfo(null); }} className="p-2 hover:bg-white/10 rounded-xl transition-all">✕</button>
-                  </div>
+        {selectedBox && (
+          <DetalleCajaModal
+            selectedBox={selectedBox}
+            catMarcas={catMarcas}
+            catModelos={catModelos}
+            catTecnologias={catTecnologias}
+            currentSN={currentSN}
+            setCurrentSN={setCurrentSN}
+            lastScannedInfo={lastScannedInfo}
+            onAddSN={handleAddSN}
+            onClose={() => { setSelectedBox(null); setLastScannedInfo(null); }}
+            onShowTimeline={(item) => setShowTimeline({
+              box_id: selectedBox.realDbId,
+              box_code: selectedBox.box_code || selectedBox.id,
+              notes: item.notes,
+              guide_number: item.guia,
+              status: item.estatus
+            })}
+            onRemoveUnit={async (item) => {
+              if (await confirmDialog({ title: 'Remover unidad', message: '¿Está seguro de remover esta unidad de la caja?', tone: 'error', confirmText: 'Remover' })) {
+                const seriesToRemove = item.allSeries && item.allSeries.length > 0 ? item.allSeries : [item.sn || item.s1];
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-white/5 rounded-2xl p-6 border border-white/10">
-                      <div className="flex justify-between items-end mb-4">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-white/40 leading-none">Progreso Caja</span>
-                        <span className="text-2xl font-black text-[#2ec4f1] leading-none">
-                          {uniqueEquipmentsCount} <span className="text-sm text-white/20">/ {selectedBox.cantidad}</span>
-                        </span>
-                      </div>
-                      <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-[#2ec4f1] transition-all duration-500"
-                          style={{ width: `${(uniqueEquipmentsCount / selectedBox.cantidad) * 100}%` }}
-                        />
-                      </div>
-                    </div>
-                    <div className="bg-[#2ec4f1]/10 rounded-2xl p-6 border border-[#2ec4f1]/20 flex flex-col justify-center">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-[#2ec4f1] mb-1">Estatus Bodega</span>
-                      <span className="text-lg font-black text-white">{selectedBox.status.toUpperCase()}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
+                const supabase = getSupabaseBrowserClient();
+                if (supabase) {
+                  await supabase.from('series').update({ current_box_id: null, current_status: 'RECEPCIONADO_BODEGA_GENERAL' }).in('serial_number', seriesToRemove);
+                }
 
-              <div className="flex-1 overflow-y-auto p-8 space-y-8 bg-slate-50/30">
-                {/* Ocultar sección de escaneo si la caja ya está llena */}
-                {uniqueEquipmentsCount < selectedBox.cantidad && (
-                  <>
-                    {/* Buscador Inteligente */}
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <QrCode className="w-5 h-5 text-[#2ec4f1]" />
-                          <h4 className="text-sm font-black uppercase tracking-widest text-[#181c3a]">Pistoleo de Verificación</h4>
-                        </div>
-                        <span className="text-[10px] font-bold text-slate-400 italic">Sincronizado con Recepción / Backoffice</span>
-                      </div>
-                      <form onSubmit={handleAddSN} className="flex gap-3">
-                        <input 
-                          type="text"
-                          autoFocus
-                          className="flex-1 h-16 px-6 bg-white border-2 border-slate-100 rounded-2xl text-xl font-mono font-bold outline-none focus:border-[#2ec4f1] shadow-sm transition-all"
-                          placeholder="Escanee SN del equipo..."
-                          value={currentSN}
-                          onChange={e => setCurrentSN(e.target.value)}
-                        />
-                        <Button type="submit" className="h-16 px-8 rounded-2xl shadow-lg shadow-[#181c3a]/10">
-                          <ArrowRight className="w-6 h-6" />
-                        </Button>
-                      </form>
-                    </div>
+                const updatedSeries = selectedBox.series.filter((s: any) => s.sn !== (item.sn || item.s1));
+                const updatedBox = {
+                  ...selectedBox,
+                  series: updatedSeries,
+                  unitCount: updatedSeries.length,
+                  status: resolveBoxDisplayStatus(updatedSeries.length, selectedBox.cantidad),
+                };
 
-                    {/* Detalle del Último Escaneo (Auto-fetch) */}
-                    {lastScannedInfo && (
-                      <div className="animate-rise-in">
-                        <Card className="border-2 border-[#2ec4f1]/30 bg-white p-6 shadow-xl shadow-[#2ec4f1]/5">
-                          <div className="flex items-start gap-4">
-                            <div className="bg-[#2ec4f1]/10 p-3 rounded-2xl">
-                              <Info className="w-6 h-6 text-[#2ec4f1]" />
-                            </div>
-                            <div className="flex-1">
-                              <div className="flex justify-between items-start mb-4">
-                                <div>
-                                  <div className="flex items-center gap-2 mb-1">
-                                    <h4 className="text-xs font-black uppercase tracking-widest text-slate-400">Información de Origen</h4>
-                                    {lastScannedInfo.serviceOrder !== 'S/OS' && (
-                                      <Badge className="bg-amber-100 text-amber-700 font-black text-[9px] px-2 py-0.5 border-none">
-                                        OS: {lastScannedInfo.serviceOrder}
-                                      </Badge>
-                                    )}
-                                  </div>
-                                  <h5 className="text-lg font-black text-[#181c3a] leading-none mb-1">
-                                    {lastScannedInfo.agency || lastScannedInfo.agencia}
-                                  </h5>
-                                  <span className="text-sm font-bold text-slate-500">
-                                    {lastScannedInfo.courier} • Piloto: {lastScannedInfo.driver || lastScannedInfo.piloto}
-                                  </span>
-                                </div>
-                                <Badge className="bg-emerald-100 text-emerald-700 border-none font-black">
-                                  ✓ VALIDADO
-                                </Badge>
-                              </div>
-                              
-                              <div className="grid grid-cols-4 gap-2 border-t border-slate-100 pt-4">
-                                {['s1','s2','s3','s4'].map((key, idx) => (
-                                  <div key={key} className={`rounded-lg p-2 ${lastScannedInfo[key] ? 'bg-[#2ec4f1]/5 border border-[#2ec4f1]/20' : 'bg-slate-50 opacity-40'}`}>
-                                    <span className="block text-[8px] font-black text-slate-400 uppercase mb-0.5">S-{idx + 1}</span>
-                                    <span className="text-[10px] font-mono font-black text-[#181c3a] break-all">{lastScannedInfo[key] || '---'}</span>
-                                  </div>
-                                ))}
-                              </div>
-
-                              <div className="grid grid-cols-2 gap-4 mt-4 bg-slate-50 p-3 rounded-xl">
-                                <div className="flex items-center gap-2">
-                                  <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                                  <div className="flex flex-col">
-                                    <span className="text-[8px] font-black text-slate-400 uppercase">Recibido en Guía</span>
-                                    <span className="text-[10px] font-bold text-slate-700">{lastScannedInfo.fechaGuia}</span>
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <PackageCheck className="w-3.5 h-3.5 text-[#2ec4f1]" />
-                                  <div className="flex flex-col">
-                                    <span className="text-[8px] font-black text-slate-400 uppercase">Auditado Recepción</span>
-                                    <span className="text-[10px] font-bold text-[#2ec4f1]">{lastScannedInfo.fechaRecepcion}</span>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </Card>
-                      </div>
-                    )}
-                  </>
-                )}
-
-
-                {/* Listado de Series en Caja - Tabla Detallada */}
-                <div className="space-y-4">
-                  <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
-                    Contenido de la Caja <span className="w-1.5 h-1.5 rounded-full bg-slate-300" /> {selectedBox.series.length} Unidades
-                  </h4>
-                  
-                  <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm bg-white">
-                    <table className="w-full text-left whitespace-nowrap">
-                      <thead>
-                        <tr className="bg-[#181c3a] text-white">
-                          <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">Fecha / Hora</th>
-                          <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">No. Guía</th>
-                          <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">Piloto</th>
-                          <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">Courier</th>
-                          <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">Recibió</th>
-                          <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">Estatus</th>
-                          <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">Orden Servicio</th>
-                          <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">Ingreso</th>
-                          <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">Agencia CAC</th>
-                          <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">Tecnología</th>
-                          <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">Marca</th>
-                          <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">Modelo</th>
-                          <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">S-1</th>
-                          <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">S-2</th>
-                          <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">S-3</th>
-                          <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">S-4</th>
-                          <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">Material</th>
-                          <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">Lote</th>
-                          <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest"></th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {selectedBox.series.map((item: any, i: number) => (
-                          <tr key={i} className="hover:bg-slate-50 transition-colors group">
-                            <td className="px-4 py-3 text-[10px] font-bold text-slate-700">{item.fechaHora || item.timestamp}</td>
-                            <td className="px-4 py-3 text-[10px] font-mono font-bold text-[#181c3a]">{item.guia || item.agencia}</td>
-                            <td className="px-4 py-3 text-[10px] font-medium text-slate-600">{item.piloto || '---'}</td>
-                            <td className="px-4 py-3 text-[10px] font-medium text-slate-400">{item.origen || '---'}</td>
-                            <td className="px-4 py-3 text-[10px] font-medium text-slate-600">{item.recibio || 'Admin'}</td>
-                            <td className="px-4 py-3">
-                              <span className="text-[9px] font-black tracking-widest bg-[#181c3a] text-white px-2 py-1 rounded-full">BODEGA PRINCIPAL</span>
-                            </td>
-                            <td className="px-4 py-3 text-[10px] font-black text-[#2ec4f1]">{item.ordenServicio || '---'}</td>
-                            <td className="px-4 py-3">
-                              <span className="text-[9px] font-black bg-blue-50 text-blue-600 px-2 py-1 rounded-full">{item.ingreso || '1° Ingreso'}</span>
-                            </td>
-                            <td className="px-4 py-3 text-[10px] font-bold text-slate-700">{item.agenciaCAC || '---'}</td>
-                            <td className="px-4 py-3 text-[10px] font-bold text-[#2ec4f1]">{catTecnologias.find(t => t.id === item.tecnologia)?.name || item.tecnologia || '---'}</td>
-                            <td className="px-4 py-3 text-[10px] font-bold text-slate-700">{catMarcas.find(b => b.id === item.marca)?.name || item.marca || '---'}</td>
-                            <td className="px-4 py-3 text-[10px] font-bold text-slate-700">{catModelos.find(m => m.id === item.modelo)?.name || item.modelo || '---'}</td>
-                            <td className="px-4 py-3">
-                              {item.s1 || item.sn ? <span className="inline-block px-2 py-1 bg-slate-50 text-[10px] font-mono font-black text-[#181c3a] rounded-md">{item.s1 || item.sn}</span> : <span className="text-slate-300">---</span>}
-                            </td>
-                            <td className="px-4 py-3">
-                              {item.s2 ? <span className="inline-block px-2 py-1 bg-slate-50 text-[10px] font-mono font-bold text-slate-600 rounded-md">{item.s2}</span> : <span className="text-slate-300">---</span>}
-                            </td>
-                            <td className="px-4 py-3">
-                              {item.s3 ? <span className="inline-block px-2 py-1 bg-slate-50 text-[10px] font-mono font-bold text-slate-600 rounded-md">{item.s3}</span> : <span className="text-slate-300">---</span>}
-                            </td>
-                            <td className="px-4 py-3">
-                              {item.s4 ? <span className="inline-block px-2 py-1 bg-slate-50 text-[10px] font-mono font-bold text-slate-600 rounded-md">{item.s4}</span> : <span className="text-slate-300">---</span>}
-                            </td>
-                            <td className="px-4 py-3 text-[10px] font-bold text-slate-700">{item.material || '---'}</td>
-                            <td className="px-4 py-3 text-[10px] font-bold text-slate-700">{item.lote || '---'}</td>
-                            <td className="px-4 py-3 text-right">
-                              <div className="flex items-center justify-end gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
-                                <button 
-                                  onClick={() => setShowTimeline({
-                                    box_id: selectedBox.realDbId,
-                                    box_code: selectedBox.box_code || selectedBox.id,
-                                    notes: item.notes,
-                                    guide_number: item.guia,
-                                    status: item.estatus
-                                  })}
-                                  className="p-1.5 bg-slate-50 hover:bg-[#2ec4f1]/10 hover:text-[#2ec4f1] text-slate-400 rounded-lg transition-colors" 
-                                  title="Historial"
-                                >
-                                  <History className="w-3.5 h-3.5" />
-                                </button>
-                                <button className="p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-400 rounded-lg transition-colors" title="Ver Detalles">
-                                  <Eye className="w-3.5 h-3.5" />
-                                </button>
-                                <button className="p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-400 rounded-lg transition-colors" title="Editar">
-                                  <Pencil className="w-3.5 h-3.5" />
-                                </button>
-                                <button className="p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-400 rounded-lg transition-colors" title="Imprimir Etiqueta">
-                                  <Printer className="w-3.5 h-3.5" />
-                                </button>
-                                <button 
-                                  onClick={async () => {
-                                    if (confirm('¿Está seguro de remover esta unidad de la caja?')) {
-                                      const seriesToRemove = item.allSeries && item.allSeries.length > 0 ? item.allSeries : [item.sn || item.s1];
-                                      
-                                      const supabase = getSupabaseBrowserClient();
-                                      if (supabase) {
-                                        await supabase.from('series').update({ current_box_id: null, current_status: 'RECEPCIONADO_BODEGA_GENERAL' }).in('serial_number', seriesToRemove);
-                                      }
-
-                                      const updatedSeries = selectedBox.series.filter((s: any) => s.sn !== (item.sn || item.s1));
-                                      const updatedBox = {
-                                        ...selectedBox,
-                                        series: updatedSeries,
-                                        unitCount: updatedSeries.length,
-                                        status: resolveBoxDisplayStatus(updatedSeries.length, selectedBox.cantidad),
-                                      };
-
-                                      if (updatedSeries.length === 0) {
-                                        if (supabase && selectedBox.realDbId) {
-                                          await supabase.from('boxes').update({ rack_location: 'ELIMINADO' }).eq('id', selectedBox.realDbId);
-                                        }
-                                        setSelectedBox(null);
-                                        setInventory(inventory.filter((inv) => inv.id !== selectedBox.id));
-                                      } else {
-                                        setSelectedBox(updatedBox);
-                                        setInventory(inventory.map((inv) => (inv.id === selectedBox.id ? updatedBox : inv)));
-                                      }
-                                    }
-                                  }}
-                                  className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-500 rounded-lg transition-colors ml-1"
-                                  title="Eliminar de la caja"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          );
-        })()}
+                if (updatedSeries.length === 0) {
+                  if (supabase && selectedBox.realDbId) {
+                    await supabase.from('boxes').update({ rack_location: 'ELIMINADO' }).eq('id', selectedBox.realDbId);
+                  }
+                  setSelectedBox(null);
+                  setInventory(inventory.filter((inv) => inv.id !== selectedBox.id));
+                } else {
+                  setSelectedBox(updatedBox);
+                  setInventory(inventory.map((inv) => (inv.id === selectedBox.id ? updatedBox : inv)));
+                }
+              }
+            }}
+          />
+        )}
 
         {/* Modal Transferencia Masiva */}
         {showTransferModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#181c3a]/40 backdrop-blur-sm p-6">
-            <Card className="max-w-2xl w-full shadow-2xl animate-rise-in p-0 overflow-hidden">
-              <div className="bg-[#181c3a] p-6 text-white flex justify-between items-center">
-                <div className="flex items-center gap-3">
-                  <ArrowLeftRight className="w-6 h-6 text-[#2ec4f1]" />
-                  <h3 className="text-xl font-bold uppercase tracking-tight">Transferencia Masiva de Cajas</h3>
-                </div>
-                <button onClick={() => setShowTransferModal(false)} className="text-white/40 hover:text-white">✕</button>
-              </div>
-
-              <div className="p-8 space-y-8">
-                {/* Pistoleo de Cajas */}
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">1. PISTOLÉE LAS CAJAS A MOVER</label>
-                    <span className="text-[10px] font-bold text-[#2ec4f1] animate-pulse">MODO ESCÁNER ACTIVO</span>
-                  </div>
-                  <form onSubmit={handleScanForTransfer} className="relative group">
-                    <QrCode className="absolute left-6 top-1/2 -translate-y-1/2 w-6 h-6 text-[#2ec4f1] group-focus-within:scale-110 transition-transform" />
-                    <input 
-                      type="text" 
-                      autoFocus
-                      placeholder="ESCANEÉ ID DE CAJA (EJ: BOX-001)..."
-                      className="w-full h-20 pl-16 pr-6 bg-slate-50 border-2 border-slate-100 rounded-3xl text-2xl font-mono font-black outline-none focus:border-[#2ec4f1] focus:bg-white transition-all uppercase shadow-inner"
-                      value={transferScanInput}
-                      onChange={e => setTransferScanInput(e.target.value)}
-                    />
-                  </form>
-                </div>
-
-                <div className="space-y-4">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Selección Actual ({selectedBoxesForTransfer.length})</label>
-                  <div className="grid grid-cols-2 gap-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-                    {inventory.map(box => {
-                      const marcaStr = catMarcas.find((m: any) => m.id === (box.marca || box.brand_id))?.name || 'S/M';
-                      const modeloStr = catModelos.find((m: any) => m.id === (box.modelo || box.model_id))?.name || '';
-                      const boxCode = box.box_code || box.id;
-                      const rackLoc = box.rack_location || box.rack || 'Sin Rack';
-                      
-                      return (
-                        <div 
-                          key={box.id}
-                          onClick={() => {
-                            if (selectedBoxesForTransfer.includes(box.id)) {
-                              setSelectedBoxesForTransfer(selectedBoxesForTransfer.filter(id => id !== box.id));
-                            } else {
-                              setSelectedBoxesForTransfer([...selectedBoxesForTransfer, box.id]);
-                            }
-                          }}
-                          className={`p-4 rounded-2xl border-2 transition-all cursor-pointer flex justify-between items-center ${selectedBoxesForTransfer.includes(box.id) ? 'border-[#2ec4f1] bg-[#2ec4f1]/5' : 'border-slate-100 bg-white hover:border-slate-200'}`}
-                        >
-                          <div>
-                            <p className="text-sm font-black text-[#181c3a]">{boxCode}</p>
-                            <p className="text-[9px] font-bold text-slate-400 uppercase">{marcaStr} {modeloStr} • {rackLoc}</p>
-                          </div>
-                          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${selectedBoxesForTransfer.includes(box.id) ? 'bg-[#2ec4f1] border-[#2ec4f1]' : 'border-slate-200'}`}>
-                            {selectedBoxesForTransfer.includes(box.id) && <div className="w-2 h-2 bg-white rounded-full" />}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 gap-4">
-                  <div className="space-y-4">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">2. Área de Destino</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {['Bodega Central', 'Bodega SCRAP', 'Bodega Obsoleto', 'Diagnóstico'].map(area => (
-                        <button 
-                          key={area}
-                          onClick={() => setDestinationArea(area)}
-                          className={`px-4 py-3 rounded-xl border-2 font-bold text-[10px] uppercase transition-all text-left flex items-center justify-between ${destinationArea === area ? 'border-[#2ec4f1] bg-[#2ec4f1]/5 text-[#181c3a]' : 'border-slate-100 text-slate-400 hover:border-slate-200'}`}
-                        >
-                          {area}
-                          {destinationArea === area && <div className="w-2 h-2 bg-[#2ec4f1] rounded-full" />}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex gap-4 pt-4">
-                  <Button variant="outline" className="flex-1 h-14 font-black uppercase tracking-widest text-[10px]" onClick={() => setShowTransferModal(false)}>Cancelar</Button>
-                  <Button 
-                    variant="primary" 
-                    className="flex-1 h-14 font-black uppercase tracking-widest text-[10px] bg-[#181c3a]" 
-                    onClick={handleExecuteTransfer}
-                    disabled={selectedBoxesForTransfer.length === 0}
-                  >
-                    Ejecutar Movimiento ({selectedBoxesForTransfer.length})
-                  </Button>
-                </div>
-              </div>
-            </Card>
-          </div>
+          <TransferModal
+            inventory={inventory}
+            catMarcas={catMarcas}
+            catModelos={catModelos}
+            selectedBoxesForTransfer={selectedBoxesForTransfer}
+            setSelectedBoxesForTransfer={setSelectedBoxesForTransfer}
+            transferScanInput={transferScanInput}
+            setTransferScanInput={setTransferScanInput}
+            destinationArea={destinationArea}
+            setDestinationArea={setDestinationArea}
+            onScanSubmit={handleScanForTransfer}
+            onExecute={handleExecuteTransfer}
+            onClose={() => setShowTransferModal(false)}
+          />
         )}
       </div>
       {/* MODAL DE TRAZABILIDAD (TIMELINE) */}
       {showTimeline && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#181c3a]/80 backdrop-blur-sm p-4">
-          <Card className="w-full max-w-2xl bg-white rounded-[2.5rem] shadow-2xl border-none overflow-hidden animate-rise-in p-0">
-            <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-               <div className="flex items-center gap-4">
-                 <div className="w-12 h-12 bg-[#2ec4f1] rounded-2xl flex items-center justify-center text-[#181c3a] shadow-lg shadow-[#2ec4f1]/20">
-                   <History size={24} />
-                 </div>
-                 <div>
-                   <h3 className="text-xl font-black text-[#181c3a] uppercase tracking-tighter leading-none">Trazabilidad de la Guía</h3>
-                   <p className="text-[10px] font-bold text-slate-400 uppercase mt-2 tracking-widest font-mono">
-                     {showTimeline.box_code ? `${showTimeline.box_code} · ` : ''}{showTimeline.guide_number}
-                   </p>
-                 </div>
-               </div>
-               <button onClick={() => setShowTimeline(null)} className="w-10 h-10 rounded-full bg-white shadow-sm flex items-center justify-center text-slate-400 hover:text-rose-500 transition-all border border-slate-100"><X size={20} /></button>
-            </div>
-            <div className="p-10 max-h-[60vh] overflow-y-auto custom-scrollbar bg-white">
-               <div className="relative border-l-2 border-slate-100 ml-4 space-y-10">
-                  {(() => {
-                    if (loadingBoxHistory) {
-                      return (
-                        <div className="text-center py-20 opacity-50">
-                          <Loader2 size={48} className="mx-auto mb-4 animate-spin" />
-                          <p className="text-xs font-black uppercase tracking-widest">Cargando Historial Transaccional...</p>
-                        </div>
-                      );
-                    }
-
-                    if (boxHistoryData.length === 0) {
-                      return (
-                        <div className="text-center py-20 opacity-20">
-                          <Clock size={48} className="mx-auto mb-4" />
-                          <p className="text-xs font-black uppercase tracking-widest">Sin eventos registrados</p>
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <>
-                        {boxHistoryData.map((event: any, idx: number) => {
-                          const cleanTime = new Date(
-                            event.timestamp || event.ts || event.created_at
-                          ).toLocaleString();
-                          let content = event.reason || `Movimiento: ${event.movement_type || 'EVENTO'}`;
-                          if (!event.reason && event.movement_type) {
-                            content = `Movimiento: ${event.movement_type}`;
-                            if (event.source_location) content += ` | Origen: ${event.source_location}`;
-                            if (event.target_location) content += ` | Destino: ${event.target_location}`;
-                            if (event.series_count != null) content += ` | Series: ${event.series_count}`;
-                          }
-
-                          const operator = event.user_name || event.operator_name || 'Sistema';
-
-                          const isLast = idx === boxHistoryData.length - 1;
-                          return (
-                            <div key={idx} className="relative group">
-                              <div className="absolute -left-[23px] top-1/2 -mt-1.5 w-3 h-3 rounded-full bg-slate-200 group-hover:bg-[#2ec4f1] ring-4 ring-white shadow-sm transition-colors z-10" />
-                              <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm hover:shadow-md hover:border-[#2ec4f1]/30 transition-all">
-                                <div className="flex items-center justify-between mb-2">
-                                  <div className="flex items-center gap-2">
-                                    <Clock size={12} className="text-slate-400" />
-                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{cleanTime}</span>
-                                  </div>
-                                  <div className="flex items-center gap-1.5 text-slate-400">
-                                    <Info size={12} />
-                                    <span className="text-[9px] font-black uppercase tracking-widest">{operator}</span>
-                                  </div>
-                                </div>
-                                <p className="text-sm font-semibold text-[#181c3a]">{content}</p>
-                              </div>
-                              {!isLast && <div className="absolute left-[-17px] top-[calc(50%+6px)] bottom-[-calc(50%+6px)] w-[2px] bg-slate-100" />}
-                            </div>
-                          );
-                        })}
-                      </>
-                    );
-                  })()}
-               </div>
-
-               {timelineGuideDetails?.loading ? (
-                 <div className="mt-8 text-center text-slate-400">
-                   <div className="w-6 h-6 border-2 border-[#2ec4f1] border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-                   <p className="text-[10px] uppercase font-black tracking-widest">Cargando detalles de la guía...</p>
-                 </div>
-               ) : timelineGuideDetails?.data ? (
-                 <div className="mt-10 pt-8 border-t-2 border-dashed border-slate-200">
-                   <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-400 mb-6 flex items-center gap-2">
-                     <Box size={14} className="text-[#2ec4f1]" />
-                     Equipos Registrados en esta Guía
-                   </h4>
-                   <div className="grid grid-cols-2 gap-4">
-                     {timelineGuideDetails.data.service_orders?.map((so: any, i: number) => {
-                       const marcaStr = catMarcas.find((m: any) => m.id === so.brand_id)?.name || '---';
-                       const modeloStr = catModelos.find((m: any) => m.id === so.model_id)?.name || '---';
-                       return (
-                         <div key={so.id} className="bg-slate-50 border border-slate-100 rounded-2xl p-4 group hover:border-[#2ec4f1]/30 transition-colors">
-                           <div className="flex justify-between items-start mb-3">
-                             <div>
-                               <span className="text-[9px] font-black uppercase text-[#2ec4f1] tracking-widest block mb-0.5">{so.os_label}</span>
-                               <span className="text-xs font-black text-[#181c3a]">{marcaStr} {modeloStr}</span>
-                             </div>
-                             <Badge variant="outline" className="bg-white border-slate-200 text-slate-400 text-[9px] font-black tracking-widest">
-                               {so.series?.length || 0} SERIE{(so.series?.length || 0) !== 1 ? 'S' : ''}
-                             </Badge>
-                           </div>
-                           <details className="group/details mt-3">
-                             <summary className="text-[9px] font-black uppercase text-slate-400 cursor-pointer hover:text-[#2ec4f1] list-none outline-none select-none flex items-center justify-between p-2 bg-white border border-slate-100 rounded-lg transition-colors">
-                               <span>Ver detalle de series en log</span>
-                               <span className="group-open/details:rotate-180 transition-transform duration-300 text-[8px]">▼</span>
-                             </summary>
-                             <div className="space-y-1 mt-2 bg-white rounded-xl p-2 border border-slate-100 shadow-sm">
-                               {so.series?.map((s: any, idx: number) => (
-                                 <div key={idx} className="flex gap-2 items-center text-[10px] font-mono font-bold text-slate-500 bg-slate-50 p-1.5 rounded-lg">
-                                   <span className="text-slate-400 w-6">S-{idx + 1}</span>
-                                   <span className="text-[#181c3a]">{s.serial_number}</span>
-                                 </div>
-                               ))}
-                             </div>
-                           </details>
-                         </div>
-                       );
-                     })}
-                   </div>
-                 </div>
-               ) : timelineGuideDetails?.error ? (
-                 <div className="mt-8 text-center text-rose-400 bg-rose-50 p-4 rounded-xl">
-                   <p className="text-[10px] uppercase font-black tracking-widest">{timelineGuideDetails.error}</p>
-                 </div>
-               ) : null}
-
-            </div>
-            <div className="p-8 bg-slate-50 text-center border-t border-slate-100">
-               <Badge className="bg-[#181c3a] text-white px-8 py-3 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] border-none shadow-xl">
-                 Estatus Actual: {showTimeline.status}
-               </Badge>
-            </div>
-          </Card>
-        </div>
+        <TimelineModal
+          box={showTimeline}
+          loadingBoxHistory={loadingBoxHistory}
+          boxHistoryData={boxHistoryData}
+          timelineGuideDetails={timelineGuideDetails}
+          catMarcas={catMarcas}
+          catModelos={catModelos}
+          onClose={() => setShowTimeline(null)}
+        />
       )}
 
       {/* PRINT OPTIONS MODAL */}
       {showPrintModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-          <Card className="w-full max-w-md p-6 bg-white shadow-2xl rounded-3xl border-slate-100 animate-in fade-in zoom-in duration-200">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-lg font-black text-[#181c3a]">Opciones de Impresión</h3>
-              <button onClick={() => setShowPrintModal(null)} className="p-2 bg-slate-100 text-slate-400 rounded-full hover:bg-rose-100 hover:text-rose-500 transition-colors">
-                <X size={20} />
-              </button>
-            </div>
-            <p className="text-sm text-slate-500 mb-6">Selecciona el formato de etiqueta que deseas imprimir para la caja <strong className="text-[#181c3a]">{showPrintModal.id}</strong>:</p>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <Button 
-                variant="outline"
-                className="flex flex-col items-center justify-center h-32 gap-3 bg-white border-2 border-slate-200 hover:border-[#2ec4f1] hover:bg-[#2ec4f1]/5 text-slate-600 hover:text-[#2ec4f1] transition-all rounded-2xl"
-                onClick={() => { printBoxLabel(showPrintModal, 'simple'); setShowPrintModal(null); }}
-              >
-                <Printer size={32} strokeWidth={1.5} />
-                <div className="text-center">
-                  <span className="block font-black text-[12px]">Etiqueta Simple</span>
-                  <span className="block font-normal text-[10px] opacity-70 mt-1">Identificador Exterior</span>
-                </div>
-              </Button>
-              <Button 
-                variant="outline"
-                className="flex flex-col items-center justify-center h-32 gap-3 bg-white border-2 border-slate-200 hover:border-[#181c3a] hover:bg-[#181c3a]/5 text-slate-600 hover:text-[#181c3a] transition-all rounded-2xl"
-                onClick={() => { printBoxLabel(showPrintModal, 'master'); setShowPrintModal(null); }}
-              >
-                <QrCode size={32} strokeWidth={1.5} />
-                <div className="text-center">
-                  <span className="block font-black text-[12px]">Caja Master</span>
-                  <span className="block font-normal text-[10px] opacity-70 mt-1">Detalle de Series (Guía)</span>
-                </div>
-              </Button>
-            </div>
-          </Card>
-        </div>
+        <PrintBoxModal
+          box={showPrintModal}
+          onClose={() => setShowPrintModal(null)}
+          onPrint={(mode) => { printBoxLabel(showPrintModal, mode); setShowPrintModal(null); }}
+        />
       )}
       {/* EDIT RACK MODAL */}
       {showRackModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-          <Card className="w-full max-w-md p-6 bg-white shadow-2xl rounded-3xl border-slate-100 animate-in fade-in zoom-in duration-200">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-lg font-black text-[#181c3a] flex items-center gap-2">
-                <MapPin className="w-5 h-5 text-[#2ec4f1]" />
-                Actualizar Ubicación (Rack)
-              </h3>
-              <button onClick={() => setShowRackModal(null)} className="p-2 bg-slate-100 text-slate-400 rounded-full hover:bg-rose-100 hover:text-rose-500 transition-colors">
-                <X size={20} />
-              </button>
-            </div>
-            <p className="text-sm text-slate-500 mb-6">
-              Ingrese las coordenadas exactas de la ubicación para la caja <strong className="text-[#181c3a]">{showRackModal.id}</strong>.
-            </p>
-            
-            <div className="space-y-4">
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 block">
-                    No. Rack
-                  </label>
-                  <input
-                    type="text"
-                    autoFocus
-                    className="w-full h-12 px-3 bg-slate-50 border-2 border-slate-100 rounded-xl text-sm font-bold outline-none focus:border-[#2ec4f1] focus:bg-white transition-all uppercase"
-                    placeholder="Ej: A"
-                    value={rackNum}
-                    onChange={(e) => setRackNum(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 block">
-                    Nivel
-                  </label>
-                  <input
-                    type="text"
-                    className="w-full h-12 px-3 bg-slate-50 border-2 border-slate-100 rounded-xl text-sm font-bold outline-none focus:border-[#2ec4f1] focus:bg-white transition-all uppercase"
-                    placeholder="Ej: 2"
-                    value={rackNivel}
-                    onChange={(e) => setRackNivel(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 block">
-                    Posición
-                  </label>
-                  <input
-                    type="text"
-                    className="w-full h-12 px-3 bg-slate-50 border-2 border-slate-100 rounded-xl text-sm font-bold outline-none focus:border-[#2ec4f1] focus:bg-white transition-all uppercase"
-                    placeholder="Ej: A1"
-                    value={rackPosicion}
-                    onChange={(e) => setRackPosicion(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleUpdateRack();
-                    }}
-                  />
-                </div>
-              </div>
-              <div className="flex gap-3 pt-4">
-                <Button 
-                  variant="outline" 
-                  className="flex-1 h-12 font-black uppercase tracking-widest text-[10px]" 
-                  onClick={() => setShowRackModal(null)}
-                >
-                  Cancelar
-                </Button>
-                <Button 
-                  variant="primary" 
-                  className="flex-1 h-12 font-black uppercase tracking-widest text-[10px] bg-[#181c3a]"
-                  onClick={handleUpdateRack}
-                  disabled={loading}
-                >
-                  {loading ? 'Guardando...' : 'Guardar Ubicación'}
-                </Button>
-              </div>
-            </div>
-          </Card>
-        </div>
+        <RackModal
+          box={showRackModal}
+          rackNum={rackNum}
+          setRackNum={setRackNum}
+          rackNivel={rackNivel}
+          setRackNivel={setRackNivel}
+          rackPosicion={rackPosicion}
+          setRackPosicion={setRackPosicion}
+          loading={loading}
+          onClose={() => setShowRackModal(null)}
+          onSave={handleUpdateRack}
+        />
       )}
 
       {/* Modal Despacho */}
         {showDispatchModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#181c3a]/40 backdrop-blur-sm p-4">
-            <Card className="w-full max-w-md shadow-2xl animate-rise-in p-0 overflow-hidden">
-              <div className="bg-[#181c3a] p-5 text-white flex items-center gap-3">
-                <div className="p-2 bg-emerald-500/20 rounded-lg">
-                  <Truck className="w-5 h-5 text-emerald-400" />
-                </div>
-                <div>
-                  <h3 className="font-black text-lg">Procesar Series de Inventario</h3>
-                  <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest">{showDispatchModal.id}</p>
-                </div>
-              </div>
-              
-              <div className="p-6 space-y-4">
-                <p className="text-sm text-slate-600">
-                  Selecciona las series que deseas extraer. La caja quedará con las series restantes.
-                </p>
-                {useOutboundDispatchHex && selectedDispatchBatchId && (
-                  <p className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
-                    Lote activo: {selectedDispatchBatchNumber || selectedDispatchBatchId}
-                  </p>
-                )}
-                
-                <div className="flex bg-slate-100 p-1 rounded-lg">
-                  <button 
-                    onClick={() => setDispatchAction('despacho')}
-                    className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-colors ${dispatchAction === 'despacho' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500'}`}
-                  >
-                    Despachar (Salida)
-                  </button>
-                  <button 
-                    onClick={() => setDispatchAction('traslado')}
-                    className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-colors ${dispatchAction === 'traslado' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
-                  >
-                    Trasladar a Área
-                  </button>
-                </div>
-                <div className="space-y-2 mt-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Pistolear Serie</label>
-                  <div className="relative">
-                    <QrCode className="absolute left-3 top-2.5 h-4 w-4 text-emerald-500" />
-                    <input 
-                      type="text" 
-                      placeholder="Escanea la serie aquí..." 
-                      className="w-full bg-slate-50 pl-9 pr-3 py-2 text-sm border border-emerald-200 focus:border-emerald-500 rounded-lg outline-none transition-colors"
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          const val = e.currentTarget.value.trim();
-                          if (val) {
-                            const exists = showDispatchModal.series?.find((s: any) => s.serial_number === val || s.id === val);
-                            if (exists) {
-                              const sn = exists.serial_number || exists.id;
-                              if (!selectedSeriesForDispatch.includes(sn)) {
-                                setSelectedSeriesForDispatch(prev => [...prev, sn]);
-                              }
-                            } else {
-                              alert("La serie " + val + " no pertenece a esta caja.");
-                            }
-                            e.currentTarget.value = '';
-                          }
-                        }
-                      }}
-                      autoFocus
-                    />
-                  </div>
-                </div>
-
-                {selectedSeriesForDispatch.length > 0 && (
-                  <div className="border border-emerald-100 bg-emerald-50/50 rounded-xl p-3 mt-4">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Series Escaneadas</span>
-                      <span className="text-[10px] font-bold bg-emerald-500 text-white px-2 py-0.5 rounded-full">{selectedSeriesForDispatch.length} listas</span>
-                    </div>
-                    <div className="flex flex-wrap gap-2 max-h-[120px] overflow-y-auto">
-                      {selectedSeriesForDispatch.map((sn, idx) => (
-                        <div key={idx} className="bg-white border border-emerald-200 text-emerald-700 text-xs font-mono font-bold px-2 py-1 rounded-md flex items-center gap-2">
-                          {sn}
-                          <button 
-                            className="text-emerald-300 hover:text-red-500 transition-colors"
-                            onClick={() => setSelectedSeriesForDispatch(prev => prev.filter(item => item !== sn))}
-                          >
-                            ×
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {dispatchAction === 'despacho' ? (
-                  <>
-                    <div className="space-y-2 mt-4">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Conduce de Salida *</label>
-                      <input 
-                        type="text"
-                        value={dispatchDestination}
-                        readOnly
-                        placeholder="Generando código..."
-                        className="w-full bg-slate-100 text-slate-500 p-3 rounded-xl border border-slate-200 font-bold text-sm outline-none cursor-not-allowed"
-                      />
-                    </div>
-    
-                    <div className="space-y-2 mt-4">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Notas Adicionales (Opcional)</label>
-                      <textarea 
-                        value={dispatchNotes}
-                        onChange={(e) => setDispatchNotes(e.target.value)}
-                        placeholder="Observaciones adicionales sobre el despacho..."
-                        className="w-full bg-slate-50 p-3 rounded-xl border border-slate-200 text-sm outline-none focus:border-emerald-500 transition-colors"
-                        rows={2}
-                      />
-                    </div>
-                    <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl flex gap-3 mt-4">
-                      <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
-                      <p className="text-xs text-amber-700 leading-tight">
-                        Esta acción actualizará el estado de todas las series escaneadas a "Despachado" y saldrán de esta caja.
-                      </p>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="space-y-2 mt-4">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Área de Destino *</label>
-                      <select 
-                        value={dispatchArea}
-                        onChange={(e) => setDispatchArea(e.target.value)}
-                        className="w-full bg-white text-slate-700 p-3 rounded-xl border border-slate-200 font-bold text-sm outline-none focus:border-indigo-500 transition-colors"
-                      >
-                        <option value="Diagnóstico">Diagnóstico</option>
-                        <option value="Reparación">Reparación (Calidad)</option>
-                        <option value="Bodega Central">Reacondicionado (Bodega)</option>
-                        <option value="L3">L3</option>
-                        <option value="Bodega SCRAP">SCRAP</option>
-                        <option value="Bodega Obsoleto">Obsoleto</option>
-                      </select>
-                    </div>
-                    <div className="bg-indigo-50 border border-indigo-200 p-3 rounded-xl flex gap-3 mt-4">
-                      <AlertCircle className="w-5 h-5 text-indigo-600 shrink-0" />
-                      <p className="text-xs text-indigo-700 leading-tight">
-                        Esta acción desvinculará las series de la caja y las moverá al área de {dispatchArea} para ser trabajadas.
-                      </p>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              <div className="p-4 border-t border-slate-100 flex justify-end gap-3 bg-slate-50">
-                <Button 
-                  variant="outline" 
-                  onClick={() => {
-                    setShowDispatchModal(null);
-                    setDispatchDestination('');
-                    setDispatchNotes('');
-                    setSelectedSeriesForDispatch([]);
-                    setDispatchAction('despacho');
-                  }}
-                  disabled={isDispatching}
-                >
-                  Cancelar
-                </Button>
-                <Button 
-                  className="bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/20 border-none"
-                  onClick={() => handleDispatchBox(showDispatchModal.id, showDispatchModal.realDbId)}
-                  disabled={isDispatching || !dispatchDestination.trim()}
-                >
-                  {isDispatching ? 'Procesando...' : dispatchAction === 'despacho' ? 'Confirmar Despacho' : 'Confirmar Traslado'}
-                </Button>
-              </div>
-            </Card>
-          </div>
+          <DispatchModal
+            box={showDispatchModal}
+            useOutboundDispatchHex={useOutboundDispatchHex}
+            selectedDispatchBatchId={selectedDispatchBatchId}
+            selectedDispatchBatchNumber={selectedDispatchBatchNumber}
+            dispatchAction={dispatchAction}
+            setDispatchAction={setDispatchAction}
+            selectedSeriesForDispatch={selectedSeriesForDispatch}
+            setSelectedSeriesForDispatch={setSelectedSeriesForDispatch}
+            dispatchDestination={dispatchDestination}
+            dispatchNotes={dispatchNotes}
+            setDispatchNotes={setDispatchNotes}
+            dispatchArea={dispatchArea}
+            setDispatchArea={setDispatchArea}
+            isDispatching={isDispatching}
+            onClose={() => {
+              setShowDispatchModal(null);
+              setDispatchDestination('');
+              setDispatchNotes('');
+              setSelectedSeriesForDispatch([]);
+              setDispatchAction('despacho');
+            }}
+            onConfirm={() => handleDispatchBox(showDispatchModal.id, showDispatchModal.realDbId)}
+          />
         )}
     </ModulePage>
   );

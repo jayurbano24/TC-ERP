@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Button } from '@/components/ui';
+import { Button, notify, confirmDialog } from '@/components/ui';
 import { Loader2, Package, Plus, X } from 'lucide-react';
 import type { DispatchBatchSummary } from '../domain/types/dispatch-batch.types';
 import {
@@ -47,7 +47,7 @@ export function DispatchBatchSelector({ selectedBatchId, onSelectBatch }: Props)
     });
     setActing(false);
     if (!res.success) {
-      alert(res.error || 'No se pudo abrir el lote.');
+      notify.error('No se pudo abrir el lote', { description: res.error || undefined });
       return;
     }
     setShowOpenForm(false);
@@ -59,12 +59,17 @@ export function DispatchBatchSelector({ selectedBatchId, onSelectBatch }: Props)
 
   const handleClose = async () => {
     if (!selectedBatchId) return;
-    if (!confirm('¿Cerrar este lote de salida? Todas las cajas deben estar despachadas.')) return;
+    const ok = await confirmDialog({
+      title: 'Cerrar lote de salida',
+      message: '¿Cerrar este lote de salida? Todas las cajas deben estar despachadas.',
+      confirmText: 'Cerrar lote',
+    });
+    if (!ok) return;
     setActing(true);
     const res = await closeDispatchBatchApi(selectedBatchId);
     setActing(false);
     if (!res.success) {
-      alert(res.error || 'No se pudo cerrar el lote.');
+      notify.error('No se pudo cerrar el lote', { description: res.error || undefined });
       return;
     }
     onSelectBatch(null);

@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Button } from '@/components/ui';
+import { Button, notify, confirmDialog, promptDialog } from '@/components/ui';
 import { Edit3, Plus, Table, Trash2, X } from 'lucide-react';
 import type { OperationContext } from '../../operation/operationContext';
 
@@ -49,7 +49,7 @@ export function ConfigSeriesScanPanel({ ctx }: Props) {
                             variant="outline" 
                             size="sm" 
                             onClick={async () => {
-                              if (confirm("¿Marcar lote completo como recibido? Esto lo moverá al historial.")) {
+                              if (await confirmDialog({ title: 'Marcar lote como recibido', message: '¿Marcar lote completo como recibido? Esto lo moverá al historial.', confirmText: 'Marcar recibido' })) {
                                                             fetchPending();
                                 setActiveReception(null);
                               }
@@ -84,7 +84,7 @@ export function ConfigSeriesScanPanel({ ctx }: Props) {
                                     const target = { ...newItems[idx] };
                                     
                                     if (target.series.flat().includes(sn)) {
-                                      alert("Serie ya existe");
+                                      notify.warning("Serie ya existe");
                                       return;
                                     }
           
@@ -94,7 +94,7 @@ export function ConfigSeriesScanPanel({ ctx }: Props) {
                                       lastUnit.push(sn);
                                     } else {
                                       if (target.series.length >= target.cantidad) {
-                                        alert("Límite de unidades alcanzado");
+                                        notify.warning("Límite de unidades alcanzado");
                                         return;
                                       }
                                       target.series.push([sn]);
@@ -116,11 +116,11 @@ export function ConfigSeriesScanPanel({ ctx }: Props) {
                                 if (!sn) return;
                                 const newItems = [...guideItems];
                                 const target = { ...newItems[idx] };
-                                if (target.series.flat().includes(sn)) { alert("Serie ya existe"); return; }
+                                if (target.series.flat().includes(sn)) { notify.warning("Serie ya existe"); return; }
                                 let lastUnit = target.series.length > 0 ? target.series[target.series.length - 1] : null;
                                 if (lastUnit && lastUnit.length < target.seriesPerUnit) { lastUnit.push(sn); }
                                 else {
-                                  if (target.series.length >= target.cantidad) { alert("Límite de unidades alcanzado"); return; }
+                                  if (target.series.length >= target.cantidad) { notify.warning("Límite de unidades alcanzado"); return; }
                                   target.series.push([sn]);
                                 }
                                 target.scannedCount = target.series.length;
@@ -175,9 +175,9 @@ export function ConfigSeriesScanPanel({ ctx }: Props) {
                                               <div className="flex items-center gap-0.5 opacity-0 group-hover/sn:opacity-100 transition-all shrink-0">
                                                 <button
                                                   type="button"
-                                                  onClick={() => {
+                                                  onClick={async () => {
                                                     const currentSN = unit[sIdx];
-                                                    const newSN = prompt('Editar número de serie:', currentSN);
+                                                    const newSN = await promptDialog({ title: 'Editar número de serie', prompt: { defaultValue: currentSN } });
                                                     if (newSN !== null && newSN.trim() !== '') {
                                                       const newItems = [...guideItems];
                                                       newItems[idx].series[uIdx][sIdx] = newSN.trim().toUpperCase();
@@ -191,8 +191,8 @@ export function ConfigSeriesScanPanel({ ctx }: Props) {
                                                 </button>
                                                 <button
                                                   type="button"
-                                                  onClick={() => {
-                                                    if (confirm('¿Eliminar esta serie?')) {
+                                                  onClick={async () => {
+                                                    if (await confirmDialog({ title: 'Eliminar serie', message: '¿Eliminar esta serie?', tone: 'error', confirmText: 'Eliminar' })) {
                                                       const newItems = [...guideItems];
                                                       newItems[idx].series[uIdx].splice(sIdx, 1);
                                                       if (newItems[idx].series[uIdx].length === 0) {

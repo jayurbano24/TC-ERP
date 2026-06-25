@@ -2,6 +2,7 @@
 
 import type React from 'react';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { notify, confirmDialog } from '@/components/ui/messaging/messageStore';
 import type { BackofficeReception } from '../types';
 
 type UndoCtx = {
@@ -15,7 +16,12 @@ type UndoCtx = {
 };
 
 export async function runUndoClassification(ctx: UndoCtx, guia: string) {
-  if (!confirm(`¿Está seguro que desea reclasificar la guía ${guia}? Esto borrará la clasificación anterior y deberá hacerla de nuevo.`)) {
+  const ok = await confirmDialog({
+    title: 'Reclasificar guía',
+    message: `¿Está seguro que desea reclasificar la guía ${guia}? Esto borrará la clasificación anterior y deberá hacerla de nuevo.`,
+    confirmText: 'Reclasificar',
+  });
+  if (!ok) {
     return;
   }
   ctx.setLoading(true);
@@ -90,10 +96,10 @@ export async function runUndoClassification(ctx: UndoCtx, guia: string) {
 
     await ctx.fetchPending();
     await ctx.fetchHistory();
-    alert(`La guía ${guia} ha sido restaurada. Ahora puede volver a clasificarla.`);
+    notify.success(`Guía ${guia} restaurada`, { description: 'Ahora puede volver a clasificarla.' });
   } catch (err) {
     console.error(err);
-    alert('Error al intentar deshacer la clasificación.');
+    notify.error('Error al intentar deshacer la clasificación.');
   } finally {
     ctx.setLoading(false);
   }

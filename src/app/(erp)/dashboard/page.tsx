@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, Badge, Button } from '@/components/ui';
 import { 
   getDailyKPIs, 
@@ -37,23 +38,36 @@ import {
   ArrowUpDown
 } from 'lucide-react';
 
+const EMPTY_KPIS: UserKPI[] = [];
+const EMPTY_BI: { tech: string, condition: string, price: number, quantity: number }[] = [];
+const DEFAULT_METRICS: DashboardMetrics = {
+  totalProduction: 0,
+  activeTechnicians: 0,
+  errorRate: 0,
+  productionByBrand: []
+};
+const DEFAULT_STORAGE = { ingresados: 0, despachados: 0, sinMovimiento60: 0, sinMovimiento90: 0 };
+
 export default function GeneralDashboardPage() {
-  const [kpis, setKpis] = useState<UserKPI[]>([]);
-  const [metrics, setMetrics] = useState<DashboardMetrics>({
-    totalProduction: 0,
-    activeTechnicians: 0,
-    errorRate: 0,
-    productionByBrand: []
-  });
-  const [bespokeData, setBespokeData] = useState<any>(null);
+  const queryClient = useQueryClient();
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editTargetValue, setEditTargetValue] = useState<string>('');
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [biData, setBiData] = useState<{ tech: string, condition: string, price: number, quantity: number }[]>([]);
-  const [storageData, setStorageData] = useState({ ingresados: 0, despachados: 0, sinMovimiento60: 0, sinMovimiento90: 0 });
   const [timeRange, setTimeRange] = useState('Hoy');
   
   const [sortConfig, setSortConfig] = useState<{key: string, direction: 'asc'|'desc'} | null>(null);
+
+  const kpisQuery = useQuery({ queryKey: ['dashboard-kpis', timeRange], queryFn: () => getDailyKPIs(timeRange) });
+  const metricsQuery = useQuery({ queryKey: ['dashboard-metrics', timeRange], queryFn: () => getDashboardMetrics(timeRange) });
+  const engineQuery = useQuery({ queryKey: ['dashboard-engine', timeRange], queryFn: () => getEngineKPIs(timeRange) });
+  const biQuery = useQuery({ queryKey: ['dashboard-bi'], queryFn: () => getBIData() });
+  const storageQuery = useQuery({ queryKey: ['dashboard-storage'], queryFn: () => getStorageData() });
+
+  const kpis = kpisQuery.data ?? EMPTY_KPIS;
+  const metrics = metricsQuery.data ?? DEFAULT_METRICS;
+  const bespokeData = engineQuery.data ?? null;
+  const biData = biQuery.data ?? EMPTY_BI;
+  const storageData = storageQuery.data ?? DEFAULT_STORAGE;
 
   const sortedBiData = React.useMemo(() => {
     let sortableItems = [...biData];
@@ -82,27 +96,11 @@ export default function GeneralDashboardPage() {
     setSortConfig({ key, direction });
   }
 
-  useEffect(() => {
-    async function fetchData() {
-      const kpiData = await getDailyKPIs(timeRange);
-      setKpis(kpiData);
-      const metricsData = await getDashboardMetrics(timeRange);
-      setMetrics(metricsData);
-      const bData = await getEngineKPIs(timeRange);
-      setBespokeData(bData);
-      const biInfo = await getBIData(); // BI data depends on its own range logic currently, usually monthly
-      setBiData(biInfo);
-      const storageInfo = await getStorageData(); // Storage is historical, no range needed
-      setStorageData(storageInfo);
-    }
-    fetchData();
-  }, [timeRange]);
-
   const handleSaveKPI = async (userId: string) => {
     const val = parseInt(editTargetValue);
     if (!isNaN(val) && val > 0) {
       await setKPI(userId, val);
-      setKpis(await getDailyKPIs());
+      await queryClient.invalidateQueries({ queryKey: ['dashboard-kpis'] });
     }
     setEditingUserId(null);
   };

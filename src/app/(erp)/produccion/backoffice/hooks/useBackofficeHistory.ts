@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CacTrayQueryParams, CacTrayStatsResponse, CacTrayUnitRow } from '@/lib/backoffice/cacTrayTypes';
 import { trayRowsToHistoryEntries } from '@/lib/backoffice/trayRowAdapter';
 import { buildTrayQueryString } from '@/lib/database/cacTrayUnits';
+import { apiFetch } from '@/lib/http/apiFetch';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import {
   EMPTY_HISTORY_TRAY_FILTERS,
   HISTORY_TRAY_PAGE_SIZE,
@@ -47,7 +49,7 @@ function buildQueryParams(
 
 async function fetchTrayPage(params: CacTrayQueryParams, includeSap = true) {
   const qs = buildTrayQueryString({ ...params, includeSap: includeSap ? undefined : false });
-  const res = await fetch(`/api/backoffice/cac-history/tray?${qs}`, { cache: 'no-store' });
+  const res = await apiFetch(`/api/backoffice/cac-history/tray?${qs}`, { cache: 'no-store' });
   const payload = await res.json();
   if (!res.ok) throw new Error(payload?.error || 'Error al cargar bandeja CAC');
   return payload as {
@@ -62,7 +64,7 @@ async function fetchTrayPage(params: CacTrayQueryParams, includeSap = true) {
 async function fetchTrayStats(params: CacTrayQueryParams): Promise<CacTrayStatsResponse> {
   const { page: _p, limit: _l, ...statsParams } = params;
   const qs = buildTrayQueryString(statsParams);
-  const res = await fetch(`/api/backoffice/cac-history/stats?${qs}`, { cache: 'no-store' });
+  const res = await apiFetch(`/api/backoffice/cac-history/stats?${qs}`, { cache: 'no-store' });
   const payload = await res.json();
   if (!res.ok) throw new Error(payload?.error || 'Error al cargar estadísticas');
   return payload as CacTrayStatsResponse;
@@ -83,15 +85,10 @@ export function useBackofficeHistory(
   const [totalPages, setTotalPages] = useState(1);
   const [historyStats, setHistoryStats] = useState<CacTrayStatsResponse>({ total: 0, byTechId: {} });
   const [historySearch, setHistorySearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const debouncedSearch = useDebouncedValue(historySearch, 350);
   const [historyFilters, setHistoryFilters] = useState<HistoryTrayFilters>(EMPTY_HISTORY_TRAY_FILTERS);
   const [historyFiltersOpen, setHistoryFiltersOpen] = useState(false);
   const [historyPage, setHistoryPage] = useState(1);
-
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(historySearch), 350);
-    return () => clearTimeout(t);
-  }, [historySearch]);
 
   const queryParams = useMemo(
     () => buildQueryParams(historyPage, debouncedSearch, historyFilters, dateFilterFrom, dateFilterTo),
@@ -186,7 +183,7 @@ export function useBackofficeHistory(
   const fetchExportEntries = useCallback(async (): Promise<HistoryUnitEntry[]> => {
     const { page: _p, limit: _l, ...exportParams } = queryParams;
     const qs = buildTrayQueryString(exportParams);
-    const res = await fetch(`/api/backoffice/cac-history/export?${qs}`, { cache: 'no-store' });
+    const res = await apiFetch(`/api/backoffice/cac-history/export?${qs}`, { cache: 'no-store' });
     const payload = await res.json();
     if (!res.ok) throw new Error(payload?.error || 'Error al exportar');
     if (payload.truncated) {

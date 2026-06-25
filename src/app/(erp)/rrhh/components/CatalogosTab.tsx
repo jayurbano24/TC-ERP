@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { Card, Button, Spinner } from '@/components/ui';
+import { Card, Button, Spinner, confirmDialog } from '@/components/ui';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { Plus, Trash2, Edit2 } from 'lucide-react';
 
@@ -47,7 +47,8 @@ export default function CatalogosTab() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('¿Estás seguro de eliminar este registro?')) return;
+    const ok = await confirmDialog({ title: 'Eliminar registro', message: '¿Estás seguro de eliminar este registro?', tone: 'error', confirmText: 'Eliminar' });
+    if (!ok) return;
     setLoading(true);
     const supabase = getSupabaseBrowserClient();
     if (supabase) {

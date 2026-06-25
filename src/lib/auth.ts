@@ -8,12 +8,16 @@ export async function signInWithEmail(identifier: string, password: string) {
     normalizedIdentifier = `${normalizedIdentifier}@techcommwireless.com`;
   }
 
-  // DEV BYPASS: Solo para cuentas ficticias que NO existen en Supabase Auth
-  const isDevAdmin = 
+  // DEV BYPASS (inseguro): solo se habilita explícitamente en desarrollo con
+  // NEXT_PUBLIC_ENABLE_DEV_BYPASS=true. En producción queda DESACTIVADO, por lo
+  // que la sesión forjable en localStorage deja de ser un vector (SEC-02).
+  const devBypassEnabled = process.env.NEXT_PUBLIC_ENABLE_DEV_BYPASS === 'true';
+  const isDevAdmin = devBypassEnabled && (
     (normalizedIdentifier === 'admin@cenam.com' && password === 'admin123') ||
     (normalizedIdentifier === 'admin@techcorps.com' && password === 'admin123') ||
     (normalizedIdentifier === 'admin@techcommwireless.com' && password === 'admin123') ||
-    (normalizedIdentifier === 'admin@tcerp.local' && password === 'admin123');
+    (normalizedIdentifier === 'admin@tcerp.local' && password === 'admin123')
+  );
 
   if (isDevAdmin) {
     if (typeof window !== 'undefined') {

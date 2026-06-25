@@ -1,4 +1,5 @@
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { apiFetch } from '@/lib/http/apiFetch';
 
 async function getOperatorId() {
   const supabase = getSupabaseBrowserClient();
@@ -17,7 +18,7 @@ export async function dispatchAccessoryOutApi(input: {
   boxId?: string | null;
 }) {
   const operatorId = await getOperatorId();
-  const res = await fetch('/api/accessories/dispatch', {
+  const res = await apiFetch('/api/accessories/dispatch', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...input, operatorId }),

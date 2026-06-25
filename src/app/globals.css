@@ -3,6 +3,30 @@
 
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
 
+/*
+ * Design tokens expuestos como utilidades Tailwind v4.
+ * `inline` hace que las utilidades emitan `var(--token)` para que respeten el
+ * cambio de tema en runtime (light/dark). Uso recomendado en lugar de hex:
+ *   bg-[#181c3a]  → bg-primary
+ *   text-[#2ec4f1]→ text-accent
+ *   border-[...]  → border-border
+ */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-muted: var(--muted);
+  --color-heading: var(--heading);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+}
+
 :root {
   --background: #f1f3f6;
   --foreground: #0f172a;
@@ -16,6 +40,9 @@
   --heading: #181c3a;
   --sidebar: #181c3a;
   --sidebar-foreground: #f8fafc;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #f43f5e;
   --card-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
 }
 
@@ -32,6 +59,9 @@
   --heading: #f1f5f9;
   --sidebar: #030712;
   --sidebar-foreground: #f1f5f9;
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #fb7185;
   --card-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.5), 0 4px 6px -4px rgb(0 0 0 / 0.5);
 }
 
@@ -281,6 +311,29 @@ body {
   40%, 60% { transform: translate3d(3px, 0, 0); }
 }
 
+/* --- Centro de mensajería (toasts + diálogos) --- */
+.msg-toast-in {
+  animation: msgToastIn 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes msgToastIn {
+  from { opacity: 0; transform: translateX(24px) scale(0.97); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
+}
+.msg-overlay-in {
+  animation: msgOverlayIn 0.18s ease-out both;
+}
+@keyframes msgOverlayIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.msg-dialog-in {
+  animation: msgDialogIn 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes msgDialogIn {
+  from { opacity: 0; transform: translateY(16px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 .custom-scrollbar::-webkit-scrollbar {
   width: 4px;
 }
@@ -316,7 +369,10 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .animate-rise-in,
-  .animate-shake {
+  .animate-shake,
+  .msg-toast-in,
+  .msg-overlay-in,
+  .msg-dialog-in {
     animation: none !important;
   }
 

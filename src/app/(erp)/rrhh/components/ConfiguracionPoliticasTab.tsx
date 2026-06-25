@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { confirmDialog } from '@/components/ui';
 import { Settings, Save, Clock, AlertCircle, Speaker, ShieldAlert, History, GitCommit, RotateCcw, Copy, Eye, CheckCircle2, ChevronRight, CheckSquare, Plus, X } from 'lucide-react';
 
 const ListEditor = ({ name, title, defaultOptions, settings, setSettings }: any) => {
@@ -198,7 +199,12 @@ export default function ConfiguracionPoliticasTab() {
   };
 
   const handleRestore = async (versionToRestore: any) => {
-    if (!window.confirm(`¿Estás seguro de restaurar los ajustes de la versión ${versionToRestore.version}? Esto creará una nueva versión activa.`)) return;
+    const ok = await confirmDialog({
+      title: 'Restaurar versión',
+      message: `¿Estás seguro de restaurar los ajustes de la versión ${versionToRestore.version}? Esto creará una nueva versión activa.`,
+      confirmText: 'Restaurar',
+    });
+    if (!ok) return;
     
     setSaving(true);
     const supabase = getSupabaseBrowserClient();

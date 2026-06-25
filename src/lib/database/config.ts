@@ -1,4 +1,5 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { notify } from "@/components/ui/messaging/messageStore";
 
 // --- TECNOLOGÍAS ---
 
@@ -423,8 +424,7 @@ export async function getDiagnostics() {
 
   if (error) { 
     console.error("Error fetching diagnostics:", error); 
-    // Fallback error logging for debugging
-    if (typeof window !== 'undefined') window.alert("DB Error: " + error.message);
+    if (typeof window !== 'undefined') notify.error('Error de base de datos', { description: error.message });
     return []; 
   }
   

@@ -6,6 +6,7 @@ import type { PxBoxSnapshot } from '@/lib/database/pxReceptionCapture';
 import { snapshotToGuideData, snapshotToPxUiState } from '@/lib/database/pxReceptionCapture';
 import { getWorkstationLabel } from '../utils/pxWorkstation';
 import { validatePxIncrementalFinalizeReadiness } from '../utils/pxBoxUtils';
+import { notify, confirmDialog, promptDialog } from '@/components/ui';
 import {
   acquireBoxLockApi,
   appendPxCaptureLotsApi,
@@ -28,7 +29,10 @@ import {
 } from '../services/pxIncrementalApi';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 
-const POLL_MS = 4000;
+// Sondeo del snapshot PX. Se subió de 4s a 10s y se pausa cuando la pestaña no
+// está visible para reducir egress de Supabase (descarga el snapshot completo en
+// cada tick mientras hay una recepción abierta).
+const POLL_MS = 10000;
 const LEGACY_STORAGE_KEY = 'tc_erp_px_reception_state';
 
 type PxStateSlice = {
@@ -303,11 +307,21 @@ export function useReceptionPXIncremental({
     }
 
     pollRef.current = setInterval(() => {
+      // No sondear si la pestaña está en segundo plano: evita egress innecesario
+      // cuando el operador no está mirando la captura.
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
       refreshSnapshot().catch(() => undefined);
     }, POLL_MS);
 
+    // Al volver a la pestaña, refresca una vez de inmediato (sin esperar al tick).
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refreshSnapshot().catch(() => undefined);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, [pxState.isReceptionStarted, incrementalReceptionId, refreshSnapshot]);
 
@@ -349,7 +363,7 @@ export function useReceptionPXIncremental({
       try {
         const opId = await ensureOperatorId();
         if (!opId) {
-          alert('Sesión de usuario no lista. Espere un momento o recargue la página.');
+          notify.warning('Sesión de usuario no lista. Espere un momento o recargue la página.');
           return false;
         }
         const result = await acquireBoxLockApi({
@@ -377,7 +391,7 @@ export function useReceptionPXIncremental({
         }
         return true;
       } catch (err: unknown) {
-        alert(err instanceof Error ? err.message : 'No se pudo tomar control de la caja');
+        notify.error(err instanceof Error ? err.message : 'No se pudo tomar control de la caja');
         return false;
       }
     },
@@ -387,11 +401,11 @@ export function useReceptionPXIncremental({
   const onAddLotToBoxIncremental = useCallback(
     async (boxCode: string, currentEntry: CurrentEntry) => {
       if (!incrementalReceptionId) {
-        alert('Inicie la recepción en servidor primero.');
+        notify.warning('Inicie la recepción en servidor primero.');
         return false;
       }
       if (!currentEntry.tecnologia || !currentEntry.marca || !currentEntry.modelo || !currentEntry.totalEsperado) {
-        alert('Complete tecnología, marca, modelo y cantidad esperada.');
+        notify.warning('Complete tecnología, marca, modelo y cantidad esperada.');
         return false;
       }
 
@@ -411,7 +425,7 @@ export function useReceptionPXIncremental({
         await onAcquireBoxLock(boxCode, boxId);
         return true;
       } catch (err: unknown) {
-        alert(err instanceof Error ? err.message : 'Error al registrar lote en servidor');
+        notify.error(err instanceof Error ? err.message : 'Error al registrar lote en servidor');
         return false;
       }
     },
@@ -438,17 +452,17 @@ export function useReceptionPXIncremental({
       }
 
       if (!incrementalReceptionId) {
-        alert('Recepción no iniciada en servidor.');
+        notify.warning('Recepción no iniciada en servidor.');
         return;
       }
       if (!selectedBoxForScan) {
-        alert('Seleccione una caja primero.');
+        notify.warning('Seleccione una caja primero.');
         return;
       }
 
       const boxId = boxIdByCode[selectedBoxForScan];
       if (!boxId) {
-        alert('La caja no está registrada en servidor. Agregue un lote primero.');
+        notify.warning('La caja no está registrada en servidor. Agregue un lote primero.');
         return;
       }
 
@@ -456,7 +470,7 @@ export function useReceptionPXIncremental({
 
       const opId = operatorIdRef.current ?? (await ensureOperatorId());
       if (!opId) {
-        alert('Sesión de usuario no lista. Espere un momento o recargue la página.');
+        notify.warning('Sesión de usuario no lista. Espere un momento o recargue la página.');
         return;
       }
 
@@ -464,20 +478,20 @@ export function useReceptionPXIncremental({
       const declared = meta?.declared_quantity ?? 0;
       const captured = meta?.captured_count ?? 0;
       if (declared > 0 && captured >= declared) {
-        alert(`La caja ${selectedBoxForScan} ya alcanzó su capacidad (${declared}).`);
+        notify.warning(`La caja ${selectedBoxForScan} ya alcanzó su capacidad (${declared}).`);
         return;
       }
 
       const validScans = currentScans.map((s) => s?.trim().toUpperCase()).filter(Boolean);
       if (new Set(validScans).size !== validScans.length) {
-        alert('Ha ingresado series duplicadas en los campos de escaneo.');
+        notify.warning('Ha ingresado series duplicadas en los campos de escaneo.');
         return;
       }
 
       const scannedSet = buildScannedSerialSet(liveSeries);
       const isDuplicateInScanned = validScans.some((v) => scannedSet.has(v));
       if (isDuplicateInScanned) {
-        alert('Una o más series ya fueron escaneadas en esta recepción.');
+        notify.warning('Una o más series ya fueron escaneadas en esta recepción.');
         return;
       }
 
@@ -626,7 +640,7 @@ export function useReceptionPXIncremental({
             if (ok) return submitScan(true);
           }
           rollbackOptimisticScan();
-          alert(message);
+          notify.error(message);
           return false;
         }
       };
@@ -651,20 +665,20 @@ export function useReceptionPXIncremental({
   const onDeleteEquipmentIncremental = useCallback(
     async (boxCode: string, item: { equipmentId?: string; sn: string }) => {
       if (!incrementalReceptionId) {
-        alert('Recepción no iniciada en servidor.');
+        notify.warning('Recepción no iniciada en servidor.');
         return false;
       }
-      if (!window.confirm(`¿Eliminar el equipo con serie ${item.sn}?`)) return false;
+      if (!(await confirmDialog({ title: 'Eliminar equipo', message: `¿Eliminar el equipo con serie ${item.sn}?`, tone: 'error', confirmText: 'Eliminar' }))) return false;
 
       const boxId = boxIdByCode[boxCode];
       if (!boxId) {
-        alert('Caja no registrada en servidor.');
+        notify.warning('Caja no registrada en servidor.');
         return false;
       }
 
       const opId = operatorIdRef.current ?? (await ensureOperatorId());
       if (!opId) {
-        alert('Sesión de usuario no lista.');
+        notify.warning('Sesión de usuario no lista.');
         return false;
       }
 
@@ -721,7 +735,7 @@ export function useReceptionPXIncremental({
         startTransition(() => {
           pxState.setScannedSeries(prevSeries);
         });
-        alert(err instanceof Error ? err.message : 'No se pudo eliminar el equipo');
+        notify.error(err instanceof Error ? err.message : 'No se pudo eliminar el equipo');
         return false;
       }
     },
@@ -739,7 +753,7 @@ export function useReceptionPXIncremental({
   const onDeleteBoxIncremental = useCallback(
     async (boxCode: string) => {
       if (!incrementalReceptionId) {
-        alert('Recepción no iniciada en servidor.');
+        notify.warning('Recepción no iniciada en servidor.');
         return false;
       }
 
@@ -747,7 +761,7 @@ export function useReceptionPXIncremental({
       const isClosed =
         meta?.status === 'cerrada' || meta?.status === 'closed' || pxState.closedBoxes.includes(boxCode);
       if (isClosed) {
-        alert('No puede eliminar una caja cerrada. Reábrala primero si necesita modificarla.');
+        notify.warning('No puede eliminar una caja cerrada. Reábrala primero si necesita modificarla.');
         return false;
       }
 
@@ -757,17 +771,17 @@ export function useReceptionPXIncremental({
         lotsInBox > 0 || seriesInBox > 0
           ? `¿Eliminar ${boxCode}? Se quitarán ${lotsInBox} lote(s) y ${seriesInBox} equipo(s) escaneado(s).`
           : `¿Eliminar la caja vacía ${boxCode}?`;
-      if (!window.confirm(message)) return false;
+      if (!(await confirmDialog({ title: 'Eliminar caja', message, tone: 'error', confirmText: 'Eliminar' }))) return false;
 
       const boxId = boxIdByCode[boxCode];
       if (!boxId) {
-        alert('Caja no registrada en servidor.');
+        notify.warning('Caja no registrada en servidor.');
         return false;
       }
 
       const opId = operatorIdRef.current ?? (await ensureOperatorId());
       if (!opId) {
-        alert('Sesión de usuario no lista.');
+        notify.warning('Sesión de usuario no lista.');
         return false;
       }
 
@@ -820,7 +834,7 @@ export function useReceptionPXIncremental({
         });
         return true;
       } catch (err: unknown) {
-        alert(err instanceof Error ? err.message : 'No se pudo eliminar la caja');
+        notify.error(err instanceof Error ? err.message : 'No se pudo eliminar la caja');
         await refreshSnapshot();
         return false;
       }
@@ -849,11 +863,13 @@ export function useReceptionPXIncremental({
       let partialReason: string | undefined;
 
       if (captured < declared) {
-        partialReason = window.prompt(
-          `Caja incompleta (${captured}/${declared}). Motivo de cierre parcial:`
-        )?.trim();
+        partialReason = (await promptDialog({
+          title: 'Cierre parcial de caja',
+          message: `Caja incompleta (${captured}/${declared}). Indique el motivo:`,
+          prompt: { required: true, multiline: true },
+        }))?.trim();
         if (!partialReason) return false;
-      } else if (!window.confirm(`¿Cerrar ${boxCode}? (${captured}/${declared} equipos)`)) {
+      } else if (!(await confirmDialog({ title: `Cerrar ${boxCode}`, message: `¿Cerrar ${boxCode}? (${captured}/${declared} equipos)`, confirmText: 'Cerrar caja' }))) {
         return false;
       }
 
@@ -886,7 +902,7 @@ export function useReceptionPXIncremental({
         await refreshSnapshot();
         return true;
       } catch (err: unknown) {
-        alert(err instanceof Error ? err.message : 'No se pudo cerrar la caja');
+        notify.error(err instanceof Error ? err.message : 'No se pudo cerrar la caja');
         return false;
       }
     },
@@ -898,7 +914,7 @@ export function useReceptionPXIncremental({
       const meta = boxMetaByCode[boxCode];
       const boxId = boxIdByCode[boxCode];
       if (!meta || !boxId) return;
-      if (!window.confirm(`¿Reabrir ${boxCode}?`)) return;
+      if (!(await confirmDialog({ title: `Reabrir ${boxCode}`, message: `¿Reabrir ${boxCode}?`, confirmText: 'Reabrir' }))) return;
 
       try {
         let expectedVersion = boxVersionByCode[boxCode] ?? meta.version ?? 1;
@@ -922,7 +938,7 @@ export function useReceptionPXIncremental({
         await onAcquireBoxLock(boxCode, boxId);
         await refreshSnapshot();
       } catch (err: unknown) {
-        alert(err instanceof Error ? err.message : 'No se pudo reabrir la caja');
+        notify.error(err instanceof Error ? err.message : 'No se pudo reabrir la caja');
       }
     },
     [boxMetaByCode, boxIdByCode, boxVersionByCode, currentUserFullName, refreshSnapshot, onAcquireBoxLock, ensureOperatorId, getFreshBoxVersion]
@@ -973,14 +989,14 @@ export function useReceptionPXIncremental({
       applySnapshot(data);
       return true;
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'No se pudo guardar cabecera');
+      notify.error(err instanceof Error ? err.message : 'No se pudo guardar cabecera');
       return false;
     }
   }, [incrementalReceptionId, pxState.guideData, currentUserFullName, receptionVersion, applySnapshot]);
 
   const handleFinalizePXIncremental = useCallback(async () => {
     if (!incrementalReceptionId) {
-      alert('No hay recepción activa en servidor.');
+      notify.warning('No hay recepción activa en servidor.');
       return;
     }
 
@@ -990,15 +1006,17 @@ export function useReceptionPXIncremental({
       pxState.scannedSeries
     );
     if (!readiness.ok) {
-      alert(readiness.reason);
+      notify.warning(readiness.reason);
       return;
     }
 
     const totalCaptured = readiness.totalCaptured;
     if (
-      !window.confirm(
-        `¿Finalizar recepción PX?\n\nSe enviarán ${readiness.boxCodes.length} caja(s) con ${totalCaptured} equipos a Bodega Central.\n\nLos datos ya están en servidor; este paso los ingresa a inventario.`
-      )
+      !(await confirmDialog({
+        title: 'Finalizar recepción PX',
+        message: `Se enviarán ${readiness.boxCodes.length} caja(s) con ${totalCaptured} equipos a Bodega Central. Los datos ya están en servidor; este paso los ingresa a inventario.`,
+        confirmText: 'Finalizar',
+      }))
     ) {
       return;
     }
@@ -1009,9 +1027,11 @@ export function useReceptionPXIncremental({
       0
     );
     if (totalCaptured < totalExpected) {
-      varianceReason = window.prompt(
-        `Hay variación (${totalCaptured} capturados vs ${totalExpected} declarados). Motivo:`
-      )?.trim();
+      varianceReason = (await promptDialog({
+        title: 'Variación de cantidad',
+        message: `Hay variación (${totalCaptured} capturados vs ${totalExpected} declarados). Indique el motivo:`,
+        prompt: { required: true, multiline: true },
+      }))?.trim();
       if (!varianceReason) return;
     }
 
@@ -1024,7 +1044,7 @@ export function useReceptionPXIncremental({
         operatorName: currentUserFullName,
       });
 
-      alert('Recepción PX finalizada. Equipos ingresados a Bodega Central (cajas BOX-xxx).');
+      notify.success('Recepción PX finalizada', { description: 'Equipos ingresados a Bodega Central (cajas BOX-xxx).' });
 
       setIncrementalReceptionId(null);
       setIncrementalReceptionIdInSession(null);
@@ -1054,7 +1074,7 @@ export function useReceptionPXIncremental({
       await loadInProgressList();
       if (onHistoryRefresh) await onHistoryRefresh();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Error al finalizar recepción');
+      notify.error(err instanceof Error ? err.message : 'Error al finalizar recepción');
     }
   }, [
     incrementalReceptionId,

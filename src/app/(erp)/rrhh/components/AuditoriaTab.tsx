@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { Card, Button, Spinner } from '@/components/ui';
+import { Card, Button, Spinner, DataTable, type DataTableColumn } from '@/components/ui';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { FileWarning } from 'lucide-react';
 
@@ -79,6 +79,76 @@ export default function AuditoriaTab() {
     }
   };
 
+  // Columnas de marcajes (C3: DataTable). Se definen dentro del componente
+  // porque la celda de métricas usa el handler updateJustificacion del scope.
+  // La columna de métricas tiene altura variable (justificaciones con selects
+  // interactivos), por eso se mantiene fuera de la virtualización
+  // (virtualizeThreshold alto) para que las filas crezcan según su contenido.
+  const logColumns: DataTableColumn<any>[] = [
+    {
+      id: 'fecha',
+      header: 'Fecha y Hora',
+      width: 'minmax(150px,1fr)',
+      cellClassName: 'font-medium text-slate-600',
+      cell: (log) => new Date(log.timestamp).toLocaleString(),
+    },
+    {
+      id: 'empleado',
+      header: 'Empleado',
+      width: 'minmax(140px,1fr)',
+      cellClassName: 'font-bold text-slate-900',
+      cell: (log) => log.employees?.nombre_completo,
+    },
+    {
+      id: 'evento',
+      header: 'Evento',
+      width: 'minmax(120px,1fr)',
+      cell: (log) => (
+        <span className="inline-flex items-center px-2 py-1 rounded-md text-[10px] font-bold bg-[#2ec4f1]/10 text-[#2ec4f1]">
+          {log.evento_detectado.replace(/_/g, ' ')}
+        </span>
+      ),
+    },
+    {
+      id: 'metricas',
+      header: 'Métricas',
+      width: 'minmax(200px,1.4fr)',
+      align: 'right',
+      cell: (log) => (
+        <div className="w-full text-right">
+          {log.minutos_retraso_entrada > 0 && <div className="text-xs text-rose-500 font-bold">Retraso {log.minutos_retraso_entrada}m</div>}
+          {log.minutos_exceso_almuerzo > 0 && <div className="text-xs text-rose-500 font-bold">Exceso Alm {log.minutos_exceso_almuerzo}m</div>}
+          {log.minutos_salida_anticipada > 0 && <div className="text-xs text-amber-500 font-bold">Salida Ant {log.minutos_salida_anticipada}m</div>}
+          {log.es_dia_extra && <div className="text-[10px] font-black tracking-widest text-emerald-500 uppercase">Día Extra</div>}
+
+          {log.time_justifications && log.time_justifications.length > 0 && (
+            <div className="mt-2 text-left border-l-2 border-slate-200 pl-2">
+              <div className="text-[10px] text-slate-400 uppercase tracking-wider font-bold mb-1">Justificación</div>
+              {log.time_justifications.map((just: any) => (
+                <div key={just.id} className="mb-2">
+                  <div className="text-xs font-medium text-slate-700 italic mb-1">"{just.descripcion}"</div>
+                  <select
+                    value={just.resolucion || 'Pendiente'}
+                    onChange={(e) => updateJustificacion(just.id, just.resolucion || 'Pendiente', e.target.value)}
+                    className={`text-[10px] font-bold rounded p-1 outline-none ${just.resolucion === 'Aprobada' ? 'bg-emerald-100 text-emerald-700' : just.resolucion === 'Rechazada' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}`}
+                  >
+                    <option value="Pendiente">Pendiente</option>
+                    <option value="Aprobada">Aprobar</option>
+                    <option value="Rechazada">Rechazar</option>
+                  </select>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {(log.minutos_retraso_entrada === 0 && log.minutos_exceso_almuerzo === 0 && log.minutos_salida_anticipada === 0 && !log.es_dia_extra && (!log.time_justifications || log.time_justifications.length === 0)) && (
+            <span className="text-xs text-emerald-500 font-bold tracking-widest uppercase">OK</span>
+          )}
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -150,77 +220,24 @@ export default function AuditoriaTab() {
 
         {/* Marcajes Table */}
         <Card padding="none" className="lg:col-span-2 overflow-hidden border-slate-200">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 text-xs uppercase font-black text-slate-500 tracking-wider border-b border-slate-100">
-                <tr>
-                  <th className="px-4 py-3">Fecha y Hora</th>
-                  <th className="px-4 py-3">Empleado</th>
-                  <th className="px-4 py-3">Evento</th>
-                  <th className="px-4 py-3 text-right">Métricas</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {loading ? (
-                  <tr>
-                    <td colSpan={4} className="text-center py-10 text-slate-400">
-                      <Spinner size="md" className="mx-auto mb-2" />
-                    </td>
-                  </tr>
-                ) : logs.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} className="text-center py-10 text-slate-400 font-medium">No hay marcajes recientes.</td>
-                  </tr>
-                ) : (
-                  logs.map(log => (
-                    <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-4 py-3 font-medium text-slate-600 whitespace-nowrap">
-                        {new Date(log.timestamp).toLocaleString()}
-                      </td>
-                      <td className="px-4 py-3 font-bold text-slate-900">
-                        {log.employees?.nombre_completo}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="inline-flex items-center px-2 py-1 rounded-md text-[10px] font-bold bg-[#2ec4f1]/10 text-[#2ec4f1]">
-                          {log.evento_detectado.replace(/_/g, ' ')}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {log.minutos_retraso_entrada > 0 && <div className="text-xs text-rose-500 font-bold">Retraso {log.minutos_retraso_entrada}m</div>}
-                        {log.minutos_exceso_almuerzo > 0 && <div className="text-xs text-rose-500 font-bold">Exceso Alm {log.minutos_exceso_almuerzo}m</div>}
-                        {log.minutos_salida_anticipada > 0 && <div className="text-xs text-amber-500 font-bold">Salida Ant {log.minutos_salida_anticipada}m</div>}
-                        {log.es_dia_extra && <div className="text-[10px] font-black tracking-widest text-emerald-500 uppercase">Día Extra</div>}
-                        
-                        {log.time_justifications && log.time_justifications.length > 0 && (
-                          <div className="mt-2 text-left border-l-2 border-slate-200 pl-2">
-                            <div className="text-[10px] text-slate-400 uppercase tracking-wider font-bold mb-1">Justificación</div>
-                            {log.time_justifications.map((just: any) => (
-                              <div key={just.id} className="mb-2">
-                                <div className="text-xs font-medium text-slate-700 italic mb-1">"{just.descripcion}"</div>
-                                <select 
-                                  value={just.resolucion || 'Pendiente'}
-                                  onChange={(e) => updateJustificacion(just.id, just.resolucion || 'Pendiente', e.target.value)}
-                                  className={`text-[10px] font-bold rounded p-1 outline-none ${just.resolucion === 'Aprobada' ? 'bg-emerald-100 text-emerald-700' : just.resolucion === 'Rechazada' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}`}
-                                >
-                                  <option value="Pendiente">Pendiente</option>
-                                  <option value="Aprobada">Aprobar</option>
-                                  <option value="Rechazada">Rechazar</option>
-                                </select>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        {(log.minutos_retraso_entrada === 0 && log.minutos_exceso_almuerzo === 0 && log.minutos_salida_anticipada === 0 && !log.es_dia_extra && (!log.time_justifications || log.time_justifications.length === 0)) && (
-                          <span className="text-xs text-emerald-500 font-bold tracking-widest uppercase">OK</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+          {loading ? (
+            <div className="text-center py-10 text-slate-400">
+              <Spinner size="md" className="mx-auto mb-2" />
+            </div>
+          ) : (
+            <DataTable
+              columns={logColumns}
+              data={logs}
+              getRowId={(log) => log.id}
+              rowHeight={56}
+              maxBodyHeight={600}
+              minWidth={620}
+              virtualizeThreshold={200}
+              headerClassName="bg-slate-50 border-b border-slate-100"
+              headerTextClassName="text-slate-500"
+              emptyMessage="No hay marcajes recientes."
+            />
+          )}
         </Card>
 
       </div>

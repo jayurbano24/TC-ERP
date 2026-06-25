@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useMemo } from 'react';
 import * as faceapi from 'face-api.js';
 import { Camera, CheckCircle2, AlertCircle, Loader2, LogIn, Coffee, Utensils, LogOut, ShieldAlert, Clock, User, Info } from 'lucide-react';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { notify } from '@/components/ui';
 import { useAttendanceState, AllowedAction } from '@/hooks/useAttendanceState';
 
 const getShortName = (fullName: string) => {
@@ -155,10 +156,11 @@ export function BiometricKiosk() {
       ? employeeInput 
       : (!isNaN(parsedNumber) ? `EMP-${parsedNumber.toString().padStart(4, '0')}` : employeeInput);
 
+    const lookupCodes = Array.from(new Set([employeeInput, formattedCode].filter(Boolean)));
     const { data: emp, error } = await supabase
       .from('employees')
       .select('*')
-      .or(`codigo_empleado.eq.${employeeInput},codigo_empleado.eq.${formattedCode}`)
+      .in('codigo_empleado', lookupCodes)
       .single();
 
     if (error) {
@@ -369,7 +371,7 @@ export function BiometricKiosk() {
   const submitJustification = () => {
     if (!pendingJustification) return;
     if (!selectedReason || (selectedReason === 'Otros' && !otherReason)) {
-      alert("Por favor indique el motivo.");
+      notify.warning('Por favor indique el motivo.');
       return;
     }
     const finalReason = selectedReason === 'Otros' ? otherReason : selectedReason;
@@ -632,7 +634,7 @@ export function BiometricKiosk() {
                   <input type="password" value={pinCode} onChange={(e) => setPinCode(e.target.value)} placeholder="PIN Admin" className="w-full h-14 bg-slate-800 rounded-xl px-4 text-center text-2xl tracking-widest text-white mb-4 outline-none focus:border-[#2ec4f1] border-2 border-slate-700" autoFocus/>
                   <div className="flex gap-4">
                      <button onClick={() => { setIsRegistering(false); setPinCode(''); }} className="flex-1 bg-slate-800 text-white py-3 rounded-xl font-bold hover:bg-slate-700 transition-colors">Cancelar</button>
-                     <button onClick={() => { if (pinCode === '1234') { setRegisterStep('select'); fetchEmployeesForRegistration(); } else { alert('PIN Incorrecto'); } }} className="flex-1 bg-[#2ec4f1] text-slate-900 py-3 rounded-xl font-black hover:bg-[#2ec4f1]/80 transition-colors">Verificar</button>
+                     <button onClick={() => { if (pinCode === '1234') { setRegisterStep('select'); fetchEmployeesForRegistration(); } else { notify.error('PIN Incorrecto'); } }} className="flex-1 bg-[#2ec4f1] text-slate-900 py-3 rounded-xl font-black hover:bg-[#2ec4f1]/80 transition-colors">Verificar</button>
                   </div>
                </div>
              )}

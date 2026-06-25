@@ -4,6 +4,7 @@ import type React from 'react';
 import type { BackofficeTab, BackofficeReception, CatalogAgency, CatalogBrand, CatalogModel, CatalogTech, GuideItem, OperationCategory, ReceptionStep, SapTransferGroup } from '../types';
 import type { CompleteGuidesContext } from './completeGuidesContext';
 import { runCompleteCurrentGuides } from './completeCurrentGuides';
+import { notify } from '@/components/ui/messaging/messageStore';
 
 export type CompleteFlowParams = {
   isSubmitting: boolean;
@@ -89,11 +90,11 @@ export function createCompleteFlowHandlers(params: CompleteFlowParams) {
 
   const handleConfirmReturn = async () => {
     if (!params.returnReason) {
-      alert('Por favor ingrese el motivo de la devolución.');
+      notify.warning('Por favor ingrese el motivo de la devolución.');
       return;
     }
     if (!params.selectedAgencyId) {
-      alert('Debe seleccionar la agencia de destino antes de confirmar la devolución.');
+      notify.warning('Debe seleccionar la agencia de destino antes de confirmar la devolución.');
       return;
     }
     await completeCurrentGuides();

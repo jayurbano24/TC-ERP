@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Button, Card } from '@/components/ui';
+import { Button, Card, notify } from '@/components/ui';
 import { ChevronDown, ChevronLeft, Package, Radio } from 'lucide-react';
 import type { OperationContext } from '../../operation/operationContext';
 
@@ -95,7 +95,7 @@ export function SubBodegaTransferStep({ ctx }: Props) {
               className={`flex-[2] h-20 text-white rounded-2xl shadow-2xl font-black uppercase text-xs transition-all ${(!agencia || isSubmitting) ? 'bg-slate-300 cursor-not-allowed' : (category === 'Accesorio' ? 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/20' : 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/20')}`}
               onClick={async () => {
                 if (!agencia || isSubmitting) {
-                  if (!agencia) alert("Por favor, seleccione una agencia de origen.");
+                  if (!agencia) notify.warning("Por favor, seleccione una agencia de origen.");
                   return;
                 }
                 // Forzamos que la categoría sea la correcta antes de guardar

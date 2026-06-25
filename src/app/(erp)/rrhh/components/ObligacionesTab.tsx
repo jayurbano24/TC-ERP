@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { Card, Button, Spinner } from '@/components/ui';
+import { Card, Button, Spinner, notify } from '@/components/ui';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { Calculator, Download, CheckCircle2, History, AlertCircle, FileText, PiggyBank, Briefcase } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -187,7 +187,7 @@ function GenerarCierre() {
     }).select().single();
 
     if (errCierre || !closure) {
-      alert("Error al guardar el cierre. Verifica si corriste el script de BD.");
+      notify.error('Error al guardar el cierre', { description: 'Verifica si corriste el script de BD.' });
       setLoading(false);
       return;
     }
@@ -200,7 +200,7 @@ function GenerarCierre() {
       cantidad_empleados: resumen.totalEmpleados
     });
 
-    alert("Cierre Procesado y Guardado en Historial Exitosamente.");
+    notify.success('Cierre procesado y guardado en historial.');
     setLoading(false);
   };
 

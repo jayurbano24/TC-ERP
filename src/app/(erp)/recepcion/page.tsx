@@ -3,6 +3,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { ModulePage } from '@/components/module-page';
+import { notify, confirmDialog } from '@/components/ui';
 import { ReceptionHeader } from './components/ReceptionHeader';
 import { PxReceptionTab } from './components/PxReceptionTab';
 import { CacReceptionTab } from './components/CacReceptionTab';
@@ -21,6 +22,32 @@ import { getCarriers, getTechnologies, getBrands, getModels, getPxProviders } fr
 import { getReceptions, deletePxReceptionCascade, deleteCacReceptionCascade } from '@/lib/database/receptions';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { groupPxSeriesByEquipment } from './utils/pxSeriesUtils';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+
+// Mapea una fila de `receptions` a la forma legacy que consumen las pestañas
+// PX/CAC e Historial. Centralizado para evitar las 3 copias que existían.
+function mapReceptionRow(row: any) {
+  return {
+    id: row.id,
+    created_at: row.created_at,
+    fecha_formateada: new Date(row.created_at).toLocaleString(),
+    guide_number: row.guide_number,
+    carrier: row.carrier || '---',
+    usuario: row.received_by || 'SISTEMA',
+    received_by: row.received_by || 'SISTEMA',
+    received_units: row.received_units || 1,
+    status: row.status || 'RECEPCIONADA',
+    notes: row.notes || '',
+    sap_document: row.sap_document || '---',
+    sap_orden_servicio: row.id,
+    tipo: row.source.toUpperCase(),
+    pilot_display:
+      row.notes?.split('Piloto: ')?.[1]?.split('\n')?.[0]?.trim() ||
+      row.carrier ||
+      'OPERADOR LOGÍSTICO',
+    allGuias: row.processed_guides || [],
+  };
+}
 
 export default function ReceptionsPage() {
   const [moduleMode, setModuleMode] = useState<'cac' | 'px'>('cac');
@@ -38,6 +65,32 @@ export default function ReceptionsPage() {
   
   // Load CAC State
   const cacState = useReceptionCAC();
+
+  // C6: fuente única del historial de recepciones (caché + dedupe). Reemplaza
+  // las 3 llamadas sueltas a getReceptions() que había en la página.
+  const queryClient = useQueryClient();
+  const receptionsQuery = useQuery({
+    queryKey: ['receptions'],
+    queryFn: () => getReceptions(),
+  });
+
+  // Cuando la query trae datos (carga inicial o invalidación), mapeamos a la
+  // forma legacy que consumen las pestañas. Depende SOLO de los datos para no
+  // entrar en bucle con los setters de pxState/cacState.
+  useEffect(() => {
+    const rows = receptionsQuery.data;
+    if (!rows) return;
+    const mappedPx: any[] = [];
+    const mappedCac: any[] = [];
+    for (const row of rows) {
+      const legacyRec = mapReceptionRow(row);
+      if (row.source === 'px') mappedPx.push(legacyRec);
+      else mappedCac.push(legacyRec);
+    }
+    pxState.setPxRecords(mappedPx);
+    cacState.setCacRecords(mappedCac);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [receptionsQuery.data]);
 
   useEffect(() => {
     getSupabaseBrowserClient().auth.getUser().then(({data}) => {
@@ -66,7 +119,7 @@ export default function ReceptionsPage() {
       cacState.setCacError('');
 
       if (cacState.cacScannedItems.length === 0) {
-        alert('No hay guías escaneadas.');
+        notify.warning('No hay guías escaneadas.');
         return;
       }
 
@@ -82,7 +135,7 @@ export default function ReceptionsPage() {
         throw new Error(result.error);
       }
       
-      alert('Recepción CAC guardada. Pendiente de clasificación en Backoffice.');
+      notify.success('Recepción CAC guardada', { description: 'Pendiente de clasificación en Backoffice.' });
       cacState.setCacScannedItems([]);
       scannerState.setIsIndustrialScanning(false);
       cacState.setCacPilot('');
@@ -90,68 +143,16 @@ export default function ReceptionsPage() {
       cacState.setCacAgency('');
       cacState.setCacTotalCajas(0);
 
-      // Recargar el historial silenciosamente
-      const historyData = await getReceptions();
-      if (historyData) {
-        const mappedPx: any[] = [];
-        const mappedCac: any[] = [];
-        for (const row of historyData) {
-          const legacyRec = {
-            id: row.id,
-            fecha_formateada: new Date(row.created_at).toLocaleString(),
-            guide_number: row.guide_number,
-            carrier: row.carrier || '---',
-            usuario: row.received_by || 'SISTEMA',
-            received_by: row.received_by || 'SISTEMA',
-            received_units: row.received_units || 1,
-            status: row.status || 'RECEPCIONADA',
-            notes: row.notes || '',
-            sap_document: row.sap_document || '---',
-            sap_orden_servicio: row.id,
-            tipo: row.source.toUpperCase(),
-            pilot_display: row.carrier || 'OPERADOR LOGÍSTICO',
-            allGuias: row.processed_guides || []
-          };
-          if (row.source === 'px') mappedPx.push(legacyRec);
-          else mappedCac.push(legacyRec);
-        }
-        pxState.setPxRecords(mappedPx);
-        cacState.setCacRecords(mappedCac);
-      }
+      // Recargar el historial silenciosamente (invalida la caché de la query).
+      await refreshHistory();
     } catch (err: any) {
       cacState.setCacError(err.message || 'Error de conexión');
     }
   };
 
   const refreshHistory = useCallback(async () => {
-    const historyData = await getReceptions();
-    if (!historyData) return;
-    const mappedPx: any[] = [];
-    const mappedCac: any[] = [];
-    for (const row of historyData) {
-      const legacyRec = {
-        id: row.id,
-        created_at: row.created_at,
-        fecha_formateada: new Date(row.created_at).toLocaleString(),
-        guide_number: row.guide_number,
-        carrier: row.carrier || '---',
-        usuario: row.received_by || 'SISTEMA',
-        received_by: row.received_by || 'SISTEMA',
-        received_units: row.received_units || 1,
-        status: row.status || 'RECEPCIONADA',
-        notes: row.notes || '',
-        sap_document: row.sap_document || '---',
-        sap_orden_servicio: row.id,
-        tipo: row.source.toUpperCase(),
-        pilot_display: row.notes?.split('Piloto: ')?.[1]?.split('\n')?.[0]?.trim() || row.carrier || 'OPERADOR LOGÍSTICO',
-        allGuias: row.processed_guides || [],
-      };
-      if (row.source === 'px') mappedPx.push(legacyRec);
-      else mappedCac.push(legacyRec);
-    }
-    pxState.setPxRecords(mappedPx);
-    cacState.setCacRecords(mappedCac);
-  }, [pxState, cacState]);
+    await queryClient.invalidateQueries({ queryKey: ['receptions'] });
+  }, [queryClient]);
 
   // --- CONFIG STATE ---
   const [transportes, setTransportes] = useState<any[]>([]);
@@ -209,50 +210,8 @@ export default function ReceptionsPage() {
       }
     };
     fetchConfig();
-
-    const fetchHistory = async () => {
-      try {
-        const data = await getReceptions();
-        
-        if (data) {
-          const mappedPx: any[] = [];
-          const mappedCac: any[] = [];
-          
-          for (const row of data) {
-            // Already in legacy format, but ensure proper shape for HistoryTab
-            const legacyRec = {
-              id: row.id,
-              created_at: row.created_at,
-              fecha_formateada: new Date(row.created_at).toLocaleString(),
-              guide_number: row.guide_number,
-              carrier: row.carrier || '---',
-              usuario: row.received_by || 'SISTEMA',
-              received_by: row.received_by || 'SISTEMA',
-              received_units: row.received_units || 1,
-              status: row.status || 'RECEPCIONADA',
-              notes: row.notes || '',
-              sap_document: row.sap_document || '---',
-              sap_orden_servicio: row.id,
-              tipo: row.source.toUpperCase(),
-              pilot_display: row.notes?.split('Piloto: ')?.[1]?.split('\n')?.[0]?.trim() || row.carrier || 'OPERADOR LOGÍSTICO',
-              allGuias: row.processed_guides || []
-            };
-            
-            if (row.source === 'px') {
-              mappedPx.push(legacyRec);
-            } else {
-              mappedCac.push(legacyRec);
-            }
-          }
-          
-          pxState.setPxRecords(mappedPx);
-          cacState.setCacRecords(mappedCac);
-        }
-      } catch(err) {
-        console.error('Error fetching history', err);
-      }
-    };
-    fetchHistory();
+    // El historial ahora lo carga receptionsQuery (TanStack Query) + el efecto
+    // de mapeo de arriba; ya no se hace fetch manual aquí.
   }, []);
 
   useEffect(() => {
@@ -278,7 +237,7 @@ export default function ReceptionsPage() {
 
   
   const handleAddCaja = () => {
-    alert('En recepción PX use "Nueva caja" (CAJA-N) y agregue lotes desde el detalle de caja.');
+    notify.info('En recepción PX use "Nueva caja" (CAJA-N) y agregue lotes desde el detalle de caja.');
   };
 
   const handlePrintPXManifest = async (rec: any) => {
@@ -319,7 +278,7 @@ export default function ReceptionsPage() {
 
       printingService.printPXManifest(rec, mappedSeries, manifestBoxes);
     } catch (error: any) {
-      alert("Error al obtener datos para impresión: " + error.message);
+      notify.error('Error al obtener datos para impresión', { description: error.message });
     }
   };
 
@@ -335,7 +294,7 @@ export default function ReceptionsPage() {
 
       if (boxError) throw boxError;
       if (!boxes || boxes.length === 0) {
-        alert("No hay cajas para imprimir en esta recepción.");
+        notify.warning('No hay cajas para imprimir en esta recepción.');
         return;
       }
 
@@ -350,12 +309,18 @@ export default function ReceptionsPage() {
 
       printingService.printAllBoxLabels(manifestBoxes);
     } catch (error: any) {
-      alert("Error al obtener datos para etiquetas: " + error.message);
+      notify.error('Error al obtener datos para etiquetas', { description: error.message });
     }
   };
 
   const handleDeleteHistoryCAC = useCallback(async (id: string) => {
-    if (!window.confirm('¿Está seguro de eliminar esta recepción y todos sus sub-procesos asociados?')) {
+    const ok = await confirmDialog({
+      title: 'Eliminar recepción',
+      message: '¿Está seguro de eliminar esta recepción y todos sus sub-procesos asociados?',
+      tone: 'error',
+      confirmText: 'Eliminar',
+    });
+    if (!ok) {
       return;
     }
 
@@ -368,9 +333,15 @@ export default function ReceptionsPage() {
     const result = await deleteCacReceptionCascade(id);
     if (result?.error) {
       cacState.setCacRecords(snapshot);
-      alert('Error al eliminar sub-procesos: ' + result.error);
+      notify.error('Error al eliminar sub-procesos', { description: result.error });
+    } else {
+      // Mantener la caché de la query consistente (sin refetch) para que la fila
+      // borrada no reaparezca al reentrar dentro del staleTime.
+      queryClient.setQueryData(['receptions'], (old: any[] | undefined) =>
+        old ? old.filter((r) => r.id !== id) : old
+      );
     }
-  }, [cacState.setCacRecords]);
+  }, [cacState.setCacRecords, queryClient]);
 
   const handleDeleteHistoryPX = useCallback(async (id: string) => {
     let snapshot: typeof pxState.pxRecords = [];
@@ -382,9 +353,13 @@ export default function ReceptionsPage() {
     const result = await deletePxReceptionCascade(id);
     if (result?.error) {
       pxState.setPxRecords(snapshot);
-      alert('Error al eliminar recepción PX: ' + result.error);
+      notify.error('Error al eliminar recepción PX', { description: result.error });
+    } else {
+      queryClient.setQueryData(['receptions'], (old: any[] | undefined) =>
+        old ? old.filter((r) => r.id !== id) : old
+      );
     }
-  }, [pxState.setPxRecords]);
+  }, [pxState.setPxRecords, queryClient]);
 
   const handlePrintCACWrapper = async (item: any) => {
     let allGuias = item.allGuias || [];

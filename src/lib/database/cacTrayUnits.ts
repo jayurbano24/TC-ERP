@@ -7,6 +7,7 @@ import type {
 } from '@/lib/backoffice/cacTrayTypes';
 import { enrichCacTrayRowsWithSapValidation } from '@/lib/backoffice/enrichCacTraySapValidation';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
+import { sanitizeOrFilterValue } from '@/lib/database/postgrestSafe';
 
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 200;
@@ -50,8 +51,8 @@ function applyTrayFilters(
 
   const agencyId = params.agencyId?.trim();
   if (agencyId) {
-    const code = agencyId.toLowerCase();
-    q = q.or(`agency_code.ilike.%${code}%,agency_name.ilike.%${code}%`);
+    const code = sanitizeOrFilterValue(agencyId.toLowerCase());
+    if (code) q = q.or(`agency_code.ilike.%${code}%,agency_name.ilike.%${code}%`);
   }
 
   return q;

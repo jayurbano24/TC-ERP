@@ -1,8 +1,10 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
-import { Card, Badge, Button } from '@/components/ui';
+import { Card, Badge, Button, notify, confirmDialog, DataTable, type DataTableColumn } from '@/components/ui';
+import { apiFetch } from '@/lib/http/apiFetch';
 import * as XLSX from 'xlsx';
 import { ModulePage, ModuleToolbar } from '@/components/module-page';
 import { 
@@ -36,11 +38,71 @@ type DispatchItem = {
   fecha?: string;
 };
 
+const EMPTY_LIST: any[] = [];
 
+async function fetchDespachoData(supabase: any): Promise<{ history: any[]; dispatches: DispatchItem[] }> {
+  // 1. Historial de despachos
+  const { data: hist } = await supabase
+    .from('dispatches')
+    .select(`
+      id, 
+      guide_number, 
+      dispatch_type, 
+      notes, 
+      created_at, 
+      dispatched_by,
+      dispatch_items(count)
+    `)
+    .order('created_at', { ascending: false });
+
+  // 2. Cajas activas (master boxes de despacho)
+  let dispatches: DispatchItem[] = [];
+  const { data: recData } = await supabase.from('receptions').select('id').eq('guide_number', 'MANUAL_BOXES_DESPACHO').single();
+  if (recData) {
+    const { data: boxes } = await supabase.from('boxes').select('*').eq('reception_id', recData.id).order('created_at', { ascending: false });
+    if (boxes && boxes.length > 0) {
+      dispatches = boxes.map((b: any) => ({
+        id: b.box_code,
+        dbId: b.id,
+        brand_id: b.brand_id,
+        model_id: b.model_id,
+        destino: 'Pendiente de asignar',
+        tipo: 'Master Box',
+        unidades: b.capacity || 0,
+        estatus: b.status === 'open' ? 'Pendiente' : 'En Ruta',
+        fecha: new Date(b.created_at).toLocaleDateString(),
+      }));
+    }
+  }
+
+  return { history: hist ?? [], dispatches };
+}
+
+async function fetchDespachoCatalogs(supabase: any) {
+  const [b, m, t] = await Promise.all([
+    supabase.from('brands').select('*'),
+    supabase.from('models').select('*'),
+    supabase.from('technologies').select('*'),
+  ]);
+  return { brands: b.data ?? [], models: m.data ?? [], techs: t.data ?? [] };
+}
 
 export default function DespachoPage() {
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<'operacion'|'historial'>('operacion');
-  const [dispatchHistory, setDispatchHistory] = useState<any[]>([]);
+
+  const despachoQuery = useQuery({
+    queryKey: ['despacho-data'],
+    queryFn: async () => {
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase) return { history: EMPTY_LIST, dispatches: EMPTY_LIST as DispatchItem[] };
+      return fetchDespachoData(supabase);
+    },
+  });
+  const dispatchHistory = despachoQuery.data?.history ?? EMPTY_LIST;
+
+  const refreshDispatches = () => queryClient.invalidateQueries({ queryKey: ['despacho-data'] });
+
   const [showDispatchForm, setShowDispatchForm] = useState(false);
   const [dispatchType, setDispatchType] = useState<'massive' | 'individual' | 'master_box'>('master_box');
   const [itemsToDispatch, setItemsToDispatch] = useState<string[]>([]);
@@ -52,9 +114,17 @@ export default function DespachoPage() {
   const [boxTech, setBoxTech] = useState('');
   const [boxQty, setBoxQty] = useState<number | ''>('');
   
-  const [dbBrands, setDbBrands] = useState<any[]>([]);
-  const [dbModels, setDbModels] = useState<any[]>([]);
-  const [dbTechs, setDbTechs] = useState<any[]>([]);
+  const catalogsQuery = useQuery({
+    queryKey: ['despacho-catalogs'],
+    queryFn: async () => {
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase) return { brands: EMPTY_LIST, models: EMPTY_LIST, techs: EMPTY_LIST };
+      return fetchDespachoCatalogs(supabase);
+    },
+  });
+  const dbBrands: any[] = catalogsQuery.data?.brands ?? EMPTY_LIST;
+  const dbModels: any[] = catalogsQuery.data?.models ?? EMPTY_LIST;
+  const dbTechs: any[] = catalogsQuery.data?.techs ?? EMPTY_LIST;
   const [editBoxId, setEditBoxId] = useState<string | null>(null);
 
   const [showUploadSAPModal, setShowUploadSAPModal] = useState(false);
@@ -79,7 +149,7 @@ export default function DespachoPage() {
       })).filter(u => u.serial_number && u.serial_number !== 'undefined');
 
       if (updates.length === 0) {
-        alert('No se encontraron registros válidos. Verifique que exista la columna "Número de serie".');
+        notify.warning('Sin registros válidos', { description: 'Verifique que exista la columna "Número de serie".' });
         setIsUploadingSAP(false);
         return;
       }
@@ -107,64 +177,18 @@ export default function DespachoPage() {
         }));
       }
 
-      alert(`Carga SAP completada.\nProcesados exitosamente: ${successCount}\nErrores: ${errorCount}`);
+      notify.success('Carga SAP completada', { description: `Procesados: ${successCount} · Errores: ${errorCount}` });
       setShowUploadSAPModal(false);
 
     } catch (error) {
       console.error(error);
-      alert('Error procesando el archivo Excel.');
+      notify.error('Error procesando el archivo Excel.');
     } finally {
       setIsUploadingSAP(false);
     }
   };
 
-  const [dispatches, setDispatches] = useState<DispatchItem[]>([]);
-
-  const fetchDispatches = async (supabase: any) => {
-    try {
-      // 1. Fetch History
-      const { data: hist } = await supabase
-        .from('dispatches')
-        .select(`
-          id, 
-          guide_number, 
-          dispatch_type, 
-          notes, 
-          created_at, 
-          dispatched_by,
-          dispatch_items(count)
-        `)
-        .order('created_at', { ascending: false });
-      
-      if (hist) setDispatchHistory(hist);
-
-      // 2. Fetch active boxes
-      const { data: recData } = await supabase.from('receptions').select('id').eq('guide_number', 'MANUAL_BOXES_DESPACHO').single();
-      if (recData) {
-        const { data: boxes } = await supabase.from('boxes').select('*').eq('reception_id', recData.id).order('created_at', { ascending: false });
-        if (boxes && boxes.length > 0) {
-          const newDispatches: DispatchItem[] = boxes.map((b: any) => ({
-            id: b.box_code,
-            dbId: b.id,
-            brand_id: b.brand_id,
-            model_id: b.model_id,
-            destino: 'Pendiente de asignar',
-            tipo: 'Master Box',
-            unidades: b.capacity || 0,
-            estatus: b.status === 'open' ? 'Pendiente' : 'En Ruta',
-            fecha: new Date(b.created_at).toLocaleDateString()
-          }));
-          setDispatches(newDispatches);
-        } else {
-          setDispatches([]);
-        }
-      } else {
-        setDispatches([]);
-      }
-    } catch (e) {
-      console.error('Error fetching dispatches:', e);
-    }
-  };
+  const dispatches = despachoQuery.data?.dispatches ?? (EMPTY_LIST as DispatchItem[]);
 
   const [selectedBox, setSelectedBox] = useState<DispatchItem | null>(null);
   const [boxItems, setBoxItems] = useState<any[]>([]);
@@ -227,7 +251,7 @@ export default function DespachoPage() {
 
   const handleSelectBox = (box: DispatchItem) => {
     if (!box.dbId) {
-      alert('Esta caja es un dato de prueba.');
+      notify.info('Esta caja es un dato de prueba.');
       return;
     }
     setSelectedBox(box);
@@ -243,21 +267,21 @@ export default function DespachoPage() {
     
     const { data: sData } = await supabase.from('series').select('*, service_orders(sap_integration_status)').eq('serial_number', scanSN).single();
     if (!sData) {
-      alert('Serie no encontrada.'); return;
+      notify.warning('Serie no encontrada.'); return;
     }
     
     if (sData.current_status !== 'in_central_warehouse') {
-      alert('El equipo no está en estado EQUIPO LISTO.'); return;
+      notify.warning('El equipo no está en estado EQUIPO LISTO.'); return;
     }
 
     if (sData.brand_id !== selectedBox.brand_id || sData.model_id !== selectedBox.model_id) {
-      alert('La marca o modelo del equipo no coinciden con la caja.'); return;
+      notify.warning('La marca o modelo del equipo no coinciden con la caja.'); return;
     }
 
     // 1. Validar Matriz de Bloqueos SAP
     const sapStatus = sData.service_orders?.sap_integration_status || sData.sap_status || 'Pendiente Validación';
     if (sapStatus !== 'Validado SAP') {
-      alert(`⚠️ Bloqueo Operativo (Integración SAP): El equipo no puede ser despachado porque su estado es "${sapStatus}". Solo los equipos "Validado SAP" tienen permitido el despacho.`); 
+      notify.error('Bloqueo operativo (Integración SAP)', { description: `El equipo no puede despacharse porque su estado es "${sapStatus}". Solo los equipos "Validado SAP" tienen permitido el despacho.`, duration: 0 });
       return;
     }
 
@@ -266,7 +290,7 @@ export default function DespachoPage() {
       const existingMaterial = boxItems[0].material;
       const existingLote = boxItems[0].valuation;
       if (sData.material !== existingMaterial || sData.valuation !== existingLote) {
-        alert(`⚠️ Falla: El equipo tiene Material [${sData.material}] y Lote [${sData.valuation}], pero la caja ya contiene Material [${existingMaterial || 'N/A'}] y Lote [${existingLote || 'N/A'}]. No se pueden mezclar.`);
+        notify.error('No se pueden mezclar Material/Lote', { description: `Equipo: Material [${sData.material}] Lote [${sData.valuation}] · Caja: Material [${existingMaterial || 'N/A'}] Lote [${existingLote || 'N/A'}].`, duration: 0 });
         return;
       }
     }
@@ -279,7 +303,7 @@ export default function DespachoPage() {
         // Validar si alguna serie hermana tiene un material/lote distinto (en caso de que estuvieran cargados)
         const mismatch = siblings.find(s => s.material && s.valuation && (s.material !== sData.material || s.valuation !== sData.valuation));
         if (mismatch) {
-          alert(`⚠️ Falla de Consistencia: La serie hermana ${mismatch.serial_number} tiene un Material/Lote distinto al de la serie escaneada.`);
+          notify.error('Falla de consistencia', { description: `La serie hermana ${mismatch.serial_number} tiene un Material/Lote distinto al de la serie escaneada.`, duration: 0 });
           return;
         }
         idsToUpdate = siblings.map(s => s.id);
@@ -287,12 +311,12 @@ export default function DespachoPage() {
     }
 
     if (boxItems.length >= selectedBox.unidades) {
-      alert('La caja ya está llena.'); return;
+      notify.warning('La caja ya está llena.'); return;
     }
 
     const { error } = await supabase.from('series').update({ current_box_id: selectedBox.dbId }).in('id', idsToUpdate);
     if (error) {
-      alert('Error al asignar equipo a la caja.');
+      notify.error('Error al asignar equipo a la caja.');
     } else {
       setScanSN('');
       setScanCAS('');
@@ -319,24 +343,6 @@ export default function DespachoPage() {
     }
   };
 
-  useEffect(() => {
-    async function loadData() {
-      const supabase = getSupabaseBrowserClient();
-      if (!supabase) return;
-      
-      fetchDispatches(supabase);
-      const [b, m, t] = await Promise.all([
-        supabase.from('brands').select('*'),
-        supabase.from('models').select('*'),
-        supabase.from('technologies').select('*')
-      ]);
-      if (b.data) setDbBrands(b.data);
-      if (m.data) setDbModels(m.data);
-      if (t.data) setDbTechs(t.data);
-    }
-    loadData();
-  }, []);
-
   const handleCreateBox = async () => {
     if (!boxBrand || !boxModel || !boxQty) return;
     
@@ -350,7 +356,7 @@ export default function DespachoPage() {
       if (recData) {
         receptionId = recData.id;
       } else {
-        alert('Error: No se encontró la recepción base para despacho.');
+        notify.error('No se encontró la recepción base para despacho.');
         return;
       }
 
@@ -382,13 +388,13 @@ export default function DespachoPage() {
 
         if (error) {
           console.error(error);
-          alert('Error al actualizar la caja: ' + error.message);
+          notify.error('Error al actualizar la caja', { description: error.message });
         } else {
-          alert('Caja actualizada con éxito.');
+          notify.success('Caja actualizada con éxito.');
           setShowCreateBoxModal(false);
           setBoxBrand(''); setBoxModel(''); setBoxTech(''); setBoxQty('');
           setEditBoxId(null);
-          await fetchDispatches(supabase);
+          await refreshDispatches();
         }
       } else {
         const { error } = await supabase.from('boxes').insert({
@@ -403,19 +409,19 @@ export default function DespachoPage() {
 
         if (error) {
           console.error(error);
-          alert('Error al crear la caja: ' + error.message);
+          notify.error('Error al crear la caja', { description: error.message });
         } else {
-          alert('Caja ' + boxCode + ' creada con éxito en la base de datos.');
+          notify.success(`Caja ${boxCode} creada con éxito.`);
           setShowCreateBoxModal(false);
           setBoxBrand(''); setBoxModel(''); setBoxTech(''); setBoxQty('');
-          await fetchDispatches(supabase);
+          await refreshDispatches();
         }
       }
 
 
     } catch (e) {
       console.error(e);
-      alert('Error inesperado al guardar la caja.');
+      notify.error('Error inesperado al guardar la caja.');
     }
   };
 
@@ -430,7 +436,7 @@ export default function DespachoPage() {
 
   const handleDeleteBox = async (disp: DispatchItem) => {
     if (!disp.dbId) return;
-    if (!window.confirm(`¿Estás seguro de que deseas eliminar la caja ${disp.id}? Todos los equipos dentro volverán a estar libres.`)) return;
+    if (!(await confirmDialog({ title: 'Eliminar caja', message: `¿Eliminar la caja ${disp.id}? Todos los equipos dentro volverán a estar libres.`, tone: 'error', confirmText: 'Eliminar' }))) return;
     
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
@@ -439,14 +445,14 @@ export default function DespachoPage() {
       const { error } = await supabase.from('boxes').update({ rack_location: 'ELIMINADO' }).eq('id', disp.dbId);
       if (error) {
         console.error(error);
-        alert('Error al eliminar la caja: ' + error.message);
+        notify.error('Error al eliminar la caja', { description: error.message });
       } else {
-        alert('Caja eliminada con éxito.');
-        await fetchDispatches(supabase);
+        notify.success('Caja eliminada con éxito.');
+        await refreshDispatches();
       }
     } catch (e) {
       console.error(e);
-      alert('Error inesperado al eliminar.');
+      notify.error('Error inesperado al eliminar.');
     }
   };
 
@@ -692,6 +698,132 @@ export default function DespachoPage() {
     );
   }
 
+  const dispatchColumns: DataTableColumn<any>[] = [
+    {
+      id: 'id',
+      header: 'ID Manifiesto',
+      width: 'minmax(200px,1.5fr)',
+      cell: (disp: DispatchItem) => (
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400 group-hover:bg-[#181c3a] group-hover:text-white transition-colors">
+            <FileText className="w-4 h-4" />
+          </div>
+          <span className="text-sm font-black text-[#181c3a] font-mono">{disp.id}</span>
+        </div>
+      ),
+    },
+    {
+      id: 'fecha',
+      header: 'Fecha',
+      width: '130px',
+      cell: (disp: DispatchItem) => <span className="text-xs font-bold text-slate-500">{disp.fecha}</span>,
+    },
+    {
+      id: 'destino',
+      header: 'Destino',
+      width: 'minmax(160px,1fr)',
+      cell: (disp: DispatchItem) => (
+        <div className="flex items-center gap-2">
+          <Navigation className="w-3 h-3 text-[#2ec4f1]" />
+          <span className="text-xs font-bold text-slate-700">{disp.destino}</span>
+        </div>
+      ),
+    },
+    {
+      id: 'tipo',
+      header: 'Tipo',
+      width: '130px',
+      cell: (disp: DispatchItem) => <Badge variant="blue">{disp.tipo}</Badge>,
+    },
+    {
+      id: 'unidades',
+      header: 'Unidades',
+      width: '110px',
+      cell: (disp: DispatchItem) => <span className="text-sm font-bold text-slate-700">{disp.unidades}</span>,
+    },
+    {
+      id: 'estatus',
+      header: 'Estatus',
+      width: '150px',
+      cell: (disp: DispatchItem) => (
+        <div className="flex items-center gap-2">
+          <div className={`w-1.5 h-1.5 rounded-full ${disp.estatus === 'Entregado' ? 'bg-emerald-500' : disp.estatus === 'En Ruta' ? 'bg-[#2ec4f1]' : 'bg-amber-400'}`} />
+          <span className="text-[10px] font-black uppercase tracking-tight text-slate-600">{disp.estatus}</span>
+        </div>
+      ),
+    },
+    {
+      id: 'acciones',
+      header: 'Acciones',
+      width: '170px',
+      align: 'right',
+      cell: (disp: DispatchItem) => (
+        <div className="flex items-center justify-end gap-2">
+          <div
+            onClick={(e) => { e.stopPropagation(); handleEditBox(disp); }}
+            className="w-8 h-8 flex items-center justify-center rounded-lg bg-blue-100 text-blue-600 hover:bg-blue-200 cursor-pointer transition-colors"
+            title="Editar"
+          >
+            <Pencil className="w-4 h-4" />
+          </div>
+          <div
+            onClick={(e) => { e.stopPropagation(); handleDeleteBox(disp); }}
+            className="w-8 h-8 flex items-center justify-center rounded-lg bg-red-100 text-red-600 hover:bg-red-200 cursor-pointer transition-colors"
+            title="Eliminar"
+          >
+            <Trash2 className="w-4 h-4" />
+          </div>
+          <div
+            className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-200 text-slate-700 hover:bg-slate-300 cursor-pointer transition-colors"
+            title="Entrar"
+          >
+            <ArrowRight className="w-4 h-4" />
+          </div>
+        </div>
+      ),
+    },
+  ];
+
+  const dispatchHistoryColumns: DataTableColumn<any>[] = [
+    {
+      id: 'guia',
+      header: 'Guía / Destino',
+      width: 'minmax(200px,1.5fr)',
+      cell: (hist: any) => (
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600">
+            <Truck className="w-4 h-4" />
+          </div>
+          <span className="text-sm font-black text-[#181c3a] font-mono">{hist.guide_number}</span>
+        </div>
+      ),
+    },
+    {
+      id: 'fecha',
+      header: 'Fecha',
+      width: '180px',
+      cell: (hist: any) => <span className="text-xs font-bold text-slate-500">{new Date(hist.created_at).toLocaleString()}</span>,
+    },
+    {
+      id: 'tipo',
+      header: 'Tipo',
+      width: '130px',
+      cell: (hist: any) => <Badge variant="blue">{hist.dispatch_type}</Badge>,
+    },
+    {
+      id: 'items',
+      header: 'Items / Cajas',
+      width: '130px',
+      cell: (hist: any) => <span className="text-sm font-bold text-slate-700">{hist.dispatch_items?.[0]?.count || 0}</span>,
+    },
+    {
+      id: 'usuario',
+      header: 'Usuario',
+      width: 'minmax(140px,1fr)',
+      cell: (hist: any) => <span className="text-xs font-bold text-slate-500">{hist.dispatched_by || 'Sistema'}</span>,
+    },
+  ];
+
   return (
     <ModulePage
       title="Despacho Final & Logística de Salida"
@@ -744,7 +876,7 @@ export default function DespachoPage() {
                 </div>
                 <Button variant="primary" onClick={async () => {
                   try {
-                    const res = await fetch('/api/despacho/pendientes');
+                    const res = await apiFetch('/api/despacho/pendientes');
                     if (res.ok) {
                       const data = await res.json();
                       const ws = XLSX.utils.json_to_sheet(data.data || []);
@@ -752,7 +884,7 @@ export default function DespachoPage() {
                       XLSX.utils.book_append_sheet(wb, ws, "Despachos Pendientes");
                       XLSX.writeFile(wb, `Despachos_CQRS_${new Date().toISOString().split('T')[0]}.xlsx`);
                     } else {
-                      alert('El nuevo módulo Despacho (Feature Flag USE_NEW_DESPACHO_MODULE) no está activo.');
+                      notify.info('El nuevo módulo Despacho (Feature Flag USE_NEW_DESPACHO_MODULE) no está activo.');
                     }
                   } catch(e) {
                     console.error(e);
@@ -992,130 +1124,34 @@ export default function DespachoPage() {
           />
 
           <Card padding="none" className="overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-100">
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">ID Manifiesto</th>
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Fecha</th>
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Destino</th>
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Tipo</th>
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Unidades</th>
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Estatus</th>
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {dispatches.map((disp) => (
-                    <tr key={disp.id} className="hover:bg-slate-50/50 transition-colors group cursor-pointer" onClick={() => handleSelectBox(disp)}>
-                      <td className="px-6 py-5">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400 group-hover:bg-[#181c3a] group-hover:text-white transition-colors">
-                            <FileText className="w-4 h-4" />
-                          </div>
-                          <span className="text-sm font-black text-[#181c3a] font-mono">{disp.id}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-5">
-                        <span className="text-xs font-bold text-slate-500">{disp.fecha}</span>
-                      </td>
-                      <td className="px-6 py-5">
-                        <div className="flex items-center gap-2">
-                          <Navigation className="w-3 h-3 text-[#2ec4f1]" />
-                          <span className="text-xs font-bold text-slate-700">{disp.destino}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-5">
-                        <Badge variant="blue">{disp.tipo}</Badge>
-                      </td>
-                      <td className="px-6 py-5">
-                        <span className="text-sm font-bold text-slate-700">{disp.unidades}</span>
-                      </td>
-                      <td className="px-6 py-5">
-                        <div className="flex items-center gap-2">
-                          <div className={`w-1.5 h-1.5 rounded-full ${disp.estatus === 'Entregado' ? 'bg-emerald-500' : disp.estatus === 'En Ruta' ? 'bg-[#2ec4f1]' : 'bg-amber-400'}`} />
-                          <span className="text-[10px] font-black uppercase tracking-tight text-slate-600">{disp.estatus}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-5 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <div 
-                            onClick={(e) => { e.stopPropagation(); handleEditBox(disp); }}
-                            className="w-8 h-8 flex items-center justify-center rounded-lg bg-blue-100 text-blue-600 hover:bg-blue-200 cursor-pointer transition-colors"
-                            title="Editar"
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </div>
-                          <div 
-                            onClick={(e) => { e.stopPropagation(); handleDeleteBox(disp); }}
-                            className="w-8 h-8 flex items-center justify-center rounded-lg bg-red-100 text-red-600 hover:bg-red-200 cursor-pointer transition-colors"
-                            title="Eliminar"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </div>
-                          <div 
-                            className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-200 text-slate-700 hover:bg-slate-300 cursor-pointer transition-colors"
-                            title="Entrar"
-                          >
-                            <ArrowRight className="w-4 h-4" />
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable
+              columns={dispatchColumns}
+              data={dispatches}
+              getRowId={(disp: DispatchItem) => disp.id}
+              onRowClick={(disp: DispatchItem) => handleSelectBox(disp)}
+              rowClassName={() => 'group cursor-pointer'}
+              rowHeight={64}
+              maxBodyHeight={560}
+              minWidth={1000}
+              headerClassName="bg-slate-50"
+              emptyMessage="No hay manifiestos de despacho."
+            />
           </Card>
         </section>
         </div>
         ) : (
           <div className="space-y-6 animate-in fade-in">
             <Card padding="none" className="overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead>
-                    <tr className="bg-slate-50 border-b border-slate-100">
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Guía / Destino</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Fecha</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Tipo</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Items / Cajas</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Usuario</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {dispatchHistory.map((hist) => (
-                      <tr key={hist.id} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="px-6 py-5">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600">
-                              <Truck className="w-4 h-4" />
-                            </div>
-                            <span className="text-sm font-black text-[#181c3a] font-mono">{hist.guide_number}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-5">
-                          <span className="text-xs font-bold text-slate-500">{new Date(hist.created_at).toLocaleString()}</span>
-                        </td>
-                        <td className="px-6 py-5">
-                          <Badge variant="blue">{hist.dispatch_type}</Badge>
-                        </td>
-                        <td className="px-6 py-5">
-                          <span className="text-sm font-bold text-slate-700">{hist.dispatch_items?.[0]?.count || 0}</span>
-                        </td>
-                        <td className="px-6 py-5">
-                          <span className="text-xs font-bold text-slate-500">{hist.dispatched_by || 'Sistema'}</span>
-                        </td>
-                      </tr>
-                    ))}
-                    {dispatchHistory.length === 0 && (
-                      <tr>
-                        <td colSpan={5} className="py-12 text-center text-slate-400 text-sm">No hay historial de despachos registrados.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable
+                columns={dispatchHistoryColumns}
+                data={dispatchHistory}
+                getRowId={(hist: any) => hist.id}
+                rowHeight={64}
+                maxBodyHeight={560}
+                minWidth={900}
+                headerClassName="bg-slate-50"
+                emptyMessage="No hay historial de despachos registrados."
+              />
             </Card>
           </div>
         )}

@@ -1,3 +1,4 @@
+import { notify } from '@/components/ui/messaging/messageStore';
 import {
   formatAgencyLabel,
   getBackofficeClassifierName,
@@ -24,7 +25,7 @@ export async function exportHistoryReport(
   dateFilterTo: string
 ): Promise<void> {
   if (trayEntries.length === 0) {
-    alert('No hay ingresos CAC con orden de servicio TC-XXX que coincidan con los filtros actuales.');
+    notify.warning('Sin resultados para exportar', { description: 'No hay ingresos CAC con orden de servicio TC-XXX que coincidan con los filtros actuales.' });
     return;
   }
 

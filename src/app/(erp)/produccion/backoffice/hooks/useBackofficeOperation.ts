@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { testSupabaseConnection } from '@/lib/supabase/test-connection';
+import { notify } from '@/components/ui/messaging/messageStore';
 import type { BackofficeTab, BackofficeReception, OperationCategory, ReceptionStep } from '../types';
 import { compressImage } from '../backofficeHelpers';
 import { useBackofficeCatalogs } from './useBackofficeCatalogs';
@@ -203,11 +204,11 @@ export function useBackofficeOperation() {
     setLoading(true);
     const result = await testSupabaseConnection();
     if (result.success) {
-      alert('✅ Conexión exitosa con Supabase');
+      notify.success('Conexión exitosa con Supabase');
       await inbox.fetchPending();
       if (activeTab === 'history') await fetchHistory();
     } else {
-      alert(`❌ Error de conexión: ${result.error}`);
+      notify.error('Error de conexión', { description: result.error });
       inbox.setInboxLoadError(result.error || 'Error de conexión con Supabase');
     }
     setLoading(false);

@@ -1,5 +1,6 @@
 import type { DispatchBatchSummary } from '../domain/types/dispatch-batch.types';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { apiFetch } from '@/lib/http/apiFetch';
 
 type OperatorContext = {
   operatorId?: string | null;
@@ -22,7 +23,7 @@ export async function fetchOpenDispatchBatches(): Promise<{
   data?: DispatchBatchSummary[];
   error?: string;
 }> {
-  const res = await fetch('/api/dispatch-batches', { cache: 'no-store' });
+  const res = await apiFetch('/api/dispatch-batches', { cache: 'no-store' });
   const json = await res.json();
   if (!res.ok) return { success: false, error: json.error || 'Error al listar lotes' };
   return { success: true, data: json.data };
@@ -38,7 +39,7 @@ export async function openDispatchBatchApi(input: {
   error?: string;
 }> {
   const operator = await getOperatorContext();
-  const res = await fetch('/api/dispatch-batches', {
+  const res = await apiFetch('/api/dispatch-batches', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...input, ...operator }),
@@ -56,7 +57,7 @@ export async function closeDispatchBatchApi(batchId: string): Promise<{
   error?: string;
 }> {
   const operator = await getOperatorContext();
-  const res = await fetch(`/api/dispatch-batches/${batchId}/close`, {
+  const res = await apiFetch(`/api/dispatch-batches/${batchId}/close`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(operator),

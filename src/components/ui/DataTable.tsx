@@ -1,223 +1,197 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
-import { Card } from './Card';
-import { Button } from './Button';
-import { EmptyState } from './EmptyState';
-import { Spinner } from './Spinner';
-import { ErpIcon } from '@/lib/design/icons';
-import { erpLayout, erpTypography } from '@/lib/design/tokens';
+import { memo, useRef, type ReactNode } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 
-export type DataTableColumn<T> = {
-  key: string;
-  header: string;
-  render?: (row: T, index: number) => React.ReactNode;
-  accessor?: (row: T) => React.ReactNode;
-  className?: string;
+export type DataTableAlign = 'left' | 'center' | 'right';
+
+export interface DataTableColumn<T> {
+  /** Identificador único de la columna. */
+  id: string;
+  /** Contenido de la cabecera. */
+  header: ReactNode;
+  /** Render de la celda para una fila. */
+  cell: (row: T, index: number) => ReactNode;
+  /**
+   * Track de CSS grid para la columna (p. ej. '120px', 'minmax(120px,1fr)',
+   * '1fr'). Por defecto '1fr'.
+   */
+  width?: string;
+  align?: DataTableAlign;
   headerClassName?: string;
-  hideBelow?: 'sm' | 'md' | 'lg';
-  align?: 'left' | 'center' | 'right';
-};
+  cellClassName?: string;
+}
 
-type DataTableProps<T> = {
-  title?: string;
-  subtitle?: string;
+export interface DataTableProps<T> {
   columns: DataTableColumn<T>[];
   data: T[];
-  rowKey: (row: T, index: number) => string;
-  searchPlaceholder?: string;
-  searchValue?: string;
-  onSearchChange?: (value: string) => void;
-  /** Filtrado cliente cuando no hay onSearchChange externo */
-  searchFilter?: (row: T, term: string) => boolean;
-  filters?: React.ReactNode;
-  toolbarActions?: React.ReactNode;
-  emptyTitle?: string;
-  emptyDescription?: string;
-  isLoading?: boolean;
-  stickyHeader?: boolean;
-  compact?: boolean;
+  /** Clave estable por fila (evita remounts y bugs de virtualización). */
+  getRowId: (row: T, index: number) => string | number;
+  onRowClick?: (row: T, index: number) => void;
+  /** Alto fijo de fila en px (la virtualización lo necesita). Default 44. */
+  rowHeight?: number;
+  /** Alto máximo del cuerpo scrolleable en px. Default 520. */
+  maxBodyHeight?: number;
+  /**
+   * A partir de cuántas filas se activa la virtualización. Por debajo se
+   * renderiza todo en flujo normal (tablas chicas no pagan el costo). Default 60.
+   */
+  virtualizeThreshold?: number;
+  overscan?: number;
+  emptyMessage?: string;
+  /** Ancho mínimo para habilitar scroll horizontal en tablas anchas. */
+  minWidth?: number | string;
   className?: string;
+  rowClassName?: (row: T, index: number) => string | undefined;
+  ariaLabel?: string;
+  /** Clases para el contenedor de la cabecera (fondo/borde). */
+  headerClassName?: string;
+  /** Clases de texto base para las celdas de cabecera. */
+  headerTextClassName?: string;
+}
+
+const ALIGN_CLASS: Record<DataTableAlign, string> = {
+  left: 'justify-start text-left',
+  center: 'justify-center text-center',
+  right: 'justify-end text-right',
 };
 
-const hideClass: Record<'sm' | 'md' | 'lg', string> = {
-  sm: 'hidden sm:table-cell',
-  md: 'hidden md:table-cell',
-  lg: 'hidden lg:table-cell',
-};
-
-const alignClass = {
-  left: 'text-left',
-  center: 'text-center',
-  right: 'text-right',
-};
-
-/** Tabla avanzada con búsqueda, filtros y scroll responsive. */
-export function DataTable<T>({
-  title,
-  subtitle,
+/**
+ * Tabla virtualizada y reutilizable (C3).
+ *
+ * - Layout por CSS grid: cabecera y filas comparten `gridTemplateColumns`, así
+ *   las columnas quedan alineadas incluso con virtualización (posición
+ *   absoluta).
+ * - Solo virtualiza cuando `data.length > virtualizeThreshold`: las tablas
+ *   pequeñas se renderizan en flujo normal y conservan su alto natural.
+ * - Renderiza únicamente las filas visibles (+overscan), evitando volcar miles
+ *   de nodos al DOM.
+ */
+function DataTableComponent<T>({
   columns,
   data,
-  rowKey,
-  searchPlaceholder = 'Buscar registros...',
-  searchValue,
-  onSearchChange,
-  searchFilter,
-  filters,
-  toolbarActions,
-  emptyTitle = 'Sin registros',
-  emptyDescription = 'No hay datos que coincidan con los filtros actuales.',
-  isLoading = false,
-  stickyHeader = true,
-  compact = false,
+  getRowId,
+  onRowClick,
+  rowHeight = 44,
+  maxBodyHeight = 520,
+  virtualizeThreshold = 60,
+  overscan = 10,
+  emptyMessage = 'Sin registros',
+  minWidth,
   className = '',
+  rowClassName,
+  ariaLabel,
+  headerClassName = 'bg-white border-b border-slate-100',
+  headerTextClassName = 'text-slate-400',
 }: DataTableProps<T>) {
-  const [internalSearch, setInternalSearch] = useState('');
-  const term = searchValue ?? internalSearch;
-  const setTerm = onSearchChange ?? setInternalSearch;
+  const parentRef = useRef<HTMLDivElement>(null);
+  const gridTemplateColumns = columns.map((c) => c.width ?? '1fr').join(' ');
+  const shouldVirtualize = data.length > virtualizeThreshold;
 
-  const filtered = useMemo(() => {
-    if (!term.trim() || !searchFilter) return data;
-    const q = term.trim().toLowerCase();
-    return data.filter((row) => searchFilter(row, q));
-  }, [data, term, searchFilter]);
+  const rowVirtualizer = useVirtualizer({
+    count: data.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => rowHeight,
+    overscan,
+  });
 
-  const cellPad = compact ? 'px-3 py-2.5' : 'px-4 sm:px-6 py-3 sm:py-4';
-  const showSearch = Boolean(onSearchChange || searchFilter);
+  const clickable = Boolean(onRowClick);
 
-  return (
-    <Card padding="none" className={`overflow-hidden border border-slate-100 ${className}`}>
-      {(title || subtitle || showSearch || filters || toolbarActions) && (
-        <div className="p-4 sm:p-5 border-b border-slate-100 space-y-4">
-          {(title || subtitle) && (
-            <div>
-              {title && <h3 className={erpTypography.sectionTitle}>{title}</h3>}
-              {subtitle && (
-                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-1">{subtitle}</p>
-              )}
-            </div>
-          )}
-
-          <div className="flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between">
-            {showSearch && (
-              <div className="relative flex-1 min-w-0 max-w-xl">
-                <ErpIcon
-                  name="search"
-                  className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none"
-                />
-                <input
-                  type="search"
-                  value={term}
-                  onChange={(e) => setTerm(e.target.value)}
-                  placeholder={searchPlaceholder}
-                  className="w-full h-11 pl-10 pr-4 bg-slate-50 border-2 border-slate-100 rounded-xl text-sm font-bold outline-none focus:border-[#2ec4f1]"
-                  aria-label={searchPlaceholder}
-                />
-              </div>
-            )}
-
-            <div className="flex flex-wrap items-center gap-2">
-              {filters}
-              {toolbarActions}
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className={erpLayout.tableWrap}>
-        <table className="w-full text-left text-xs sm:text-sm min-w-[640px]">
-          <thead className={stickyHeader ? 'sticky top-0 z-10 bg-slate-50/95 backdrop-blur-sm' : ''}>
-            <tr className="border-b border-slate-100">
-              {columns.map((col) => (
-                <th
-                  key={col.key}
-                  className={`${cellPad} ${erpTypography.label} text-slate-500 ${col.hideBelow ? hideClass[col.hideBelow] : ''} ${alignClass[col.align ?? 'left']} ${col.headerClassName ?? ''}`}
-                >
-                  {col.header}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-50">
-            {isLoading && (
-              <tr>
-                <td colSpan={columns.length} className="py-16 text-center">
-                  <div className="flex justify-center">
-                    <Spinner />
-                  </div>
-                </td>
-              </tr>
-            )}
-            {!isLoading && filtered.length === 0 && (
-              <tr>
-                <td colSpan={columns.length}>
-                  <EmptyState title={emptyTitle} description={emptyDescription} icon="search" />
-                </td>
-              </tr>
-            )}
-            {!isLoading &&
-              filtered.map((row, index) => (
-                <tr key={rowKey(row, index)} className="hover:bg-slate-50/80 transition-colors">
-                  {columns.map((col) => (
-                    <td
-                      key={col.key}
-                      className={`${cellPad} ${col.hideBelow ? hideClass[col.hideBelow] : ''} ${alignClass[col.align ?? 'left']} ${col.className ?? ''}`}
-                    >
-                      {col.render
-                        ? col.render(row, index)
-                        : col.accessor
-                          ? col.accessor(row)
-                          : null}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-          </tbody>
-        </table>
+  const renderCells = (row: T, index: number) =>
+    columns.map((col) => (
+      <div
+        key={col.id}
+        className={`flex items-center px-3 min-w-0 ${ALIGN_CLASS[col.align ?? 'left']} ${col.cellClassName ?? ''}`}
+      >
+        {col.cell(row, index)}
       </div>
-    </Card>
+    ));
+
+  return (
+    <div className={`overflow-x-auto ${className}`} role="table" aria-label={ariaLabel}>
+      <div style={minWidth ? { minWidth } : undefined}>
+        {/* Cabecera */}
+        <div
+          role="row"
+          className={`grid ${headerClassName}`}
+          style={{ gridTemplateColumns }}
+        >
+          {columns.map((col) => (
+            <div
+              key={col.id}
+              role="columnheader"
+              className={`flex items-center px-3 py-3 text-[10px] uppercase tracking-widest font-black ${headerTextClassName} ${ALIGN_CLASS[col.align ?? 'left']} ${col.headerClassName ?? ''}`}
+            >
+              {col.header}
+            </div>
+          ))}
+        </div>
+
+        {/* Cuerpo */}
+        {data.length === 0 ? (
+          <div className="p-6 text-center text-slate-400 text-sm font-bold">{emptyMessage}</div>
+        ) : (
+          <div
+            ref={parentRef}
+            className="overflow-y-auto"
+            style={{ maxHeight: maxBodyHeight }}
+          >
+            {shouldVirtualize ? (
+              <div
+                style={{
+                  height: rowVirtualizer.getTotalSize(),
+                  position: 'relative',
+                  width: '100%',
+                }}
+              >
+                {rowVirtualizer.getVirtualItems().map((vItem) => {
+                  const row = data[vItem.index];
+                  return (
+                    <div
+                      key={getRowId(row, vItem.index)}
+                      role="row"
+                      onClick={clickable ? () => onRowClick!(row, vItem.index) : undefined}
+                      className={`grid items-center border-b border-slate-50 text-xs font-bold text-[#181c3a] hover:bg-slate-50 ${clickable ? 'cursor-pointer' : ''} ${rowClassName?.(row, vItem.index) ?? ''}`}
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        height: vItem.size,
+                        transform: `translateY(${vItem.start}px)`,
+                        gridTemplateColumns,
+                      }}
+                    >
+                      {renderCells(row, vItem.index)}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              data.map((row, index) => (
+                <div
+                  key={getRowId(row, index)}
+                  role="row"
+                  onClick={clickable ? () => onRowClick!(row, index) : undefined}
+                  className={`grid items-center border-b border-slate-50 text-xs font-bold text-[#181c3a] hover:bg-slate-50 ${clickable ? 'cursor-pointer' : ''} ${rowClassName?.(row, index) ?? ''}`}
+                  style={{ gridTemplateColumns, minHeight: rowHeight }}
+                >
+                  {renderCells(row, index)}
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
-/** Barra de herramientas reutilizable para tablas / listados. */
-export function DataTableToolbar({
-  children,
-  onToggleFilters,
-  filtersOpen,
-  onExport,
-  onAdd,
-  addLabel = 'Agregar',
-}: {
-  children?: React.ReactNode;
-  onToggleFilters?: () => void;
-  filtersOpen?: boolean;
-  onExport?: () => void;
-  onAdd?: () => void;
-  addLabel?: string;
-}) {
-  return (
-    <>
-      {onToggleFilters && (
-        <Button
-          variant={filtersOpen ? 'primary' : 'outline'}
-          size="sm"
-          leftIcon={<ErpIcon name="filter" />}
-          onClick={onToggleFilters}
-        >
-          Filtros
-        </Button>
-      )}
-      {onExport && (
-        <Button variant="outline" size="sm" leftIcon={<ErpIcon name="export" />} onClick={onExport}>
-          Exportar
-        </Button>
-      )}
-      {onAdd && (
-        <Button variant="primary" size="sm" leftIcon={<ErpIcon name="add" />} onClick={onAdd}>
-          {addLabel}
-        </Button>
-      )}
-      {children}
-    </>
-  );
-}
+/**
+ * C1: `DataTable` memoizado. No vuelve a renderizar cuando el padre re-renderiza
+ * por estado no relacionado; solo si cambian sus props (comparación shallow).
+ * Para que el memo "enganche", el padre debe pasar props estables
+ * (`columns`/`getRowId`/callbacks memoizados con useMemo/useCallback o a nivel de
+ * módulo). El cast conserva la firma genérica del componente.
+ */
+export const DataTable = memo(DataTableComponent) as typeof DataTableComponent;

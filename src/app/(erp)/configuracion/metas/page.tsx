@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Badge } from '@/components/ui';
+import { Card, Button, Badge, notify, confirmDialog } from '@/components/ui';
 import { ModulePage } from '@/components/module-page';
 import { Settings, Plus, Save, Trash2, Edit2, Users, Target } from 'lucide-react';
 import { getKpiGoals, saveKpiGoal, deleteKpiGoal } from '@/lib/database/kpi-goals';
@@ -71,7 +71,7 @@ export default function MetasKpiPage() {
   };
 
   const handleSave = async () => {
-    if (formDailyGoal <= 0) return alert("Meta diaria debe ser mayor a 0");
+    if (formDailyGoal <= 0) return notify.warning("La meta diaria debe ser mayor a 0");
 
     await saveKpiGoal({
       id: editingId,
@@ -87,7 +87,8 @@ export default function MetasKpiPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("¿Eliminar esta meta?")) return;
+    const ok = await confirmDialog({ title: 'Eliminar meta', message: '¿Eliminar esta meta?', tone: 'error', confirmText: 'Eliminar' });
+    if (!ok) return;
     await deleteKpiGoal(id);
     fetchData();
   };

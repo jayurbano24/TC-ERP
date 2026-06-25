@@ -5,8 +5,45 @@ import {
   Database, UploadCloud, Activity, LayoutDashboard, History, Settings, FileSpreadsheet, 
   Search, ArrowRightLeft, FileWarning, CheckCircle2, AlertTriangle, Loader2
 } from 'lucide-react';
-import { Card, Button, Badge } from '@/components/ui';
+import { Card, Button, Badge, DataTable, type DataTableColumn } from '@/components/ui';
+import { apiFetch } from '@/lib/http/apiFetch';
+import { useQuery } from '@tanstack/react-query';
 import Papa from 'papaparse';
+
+// Referencia estable para la query mientras no hay datos.
+const EMPTY_SAP_HISTORY: any[] = [];
+
+// Columnas del historial de validaciones SAP (C3: tabla virtualizada).
+const SAP_HISTORY_COLUMNS: DataTableColumn<any>[] = [
+  { id: 'fecha', header: 'Fecha', cell: (h) => new Date(h.fecha).toLocaleString() },
+  { id: 'archivo', header: 'Archivo', cell: (h) => h.archivo },
+  { id: 'usuario', header: 'Usuario', cell: (h) => h.usuario },
+  { id: 'registros', header: 'Filas Leídas', align: 'right', cell: (h) => h.registros },
+  {
+    id: 'encontrados',
+    header: 'Validados',
+    align: 'right',
+    cellClassName: 'text-emerald-600',
+    cell: (h) => h.encontrados,
+  },
+  {
+    id: 'errores',
+    header: 'Error / Inconsistencia',
+    align: 'right',
+    cellClassName: 'text-rose-500',
+    cell: (h) => h.no_encontrados + h.inconsistencias,
+  },
+  {
+    id: 'estado',
+    header: 'Estado',
+    align: 'center',
+    cell: (h) => (
+      <Badge className="bg-emerald-100 text-emerald-700 border-none uppercase text-[9px] font-black tracking-widest">
+        {h.estado}
+      </Badge>
+    ),
+  },
+];
 
 const REQUIRED_COLUMNS = [
   "Material", "Texto breve de material", "Número de serie", 
@@ -20,48 +57,38 @@ export default function IntegracionSAP() {
   const [progressLog, setProgressLog] = useState<string[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const [dashboardData, setDashboardData] = useState<any>(null);
-  const [isLoadingDashboard, setIsLoadingDashboard] = useState(true);
+  // C6: dashboard e historial SAP vía TanStack Query (cachea y deja de
+  // re-consultar en cada cambio de pestaña dentro de la ventana de staleTime).
+  const dashboardQuery = useQuery({
+    queryKey: ['sap-dashboard'],
+    queryFn: async () => {
+      const res = await apiFetch('/api/sap/dashboard');
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Error al cargar dashboard SAP');
+      return data;
+    },
+    enabled: activeTab === 'dashboard',
+  });
+  const dashboardData = dashboardQuery.data ?? null;
+  const isLoadingDashboard = dashboardQuery.isLoading;
 
-  const [historyData, setHistoryData] = useState<any[]>([]);
-  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const historyQuery = useQuery({
+    queryKey: ['sap-history'],
+    queryFn: async () => {
+      const res = await apiFetch('/api/sap/history');
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Error al cargar historial SAP');
+      return (data.data ?? []) as any[];
+    },
+    enabled: activeTab === 'historial',
+  });
+  const historyData = historyQuery.data ?? EMPTY_SAP_HISTORY;
+  const isLoadingHistory = historyQuery.isLoading;
 
   const [queryInput, setQueryInput] = useState('');
   const [queryResult, setQueryResult] = useState<any>(null);
   const [isQuerying, setIsQuerying] = useState(false);
   const [queryError, setQueryError] = useState<string | null>(null);
-
-  React.useEffect(() => {
-    if (activeTab === 'dashboard') {
-      setIsLoadingDashboard(true);
-      fetch('/api/sap/dashboard')
-        .then(res => res.json())
-        .then(data => {
-          if (data.success) {
-            setDashboardData(data);
-          }
-          setIsLoadingDashboard(false);
-        })
-        .catch(err => {
-          console.error("Failed to fetch dashboard", err);
-          setIsLoadingDashboard(false);
-        });
-    } else if (activeTab === 'historial') {
-      setIsLoadingHistory(true);
-      fetch('/api/sap/history')
-        .then(res => res.json())
-        .then(data => {
-          if (data.success) {
-            setHistoryData(data.data);
-          }
-          setIsLoadingHistory(false);
-        })
-        .catch(err => {
-          console.error("Failed to fetch history", err);
-          setIsLoadingHistory(false);
-        });
-    }
-  }, [activeTab]);
 
   const handleQuery = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,7 +99,7 @@ export default function IntegracionSAP() {
     setQueryResult(null);
 
     try {
-      const res = await fetch(`/api/sap/query?sn=${encodeURIComponent(queryInput.trim())}`);
+      const res = await apiFetch(`/api/sap/query?sn=${encodeURIComponent(queryInput.trim())}`);
       const data = await res.json();
       if (data.success) {
         setQueryResult(data.data);
@@ -152,7 +179,7 @@ export default function IntegracionSAP() {
             logProcess('Descargando series maestras de TC-Multimedia...');
             
             try {
-              const res = await fetch('/api/sap/tc-series');
+              const res = await apiFetch('/api/sap/tc-series');
               const { success, series, equipos, error } = await res.json();
               
               if (!success) {
@@ -233,7 +260,7 @@ export default function IntegracionSAP() {
               setUploadStatus('syncing');
               logProcess('Sincronizando resultados con la base de datos...');
 
-              const syncRes = await fetch('/api/sap/sync', {
+              const syncRes = await apiFetch('/api/sap/sync', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -441,43 +468,14 @@ export default function IntegracionSAP() {
         {isLoadingHistory ? (
           <div className="flex justify-center items-center py-12"><Loader2 className="w-8 h-8 animate-spin text-[#2ec4f1]" /></div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-100 text-[10px] uppercase tracking-widest text-slate-400 font-black">
-                  <th className="p-3">Fecha</th>
-                  <th className="p-3">Archivo</th>
-                  <th className="p-3">Usuario</th>
-                  <th className="p-3 text-right">Filas Leídas</th>
-                  <th className="p-3 text-right">Validados</th>
-                  <th className="p-3 text-right">Error / Inconsistencia</th>
-                  <th className="p-3 text-center">Estado</th>
-                </tr>
-              </thead>
-              <tbody className="text-xs font-bold text-[#181c3a]">
-                {historyData.map(h => (
-                  <tr key={h.id} className="border-b border-slate-50 hover:bg-slate-50">
-                    <td className="p-3">{new Date(h.fecha).toLocaleString()}</td>
-                    <td className="p-3">{h.archivo}</td>
-                    <td className="p-3">{h.usuario}</td>
-                    <td className="p-3 text-right">{h.registros}</td>
-                    <td className="p-3 text-right text-emerald-600">{h.encontrados}</td>
-                    <td className="p-3 text-right text-rose-500">{h.no_encontrados + h.inconsistencias}</td>
-                    <td className="p-3 text-center">
-                      <Badge className="bg-emerald-100 text-emerald-700 border-none uppercase text-[9px] font-black tracking-widest">
-                        {h.estado}
-                      </Badge>
-                    </td>
-                  </tr>
-                ))}
-                {historyData.length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="p-6 text-center text-slate-400">No hay registros de cargas.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            columns={SAP_HISTORY_COLUMNS}
+            data={historyData}
+            getRowId={(h) => h.id}
+            minWidth={760}
+            maxBodyHeight={560}
+            emptyMessage="No hay registros de cargas."
+          />
         )}
       </Card>
     );

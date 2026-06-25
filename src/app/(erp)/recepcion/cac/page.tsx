@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from 'react';
-import { Card, Badge, Button } from '@/components/ui';
+import { Card, Badge, Button, notify } from '@/components/ui';
 import { ModulePage, ModuleToolbar } from '@/components/module-page';
 import { Package, Truck, ClipboardList, Camera, QrCode, CheckCircle2, AlertCircle, Download, Plus } from 'lucide-react';
 
@@ -63,12 +63,12 @@ export default function RecepcionCacPage() {
     const val = scanInput.trim();
     if (!val) return;
     if (scannedItems.includes(val)) {
-      alert(`La guía ${val} ya fue escaneada.`);
+      notify.warning(`La guía ${val} ya fue escaneada.`);
       setScanInput('');
       return;
     }
     if (totalCajas > 0 && scannedItems.length >= totalCajas) {
-      alert(`Límite alcanzado.`);
+      notify.warning('Límite alcanzado.');
       return;
     }
     setScannedItems([...scannedItems, val]);

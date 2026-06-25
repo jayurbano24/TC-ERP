@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
-import { Card, Button, Badge } from '@/components/ui';
+import React, { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Card, Button, Badge, notify, confirmDialog, DataTable, type DataTableColumn } from '@/components/ui';
 import { ModulePage } from '@/components/module-page';
 import { 
   CircleDollarSign, 
@@ -18,40 +19,31 @@ import {
 import { getActivityCosts, saveActivityCost, deleteActivityCost, ActivityCost } from '@/lib/database/costs';
 import { getReceptionsWithSeries } from '@/lib/database/receptions'; // To fetch backoffice records
 
+const EMPTY_COSTS: ActivityCost[] = [];
+const EMPTY_RECEPTIONS: any[] = [];
+
 export default function CostosPage() {
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'config'>('dashboard');
-  const [costs, setCosts] = useState<ActivityCost[]>([]);
-  const [loading, setLoading] = useState(true);
-  
-  // Dashboard state
-  const [receptions, setReceptions] = useState<any[]>([]);
-  const [dashboardLoading, setDashboardLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
 
   // Form state
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({ name: '', cost: '', description: '' });
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  const costsQuery = useQuery({ queryKey: ['activity-costs'], queryFn: () => getActivityCosts() });
+  const receptionsQuery = useQuery({ queryKey: ['costos-receptions'], queryFn: () => getReceptionsWithSeries() });
 
-  const loadData = async () => {
-    setLoading(true);
-    setDashboardLoading(true);
-    try {
-      const data = await getActivityCosts();
-      setCosts(data);
-      
-      const recs = await getReceptionsWithSeries();
-      // Filter only those that have been processed through backoffice, 
-      // or just show all for now since they are backoffice ingress.
-      setReceptions(recs);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-      setDashboardLoading(false);
-    }
+  const costs = costsQuery.data ?? EMPTY_COSTS;
+  const receptions = receptionsQuery.data ?? EMPTY_RECEPTIONS;
+  const loading = costsQuery.isLoading;
+  const dashboardLoading = receptionsQuery.isLoading;
+
+  const refreshData = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['activity-costs'] }),
+      queryClient.invalidateQueries({ queryKey: ['costos-receptions'] }),
+    ]);
   };
 
   const handleEdit = (cost: ActivityCost) => {
@@ -65,11 +57,11 @@ export default function CostosPage() {
 
   const handleSave = async () => {
     if (!formData.name || !formData.cost) {
-      alert("Nombre y Costo son requeridos");
+      notify.warning('Datos incompletos', { description: 'Nombre y Costo son requeridos.' });
       return;
     }
     
-    setLoading(true);
+    setBusy(true);
     const { data, error } = await saveActivityCost({
       id: editingId || '',
       name: formData.name,
@@ -78,29 +70,72 @@ export default function CostosPage() {
     });
     
     if (error) {
-      alert("Error guardando el costo: " + error);
+      notify.error('Error guardando el costo', { description: String(error) });
     } else {
-      await loadData();
+      await refreshData();
       setEditingId(null);
       setFormData({ name: '', cost: '', description: '' });
     }
-    setLoading(false);
+    setBusy(false);
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("¿Eliminar este costo por actividad?")) return;
-    setLoading(true);
+    const ok = await confirmDialog({ title: 'Eliminar costo', message: '¿Eliminar este costo por actividad?', tone: 'error', confirmText: 'Eliminar' });
+    if (!ok) return;
+    setBusy(true);
     const { error } = await deleteActivityCost(id);
     if (error) {
-      alert("Error eliminando el costo: " + error);
+      notify.error('Error eliminando el costo', { description: String(error) });
     } else {
-      await loadData();
+      await refreshData();
     }
-    setLoading(false);
+    setBusy(false);
   };
 
   // CÁLCULOS
   const totalCostPerUnit = costs.reduce((sum, item) => sum + Number(item.cost), 0);
+
+  // Columnas del desglose de costos por guía (C3: DataTable virtualizado).
+  // Se definen dentro del componente porque el costo depende de totalCostPerUnit.
+  const receptionColumns: DataTableColumn<any>[] = [
+    {
+      id: 'fecha',
+      header: 'Fecha Ingreso',
+      width: 'minmax(140px,1fr)',
+      cellClassName: 'text-slate-600 font-bold',
+      cell: (rec) => rec.fecha_formateada || new Date(rec.created_at).toLocaleDateString(),
+    },
+    {
+      id: 'sap',
+      header: 'Documento SAP / Guía',
+      width: 'minmax(160px,1fr)',
+      cellClassName: 'font-mono font-black text-[#181c3a]',
+      cell: (rec) => rec.sap_document || rec.guide_number || 'S/N',
+    },
+    {
+      id: 'cliente',
+      header: 'Cliente / Agencia',
+      width: 'minmax(140px,1fr)',
+      cellClassName: 'text-slate-500 font-bold',
+      cell: (rec) => rec.carrier || rec.agency || '---',
+    },
+    {
+      id: 'unidades',
+      header: 'Equipos (Unidades)',
+      width: '150px',
+      align: 'center',
+      cellClassName: 'font-black text-slate-800',
+      cell: (rec) => rec.received_units || 0,
+    },
+    {
+      id: 'costo',
+      header: 'Costo Operativo Calculado',
+      width: '200px',
+      align: 'right',
+      cellClassName: 'font-black text-rose-600',
+      cell: (rec) => `$${((rec.received_units || 0) * totalCostPerUnit).toFixed(2)}`,
+    },
+  ];
 
   return (
     <ModulePage
@@ -180,38 +215,17 @@ export default function CostosPage() {
             {dashboardLoading ? (
               <div className="p-10 text-center text-slate-400">Cargando datos...</div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs whitespace-nowrap">
-                  <thead>
-                    <tr className="bg-[#181c3a] text-white/40 text-[10px] font-black uppercase tracking-widest">
-                      <th className="px-6 py-4">Fecha Ingreso</th>
-                      <th className="px-6 py-4">Documento SAP / Guía</th>
-                      <th className="px-6 py-4">Cliente / Agencia</th>
-                      <th className="px-6 py-4 text-center">Equipos (Unidades)</th>
-                      <th className="px-6 py-4 text-right">Costo Operativo Calculado</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {receptions.length > 0 ? receptions.map(rec => {
-                      const units = rec.received_units || 0;
-                      const cost = units * totalCostPerUnit;
-                      return (
-                        <tr key={rec.id} className="hover:bg-slate-50 transition-colors">
-                          <td className="px-6 py-4 text-slate-600 font-bold">{rec.fecha_formateada || new Date(rec.created_at).toLocaleDateString()}</td>
-                          <td className="px-6 py-4 font-mono font-black text-[#181c3a]">{rec.sap_document || rec.guide_number || 'S/N'}</td>
-                          <td className="px-6 py-4 text-slate-500 font-bold">{rec.carrier || rec.agency || '---'}</td>
-                          <td className="px-6 py-4 text-center font-black text-slate-800">{units}</td>
-                          <td className="px-6 py-4 text-right font-black text-rose-600">${cost.toFixed(2)}</td>
-                        </tr>
-                      );
-                    }) : (
-                      <tr>
-                        <td colSpan={5} className="px-6 py-10 text-center text-slate-400 italic">No hay registros de ingresos para costear.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable
+                columns={receptionColumns}
+                data={receptions}
+                getRowId={(rec) => rec.id}
+                rowHeight={52}
+                maxBodyHeight={560}
+                minWidth={790}
+                headerClassName="bg-[#181c3a]"
+                headerTextClassName="text-white/40"
+                emptyMessage="No hay registros de ingresos para costear."
+              />
             )}
           </Card>
         </div>
@@ -264,7 +278,7 @@ export default function CostosPage() {
                   </Button>
                 )}
                 <Button 
-                  disabled={loading}
+                  disabled={busy}
                   className="flex-[2] bg-amber-500 hover:bg-amber-600 text-white rounded-xl h-12 font-black uppercase tracking-widest text-[10px] shadow-lg shadow-amber-500/20"
                   onClick={handleSave}
                 >

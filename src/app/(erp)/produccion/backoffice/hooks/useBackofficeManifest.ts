@@ -2,6 +2,7 @@
 
 import type React from 'react';
 import { useCallback, useMemo, useState } from 'react';
+import { notify, confirmDialog } from '@/components/ui/messaging/messageStore';
 import type {
   BackofficeReception,
   CatalogAgency,
@@ -110,19 +111,20 @@ export function useBackofficeManifest({
   );
 
   const removeSapGroup = useCallback(
-    (groupId: string) => {
+    async (groupId: string) => {
       const group = sapGroups.find((g) => g.id === groupId);
       const itemsInGroup = guideItems.filter((i) => i.sapGroupId === groupId);
       const label = group?.sapDocument.trim() || 'sin número';
+      if (sapGroups.length <= 1) {
+        notify.warning('Debe conservar al menos un Documento SAP en el manifiesto.');
+        return;
+      }
       const msg =
         itemsInGroup.length > 0
           ? `¿Eliminar Documento SAP "${label}" y sus ${itemsInGroup.length} ítem(s) del manifiesto?`
           : `¿Eliminar Documento SAP "${label}"?`;
-      if (!window.confirm(msg)) return;
-      if (sapGroups.length <= 1) {
-        alert('Debe conservar al menos un Documento SAP en el manifiesto.');
-        return;
-      }
+      const ok = await confirmDialog({ title: 'Eliminar Documento SAP', message: msg, tone: 'error', confirmText: 'Eliminar' });
+      if (!ok) return;
       setGuideItems((prev) => prev.filter((i) => i.sapGroupId !== groupId));
       setSapGroups((prev) => {
         const next = prev.filter((g) => g.id !== groupId);
@@ -139,12 +141,12 @@ export function useBackofficeManifest({
 
   const addItem = useCallback(() => {
     if (!activeSapGroupId || !activeSapGroup?.sapDocument.trim()) {
-      alert('Seleccione o cree un Documento SAP antes de agregar equipos al manifiesto.');
+      notify.warning('Seleccione o cree un Documento SAP antes de agregar equipos al manifiesto.');
       return;
     }
     if (!newItem.tipo || !newItem.marca || !newItem.modelo || newItem.cantidad <= 0) {
       const msg = `Faltan campos por completar: ${!newItem.tipo ? 'Tecnología, ' : ''}${!newItem.marca ? 'Marca, ' : ''}${!newItem.modelo ? 'Modelo, ' : ''}${newItem.cantidad <= 0 ? 'Cantidad' : ''}`;
-      alert(msg);
+      notify.warning(msg);
       return;
     }
     const selectedModel = MASTER_MODELOS.find((m) => m.id === newItem.modelo);

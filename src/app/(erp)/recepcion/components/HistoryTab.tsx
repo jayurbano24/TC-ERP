@@ -6,17 +6,15 @@ import { Search, Truck, Clock, Camera, Pencil, Printer, Trash2, Download, Clipbo
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { TablePagination } from '@/components/ui/TablePagination';
-import { useClientPagination } from '@/hooks/useClientPagination';
+import { notify, confirmDialog, promptDialog, DataTable } from '@/components/ui';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { printingService } from '../services/printingService';
 import { groupPxSeriesByEquipment } from '../utils/pxSeriesUtils';
 import {
   CAC_HISTORY_PAGE_SIZE,
   ReceptionCacHistoryPagination,
 } from './ReceptionCacHistoryPagination';
-
-const PX_HISTORY_PAGE_SIZE = 10;
 
 export const HistoryTab = ({
   moduleMode,
@@ -40,6 +38,10 @@ export const HistoryTab = ({
 }: any) => {
 
   const [showPxDetails, setShowPxDetails] = React.useState<any>(null);
+
+  // C5: el filtrado de historial usa el término debounced (no recalcula PX/CAC
+  // ni reagrupa en cada tecla). El input sigue ligado a searchTerm.
+  const debouncedSearch = useDebouncedValue(searchTerm, 300);
 
   // Export report handler
   const handleExportReport = async () => {
@@ -118,9 +120,9 @@ export const HistoryTab = ({
   const filteredPxRecords = useMemo(() => {
     const seenIds = new Set<string>();
     return pxRecords.filter((rec: any) => {
-      const searchLower = searchTerm.toLowerCase();
+      const searchLower = debouncedSearch.toLowerCase();
       const matchSearch =
-        !searchTerm ||
+        !debouncedSearch ||
         (rec.sap_document || '').toLowerCase().includes(searchLower) ||
         (rec.guide_number || '').toLowerCase().includes(searchLower) ||
         (rec.carrier || '').toLowerCase().includes(searchLower) ||
@@ -135,7 +137,7 @@ export const HistoryTab = ({
       seenIds.add(rec.id);
       return true;
     });
-  }, [pxRecords, searchTerm, filterPilot, filterDate]);
+  }, [pxRecords, debouncedSearch, filterPilot, filterDate]);
 
   const duplicatePxSapDocuments = useMemo(() => {
     const counts = new Map<string, number>();
@@ -149,12 +151,6 @@ export const HistoryTab = ({
     );
   }, [filteredPxRecords]);
 
-  const pxHistoryPagination = useClientPagination(
-    filteredPxRecords,
-    PX_HISTORY_PAGE_SIZE,
-    [searchTerm, filterPilot, filterDate]
-  );
-
   const parsePxCajasCount = (rec: any) => {
     const fromNotes = rec.notes?.match(/Cajas:\s*(\d+)/i)?.[1];
     return fromNotes ? parseInt(fromNotes, 10) : 1;
@@ -163,9 +159,9 @@ export const HistoryTab = ({
   const filteredCacRecords = useMemo(
     () =>
       cacRecords.filter((rec: any) => {
-        const searchLower = searchTerm.toLowerCase();
+        const searchLower = debouncedSearch.toLowerCase();
         const matchSearch =
-          !searchTerm ||
+          !debouncedSearch ||
           rec.guide_number?.toLowerCase().includes(searchLower) ||
           rec.pilot_display?.toLowerCase().includes(searchLower) ||
           rec.notes?.toLowerCase().includes(searchLower);
@@ -177,7 +173,7 @@ export const HistoryTab = ({
           rec.status !== 'ARCHIVADO';
         return matchSearch && matchFilter && matchDate && notEliminated;
       }),
-    [cacRecords, searchTerm, filterPilot, filterDate]
+    [cacRecords, debouncedSearch, filterPilot, filterDate]
   );
 
   const [cacHistoryPage, setCacHistoryPage] = React.useState(1);
@@ -238,9 +234,9 @@ export const HistoryTab = ({
 
     const itemMatches = (item: any) => {
       if (!item) return false;
-      const searchLower = searchTerm.toLowerCase();
+      const searchLower = debouncedSearch.toLowerCase();
       const matchesSearch =
-        !searchTerm ||
+        !debouncedSearch ||
         item.allGuias?.some((g: string) => g.toLowerCase().includes(searchLower)) ||
         item.guide_number?.toLowerCase().includes(searchLower) ||
         (item.pilot_display && item.pilot_display.toLowerCase().includes(searchLower));
@@ -266,11 +262,11 @@ export const HistoryTab = ({
     });
 
     return { sortedGroups, allGroups };
-  }, [cacRecords, receptionGuides, searchTerm, filterPilot, filterDate]);
+  }, [cacRecords, receptionGuides, debouncedSearch, filterPilot, filterDate]);
 
   React.useEffect(() => {
     if (moduleMode === 'cac') setCacHistoryPage(1);
-  }, [searchTerm, filterPilot, filterDate, moduleMode]);
+  }, [debouncedSearch, filterPilot, filterDate, moduleMode]);
 
   const cacTotalGroups = cacHistoryGroups.sortedGroups.length;
   const cacTotalPages = Math.max(1, Math.ceil(cacTotalGroups / CAC_HISTORY_PAGE_SIZE));
@@ -347,6 +343,175 @@ export const HistoryTab = ({
       setPxDetailsData({ boxes: [], equipments: [], loading: false });
     }
   };
+
+  // Columnas de la tabla PX (C3: DataTable virtualizado). Se definen dentro del
+  // componente porque las celdas referencian handlers/estado del scope.
+  const pxColumns = [
+    {
+      id: 'fecha',
+      header: 'Fecha / Hora',
+      width: '150px',
+      cellClassName: 'truncate text-slate-600 font-bold',
+      cell: (rec: any) => rec.fecha_formateada || new Date(rec.created_at).toLocaleString(),
+    },
+    {
+      id: 'norec',
+      header: 'No. REC',
+      width: '95px',
+      cellClassName: 'font-mono font-black text-[#2ec4f1] truncate',
+      cell: (rec: any) => rec.guide_number || '---',
+    },
+    {
+      id: 'sap',
+      header: 'Documento SAP',
+      width: '130px',
+      cell: (rec: any) => {
+        const sap = String(rec.sap_document || '').trim();
+        const isDup = sap && duplicatePxSapDocuments.has(sap);
+        return (
+          <div className="min-w-0">
+            <span className="font-mono font-black text-[#181c3a]">{rec.sap_document || '---'}</span>
+            {isDup && (
+              <span className="block text-[9px] font-black uppercase tracking-widest text-amber-600 mt-1">
+                Pedido duplicado
+              </span>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      id: 'agencia',
+      header: 'Nombre Agencia PX',
+      width: 'minmax(120px,1fr)',
+      cellClassName: 'text-slate-500 font-bold truncate',
+      cell: (rec: any) => rec.carrier || '---',
+    },
+    {
+      id: 'usuario',
+      header: 'Usuario',
+      width: '120px',
+      cellClassName: 'text-slate-500 font-bold truncate',
+      cell: (rec: any) =>
+        (rec.notes?.split('Recibido Por: ')?.[1]?.split('\n')?.[0]?.trim() || rec.received_by || 'SISTEMA').split('@')[0],
+    },
+    {
+      id: 'cajas',
+      header: 'Cant. Cajas',
+      width: '95px',
+      align: 'center' as const,
+      cellClassName: 'font-black text-slate-800',
+      cell: (rec: any) => `${parsePxCajasCount(rec)} Cajas`,
+    },
+    {
+      id: 'equipos',
+      header: 'Cantidad Equipos',
+      width: '110px',
+      align: 'center' as const,
+      cellClassName: 'font-black text-slate-800',
+      cell: (rec: any) => `${rec.received_units || 0} Equipos`,
+    },
+    {
+      id: 'estatus',
+      header: 'Estatus',
+      width: '140px',
+      cell: (rec: any) => {
+        const sap = String(rec.sap_document || '').trim();
+        const isDup = sap && duplicatePxSapDocuments.has(sap);
+        return (
+          <Badge
+            className={`border-none font-black text-[9px] ${rec.status === 'ELIMINADO POR BODEGA' ? 'bg-rose-50 text-rose-600' : isDup ? 'bg-amber-100 text-amber-700' : 'bg-emerald-50 text-emerald-600'}`}
+          >
+            {rec.status === 'ELIMINADO POR BODEGA' ? 'ELIMINADO POR BODEGA' : isDup ? 'REVISAR DUPLICADO' : 'FINALIZADO'}
+          </Badge>
+        );
+      },
+    },
+    {
+      id: 'accion',
+      header: 'Acción',
+      width: '170px',
+      align: 'right' as const,
+      cell: (rec: any) => (
+        <div className="flex items-center justify-end gap-3">
+          <button
+            className="text-slate-400 hover:text-indigo-500 transition-all hover:scale-110"
+            title="Ver Detalle"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleViewPxDetails(rec);
+            }}
+          >
+            <Eye size={18} strokeWidth={2} />
+          </button>
+          <button
+            className="text-slate-400 hover:text-amber-500 transition-all hover:scale-110"
+            title="Editar Documento SAP"
+            onClick={async (e) => {
+              e.stopPropagation();
+              const newSap = await promptDialog({ title: 'Editar Documento SAP', prompt: { defaultValue: rec.sap_document || '' } });
+              if (newSap === null || newSap.trim() === '' || newSap.trim() === rec.sap_document) return;
+              try {
+                const supabase = getSupabaseBrowserClient();
+                if (!supabase) return;
+                const { error } = await supabase.from('receptions').update({ sap_document: newSap.trim() }).eq('id', rec.id);
+                if (error) throw error;
+                setPxRecords((prev: any) => prev.map((r: any) => (r.id === rec.id ? { ...r, sap_document: newSap.trim() } : r)));
+              } catch (err: any) {
+                notify.error('Error al actualizar', { description: err.message });
+              }
+            }}
+          >
+            <Pencil size={18} strokeWidth={2} />
+          </button>
+          <button
+            className="text-slate-400 hover:text-purple-500 transition-all hover:scale-110"
+            title="Imprimir Etiquetas"
+            onClick={(e) => {
+              e.stopPropagation();
+              handlePrintLabelsPX && handlePrintLabelsPX(rec);
+            }}
+          >
+            <Tag size={18} strokeWidth={2} />
+          </button>
+          <button
+            className="text-slate-400 hover:text-[#2ec4f1] transition-all hover:scale-110"
+            title="Imprimir Conduce"
+            onClick={(e) => {
+              e.stopPropagation();
+              handlePrintPX(rec);
+            }}
+          >
+            <Printer size={18} strokeWidth={2} />
+          </button>
+          <button
+            className="text-slate-400 hover:text-rose-500 transition-all hover:scale-110"
+            title="Eliminar Recepción"
+            onClick={async (e) => {
+              e.stopPropagation();
+              if (await confirmDialog({ title: 'Eliminar recepción', message: `¿Eliminar la recepción ${rec.guide_number || rec.sap_document}? (${rec.received_units || 0} equipos)`, tone: 'error', confirmText: 'Eliminar' })) {
+                try {
+                  if (handleDeleteHistoryPX) {
+                    await handleDeleteHistoryPX(rec.id);
+                    return;
+                  }
+                  const supabase = getSupabaseBrowserClient();
+                  if (!supabase) return;
+                  const { error } = await supabase.from('receptions').update({ status: 'ELIMINADO POR BODEGA' }).eq('id', rec.id);
+                  if (error) throw error;
+                  setPxRecords((prev: any) => prev.map((r: any) => (r.id === rec.id ? { ...r, status: 'ELIMINADO POR BODEGA' } : r)));
+                } catch (err: any) {
+                  notify.error('Error al eliminar', { description: err.message });
+                }
+              }
+            }}
+          >
+            <Trash2 size={18} strokeWidth={2} />
+          </button>
+        </div>
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-6 animate-rise-in">
@@ -546,130 +711,21 @@ export const HistoryTab = ({
       </div>
 
       {moduleMode === 'px' ? (
-        <Card padding="none" className="overflow-x-auto custom-scrollbar border-none shadow-xl">
-          <table className="w-full text-left text-xs whitespace-nowrap">
-            <thead className="bg-[#181c3a] text-white/40 text-[10px] font-black uppercase tracking-widest">
-              <tr>
-                <th className="px-6 py-4">Fecha / Hora</th>
-                <th className="px-6 py-4">No. REC</th>
-                <th className="px-6 py-4">Documento SAP</th>
-                <th className="px-6 py-4">Nombre Agencia PX</th>
-                <th className="px-6 py-4">Usuario</th>
-                <th className="px-6 py-4 text-center">Cant. Cajas</th>
-                <th className="px-6 py-4 text-center">Cantidad Equipos</th>
-                <th className="px-6 py-4">Estatus</th>
-                <th className="px-6 py-4 text-right">Acción</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {pxHistoryPagination.slice.map((rec: any, rowIndex: number) => {
-                const globalIndex =
-                  (pxHistoryPagination.page - 1) * PX_HISTORY_PAGE_SIZE + rowIndex;
-                const sap = String(rec.sap_document || '').trim();
-                const isDuplicateSap = sap && duplicatePxSapDocuments.has(sap);
-                return (
-                <tr
-                  key={pxRowKey(rec, globalIndex)}
-                  className={`hover:bg-slate-50 transition-colors group ${isDuplicateSap ? 'bg-amber-50/60' : ''}`}
-                >
-                  <td className="px-6 py-5 font-bold text-slate-600 text-xs">{rec.fecha_formateada || new Date(rec.created_at).toLocaleString()}</td>
-                  <td className="px-6 py-5 font-mono font-black text-[#2ec4f1]">{rec.guide_number || '---'}</td>
-                  <td className="px-6 py-5">
-                    <span className="font-mono font-black text-[#181c3a]">{rec.sap_document || '---'}</span>
-                    {isDuplicateSap && (
-                      <span className="block text-[9px] font-black uppercase tracking-widest text-amber-600 mt-1">
-                        Pedido duplicado
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-6 py-5 text-xs font-bold text-slate-500">{rec.carrier || '---'}</td>
-                  <td className="px-6 py-5 text-xs font-bold text-slate-500">{(rec.notes?.split('Recibido Por: ')?.[1]?.split('\n')?.[0]?.trim() || rec.received_by || 'SISTEMA').split('@')[0]}</td>
-                  <td className="px-6 py-5 text-center font-black text-slate-800">{parsePxCajasCount(rec)} Cajas</td>
-                  <td className="px-6 py-5 text-center font-black text-slate-800">{rec.received_units || 0} Equipos</td>
-                  <td className="px-6 py-5">
-                    <Badge className={`border-none font-black text-[9px] ${rec.status === 'ELIMINADO POR BODEGA' ? 'bg-rose-50 text-rose-600' : isDuplicateSap ? 'bg-amber-100 text-amber-700' : 'bg-emerald-50 text-emerald-600'}`}>
-                      {rec.status === 'ELIMINADO POR BODEGA' ? 'ELIMINADO POR BODEGA' : isDuplicateSap ? 'REVISAR DUPLICADO' : 'FINALIZADO'}
-                    </Badge>
-                  </td>
-                  <td className="px-6 py-5 text-right">
-                    <div className="flex items-center justify-end gap-4 transition-opacity">
-                      <button className="text-slate-400 hover:text-indigo-500 transition-all hover:scale-110" title="Ver Detalle" onClick={(e) => {
-                        e.stopPropagation();
-                        handleViewPxDetails(rec);
-                      }}>
-                        <Eye size={22} strokeWidth={2} />
-                      </button>
-                      <button className="text-slate-400 hover:text-amber-500 transition-all hover:scale-110" title="Editar Documento SAP" onClick={async (e) => {
-                        e.stopPropagation();
-                        const newSap = prompt("Editar Documento SAP:", rec.sap_document || '');
-                        if (newSap === null || newSap.trim() === '' || newSap.trim() === rec.sap_document) return;
-                        try {
-                          const supabase = getSupabaseBrowserClient();
-                          if (!supabase) return;
-                          const { error } = await supabase.from('receptions').update({ sap_document: newSap.trim() }).eq('id', rec.id);
-                          if (error) throw error;
-                          setPxRecords((prev: any) => prev.map((r: any) => r.id === rec.id ? { ...r, sap_document: newSap.trim() } : r));
-                        } catch (err: any) {
-                          alert("Error al actualizar: " + err.message);
-                        }
-                      }}>
-                        <Pencil size={22} strokeWidth={2} />
-                      </button>
-                      <button className="text-slate-400 hover:text-purple-500 transition-all hover:scale-110" title="Imprimir Etiquetas" onClick={(e) => {
-                        e.stopPropagation();
-                        handlePrintLabelsPX && handlePrintLabelsPX(rec);
-                      }}>
-                        <Tag size={22} strokeWidth={2} />
-                      </button>
-                      <button className="text-slate-400 hover:text-[#2ec4f1] transition-all hover:scale-110" title="Imprimir Conduce" onClick={(e) => {
-                        e.stopPropagation();
-                        handlePrintPX(rec);
-                      }}>
-                        <Printer size={22} strokeWidth={2} />
-                      </button>
-                      <button className="text-slate-400 hover:text-rose-500 transition-all hover:scale-110" title="Eliminar Recepción" onClick={async (e) => {
-                        e.stopPropagation();
-                        if (confirm(`¿Eliminar la recepción ${rec.guide_number || rec.sap_document}? (${rec.received_units || 0} equipos)`)) {
-                          try {
-                            if (handleDeleteHistoryPX) {
-                              await handleDeleteHistoryPX(rec.id);
-                              return;
-                            }
-                            const supabase = getSupabaseBrowserClient();
-                            if (!supabase) return;
-                            const { error } = await supabase.from('receptions').update({ status: 'ELIMINADO POR BODEGA' }).eq('id', rec.id);
-                            if (error) throw error;
-                            setPxRecords((prev: any) => prev.map((r: any) => r.id === rec.id ? { ...r, status: 'ELIMINADO POR BODEGA' } : r));
-                          } catch (err: any) {
-                            alert("Error al eliminar: " + err.message);
-                          }
-                        }
-                      }}>
-                        <Trash2 size={22} strokeWidth={2} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              );
-              })}
-              {filteredPxRecords.length === 0 && (
-                <tr>
-                  <td colSpan={9} className="px-6 py-10 text-center text-slate-300 italic text-[10px] font-bold uppercase tracking-widest">
-                    No hay recepciones PX finalizadas
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-          <TablePagination
-            totalCount={pxHistoryPagination.totalCount}
-            page={pxHistoryPagination.page}
-            totalPages={pxHistoryPagination.totalPages}
-            startItem={pxHistoryPagination.startItem}
-            endItem={pxHistoryPagination.endItem}
-            pageSize={PX_HISTORY_PAGE_SIZE}
-            onPageChange={pxHistoryPagination.setPage}
-            itemLabel="recepciones PX"
+        <Card padding="none" className="border-none shadow-xl p-2">
+          <DataTable
+            columns={pxColumns}
+            data={filteredPxRecords}
+            getRowId={(rec: any, i: number) => pxRowKey(rec, i)}
+            rowHeight={68}
+            maxBodyHeight={640}
+            minWidth={1010}
+            headerClassName="bg-[#181c3a]"
+            headerTextClassName="text-white/50"
+            emptyMessage="No hay recepciones PX finalizadas"
+            rowClassName={(rec: any) => {
+              const sap = String(rec.sap_document || '').trim();
+              return sap && duplicatePxSapDocuments.has(sap) ? 'bg-amber-50/60' : '';
+            }}
           />
         </Card>
       ) : (
@@ -1011,8 +1067,8 @@ export const HistoryTab = ({
 
       {showTimeline && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#181c3a]/80 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-rise-in">
-            <div className="bg-[#181c3a] p-5 flex items-center justify-between text-white">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden animate-rise-in">
+            <div className="bg-[#181c3a] p-5 flex items-center justify-between text-white shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center">
                   <History className="w-5 h-5 text-[#2ec4f1]" />
@@ -1034,7 +1090,7 @@ export const HistoryTab = ({
               </button>
             </div>
             
-            <div className="p-6 bg-slate-50">
+            <div className="p-6 bg-slate-50 overflow-y-auto custom-scrollbar flex-1">
               <div className="relative pl-6 space-y-6">
                 <div className="absolute left-[11px] top-2 bottom-2 w-0.5 bg-slate-200" />
                 
@@ -1136,7 +1192,7 @@ export const HistoryTab = ({
               </div>
             </div>
             
-            <div className="p-4 bg-white border-t border-slate-100 flex justify-end">
+            <div className="p-4 bg-white border-t border-slate-100 flex justify-end shrink-0">
               <Button onClick={() => { setShowTimeline(null); setTimelineActiveGuide(null); }} className="bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] uppercase font-black tracking-widest rounded-lg h-10 px-6">
                 Cerrar
               </Button>

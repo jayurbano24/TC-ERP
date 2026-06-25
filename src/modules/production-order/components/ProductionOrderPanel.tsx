@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Button, Badge } from '@/components/ui';
+import { Button, Badge, notify } from '@/components/ui';
 import { ClipboardList, Loader2, Plus, CheckCircle2 } from 'lucide-react';
 import type { ProductionOrderSummary } from '../domain/types/production-order.types';
 import {
@@ -39,7 +39,7 @@ export function ProductionOrderPanel() {
     });
     setActing(false);
     if (!res.success) {
-      alert(res.error);
+      notify.error('No se pudo crear la orden de producción', { description: res.error });
       return;
     }
     setNotes('');
@@ -50,19 +50,19 @@ export function ProductionOrderPanel() {
     setActing(true);
     const res = await approveProductionOrderApi(poId);
     setActing(false);
-    if (!res.success) alert(res.error);
+    if (!res.success) notify.error('No se pudo aprobar la orden', { description: res.error });
     else await refresh();
   };
 
   const handleAssign = async () => {
     if (!assignPoId || !assignOsId.trim()) {
-      alert('Seleccione PO e ingrese ID de OS.');
+      notify.warning('Datos incompletos', { description: 'Seleccione PO e ingrese ID de OS.' });
       return;
     }
     setActing(true);
     const res = await assignOsToProductionOrderApi(assignPoId, assignOsId.trim());
     setActing(false);
-    if (!res.success) alert(res.error);
+    if (!res.success) notify.error('No se pudo asignar la OS', { description: res.error });
     else {
       setAssignOsId('');
       await refresh();

@@ -1,7 +1,7 @@
 'use client';
 
-import { Badge, Button, Card } from '@/components/ui';
-import { Box, Eye, Package, RefreshCw, Trash2, X } from 'lucide-react';
+import { Badge, Button, Card, notify, confirmDialog, DataTable, type DataTableColumn } from '@/components/ui';
+import { Box, Eye, RefreshCw, Trash2, X } from 'lucide-react';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { getAgenciaLabel } from '../backofficeHelpers';
 import type { CatalogAgency } from '../types';
@@ -9,7 +9,6 @@ import type { BackofficeTab } from '../types';
 import {
   buildSubBodegaRows,
   countSubBodegaBoxes,
-  hasSubBodegaInventory,
   type SubBodegaRow,
 } from '../subBodega/filterSubBodegaRows';
 
@@ -43,10 +42,14 @@ export function SubBodegaTab({
   const isAccesorios = activeTab === 'sub_accesorios';
   const rows = buildSubBodegaRows(allReceptions, activeTab, dateFilterFrom, dateFilterTo);
   const boxCount = countSubBodegaBoxes(allReceptions, activeTab, dateFilterFrom, dateFilterTo);
-  const hasInventory = hasSubBodegaInventory(allReceptions, activeTab);
 
   const handleArchive = async (item: SubBodegaRow) => {
-    if (!confirm(`¿Está seguro de OCULTAR/ARCHIVAR la caja ${item.guide} y todo su contenido heredado?`)) return;
+    const ok = await confirmDialog({
+      title: 'Archivar caja',
+      message: `¿Está seguro de OCULTAR/ARCHIVAR la caja ${item.guide} y todo su contenido heredado?`,
+      confirmText: 'Archivar',
+    });
+    if (!ok) return;
     try {
       const supabase = getSupabaseBrowserClient();
       if (!supabase) throw new Error('Cliente Supabase no disponible');
@@ -62,12 +65,113 @@ export function SubBodegaTab({
       setAllReceptions((prev) =>
         prev.map((r) => (r.id === item.reception.id ? { ...r, status: 'ARCHIVADO' } : r))
       );
-      alert('La caja y sus equipos han sido archivados correctamente.');
+      notify.success('La caja y sus equipos han sido archivados correctamente.');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      alert('Error al archivar: ' + message);
+      notify.error('Error al archivar', { description: message });
     }
   };
+
+  // Columnas de la sub-bodega (C3: DataTable virtualizado). Se definen dentro
+  // del componente porque las celdas usan handlers/estado del scope.
+  const columns: DataTableColumn<SubBodegaRow>[] = [
+    {
+      id: 'fecha',
+      header: 'Fecha Ingreso',
+      width: 'minmax(150px,1fr)',
+      cell: (item) => (
+        <div className="min-w-0">
+          <div className="text-xs font-bold text-slate-500">{item.processDate}</div>
+          <div className="text-[9px] text-slate-400 uppercase mt-1">Por: {item.processUser}</div>
+        </div>
+      ),
+    },
+    {
+      id: 'guide',
+      header: 'No. Guía / Caja',
+      width: 'minmax(140px,1fr)',
+      cell: (item) => (
+        <span className="text-sm font-black text-[#181c3a] font-mono bg-slate-100 px-3 py-1.5 rounded-lg whitespace-pre-wrap">
+          {item.guide}
+        </span>
+      ),
+    },
+    {
+      id: 'origen',
+      header: 'Origen (Agencia)',
+      width: 'minmax(140px,1fr)',
+      cellClassName: 'text-xs font-black text-[#181c3a] uppercase',
+      cell: (item) => getAgenciaLabel(item.reception, CAC_AGENCIES, item.guide),
+    },
+    {
+      id: 'notas',
+      header: 'Notas de Transferencia',
+      width: 'minmax(180px,1.5fr)',
+      cell: (item) => (
+        <p className="text-xs font-bold text-slate-400 italic max-w-md">
+          {item.reception.notes?.split('Notas: ')[1] || 'Sin notas adicionales'}
+        </p>
+      ),
+    },
+    {
+      id: 'estatus',
+      header: 'Estatus',
+      width: '170px',
+      align: 'right',
+      cell: () => (
+        <Badge
+          className={`border-none font-black text-[9px] uppercase tracking-widest px-4 py-1.5 rounded-full ${
+            isAccesorios ? 'bg-emerald-50 text-emerald-500' : 'bg-amber-50 text-amber-500'
+          }`}
+        >
+          {isAccesorios ? 'BODEGA: ACCESORIOS' : 'BODEGA: MÓVILES'}
+        </Badge>
+      ),
+    },
+    {
+      id: 'acciones',
+      header: 'Acciones',
+      width: '150px',
+      align: 'right',
+      cell: (item) => (
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onViewReception(item.reception);
+            }}
+            className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-400 rounded-lg transition-colors"
+            title="Ver Detalles"
+          >
+            <Eye className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onReclassify(item.reception);
+            }}
+            className="p-2 bg-emerald-50 hover:bg-emerald-500 text-emerald-500 hover:text-white rounded-lg transition-colors"
+            title="Abrir en Bandeja (Reclasificar)"
+          >
+            <Box className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              void handleArchive(item);
+            }}
+            className="p-2 bg-rose-50 hover:bg-rose-500 text-rose-500 hover:text-white rounded-lg transition-colors"
+            title="Eliminar / Archivar Caja"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-8 animate-rise-in">
@@ -116,7 +220,7 @@ export function SubBodegaTab({
             className="rounded-2xl h-12 px-6 font-black text-[10px] uppercase tracking-widest border-2 border-slate-100 text-slate-400 hover:bg-slate-50 flex items-center gap-2"
             onClick={async () => {
               await fetchHistory();
-              alert('Datos actualizados desde la base de datos');
+              notify.success('Datos actualizados desde la base de datos');
             }}
           >
             <RefreshCw size={14} />
@@ -133,103 +237,18 @@ export function SubBodegaTab({
       </div>
 
       <Card className="p-0 bg-white rounded-[2.5rem] shadow-2xl border-none overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className={isAccesorios ? 'bg-emerald-500 text-white' : 'bg-amber-500 text-white'}>
-                <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest">Fecha Ingreso</th>
-                <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest">No. Guía / Caja</th>
-                <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest">Origen (Agencia)</th>
-                <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest">Notas de Transferencia</th>
-                <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-right">Estatus</th>
-                <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-right">Acciones</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {rows.map((item) => (
-                <tr
-                  key={item.id}
-                  className="hover:bg-slate-50/50 transition-all group cursor-pointer"
-                  onClick={() => onViewReception(item.reception)}
-                >
-                  <td className="px-8 py-6 text-xs font-bold text-slate-500">
-                    {item.processDate}
-                    <div className="text-[9px] text-slate-400 uppercase mt-1">Por: {item.processUser}</div>
-                  </td>
-                  <td className="px-8 py-6">
-                    <span className="text-sm font-black text-[#181c3a] font-mono bg-slate-100 px-3 py-1.5 rounded-lg whitespace-pre-wrap">
-                      {item.guide}
-                    </span>
-                  </td>
-                  <td className="px-8 py-6 text-xs font-black text-[#181c3a] uppercase">
-                    {getAgenciaLabel(item.reception, CAC_AGENCIES, item.guide)}
-                  </td>
-                  <td className="px-8 py-6">
-                    <p className="text-xs font-bold text-slate-400 italic max-w-md">
-                      {item.reception.notes?.split('Notas: ')[1] || 'Sin notas adicionales'}
-                    </p>
-                  </td>
-                  <td className="px-8 py-6 text-right">
-                    <Badge
-                      className={`border-none font-black text-[9px] uppercase tracking-widest px-4 py-1.5 rounded-full ${
-                        isAccesorios ? 'bg-emerald-50 text-emerald-500' : 'bg-amber-50 text-amber-500'
-                      }`}
-                    >
-                      {isAccesorios ? 'BODEGA: ACCESORIOS' : 'BODEGA: MÓVILES'}
-                    </Badge>
-                  </td>
-                  <td className="px-8 py-6 text-right">
-                    <div className="flex justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onViewReception(item.reception);
-                        }}
-                        className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-400 rounded-lg transition-colors"
-                        title="Ver Detalles"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onReclassify(item.reception);
-                        }}
-                        className="p-2 bg-emerald-50 hover:bg-emerald-500 text-emerald-500 hover:text-white rounded-lg transition-colors"
-                        title="Abrir en Bandeja (Reclasificar)"
-                      >
-                        <Box className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void handleArchive(item);
-                        }}
-                        className="p-2 bg-rose-50 hover:bg-rose-500 text-rose-500 hover:text-white rounded-lg transition-colors"
-                        title="Eliminar / Archivar Caja"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {!hasInventory && (
-                <tr>
-                  <td colSpan={6} className="py-20 text-center">
-                    <Package className="w-12 h-12 text-slate-100 mx-auto mb-4" />
-                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">
-                      No hay cajas registradas en esta sub-bodega
-                    </p>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          columns={columns}
+          data={rows}
+          getRowId={(item) => item.id}
+          onRowClick={(item) => onViewReception(item.reception)}
+          rowHeight={72}
+          maxBodyHeight={560}
+          minWidth={980}
+          headerClassName={`sticky top-0 z-10 ${isAccesorios ? 'bg-emerald-500' : 'bg-amber-500'}`}
+          headerTextClassName="text-white"
+          emptyMessage="No hay cajas registradas en esta sub-bodega"
+        />
       </Card>
     </div>
   );

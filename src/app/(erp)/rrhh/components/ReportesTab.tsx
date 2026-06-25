@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from 'react';
-import { Card, Button, Spinner } from '@/components/ui';
+import { Card, Button, Spinner, notify } from '@/components/ui';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { apiFetch } from '@/lib/http/apiFetch';
 import { FileSpreadsheet, Calendar, Clock, AlertTriangle, UserX, Briefcase, RefreshCw, BarChart, CalendarDays, Calculator } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -487,12 +488,12 @@ export default function ReportesTab() {
           onClick={async () => {
             setLoading(true);
             try {
-              const res = await fetch('/api/rrhh/dashboard');
+              const res = await apiFetch('/api/rrhh/dashboard');
               if (res.ok) {
                 const data = await res.json();
                 downloadExcel(data.data, "Rendimiento_Tecnicos_Mes");
               } else {
-                alert('El nuevo módulo RRHH (Feature Flag USE_NEW_RRHH_MODULE) no está activo.');
+                notify.info('El nuevo módulo RRHH (Feature Flag USE_NEW_RRHH_MODULE) no está activo.');
               }
             } catch(e) {
               console.error(e);

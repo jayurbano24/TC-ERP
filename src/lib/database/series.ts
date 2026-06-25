@@ -1,5 +1,14 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { logAdvancedAudit } from "@/lib/database/audit";
+import { sanitizeOrFilterValue } from "@/lib/database/postgrestSafe";
+
+/**
+ * Tope de seguridad para consultas de series sin paginación server-side.
+ * Evita traer 100k+ filas a memoria/DOM. La UI pagina en cliente sobre este
+ * subconjunto, priorizando los registros más recientes. Cuando exista
+ * paginación server-side real, este límite debe sustituirse por `.range()`.
+ */
+const SERIES_SAFETY_LIMIT = 1000;
 
 export type DbSeries = {
   id?: string;
@@ -24,6 +33,8 @@ export async function getSeries(filters?: any) {
 
   if (filters?.status) query = query.eq('current_status', filters.status);
   if (filters?.serial) query = query.ilike('serial_number', `%${filters.serial}%`);
+
+  query = query.order('updated_at', { ascending: false }).limit(SERIES_SAFETY_LIMIT);
 
   const { data, error } = await query;
   if (error) {
@@ -77,10 +88,16 @@ export async function searchSeriesDetailed(filters: { os?: string, imei?: string
   `);
 
   if (filters.imei) {
-    query = query.or(`serial_number.ilike.%${filters.imei}%,s2.ilike.%${filters.imei}%,s3.ilike.%${filters.imei}%,s4.ilike.%${filters.imei}%`);
+    const imei = sanitizeOrFilterValue(filters.imei);
+    if (imei) {
+      query = query.or(`serial_number.ilike.%${imei}%,s2.ilike.%${imei}%,s3.ilike.%${imei}%,s4.ilike.%${imei}%`);
+    }
   }
 
   // Obtenemos los resultados iniciales y filtramos en memoria por relaciones (dado que Supabase OR en joins internos es más complejo)
+  // Tope de seguridad: prioriza los más recientes para no traer todo el inventario.
+  query = query.order('updated_at', { ascending: false }).limit(SERIES_SAFETY_LIMIT);
+
   const { data, error } = await query;
   if (error) {
     console.error("Error fetching detailed series:", error);

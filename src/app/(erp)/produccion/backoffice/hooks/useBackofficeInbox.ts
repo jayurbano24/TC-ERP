@@ -3,6 +3,7 @@
 import type React from 'react';
 import { useCallback, useRef, useState } from 'react';
 import { getReceptions } from '@/lib/database/receptions';
+import { notify } from '@/components/ui/messaging/messageStore';
 import { receptionHasTcOs } from '../historyTrayUtils';
 import { shouldShowInCacInbox } from '../cacInboxFilter';
 import type { BackofficeReception, ReceptionStep } from '../types';
@@ -49,9 +50,12 @@ export function useBackofficeInbox(deps: InboxDeps) {
           /--- DETALLES BACKOFFICE ---/i.test(notes) ||
           /Backoffice_Agency:/i.test(notes));
       if (hadFailedClassif) {
-        alert(
-          'Esta gu\u00eda tiene un ingreso anterior incompleto (trazabilidad en notas pero sin OS TC-XXX).\n' +
-            'Complete el flujo de nuevo y confirme el mensaje "\u2705 X equipo(s) registrado(s)" al finalizar.'
+        notify.warning(
+          'Complete el flujo de nuevo y confirme el mensaje "X equipo(s) registrado(s)" al finalizar.',
+          {
+            title: 'Ingreso anterior incompleto',
+            duration: 8000,
+          }
         );
       }
       deps.setActiveReception(rec);

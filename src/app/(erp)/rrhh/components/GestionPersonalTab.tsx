@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { Card, Button, Spinner } from '@/components/ui';
+import { Card, Button, Spinner, notify, confirmDialog } from '@/components/ui';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { UserPlus, UploadCloud, Download, Upload, Trash2, CheckSquare, Clock } from 'lucide-react';
 import EmployeeModal from './EmployeeModal';
@@ -87,7 +87,7 @@ export default function GestionPersonalTab() {
       const { error } = await supabase.from('employees').update({ shift_id: selectedBulkShift }).in('id', selectedIds);
       if (error) {
         console.error("Error assigning shift:", error);
-        alert("Hubo un error al asignar el horario.");
+        notify.error('No se pudo asignar el horario');
       } else {
         setSelectedIds([]);
         setIsBulkShiftModalOpen(false);
@@ -100,7 +100,13 @@ export default function GestionPersonalTab() {
 
   const handleDeleteSelected = async () => {
     if (selectedIds.length === 0) return;
-    if (!confirm(`¿Estás seguro de que deseas eliminar ${selectedIds.length} empleado(s)? Esta acción no se puede deshacer.`)) return;
+    const ok = await confirmDialog({
+      title: 'Eliminar empleados',
+      message: `¿Estás seguro de que deseas eliminar ${selectedIds.length} empleado(s)? Esta acción no se puede deshacer.`,
+      tone: 'error',
+      confirmText: 'Eliminar',
+    });
+    if (!ok) return;
 
     setLoading(true);
     const supabase = getSupabaseBrowserClient();
@@ -108,7 +114,7 @@ export default function GestionPersonalTab() {
       const { error } = await supabase.from('employees').delete().in('id', selectedIds);
       if (error) {
         console.error("Error deleting employees:", error);
-        alert("Hubo un error al eliminar los empleados. Verifica si tienen registros asociados.");
+        notify.error('No se pudieron eliminar los empleados', { description: 'Verifica si tienen registros asociados.' });
       } else {
         setSelectedIds([]);
         fetchData();
@@ -118,7 +124,13 @@ export default function GestionPersonalTab() {
   };
 
   const handleDeleteIndividual = async (id: string, name: string) => {
-    if (!confirm(`¿Estás seguro de que deseas eliminar a ${name}?`)) return;
+    const ok = await confirmDialog({
+      title: 'Eliminar empleado',
+      message: `¿Estás seguro de que deseas eliminar a ${name}?`,
+      tone: 'error',
+      confirmText: 'Eliminar',
+    });
+    if (!ok) return;
 
     setLoading(true);
     const supabase = getSupabaseBrowserClient();
@@ -126,7 +138,7 @@ export default function GestionPersonalTab() {
       const { error } = await supabase.from('employees').delete().eq('id', id);
       if (error) {
         console.error("Error deleting employee:", error);
-        alert("Hubo un error al eliminar el empleado.");
+        notify.error('No se pudo eliminar el empleado');
       } else {
         setSelectedIds(prev => prev.filter(selId => selId !== id));
         fetchData();
@@ -239,7 +251,7 @@ export default function GestionPersonalTab() {
             
             if (error) {
               console.error(`Error insertando a ${rowName}:`, JSON.stringify(error));
-              alert(`Error con ${rowName}: ${error.message || JSON.stringify(error)}`);
+              notify.error(`Error con ${rowName}`, { description: error.message || JSON.stringify(error) });
               failed++;
             } else {
               inserted++;
@@ -248,15 +260,15 @@ export default function GestionPersonalTab() {
         }
         
         if (failed > 0) {
-            alert(`Importación completada con errores: Se añadieron ${inserted}, se actualizaron ${updated}, fallaron ${failed}.`);
+            notify.warning('Importación completada con errores', { description: `Añadidos ${inserted}, actualizados ${updated}, fallaron ${failed}.` });
         } else {
-            alert(`Importación exitosa. Nuevos: ${inserted} | Actualizados: ${updated}.`);
+            notify.success('Importación exitosa', { description: `Nuevos: ${inserted} | Actualizados: ${updated}.` });
         }
         
         fetchData();
       } catch (err) {
         console.error(err);
-        alert("Error al importar el archivo Excel");
+        notify.error('Error al importar el archivo Excel');
       } finally {
         setLoading(false);
         if (fileInputRef.current) fileInputRef.current.value = '';

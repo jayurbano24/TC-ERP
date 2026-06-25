@@ -1,6 +1,7 @@
 'use client';
 
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { notify } from '@/components/ui/messaging/messageStore';
 import { updateReception } from '@/lib/database/receptions';
 import { sanitizeCacAgencyRaw } from '@/lib/cacAgencyUtils';
 import { generateMovId } from '../backofficeHelpers';
@@ -88,7 +89,7 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
           ctx.CAC_AGENCIES
         );
         if (!agencyLabel && (isEquipment || isDevolucion)) {
-          alert('Debe seleccionar la Agencia CAC de ingreso (no es el mismo dato que el Courier).');
+          notify.warning('Falta la Agencia CAC', { description: 'Debe seleccionar la Agencia CAC de ingreso (no es el mismo dato que el Courier).' });
           ctx.setIsSubmitting(false);
           ctx.isSubmittingRef.current = false;
           return;
@@ -241,21 +242,25 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
           expectedUnits = persistResult.expectedUnits;
 
           if (expectedUnits > 0 && osCreatedCount === 0) {
-            alert(
-              `❌ No se guardaron equipos en la base de datos.\n` +
-                (equipmentPersistError ? `${equipmentPersistError}\n` : '') +
-                `La guía NO quedó clasificada. Verifique permisos (RLS) e intente de nuevo.`
-            );
+            notify.error('No se guardaron equipos en la base de datos', {
+              description:
+                (equipmentPersistError ? `${equipmentPersistError}. ` : '') +
+                'La guía NO quedó clasificada. Verifique permisos (RLS) e intente de nuevo.',
+              duration: 0,
+            });
             ctx.setIsSubmitting(false);
             ctx.isSubmittingRef.current = false;
             return;
           }
 
           if (expectedUnits > 0 && osCreatedCount < expectedUnits) {
-            alert(
-              `❌ Ingreso incompleto: ${osCreatedCount}/${expectedUnits} equipo(s) guardados.\n` +
-                (equipmentPersistError ? `${equipmentPersistError}\n` : '') +
-                `La guía NO quedó clasificada. Corrija el error e intente de nuevo.`
+            notify.error(
+              (equipmentPersistError ? `${equipmentPersistError}\n` : '') +
+                'La guía NO quedó clasificada. Corrija el error e intente de nuevo.',
+              {
+                title: `Ingreso incompleto: ${osCreatedCount}/${expectedUnits} equipo(s) guardados`,
+                duration: 10000,
+              }
             );
             ctx.setIsSubmitting(false);
             ctx.isSubmittingRef.current = false;
@@ -263,7 +268,9 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
           }
 
           if (osCreatedCount > 0) {
-            alert(`✅ ${osCreatedCount} equipo(s) registrado(s). Aparecerán en Historial Global.`);
+            notify.success(`${osCreatedCount} equipo(s) registrado(s). Aparecerán en Historial Global.`, {
+              title: 'Clasificación completada',
+            });
             ctx.setHistorySearch(ctx.scannedGuides[0] || ctx.activeReception.guide_number || '');
           }
         }
@@ -292,7 +299,7 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
 
         const resUpdate = await updateReception(ctx.activeReception.id, cleanUpdate);
         if (resUpdate.error) {
-          alert('❌ ERROR DE ACTUALIZACIÓN MAESTRA: ' + resUpdate.error);
+          notify.error('Error de actualización maestra', { description: resUpdate.error, duration: 0 });
         }
 
         const supabaseClient = getSupabaseBrowserClient();
@@ -321,9 +328,10 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
 
           if (guidesUpsertError) {
             console.error('Error upsert reception_guides:', guidesUpsertError.message);
-            alert(
-              `❌ No se pudo registrar la caja en Bodega Devolución.\n${guidesUpsertError.message}\nVerifique permisos (RLS) e intente de nuevo.`
-            );
+            notify.error('No se pudo registrar la caja en Bodega Devolución', {
+              description: `${guidesUpsertError.message}. Verifique permisos (RLS) e intente de nuevo.`,
+              duration: 0,
+            });
             ctx.setIsSubmitting(false);
             ctx.isSubmittingRef.current = false;
             return;
@@ -356,7 +364,7 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
       const normalizedProcessed = newProcessed.map((g) => g.trim().toUpperCase());
       const allDone = receptionGuias.every((g) => normalizedProcessed.includes(g));
       if (ctx.category === 'Devolución') {
-        alert('✅ Caja(s) enviada(s) a Bodega Devolución en Logística → Devoluciones.');
+        notify.success('Caja(s) enviada(s) a Bodega Devolución', { description: 'Disponibles en Logística → Devoluciones.' });
       }
       ctx.setReceptionStep(allDone ? 'completed' : 'classification');
       if (!allDone) {
@@ -376,7 +384,7 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
       } else if (ctx.category === 'Teléfono') {
         ctx.setActiveTab('sub_telefonos');
       } else if (step === 'return_confirmation' || (isBulkStep && ctx.category === 'Devolución')) {
-        alert('✅ Caja enviada a Bodega Devolución en Logística → Devoluciones.');
+        notify.success('Caja enviada a Bodega Devolución', { description: 'Disponible en Logística → Devoluciones.' });
       } else if (ctx.category === 'Equipo') {
         ctx.setActiveTab('history');
         ctx.setHistoryPage(1);

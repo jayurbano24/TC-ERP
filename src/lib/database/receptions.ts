@@ -1,5 +1,6 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { formatFetchError, withRetry } from "@/lib/fetchWithRetry";
+import { apiFetch } from "@/lib/http/apiFetch";
 
 export type DbReception = {
   id?: string;
@@ -291,29 +292,26 @@ export async function validatePxScannedSeriesForFinalize(
 }
 
 export async function getReceptions(source?: 'cac' | 'px') {
-  const supabase = getSupabaseBrowserClient();
-  if (!supabase) return [];
-
+  // Se lee vía API server-side (service role) porque `receptions` tiene RLS
+  // (auth.uid() IS NOT NULL) y la lectura directa desde el navegador falla
+  // cuando no hay sesión Supabase activa.
   return withRetry(async () => {
-    let query = supabase
-      .from('receptions')
-      .select(`
-        *,
-        received_by_profile:received_by (id, full_name)
-      `)
-      .order('created_at', { ascending: false });
+    const url = source ? `/api/recepcion/history?source=${source}` : '/api/recepcion/history';
+    const res = await apiFetch(url, { cache: 'no-store' });
 
-    if (source) {
-      query = query.eq('source', source);
+    if (!res.ok) {
+      let message = `Error al cargar recepciones (HTTP ${res.status})`;
+      try {
+        const body = await res.json();
+        if (body?.error) message = body.error;
+      } catch {
+        /* respuesta sin cuerpo JSON */
+      }
+      throw new Error(message);
     }
 
-    const { data, error } = await query;
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    return data || [];
+    const body = await res.json();
+    return body?.data || [];
   }).catch((err) => {
     console.error("Network or Fetch error in getReceptions:", err);
     throw new Error(formatFetchError(err, 'Error al cargar recepciones'));

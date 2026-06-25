@@ -18,8 +18,7 @@ import { useReceptionValidation } from './hooks/useReceptionValidation';
 
 import { receptionService } from './services/receptionService';
 import { printingService } from './services/printingService';
-import { getCarriers, getTechnologies, getBrands, getModels, getPxProviders } from '@/lib/database/config';
-import { getReceptions, deletePxReceptionCascade, deleteCacReceptionCascade } from '@/lib/database/receptions';
+import { receptionRepository } from './repositories/receptionRepository';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { groupPxSeriesByEquipment } from './utils/pxSeriesUtils';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -71,7 +70,7 @@ export default function ReceptionsPage() {
   const queryClient = useQueryClient();
   const receptionsQuery = useQuery({
     queryKey: ['receptions'],
-    queryFn: () => getReceptions(),
+    queryFn: () => receptionRepository.getHistory(),
   });
 
   // Cuando la query trae datos (carga inicial o invalidación), mapeamos a la
@@ -189,11 +188,11 @@ export default function ReceptionsPage() {
     const fetchConfig = async () => {
       try {
         const [techs, brnds, mdls, pxProvs, carriers] = await Promise.all([
-          getTechnologies(),
-          getBrands(),
-          getModels(),
-          getPxProviders(),
-          getCarriers()
+          receptionRepository.getTechnologies(),
+          receptionRepository.getBrands(),
+          receptionRepository.getModels(),
+          receptionRepository.getPxProviders(),
+          receptionRepository.getCarriers()
         ]);
         setSystemTechnologies(techs || []);
         setSystemBrands(brnds || []);
@@ -330,7 +329,7 @@ export default function ReceptionsPage() {
       return prev.filter((r) => r.id !== id);
     });
 
-    const result = await deleteCacReceptionCascade(id);
+    const result = await receptionRepository.deleteCacReception(id);
     if (result?.error) {
       cacState.setCacRecords(snapshot);
       notify.error('Error al eliminar sub-procesos', { description: result.error });
@@ -350,7 +349,7 @@ export default function ReceptionsPage() {
       return prev.filter((r) => r.id !== id);
     });
 
-    const result = await deletePxReceptionCascade(id);
+    const result = await receptionRepository.deletePxReception(id);
     if (result?.error) {
       pxState.setPxRecords(snapshot);
       notify.error('Error al eliminar recepción PX', { description: result.error });

@@ -1,5 +1,5 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { getReceptions, createReceptionWithSeries, createReceptionWithGuides, createPxReceptionWithBoxes, resolveUniquePxGuideNumber, generateNextPxGuideNumber, isPxGuideNumberAvailable, findActivePxReceptionBySapDocument, findActivePxReceptionByDocReference, validatePxHeaderUniqueness, validatePxScannedSeriesForFinalize } from "@/lib/database/receptions";
+import { getReceptions, createReceptionWithSeries, createReceptionWithGuides, createPxReceptionWithBoxes, resolveUniquePxGuideNumber, generateNextPxGuideNumber, isPxGuideNumberAvailable, findActivePxReceptionBySapDocument, findActivePxReceptionByDocReference, validatePxHeaderUniqueness, validatePxScannedSeriesForFinalize, deletePxReceptionCascade, deleteCacReceptionCascade } from "@/lib/database/receptions";
 import { getCarriers, getPxProviders, getTechnologies, getBrands, getModels } from "@/lib/database/config";
 
 /**
@@ -15,6 +15,10 @@ export const receptionRepository = {
   createCACReception: async (reception: any, guides: string[]) => {
     return await createReceptionWithGuides(reception, guides);
   },
+
+  deleteCacReception: async (id: string) => deleteCacReceptionCascade(id),
+
+  deletePxReception: async (id: string) => deletePxReceptionCascade(id),
 
   createPXReception: async (reception: any, boxes: any[], seriesByBox: Record<string, string[]>) => {
     return await createPxReceptionWithBoxes(reception, boxes, seriesByBox);

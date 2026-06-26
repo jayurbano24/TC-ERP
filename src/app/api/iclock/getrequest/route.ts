@@ -1,62 +1,59 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
+import { parseDeviceSn } from '../_shared';
 
 export const dynamic = 'force-dynamic';
+
+const textOk = (body = 'OK') =>
+  new NextResponse(body, { status: 200, headers: { 'Content-Type': 'text/plain' } });
 
 /**
  * Endpoint de ADMS para recibir peticiones (Polling) del reloj ZKTeco.
  * El dispositivo consulta aquí periódicamente para saber si el servidor le tiene alguna orden.
  */
 export async function GET(request: NextRequest) {
-  const searchParams = request.nextUrl.searchParams;
-  const sn = searchParams.get('SN');
-  
+  const sn = parseDeviceSn(request.nextUrl.searchParams);
   if (!sn) {
-    return new NextResponse('OK', { status: 200 });
+    return textOk();
   }
 
-  const supabase = getSupabaseServerClient();
+  try {
+    const supabase = getSupabaseServerClient();
 
-  // 1. Mantener estado online
-  await supabase.from('zk_devices').upsert({ 
-    sn: sn,
-    state: 'ONLINE',
-    last_activity: new Date().toISOString()
-  }, { onConflict: 'sn' });
+    await supabase.from('zk_devices').upsert(
+      { sn, state: 'ONLINE', last_activity: new Date().toISOString() },
+      { onConflict: 'sn' }
+    );
 
-  // 2. Buscar comandos pendientes para este SN
-  const { data: commands, error } = await supabase
-    .from('zk_commands')
-    .select('*')
-    .eq('device_sn', sn)
-    .eq('status', 'PENDING')
-    .order('created_at', { ascending: true })
-    .limit(10); // Enviamos max 10 comandos por polling
+    const { data: commands, error } = await supabase
+      .from('zk_commands')
+      .select('*')
+      .eq('device_sn', sn)
+      .eq('status', 'PENDING')
+      .order('created_at', { ascending: true })
+      .limit(10); // Enviamos max 10 comandos por polling
 
-  if (error || !commands || commands.length === 0) {
-    return new NextResponse('OK', { status: 200 });
+    if (error || !commands || commands.length === 0) {
+      return textOk();
+    }
+
+    // ZKTeco requiere este formato: C:<id>:<comando>
+    let responseBody = '';
+    const commandIds: string[] = [];
+
+    for (const cmd of commands) {
+      responseBody += `C:${cmd.id}:${cmd.command_str}\n`;
+      commandIds.push(cmd.id);
+    }
+
+    await supabase
+      .from('zk_commands')
+      .update({ status: 'SENT', sent_at: new Date().toISOString() })
+      .in('id', commandIds);
+
+    return textOk(responseBody);
+  } catch (err) {
+    console.error('[iclock/getrequest] GET error:', err);
+    return textOk();
   }
-
-  // 3. Formatear la respuesta
-  // ZKTeco requiere este formato: C:<id>:<comando>
-  // Ej: C:123:DATA UPDATE USERINFO PIN=100 Name=Juan
-  
-  let responseBody = '';
-  const commandIds = [];
-
-  for (const cmd of commands) {
-    responseBody += `C:${cmd.id}:${cmd.command_str}\n`;
-    commandIds.push(cmd.id);
-  }
-
-  // 4. Actualizar estado a SENT
-  await supabase
-    .from('zk_commands')
-    .update({ status: 'SENT', sent_at: new Date().toISOString() })
-    .in('id', commandIds);
-
-  return new NextResponse(responseBody, {
-    status: 200,
-    headers: { 'Content-Type': 'text/plain' },
-  });
 }

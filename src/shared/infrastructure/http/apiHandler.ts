@@ -32,15 +32,21 @@ function toClientError(error: unknown): { status: number; message: string; issue
   return { status: 500, message: 'Error interno del servidor' };
 }
 
-export type ApiHandler = (req: Request, ...args: unknown[]) => Promise<NextResponse>;
+export type ApiHandler<A extends unknown[] = unknown[]> = (
+  req: Request,
+  ...args: A
+) => Promise<NextResponse>;
 
 export type ApiHandlerMeta = {
   module: string;
   action: string;
 };
 
-export function withErrorHandler(handler: ApiHandler, meta?: ApiHandlerMeta): ApiHandler {
-  return async (req: Request, ...args: unknown[]) => {
+export function withErrorHandler<A extends unknown[]>(
+  handler: ApiHandler<A>,
+  meta?: ApiHandlerMeta
+): ApiHandler<A> {
+  return async (req: Request, ...args: A) => {
     const correlationId = getCorrelationIdFromHeaders(req.headers);
     const started = Date.now();
 
@@ -89,8 +95,8 @@ export function withErrorHandler(handler: ApiHandler, meta?: ApiHandlerMeta): Ap
   };
 }
 
-export function withCorrelation(handler: ApiHandler): ApiHandler {
-  return async (req: Request, ...args: unknown[]) => {
+export function withCorrelation<A extends unknown[]>(handler: ApiHandler<A>): ApiHandler<A> {
+  return async (req: Request, ...args: A) => {
     const correlationId = getCorrelationIdFromHeaders(req.headers);
     const response = await handler(req, ...args);
     response.headers.set(CORRELATION_ID_HEADER, correlationId);

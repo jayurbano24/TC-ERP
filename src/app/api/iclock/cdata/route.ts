@@ -1,29 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
 import { ZKTecoSyncService } from '@/modules/rrhh/application/services/ZKTecoSyncService';
+import { MAX_DEVICE_LINES, attLogRecordSchema, parseDeviceSn } from '../_shared';
+
+export const dynamic = 'force-dynamic';
 
 /**
  * Endpoint principal de ADMS ZKTeco.
  * El dispositivo consulta aquí opciones (GET) y envía marcaciones de asistencia (POST).
  */
 
+const textOk = (body = 'OK') =>
+  new NextResponse(body, { status: 200, headers: { 'Content-Type': 'text/plain' } });
+
 export async function GET(request: NextRequest) {
-  const searchParams = request.nextUrl.searchParams;
-  const sn = searchParams.get('SN');
-  
+  const sn = parseDeviceSn(request.nextUrl.searchParams);
   if (!sn) {
-    return new NextResponse('OK', { status: 200 });
+    return textOk();
   }
 
-  // Actualizamos last_activity del dispositivo
-  const supabase = getSupabaseServerClient();
-  await supabase.from('zk_devices').upsert({ 
-    sn: sn,
-    state: 'ONLINE',
-    last_activity: new Date().toISOString()
-  }, { onConflict: 'sn' });
+  try {
+    const supabase = getSupabaseServerClient();
+    await supabase.from('zk_devices').upsert(
+      { sn, state: 'ONLINE', last_activity: new Date().toISOString() },
+      { onConflict: 'sn' }
+    );
+  } catch (err) {
+    console.error('[iclock/cdata] GET upsert device error:', err);
+  }
 
-  // Retornar configuraciones básicas de Push SDK requeridas por el reloj
+  // Configuraciones básicas de Push SDK requeridas por el reloj
   const options = `GET OPTION FROM: ${sn}
 Stamp=9999
 OpStamp=9999
@@ -35,76 +41,72 @@ TransFlag=1111000000
 Realtime=1
 Encrypt=0`;
 
-  return new NextResponse(options, {
-    status: 200,
-    headers: { 'Content-Type': 'text/plain' },
-  });
+  return textOk(options);
 }
 
 export async function POST(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
-  const sn = searchParams.get('SN');
+  const sn = parseDeviceSn(searchParams);
   const table = searchParams.get('table'); // usualmente 'ATTLOG' para asistencias
 
   if (!sn) {
-    return new NextResponse('OK', { status: 200 });
+    return textOk();
   }
 
-  const supabase = getSupabaseServerClient();
-  
-  // Mantenemos el estado activo
-  await supabase.from('zk_devices').upsert({ 
-    sn: sn,
-    state: 'ONLINE',
-    last_activity: new Date().toISOString()
-  }, { onConflict: 'sn' });
+  try {
+    const supabase = getSupabaseServerClient();
 
-  const bodyText = await request.text();
+    await supabase.from('zk_devices').upsert(
+      { sn, state: 'ONLINE', last_activity: new Date().toISOString() },
+      { onConflict: 'sn' }
+    );
 
-  if (table === 'ATTLOG') {
-    // Formato ZKTeco:
-    // USER_PIN\tCHECK_TIME\tVERIFY_TYPE\tSENSOR_STATUS\tWORK_CODE\tRESERVED
-    // Ej: 1\t2026-06-16 08:00:00\t15\t0\t0\t0
-    
-    const lines = bodyText.split('\n').filter(l => l.trim() !== '');
-    const syncService = new ZKTecoSyncService();
+    if (table === 'ATTLOG') {
+      const bodyText = await request.text();
+      const lines = bodyText
+        .split('\n')
+        .filter((l) => l.trim() !== '')
+        .slice(0, MAX_DEVICE_LINES);
 
-    for (const line of lines) {
-      const parts = line.split('\t');
-      if (parts.length >= 2) {
-        const userPin = parts[0].trim();
-        const checkTimeStr = parts[1].trim(); // Formato YYYY-MM-DD HH:mm:ss
-        
-        // Crear fecha válida. ZKTeco manda tiempo local del reloj.
-        const checkTime = new Date(checkTimeStr.replace(' ', 'T') + 'Z'); 
-        // Nota: en un entorno real, ajustaríamos el timezone si es necesario.
+      const syncService = new ZKTecoSyncService();
 
-        const verifyType = parts[2] ? parseInt(parts[2]) : 0;
-        const sensorStatus = parts[3] ? parseInt(parts[3]) : 0;
-        
-        const { data: rawLog, error } = await supabase.from('zk_raw_logs').insert({
-          device_sn: sn,
-          user_pin: userPin,
-          check_time: checkTime.toISOString(),
-          verify_type: verifyType,
-          sensor_status: sensorStatus,
-          processed: false
-        }).select().single();
+      for (const line of lines) {
+        const parts = line.split('\t');
+        const parsed = attLogRecordSchema.safeParse({
+          userPin: parts[0],
+          checkTime: parts[1],
+          verifyType: parts[2],
+          sensorStatus: parts[3],
+        });
+
+        if (!parsed.success) {
+          continue; // línea malformada: se ignora sin romper el lote
+        }
+
+        const { userPin, checkTime, verifyType, sensorStatus } = parsed.data;
+
+        const { data: rawLog, error } = await supabase
+          .from('zk_raw_logs')
+          .insert({
+            device_sn: sn,
+            user_pin: userPin,
+            check_time: checkTime.toISOString(),
+            verify_type: verifyType,
+            sensor_status: sensorStatus,
+            processed: false,
+          })
+          .select()
+          .single();
 
         if (!error && rawLog) {
-          // Procesar el log asíncronamente
           syncService.processRawLog(rawLog.id).catch(console.error);
         }
       }
     }
-
-    // Responder OK al reloj indicando cantidad de logs recibidos
-    return new NextResponse(`OK\n`, {
-      status: 200,
-      headers: { 'Content-Type': 'text/plain' },
-    });
+  } catch (err) {
+    // Se ACK al reloj igualmente para evitar tormentas de reintentos; el detalle se loguea.
+    console.error('[iclock/cdata] POST error:', err);
   }
 
-  // Si envían otra tabla (OPERLOG, BIODATA), simplemente decimos OK
-  return new NextResponse('OK', { status: 200 });
+  return textOk('OK\n');
 }

@@ -1,56 +1,60 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
+import { MAX_DEVICE_LINES, commandResultSchema, parseDeviceSn } from '../_shared';
+
+export const dynamic = 'force-dynamic';
 
 /**
  * Endpoint ADMS ZKTeco para recibir confirmaciones de ejecución de comandos.
  * El dispositivo hace un POST aquí cuando finaliza un comando (exitoso o fallido).
  */
 export async function POST(request: NextRequest) {
-  const searchParams = request.nextUrl.searchParams;
-  const sn = searchParams.get('SN');
-  
+  const sn = parseDeviceSn(request.nextUrl.searchParams);
   if (!sn) {
-    return new NextResponse('OK', { status: 200 });
+    return new NextResponse('OK', { status: 200, headers: { 'Content-Type': 'text/plain' } });
   }
 
-  const supabase = getSupabaseServerClient();
+  try {
+    const supabase = getSupabaseServerClient();
 
-  // 1. Mantener estado online
-  await supabase.from('zk_devices').upsert({ 
-    sn: sn,
-    state: 'ONLINE',
-    last_activity: new Date().toISOString()
-  }, { onConflict: 'sn' });
+    await supabase.from('zk_devices').upsert(
+      { sn, state: 'ONLINE', last_activity: new Date().toISOString() },
+      { onConflict: 'sn' }
+    );
 
-  const bodyText = await request.text();
-  
-  // ZKTeco envía el resultado en este formato:
-  // ID=123&Return=0&CMD=DATA UPDATE USERINFO...
-  // Return=0 significa éxito. Valores < 0 significan error.
+    const bodyText = await request.text();
+    // Formato: ID=123&Return=0&CMD=DATA UPDATE USERINFO...
+    const lines = bodyText
+      .split('\n')
+      .filter((l) => l.trim() !== '')
+      .slice(0, MAX_DEVICE_LINES);
 
-  const lines = bodyText.split('\n').filter(l => l.trim() !== '');
+    for (const line of lines) {
+      const params = new URLSearchParams(line);
+      const parsed = commandResultSchema.safeParse({
+        ID: params.get('ID'),
+        Return: params.get('Return') ?? '',
+      });
 
-  for (const line of lines) {
-    const params = new URLSearchParams(line);
-    const commandId = params.get('ID');
-    const returnCode = params.get('Return');
+      if (!parsed.success) {
+        continue;
+      }
 
-    if (commandId) {
-      const isSuccess = returnCode === '0';
-      
+      const { ID, Return } = parsed.data;
+      const isSuccess = Return === '0';
+
       await supabase
         .from('zk_commands')
         .update({
           status: isSuccess ? 'SUCCESS' : 'FAILED',
-          return_code: returnCode,
-          executed_at: new Date().toISOString()
+          return_code: Return,
+          executed_at: new Date().toISOString(),
         })
-        .eq('id', commandId);
+        .eq('id', ID);
     }
+  } catch (err) {
+    console.error('[iclock/devicecmd] POST error:', err);
   }
 
-  return new NextResponse('OK', {
-    status: 200,
-    headers: { 'Content-Type': 'text/plain' },
-  });
+  return new NextResponse('OK', { status: 200, headers: { 'Content-Type': 'text/plain' } });
 }

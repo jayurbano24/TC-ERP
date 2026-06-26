@@ -1,15 +1,26 @@
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
 import {
   closeDispatchBatchHex,
   getOpenDispatchBatchesHex,
   openDispatchBatchHex,
 } from '../factory';
 import { isDispatchBatchApiEnabledServer } from '../infrastructure/feature-flags';
+import { parseJsonBody, parseOptionalJsonBody } from '@/shared/validation/parseRequest';
 
-type OperatorPayload = {
-  operatorId?: string | null;
-  operatorName?: string;
+const operatorFields = {
+  operatorId: z.string().nullish(),
+  operatorName: z.string().max(160).optional(),
 };
+
+const openSchema = z.object({
+  destination: z.string().max(200).optional(),
+  guideOutbound: z.string().max(200).optional(),
+  notes: z.string().max(2000).optional(),
+  ...operatorFields,
+});
+
+const operatorOnlySchema = z.object({ ...operatorFields });
 
 export class OutboundDispatchController {
   async listOpen(): Promise<NextResponse> {
@@ -36,11 +47,7 @@ export class OutboundDispatchController {
       );
     }
 
-    const body = (await request.json()) as OperatorPayload & {
-      destination?: string;
-      guideOutbound?: string;
-      notes?: string;
-    };
+    const body = await parseJsonBody(request, openSchema);
 
     const result = await openDispatchBatchHex({
       destination: body.destination,
@@ -65,7 +72,7 @@ export class OutboundDispatchController {
       );
     }
 
-    const body = (await request.json().catch(() => ({}))) as OperatorPayload;
+    const body = await parseOptionalJsonBody(request, operatorOnlySchema);
 
     const result = await closeDispatchBatchHex({
       batchId,

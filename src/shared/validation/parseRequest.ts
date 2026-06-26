@@ -30,6 +30,31 @@ export async function parseJsonBody<T>(req: Request, schema: z.ZodType<T>): Prom
 }
 
 /**
+ * Igual que `parseJsonBody` pero tolera cuerpos vacíos o ausentes (JSON malformado
+ * se trata como `{}`). Útil para endpoints donde el body es opcional (p.ej. acciones
+ * que solo requieren parámetros de ruta y, opcionalmente, datos de operador).
+ */
+export async function parseOptionalJsonBody<T>(req: Request, schema: z.ZodType<T>): Promise<T> {
+  let raw: unknown;
+  try {
+    raw = await req.json();
+  } catch {
+    raw = {};
+  }
+  const result = schema.safeParse(raw ?? {});
+  if (!result.success) {
+    throw new ValidationException(
+      'Validación de datos fallida.',
+      result.error.issues.map((issue) => ({
+        path: issue.path.join('.'),
+        message: issue.message,
+      }))
+    );
+  }
+  return result.data;
+}
+
+/**
  * Valida los parámetros de búsqueda (query string) contra un esquema Zod.
  */
 export function parseQueryParams<T>(req: Request, schema: z.ZodType<T>): T {

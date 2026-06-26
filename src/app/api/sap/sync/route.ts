@@ -42,79 +42,17 @@ export const POST = withErrorHandler(async (request: Request) => {
 
   const supabase = getSupabaseServerClient();
 
-  // 1. Create upload record
-  const { data: uploadData, error: uploadError } = await supabase
-    .from('sap_uploads')
-    .insert({
-      archivo: fileInfo.name,
-      hash_sha256: fileInfo.hash,
-      usuario: fileInfo.user,
-      registros: fileInfo.totalRows,
-      encontrados: results.encontrados,
-      no_encontrados: results.noEncontrados,
-      inconsistencias: results.inconsistencias,
-      tiempo_proceso: results.timeStr,
-      estado: 'Completado'
-    })
-    .select()
-    .single();
+  // TX-01: toda la sincronización corre atómica en sap_sync_tx (rollback total ante error).
+  const { data, error } = await supabase.rpc('sap_sync_tx', {
+    p_file_info: fileInfo,
+    p_results: results,
+    p_validation_details: validationDetails,
+    p_equipos_updates: equiposUpdates,
+    p_series_updates: seriesUpdates,
+  });
 
-  if (uploadError) throw uploadError;
+  if (error) throw error;
 
-  // 2. Create validation session
-  const { data: sessionData, error: sessionError } = await supabase
-    .from('sap_validation_sessions')
-    .insert({
-      upload_id: uploadData.id,
-      usuario: fileInfo.user,
-      estado: 'Finalizado',
-      fecha_fin: new Date().toISOString(),
-      activa: true
-    })
-    .select()
-    .single();
-
-  if (sessionError) throw sessionError;
-
-  const sessionId = sessionData.id;
-
-  // Mark previous sessions as inactive
-  await supabase.from('sap_validation_sessions')
-    .update({ activa: false })
-    .neq('id', sessionId);
-
-  // 3. Insert Validation Details in batches
-  const BATCH_SIZE = 1000;
-  for (let i = 0; i < validationDetails.length; i += BATCH_SIZE) {
-    const batch = validationDetails.slice(i, i + BATCH_SIZE).map((d) => ({
-      ...d,
-      validation_id: sessionId
-    }));
-    const { error: detailError } = await supabase.from('sap_validation_details').insert(batch);
-    if (detailError) console.error("Error inserting details batch:", detailError);
-  }
-
-  // 4. Update service_orders (Equipos) in batches
-  for (let i = 0; i < equiposUpdates.length; i += BATCH_SIZE) {
-    const batch = equiposUpdates.slice(i, i + BATCH_SIZE);
-    await Promise.all(batch.map((eq) =>
-      supabase.from('service_orders').update({
-        sap_integration_status: eq.sap_integration_status,
-        last_sap_sync: new Date().toISOString()
-      }).eq('id', eq.id)
-    ));
-  }
-
-  // 5. Update series in batches
-  for (let i = 0; i < seriesUpdates.length; i += BATCH_SIZE) {
-    const batch = seriesUpdates.slice(i, i + BATCH_SIZE);
-    await Promise.all(batch.map((s) =>
-      supabase.from('series').update({
-        sap_status: s.sap_status,
-        sap_validation_id: sessionId
-      }).eq('id', s.id)
-    ));
-  }
-
+  const sessionId = (data as { session_id?: string } | null)?.session_id ?? null;
   return NextResponse.json({ success: true, sessionId });
 }, { module: "sap", action: "sync" });

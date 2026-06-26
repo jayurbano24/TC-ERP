@@ -35,9 +35,9 @@ export class SupabaseOrdenServicioRepository implements IOrdenServicioRepository
 
   async save(entity: OrdenServicioAggregate): Promise<void> {
     const persistence = this.mapper.toPersistence(entity);
-    const domainEvents = entity.domainEvents;
 
-    // 1. Upsert del equipo
+    // TX-02: equipo + orden + outbox se persisten atómicamente en create_recepcion_tx
+    // (transactional outbox real). El dual-write legacy queda best-effort dentro de la TX.
     const equipoData = {
       id: entity.props.equipo.id,
       numero_serie: entity.props.equipo.numeroSerie,
@@ -48,44 +48,34 @@ export class SupabaseOrdenServicioRepository implements IOrdenServicioRepository
       branch_id: entity.branchId,
     };
 
-    const { error: equipoError } = await this.supabase
-      .from('log_equipo')
-      .upsert(equipoData, { onConflict: 'id' });
+    const guideNumber =
+      entity.props.tipoRecepcion === 'CAC'
+        ? entity.props.equipo.numeroSerie
+        : entity.props.guiaPx || 'S/N';
+    const carrier = entity.props.transporte || 'CARGO EXPRESO';
 
-    if (equipoError) throw new Error(`[EquipoRepo] ${equipoError.message}`);
+    const legacyData = {
+      source: entity.props.tipoRecepcion.toLowerCase(),
+      guide_number: guideNumber,
+      carrier,
+      received_units: 1,
+      status: 'RECEPCIONADA',
+      notes: `Piloto: ${carrier}\\nGuías: ${guideNumber}\\n\\n--- LÍNEA DE TIEMPO (MATRIZ) ---\\nGuías Procesadas: ${guideNumber}`,
+    };
 
-    // 2. Upsert de la orden
-    const { error: ordenError } = await this.supabase
-      .from('log_orden_servicio')
-      .upsert(persistence, { onConflict: 'id' });
+    const events = entity.domainEvents.map((event) => ({
+      event_name: event.eventName,
+      payload: event.payload,
+    }));
 
-    if (ordenError) throw new Error(`[OrdenRepo] ${ordenError.message}`);
+    const { error } = await this.supabase.rpc('create_recepcion_tx', {
+      p_equipo: equipoData,
+      p_orden: persistence,
+      p_legacy: legacyData,
+      p_events: events,
+    });
 
-    // DUAL-WRITE: Backward compatibility con tablas legacy (Strangler Fig)
-    const { error: legacyError } = await this.supabase
-      .from('receptions')
-      .insert({
-         source: entity.props.tipoRecepcion.toLowerCase(),
-         guide_number: entity.props.tipoRecepcion === 'CAC' ? entity.props.equipo.numeroSerie : (entity.props.guiaPx || 'S/N'),
-         carrier: entity.props.transporte || 'CARGO EXPRESO',
-         received_units: 1,
-         status: 'RECEPCIONADA',
-         notes: `Piloto: ${entity.props.transporte || 'CARGO EXPRESO'}\\nGuías: ${entity.props.tipoRecepcion === 'CAC' ? entity.props.equipo.numeroSerie : (entity.props.guiaPx || 'S/N')}\\n\\n--- LÍNEA DE TIEMPO (MATRIZ) ---\\nGuías Procesadas: ${entity.props.tipoRecepcion === 'CAC' ? entity.props.equipo.numeroSerie : (entity.props.guiaPx || 'S/N')}`,
-      });
-      
-    // Ignoramos el legacyError de manera silenciosa para no romper el Command CQRS si la tabla legacy falla.
-
-    // 3. Insertar eventos de dominio en Outbox
-    for (const event of domainEvents) {
-      const { error: outboxError } = await this.supabase
-        .from('outbox_event')
-        .insert({
-          event_name: event.eventName,
-          payload: JSON.stringify(event.payload),
-          status: 'PENDING',
-        });
-      if (outboxError) throw new Error(`[OutboxRepo] ${outboxError.message}`);
-    }
+    if (error) throw new Error(`[RecepcionRepo] ${error.message}`);
 
     entity.clearEvents();
   }

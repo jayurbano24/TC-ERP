@@ -48,7 +48,10 @@ export class OutboxPublisherWorker {
           .eq('id', event.id);
 
         try {
-          const payload = JSON.parse(event.payload);
+          // payload puede venir como jsonb objeto (create_recepcion_tx) o como string
+          // JSON (escrituras legacy). Se tolera ambos formatos.
+          const payload =
+            typeof event.payload === 'string' ? JSON.parse(event.payload) : event.payload;
           const domainEvent = { ...payload };
 
           await this.eventBus.emit(domainEvent);

@@ -56,11 +56,6 @@ export async function POST(request: NextRequest) {
   try {
     const supabase = getSupabaseServerClient();
 
-    await supabase.from('zk_devices').upsert(
-      { sn, state: 'ONLINE', last_activity: new Date().toISOString() },
-      { onConflict: 'sn' }
-    );
-
     if (table === 'ATTLOG') {
       const bodyText = await request.text();
       const lines = bodyText
@@ -68,8 +63,7 @@ export async function POST(request: NextRequest) {
         .filter((l) => l.trim() !== '')
         .slice(0, MAX_DEVICE_LINES);
 
-      const syncService = new ZKTecoSyncService();
-
+      const logs: { user_pin: string; check_time: string; verify_type: number; sensor_status: number }[] = [];
       for (const line of lines) {
         const parts = line.split('\t');
         const parsed = attLogRecordSchema.safeParse({
@@ -78,30 +72,37 @@ export async function POST(request: NextRequest) {
           verifyType: parts[2],
           sensorStatus: parts[3],
         });
-
-        if (!parsed.success) {
-          continue; // línea malformada: se ignora sin romper el lote
-        }
-
+        if (!parsed.success) continue; // línea malformada: se ignora sin romper el lote
         const { userPin, checkTime, verifyType, sensorStatus } = parsed.data;
+        logs.push({
+          user_pin: userPin,
+          check_time: checkTime.toISOString(),
+          verify_type: verifyType,
+          sensor_status: sensorStatus,
+        });
+      }
 
-        const { data: rawLog, error } = await supabase
-          .from('zk_raw_logs')
-          .insert({
-            device_sn: sn,
-            user_pin: userPin,
-            check_time: checkTime.toISOString(),
-            verify_type: verifyType,
-            sensor_status: sensorStatus,
-            processed: false,
-          })
-          .select()
-          .single();
+      // TX-03: ingesta atómica + idempotente (device online + inserts en una sola TX)
+      const { data, error } = await supabase.rpc('zk_ingest_attlog_tx', {
+        p_device_sn: sn,
+        p_logs: logs,
+      });
 
-        if (!error && rawLog) {
-          syncService.processRawLog(rawLog.id).catch(console.error);
+      if (error) throw error;
+
+      const insertedIds = (data as { inserted_ids?: string[] } | null)?.inserted_ids ?? [];
+      if (insertedIds.length > 0) {
+        const syncService = new ZKTecoSyncService();
+        for (const id of insertedIds) {
+          syncService.processRawLog(id).catch(console.error);
         }
       }
+    } else {
+      // Otras tablas (OPERLOG, BIODATA): solo mantener device online
+      await supabase.from('zk_devices').upsert(
+        { sn, state: 'ONLINE', last_activity: new Date().toISOString() },
+        { onConflict: 'sn' }
+      );
     }
   } catch (err) {
     // Se ACK al reloj igualmente para evitar tormentas de reintentos; el detalle se loguea.

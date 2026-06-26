@@ -43,7 +43,7 @@ export function EditMetaModal({ reception, editMeta, saving, agencies, technolog
             >
               <option value="">— Seleccionar Agencia —</option>
               {agencies.map(a => (
-                <option key={a.id} value={a.name}>{a.id} — {a.name}</option>
+                <option key={a.id} value={a.name}>{a.id.toUpperCase().includes(a.name.toUpperCase()) ? a.id : `${a.id} — ${a.name}`}</option>
               ))}
             </select>
           </div>

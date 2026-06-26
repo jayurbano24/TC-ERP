@@ -56,22 +56,12 @@ export function HistoryStatsGrid({ stats, loading = false, MASTER_TECNOLOGIAS }:
         </Card>
       )}
 
-      <Card className={statCardClass}>
-        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[var(--muted)] group-hover:text-white/70 mb-4">
-          Total Global
-        </p>
-        <StatNumber value={stats.total} loading={loading} />
-        <p className="text-[9px] font-black text-[var(--muted)] group-hover:text-white/60 uppercase mt-4 tracking-widest">
-          Unidades
-        </p>
-      </Card>
-
       <Card className="p-6 border-none shadow-2xl bg-[#2ec4f1] rounded-[2.5rem] flex flex-col items-center justify-center text-center text-[#181c3a] h-40">
-        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#181c3a] mb-4">Órdenes (OS)</p>
+        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#181c3a] mb-4">Total Global (OS)</p>
         <p className="text-6xl font-black text-[#181c3a] leading-none tracking-tighter">
           {loading ? <span className="text-[#181c3a]/30 animate-pulse">—</span> : stats.total}
         </p>
-        <p className="text-[9px] font-black text-[#181c3a]/80 uppercase mt-4 tracking-widest">Generadas</p>
+        <p className="text-[9px] font-black text-[#181c3a]/80 uppercase mt-4 tracking-widest">Unidades Generadas</p>
       </Card>
     </div>
   );

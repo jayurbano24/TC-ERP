@@ -15,6 +15,8 @@ type Props = {
   loading: boolean;
   onClose: () => void;
   onSave: () => void;
+  /** Si se asigna a varias cajas a la vez, número de cajas seleccionadas. */
+  count?: number;
 };
 
 /**
@@ -32,21 +34,27 @@ export const RackModal = memo(function RackModal({
   loading,
   onClose,
   onSave,
+  count,
 }: Props) {
+  const isBulk = typeof count === 'number' && count > 1;
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
       <Card className="w-full max-w-md p-6 bg-white shadow-2xl rounded-3xl border-slate-100 animate-in fade-in zoom-in duration-200">
         <div className="flex items-center justify-between mb-6">
           <h3 className="text-lg font-black text-[#181c3a] flex items-center gap-2">
             <MapPin className="w-5 h-5 text-[#2ec4f1]" />
-            Actualizar Ubicación (Rack)
+            {isBulk ? 'Ubicación Masiva (Rack)' : 'Actualizar Ubicación (Rack)'}
           </h3>
           <button onClick={onClose} className="p-2 bg-slate-100 text-slate-400 rounded-full hover:bg-rose-100 hover:text-rose-500 transition-colors">
             <X size={20} />
           </button>
         </div>
         <p className="text-sm text-slate-500 mb-6">
-          Ingrese las coordenadas exactas de la ubicación para la caja <strong className="text-[#181c3a]">{box.id}</strong>.
+          {isBulk ? (
+            <>Ingrese las coordenadas que se aplicarán a las <strong className="text-[#181c3a]">{count} cajas seleccionadas</strong>.</>
+          ) : (
+            <>Ingrese las coordenadas exactas de la ubicación para la caja <strong className="text-[#181c3a]">{box?.id}</strong>.</>
+          )}
         </p>
 
         <div className="space-y-4">

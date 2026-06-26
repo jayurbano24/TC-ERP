@@ -43,6 +43,7 @@ next-env.d.ts
 .vercel
 
 # agent/dev scratch files (one-off scripts, transcripts, extractions)
+/tmp/
 /query_*.js
 /apply_*.js
 /_*.py

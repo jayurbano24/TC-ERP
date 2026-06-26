@@ -413,6 +413,21 @@ export const ConfigModal = memo(function ConfigModal({
             </div>
           )}
 
+          {modalType === 'razon_devolucion' && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-slate-400">Razón de Devolución</label>
+                <input
+                  type="text" required
+                  className="w-full bg-slate-50 p-4 rounded-xl border border-slate-100 font-bold outline-none focus:border-rose-400"
+                  value={formData.nombre || ''}
+                  onChange={e => setFormData({...formData, nombre: e.target.value})}
+                  placeholder="Ej. Garantía - No enciende"
+                />
+              </div>
+            </div>
+          )}
+
           {modalType === 'reparacion' && (
             <div className="space-y-4">
               <div className="space-y-2">

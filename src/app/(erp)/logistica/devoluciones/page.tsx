@@ -17,18 +17,21 @@ import {
   CheckCircle2,
   Package,
   Loader2,
-  Trash2
+  Trash2,
+  BarChart3
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { registerNewReturn, processFullReceptionReturn, undoFullReceptionReturn, processBlockReturnBySapTransfer, getSapBlockReturnRows, getBoxReturnRows, dispatchReturnItems, dispatchBoxReturns, undoBoxReturnFromClassification, type ReturnDispatchTarget, type BoxReturnDispatchTarget, type BoxReturnRow } from '@/lib/database/returns';
-import { getAgencies } from '@/lib/database/config';
+import { getAgencies, getReturnReasons } from '@/lib/database/config';
 import { BodegaDevolucionTable } from './components/BodegaDevolucionTable';
+import { ReturnsReportPanel } from './components/ReturnsReportPanel';
 import type { CatalogAgency } from '@/app/(erp)/produccion/backoffice/types';
 import { getReceptions } from '@/lib/database/receptions';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { getActualUserFullName } from '@/lib/auth';
 import { useEffect } from 'react';
 
-type DevolucionTab = 'BODEGA DEVOLUCIÓN' | 'EQUIPOS DEVUELTOS';
+type DevolucionTab = 'BODEGA DEVOLUCIÓN' | 'EQUIPOS DEVUELTOS' | 'REPORTES';
 
 type Devolucion = {
   id: string;
@@ -102,6 +105,7 @@ export default function DevolucionesPage() {
   // C5: el input sigue ligado a searchTerm; el filtrado se recomputa con el debounced.
   const debouncedSearch = useDebouncedValue(searchTerm, 250);
   const [agencies, setAgencies] = useState<CatalogAgency[]>([]);
+  const [reasons, setReasons] = useState<string[]>(RETURN_REASONS);
   const [selectedAgencyId, setSelectedAgencyId] = useState('');
   const [selectedDev, setSelectedDev] = useState<Devolucion | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -145,6 +149,77 @@ export default function DevolucionesPage() {
   const boxRows = returnsData?.boxRows ?? [];
   const devoluciones = returnsData?.devoluciones ?? [];
   const [dispatchGuiaSalida, setDispatchGuiaSalida] = useState('');
+
+  // Reporte: agrega TODAS las devoluciones (cajas + bloques SAP) por agencia y razón.
+  const { data: reportRows = [], isFetching: isFetchingReport } = useQuery({
+    queryKey: ['devoluciones-report'],
+    queryFn: async () => {
+      const [box, sap] = await Promise.all([getBoxReturnRows(), getSapBlockReturnRows()]);
+      return [...box, ...sap] as Array<{ cliente?: string; motivo?: string; agencyRaw?: string }>;
+    },
+    enabled: activeCategory === 'REPORTES',
+  });
+
+  const reportStats = useMemo(() => {
+    const byAgency = new Map<string, number>();
+    const byReason = new Map<string, number>();
+    for (const r of reportRows) {
+      const ag = (r.cliente || r.agencyRaw || '').trim() || 'Sin asignar';
+      const rs = (r.motivo || '').trim() || 'Sin motivo';
+      byAgency.set(ag, (byAgency.get(ag) || 0) + 1);
+      byReason.set(rs, (byReason.get(rs) || 0) + 1);
+    }
+    const agenciesRanked = [...byAgency.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+    const reasonsRanked = [...byReason.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+    return {
+      total: reportRows.length,
+      agencies: agenciesRanked,
+      reasons: reasonsRanked,
+      topAgency: agenciesRanked[0] || null,
+      topReason: reasonsRanked[0] || null,
+    };
+  }, [reportRows]);
+
+  const handleExportReport = () => {
+    if (!reportStats.total) {
+      notify.warning('No hay datos de devoluciones para exportar.');
+      return;
+    }
+    const wb = XLSX.utils.book_new();
+    const wsAg = XLSX.utils.json_to_sheet(
+      reportStats.agencies.map((a, i) => ({
+        '#': i + 1,
+        Agencia: a.name,
+        'Casos Devueltos': a.count,
+        '% del Total': `${((a.count / reportStats.total) * 100).toFixed(1)}%`,
+      }))
+    );
+    XLSX.utils.book_append_sheet(wb, wsAg, 'Por Agencia');
+    const wsR = XLSX.utils.json_to_sheet(
+      reportStats.reasons.map((r, i) => ({
+        '#': i + 1,
+        Razón: r.name,
+        Casos: r.count,
+        '% del Total': `${((r.count / reportStats.total) * 100).toFixed(1)}%`,
+      }))
+    );
+    XLSX.utils.book_append_sheet(wb, wsR, 'Por Razón');
+    XLSX.writeFile(wb, `reporte-devoluciones-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  useEffect(() => {
+    void getReturnReasons().then((rows) => {
+      const names = (rows || []).map((r: { name: string }) => r.name).filter(Boolean);
+      if (names.length) {
+        setReasons(names);
+        setNewReturn((prev) => (names.includes(prev.motivo) ? prev : { ...prev, motivo: names[0] }));
+      }
+    });
+  }, []);
 
   useEffect(() => {
     void getAgencies().then((rows) => {
@@ -710,7 +785,7 @@ export default function DevolucionesPage() {
                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-2">Motivo (Obligatorio)</label>
                   <select value={fullReturnForm.motivo} onChange={e => setFullReturnForm({...fullReturnForm, motivo: e.target.value})} className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-sm text-[#181c3a] outline-none focus:border-[#2ec4f1] transition-all">
                     <option value="">-- Seleccione un motivo --</option>
-                    {RETURN_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                    {reasons.map(r => <option key={r} value={r}>{r}</option>)}
                   </select>
                 </div>
                 <div>
@@ -864,7 +939,13 @@ export default function DevolucionesPage() {
       category="Logística"
       actions={
         <div className="flex gap-3">
-          <Button variant="outline" leftIcon={<History className="w-4 h-4" />}>Reporte Mensual</Button>
+          <Button
+            variant="outline"
+            leftIcon={<BarChart3 className="w-4 h-4" />}
+            onClick={() => setActiveCategory('REPORTES')}
+          >
+            Ver Reportes
+          </Button>
           {activeCategory === 'EQUIPOS DEVUELTOS' && (
             <Button 
               variant="primary" 
@@ -878,7 +959,7 @@ export default function DevolucionesPage() {
       }
     >
       <div className="mb-8 border-b border-slate-100 flex gap-8">
-        {(['BODEGA DEVOLUCIÓN', 'EQUIPOS DEVUELTOS'] as DevolucionTab[]).map((tab) => (
+        {(['BODEGA DEVOLUCIÓN', 'EQUIPOS DEVUELTOS', 'REPORTES'] as DevolucionTab[]).map((tab) => (
           <button
             key={tab}
             type="button"
@@ -894,6 +975,13 @@ export default function DevolucionesPage() {
           </button>
         ))}
       </div>
+      {activeCategory === 'REPORTES' ? (
+        <ReturnsReportPanel
+          stats={reportStats}
+          loading={isFetchingReport}
+          onExport={handleExportReport}
+        />
+      ) : (
       <div className="grid lg:grid-cols-12 gap-8">
         
         {/* Listado de Devoluciones */}
@@ -1143,6 +1231,7 @@ export default function DevolucionesPage() {
           )}
         </div>
       </div>
+      )}
 
       {/* Modal Registrar Retorno */}
       {showNewReturnModal && (
@@ -1194,7 +1283,7 @@ export default function DevolucionesPage() {
                   value={newReturn.motivo}
                   onChange={e => setNewReturn({...newReturn, motivo: e.target.value})}
                 >
-                  {RETURN_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                  {reasons.map(r => <option key={r} value={r}>{r}</option>)}
                 </select>
               </div>
 

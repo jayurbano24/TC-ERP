@@ -35,7 +35,11 @@ export function formatAgencyLabel(
       a.name.toUpperCase() === clean.toUpperCase() ||
       a.id.toUpperCase() === clean.toUpperCase()
   );
-  return matched ? `${matched.id} — ${matched.name}` : clean;
+  if (!matched) return clean;
+  // El `id` (código) ya suele venir como "G247-Nombre"; en ese caso no se vuelve a
+  // anexar el nombre para evitar duplicarlo ("G247-Nombre — Nombre").
+  const idHasName = matched.id.toUpperCase().includes(matched.name.toUpperCase());
+  return idHasName ? matched.id : `${matched.id} — ${matched.name}`;
 }
 
 /** Agencia CAC de ingreso para esta unidad/guía (nunca courier) */

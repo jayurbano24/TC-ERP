@@ -80,7 +80,7 @@ export function HistoryFiltersPanel({
             <option value="">TODAS</option>
             {CAC_AGENCIES.map((a) => (
               <option key={a.id} value={a.id}>
-                {a.id} — {a.name}
+                {a.id.toUpperCase().includes(a.name.toUpperCase()) ? a.id : `${a.id} — ${a.name}`}
               </option>
             ))}
           </select>

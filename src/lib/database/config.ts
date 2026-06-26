@@ -144,6 +144,47 @@ export async function deletePxProvider(id: string) {
   return { error };
 }
 
+// --- RAZONES DE DEVOLUCIÓN ---
+
+export async function getReturnReasons() {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return [];
+  const { data, error } = await supabase.from('return_reasons').select('*').eq('active', true).order('name');
+  if (error) {
+    console.error("Error fetching return_reasons:", JSON.stringify(error, null, 2));
+    return [];
+  }
+  return data || [];
+}
+
+export async function saveReturnReason(reason: any) {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return { error: "Supabase not configured" };
+  const { id, ...payload } = reason;
+
+  const name = (payload.nombre || payload.name || '').trim();
+  if (!name) return { error: "El nombre de la razón es requerido" };
+
+  if (id) {
+    const { data, error } = await supabase.from('return_reasons').update({ name }).eq('id', id).select().single();
+    if (error) return { error: error.message || "Error al actualizar la razón" };
+    return { data };
+  }
+  const { data, error } = await supabase.from('return_reasons').insert([{ name }]).select().single();
+  if (error) {
+    console.error("Error saving return_reason:", error.message || error);
+    return { error: error.message || "Error al crear la razón de devolución" };
+  }
+  return { data };
+}
+
+export async function deleteReturnReason(id: string) {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return { error: "Supabase not configured" };
+  const { error } = await supabase.from('return_reasons').delete().eq('id', id);
+  return { error };
+}
+
 
 // --- MODELOS ---
 

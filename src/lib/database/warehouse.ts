@@ -116,7 +116,10 @@ export function canScanSeriesIntoWarehouse(
   return { ok: false, reason: 'not_ready' };
 }
 
-const WAREHOUSE_BOX_FETCH_LIMIT = 5000;
+// Límite de paginación para lecturas de inventario. Debe superar el total de
+// series físicas en bodega central/L3 (las funciones igualmente cortan cuando
+// la página viene incompleta, así que esto sólo es una cota de seguridad).
+const WAREHOUSE_BOX_FETCH_LIMIT = 200000;
 
 function chunkIds(ids: string[], size = 80): string[][] {
   const chunks: string[][] = [];
@@ -132,52 +135,58 @@ async function fetchSeriesForBoxes(
 ) {
   if (boxIds.length === 0) return [] as any[];
 
-  const seriesSelect = `
-    *,
-    receptions (
-      guide_number,
-      notes,
-      carrier,
-      received_by,
-      status,
-      created_at,
-      source
-    ),
-    service_orders (id, os_label, reentry_count, sap_integration_status),
-    models (name, technology_id, brand_id, technologies (name))
-  `;
-
+  // 1) Series PLANAS (sin joins anidados — los embeds de PostgREST sobre
+  //    decenas de miles de filas son el principal cuello de botella). Las
+  //    relaciones (receptions / service_orders / models) se resuelven luego
+  //    con consultas por lote y se atan en cliente, conservando la misma forma.
   const pageSize = 1000;
-  const allSeries: any[] = [];
-  for (const chunk of chunkIds(boxIds)) {
+  const fetchChunkSeries = async (chunk: string[]) => {
+    const out: any[] = [];
     let offset = 0;
     while (offset < WAREHOUSE_BOX_FETCH_LIMIT) {
-      const { data: seriesData, error: seriesError } = await supabase
+      const { data, error } = await supabase
         .from('series')
-        .select(seriesSelect)
+        .select('*')
         .in('current_box_id', chunk)
         .range(offset, offset + pageSize - 1);
-
-      if (seriesError) {
-        console.error('Error fetching series for boxes:', seriesError);
-        const { data: fallback, error: fallbackError } = await supabase
-          .from('series')
-          .select('*')
-          .in('current_box_id', chunk)
-          .range(offset, offset + pageSize - 1);
-        if (fallbackError) {
-          console.error('Fallback series fetch for boxes failed:', fallbackError);
-          break;
-        }
-        if (fallback) allSeries.push(...fallback);
-        if (!fallback || fallback.length < pageSize) break;
-        offset += pageSize;
-        continue;
+      if (error) {
+        console.error('Error fetching series for boxes:', error);
+        break;
       }
-      if (seriesData) allSeries.push(...seriesData);
-      if (!seriesData || seriesData.length < pageSize) break;
+      if (data) out.push(...data);
+      if (!data || data.length < pageSize) break;
       offset += pageSize;
     }
+    return out;
+  };
+  const chunkResults = await Promise.all(chunkIds(boxIds).map(fetchChunkSeries));
+  const allSeries: any[] = chunkResults.flat();
+
+  // 2) Resolver relaciones con consultas pequeñas por lote
+  const recIds = [...new Set(allSeries.map((s) => s.current_reception_id).filter(Boolean))];
+  const osIds = [...new Set(allSeries.map((s) => s.service_order_id).filter(Boolean))];
+  const modelIds = [...new Set(allSeries.map((s) => s.model_id).filter(Boolean))];
+
+  const fetchMap = async (table: string, ids: string[], cols: string) => {
+    const map = new Map<string, any>();
+    const results = await Promise.all(
+      chunkIds(ids, 300).map((c) => supabase.from(table).select(cols).in('id', c))
+    );
+    for (const { data } of results) for (const row of data || []) map.set((row as any).id, row);
+    return map;
+  };
+
+  const [recMap, osMap, modelMap] = await Promise.all([
+    fetchMap('receptions', recIds, 'id, guide_number, notes, carrier, received_by, status, created_at, source'),
+    fetchMap('service_orders', osIds, 'id, os_label, reentry_count, sap_integration_status'),
+    fetchMap('models', modelIds, 'id, name, technology_id, brand_id, technologies (name)'),
+  ]);
+
+  // 3) Atar relaciones a cada serie (misma forma que el embed original)
+  for (const s of allSeries) {
+    s.receptions = s.current_reception_id ? recMap.get(s.current_reception_id) || null : null;
+    s.service_orders = s.service_order_id ? osMap.get(s.service_order_id) || null : null;
+    s.models = s.model_id ? modelMap.get(s.model_id) || null : null;
   }
   return allSeries;
 }
@@ -240,27 +249,34 @@ async function fetchWarehouseSeriesBoxIds(
 ) {
   const boxIds = new Set<string>();
   const pageSize = 1000;
-  let offset = 0;
 
-  while (offset < WAREHOUSE_BOX_FETCH_LIMIT) {
-    const { data, error } = await supabase
-      .from('series')
-      .select('current_box_id')
-      .eq('current_status', 'in_central_warehouse')
-      .not('current_box_id', 'is', null)
-      .range(offset, offset + pageSize - 1);
+  // Conteo para lanzar las páginas en paralelo (en vez de secuencial).
+  const { count, error: countError } = await supabase
+    .from('series')
+    .select('current_box_id', { count: 'exact', head: true })
+    .eq('current_status', 'in_central_warehouse')
+    .not('current_box_id', 'is', null);
 
-    if (error) {
-      console.error('Error fetching warehouse series box ids:', error);
-      break;
-    }
-    if (!data?.length) break;
+  if (countError || !count) {
+    if (countError) console.error('Error counting warehouse series:', countError);
+    return boxIds;
+  }
 
-    for (const row of data) {
+  const pages = Math.min(Math.ceil(count / pageSize), Math.ceil(WAREHOUSE_BOX_FETCH_LIMIT / pageSize));
+  const results = await Promise.all(
+    Array.from({ length: pages }, (_, p) =>
+      supabase
+        .from('series')
+        .select('current_box_id')
+        .eq('current_status', 'in_central_warehouse')
+        .not('current_box_id', 'is', null)
+        .range(p * pageSize, p * pageSize + pageSize - 1)
+    )
+  );
+  for (const { data } of results) {
+    for (const row of data || []) {
       if (row.current_box_id) boxIds.add(row.current_box_id as string);
     }
-    if (data.length < pageSize) break;
-    offset += pageSize;
   }
 
   return boxIds;

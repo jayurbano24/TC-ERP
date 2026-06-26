@@ -95,6 +95,10 @@ export default function ConsultaPage() {
           ? await fetchCacTrayContext(exactMatch.service_order_id)
           : null;
 
+        const equipmentSerials = siblings
+          .flatMap((s: any) => [s.serial_number, s.s2, s.s3, s.s4])
+          .filter(Boolean) as string[];
+
         const hist = await getEquipmentTraceabilityHistory({
           seriesIds: siblingIds,
           serviceOrderId: exactMatch.service_order_id,
@@ -103,6 +107,7 @@ export default function ConsultaPage() {
           boxId: exactMatch.current_box_id,
           guideNumbers,
           receptionNotes: reception?.notes || null,
+          equipmentSerials,
         });
         setHistory(hist);
         setSeriesData({
@@ -237,6 +242,7 @@ export default function ConsultaPage() {
     receptionTime: seriesData?.receptions?.reception_time || null,
     receptionCreatedAt: seriesData?.receptions?.created_at || null,
     trayClassifiedAt: trayCtx?.classified_at || null,
+    isPx: (seriesData?.receptions?.source || '').toLowerCase().includes('px'),
   });
 
   const formatResponsibleDate = (iso: string) => (iso ? formatDate(iso) : '-');
@@ -249,9 +255,21 @@ export default function ConsultaPage() {
   const bodegaNombre = responsibles.warehouseName;
   const bodegaFecha = formatResponsibleDate(responsibles.warehouseDate);
 
+  const isPxReception = (seriesData?.receptions?.source || '').toLowerCase().includes('px');
+
   const extractAgency = (receptions: any) => {
-    if (trayCtx?.agency_name) return trayCtx.agency_name;
     if (!receptions) return 'N/A';
+
+    // PX: la "agencia" real es el Proveedor PX (carrier). El campo "Agencia: ..."
+    // en notes es un valor por defecto (p. ej. "Monte Verdes") y no representa al proveedor.
+    if ((receptions.source || '').toLowerCase().includes('px')) {
+      const proveedor = receptions.notes
+        ? receptions.notes.split('Proveedor PX: ')[1]?.split('\n')[0]?.trim()
+        : null;
+      return proveedor || receptions.carrier || 'N/A';
+    }
+
+    if (trayCtx?.agency_name) return trayCtx.agency_name;
 
     // Fase 5: leer desde reception_guides.agency (fuente de verdad)
     if (receptions.reception_guides?.length > 0) {
@@ -462,7 +480,7 @@ export default function ConsultaPage() {
                       <span className="text-slate-200 font-bold uppercase">{seriesData.receptions?.source || 'N/A'}</span>
                     </div>
                     <div className="flex justify-between items-center text-sm">
-                      <span className="text-slate-500">Agencia:</span>
+                      <span className="text-slate-500">{isPxReception ? 'Proveedor PX:' : 'Agencia:'}</span>
                       <span className="text-slate-200 uppercase text-right max-w-[180px] break-words whitespace-normal">{extractAgency(seriesData.receptions)}</span>
                     </div>
                     <div className="flex justify-between items-center text-sm">

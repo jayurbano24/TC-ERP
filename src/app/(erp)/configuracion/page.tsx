@@ -34,7 +34,8 @@ import {
   getRepairs, saveRepair, deleteRepair,
   getProfiles, saveProfile,
   getReacondicionadoTests, saveReacondicionadoTest, deleteReacondicionadoTest,
-  getPxProviders, savePxProvider, deletePxProvider
+  getPxProviders, savePxProvider, deletePxProvider,
+  getReturnReasons, saveReturnReason, deleteReturnReason
 } from '@/lib/database/config';
 import { adminChangeUserPassword } from '@/app/actions/admin';
 import { ConfigModal } from './components/ConfigModal';
@@ -85,7 +86,7 @@ type Agencia = {
 };
 
 export default function ConfiguracionPage() {
-  const [activeView, setActiveView] = useState<'marcas' | 'modelos' | 'tecnologias' | 'diagnosticos' | 'reparaciones' | 'reacondicionado' | 'agencias' | 'transportes' | 'usuarios' | 'px_providers'>('marcas');
+  const [activeView, setActiveView] = useState<'marcas' | 'modelos' | 'tecnologias' | 'diagnosticos' | 'reparaciones' | 'reacondicionado' | 'agencias' | 'transportes' | 'usuarios' | 'px_providers' | 'razones_devolucion'>('marcas');
   const [showModal, setShowModal] = useState(false);
   const [modalType, setModalType] = useState<'marca' | 'modelo' | 'tecnologia' | 'diagnostico' | 'reparacion' | 'reacondicionado' | 'agencia' | 'transporte' | 'usuario' | 'px_provider'>('marca');
   const [editingItem, setEditingItem] = useState<any | null>(null);
@@ -100,13 +101,14 @@ export default function ConfiguracionPage() {
   const [transportes, setTransportes] = useState<any[]>([]);
   const [usuarios, setUsuarios] = useState<any[]>([]);
   const [pxProviders, setPxProviders] = useState<any[]>([]);
+  const [razonesDevolucion, setRazonesDevolucion] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedAgencyIds, setSelectedAgencyIds] = useState<Set<string>>(new Set());
 
   React.useEffect(() => {
     const loadData = async () => {
       setLoading(true);
-      const [t, b, m, a, c, d, r, u, rt, px] = await Promise.all([
+      const [t, b, m, a, c, d, r, u, rt, px, rr] = await Promise.all([
         getTechnologies(),
         getBrands(),
         getModels(),
@@ -116,7 +118,8 @@ export default function ConfiguracionPage() {
         getRepairs(),
         getProfiles(),
         getReacondicionadoTests(),
-        getPxProviders()
+        getPxProviders(),
+        getReturnReasons()
       ]);
       setTecnologias(t.map((x: any) => ({ ...x, nombre: x.name, seriesCount: x.series_count, digitsPerSeries: x.digits_per_series })));
       setTransportes(c.map((x: any) => ({ dbId: x.id, id: x.code, nombre: x.name })));
@@ -135,6 +138,7 @@ export default function ConfiguracionPage() {
       setAgencias(a.map((x: any) => ({ ...x, dbId: x.id, id: x.code, nombre: x.name, encargado: x.manager, telefono: x.phone, direccion: x.address })));
       setUsuarios(u);
       setPxProviders(px.map((x: any) => ({ ...x, nombre: x.name })));
+      setRazonesDevolucion(rr.map((x: any) => ({ ...x, nombre: x.name })));
       setLoading(false);
     };
     loadData();
@@ -231,6 +235,14 @@ export default function ConfiguracionPage() {
         } else {
           notify.error('Error al guardar proveedor PX', { description: typeof error === 'string' ? error : (error as any)?.message || JSON.stringify(error) });
         }
+      } else if (modalType === 'razon_devolucion') {
+        const { error } = await saveReturnReason({ ...editingItem, ...formData });
+        if (!error) {
+          const rr = await getReturnReasons();
+          setRazonesDevolucion(rr.map((x: any) => ({ ...x, nombre: x.name })));
+        } else {
+          notify.error('Error al guardar razón de devolución', { description: typeof error === 'string' ? error : (error as any)?.message || JSON.stringify(error) });
+        }
       } else if (modalType === 'reparacion' || modalType === 'diagnostico') {
         if (modalType === 'reparacion') {
           const { data, error } = await saveRepair({ ...editingItem, ...formData });
@@ -318,6 +330,9 @@ export default function ConfiguracionPage() {
       } else if (type === 'px_provider') {
         await deletePxProvider(id);
         setPxProviders(pxProviders.filter(p => p.id !== id));
+      } else if (type === 'razon_devolucion') {
+        await deleteReturnReason(id);
+        setRazonesDevolucion(razonesDevolucion.filter(r => r.id !== id));
       } else if (type === 'reparacion') {
         await deleteRepair(id);
         setReparaciones(reparaciones.filter(r => r.id !== id));
@@ -575,6 +590,12 @@ export default function ConfiguracionPage() {
             >
               <ClipboardList size={14} /> Proveedores PX
             </button>
+            <button 
+              onClick={() => setActiveView('razones_devolucion')}
+              className={`w-full flex items-center gap-3 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all ${activeView === 'razones_devolucion' ? 'bg-[#181c3a] text-white shadow-xl' : 'text-slate-400 hover:bg-slate-100'}`}
+            >
+              <AlertTriangle size={14} /> Razones de Devolución
+            </button>
           </div>
 
           <div className="pt-4 mt-4 border-t border-slate-100">
@@ -629,6 +650,28 @@ export default function ConfiguracionPage() {
               columns={[
                 { header: 'ID', cell: (p) => <span className="font-mono text-[10px] text-slate-400">#{p.id.substring(0,8)}</span> },
                 { header: 'Nombre de Proveedor', cell: (p) => <span className="font-black text-[#181c3a] uppercase text-sm tracking-tight">{p.nombre}</span> },
+              ]}
+              onOpenModal={handleOpenModal}
+              onDelete={handleDelete}
+            />
+          )}
+
+          {activeView === 'razones_devolucion' && (
+            <CatalogTableView
+              type="razon_devolucion"
+              theme="light"
+              title="Razones de Devolución"
+              subtitle="Motivos disponibles al enviar un equipo a devolución"
+              addLabel="Agregar Razón"
+              icon={<AlertTriangle className="w-6 h-6 text-rose-500" />}
+              iconWrapClassName="bg-rose-50 p-3 rounded-2xl shadow-lg shadow-rose-500/10"
+              data={razonesDevolucion}
+              loading={loading}
+              emptyIcon={<AlertTriangle size={64} className="mx-auto mb-4" />}
+              emptyText="No hay razones registradas"
+              columns={[
+                { header: 'ID', cell: (p) => <span className="font-mono text-[10px] text-slate-400">#{p.id.substring(0,8)}</span> },
+                { header: 'Razón', cell: (p) => <span className="font-black text-[#181c3a] uppercase text-sm tracking-tight">{p.nombre}</span> },
               ]}
               onOpenModal={handleOpenModal}
               onDelete={handleDelete}

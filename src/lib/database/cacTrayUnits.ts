@@ -55,6 +55,15 @@ function applyTrayFilters(
     if (code) q = q.or(`agency_code.ilike.%${code}%,agency_name.ilike.%${code}%`);
   }
 
+  // Las devoluciones/retornos NO deben aparecer en el historial global CAC:
+  // viven exclusivamente en el módulo de Devoluciones. Excluimos por estado
+  // (returned/DEVUELTO_BLOQUE/DEVUELTO) y por etiqueta (Devuelto/Para Devolver/Retorno).
+  q = q
+    .not('unit_status', 'in', '("returned","DEVUELTO_BLOQUE","DEVUELTO")')
+    .not('unit_status_label', 'ilike', '%devuelt%')
+    .not('unit_status_label', 'ilike', '%devolver%')
+    .not('unit_status_label', 'ilike', '%retorno%');
+
   return q;
 }
 

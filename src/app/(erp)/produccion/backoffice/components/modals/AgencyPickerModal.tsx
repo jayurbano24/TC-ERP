@@ -65,7 +65,7 @@ export function AgencyPickerModal({
               onClick={() => onSelect(ag.id)}
               className="w-full text-left p-4 rounded-2xl border-2 border-slate-100 hover:border-[#2ec4f1] hover:bg-blue-50/30 transition-all"
             >
-              <p className="text-xs font-black text-[#181c3a]">{ag.id} — {ag.name}</p>
+              <p className="text-xs font-black text-[#181c3a]">{ag.id.toUpperCase().includes(ag.name.toUpperCase()) ? ag.id : `${ag.id} — ${ag.name}`}</p>
               <p className="text-[10px] text-slate-400 mt-1">{ag.direccion}</p>
             </button>
           ))}

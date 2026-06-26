@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Card, Badge, Button, DataTable, type DataTableColumn, notify, confirmDialog } from '@/components/ui';
+import { Card, Badge, Button, DataTable, type DataTableColumn, notify, confirmDialog, TablePagination } from '@/components/ui';
+import { useClientPagination } from '@/hooks/useClientPagination';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { assertSapOperationAllowed, resolveUnitSapStatus } from '@/lib/sap/sapValidationStatus';
@@ -118,6 +119,14 @@ export default function BodegaGestionPage() {
   const [filterTech, setFilterTech] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
 
+  // Selección múltiple de cajas (para ubicación masiva)
+  const [selectedBoxIds, setSelectedBoxIds] = useState<string[]>([]);
+  const [showBulkRackModal, setShowBulkRackModal] = useState(false);
+
+  const toggleBoxSelection = (id: string) => {
+    setSelectedBoxIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
   const filteredInventory = useMemo(() => {
     return inventory.filter((item) => {
       if (filterTech && item.tecnologia !== filterTech) return false;
@@ -142,6 +151,77 @@ export default function BodegaGestionPage() {
       );
     });
   }, [inventory, filterTech, filterStatus, debouncedSearch, catMarcas, catModelos, catTecnologias]);
+
+  // Resumen de unidades/cajas agrupadas por tecnología (sobre todo el inventario).
+  const techStats = useMemo(() => {
+    const map = new Map<string, { value: string; label: string; boxes: number; units: number }>();
+    inventory.forEach((item) => {
+      const value = String(item.tecnologia || '---');
+      const label = catTecnologias.find((t) => t.id === value)?.name || value || '---';
+      const current = map.get(value) || { value, label, boxes: 0, units: 0 };
+      current.boxes += 1;
+      current.units += item.unitCount ?? item.series?.length ?? 0;
+      map.set(value, current);
+    });
+    return Array.from(map.values()).sort((a, b) => b.units - a.units);
+  }, [inventory, catTecnologias]);
+
+  // Paginación cliente del listado de cajas (se reinicia al cambiar filtros/búsqueda).
+  const BOX_PAGE_SIZE = 10;
+  const boxPagination = useClientPagination(filteredInventory, BOX_PAGE_SIZE, [
+    filterTech,
+    filterStatus,
+    debouncedSearch,
+  ]);
+
+  const handleExportReport = async () => {
+    if (filteredInventory.length === 0) {
+      notify.warning('Sin cajas para exportar', {
+        description: 'No hay cajas que coincidan con los filtros actuales.',
+      });
+      return;
+    }
+    const rows = filteredInventory.map((item) => {
+      const parts = String(item.rack || '').split(' - ');
+      const isSinRack = !item.rack || item.rack === 'SIN RACK';
+      const rackVal = isSinRack ? '' : parts[0]?.replace('RACK-', '') || item.rack || '';
+      const nivelVal = parts[1]?.replace('NIVEL-', '') || '';
+      const posicionVal = parts[2]?.replace('POSICION-', '') || '';
+      return {
+        'ID Caja': item.id,
+        'Fecha Ingreso': item.fechaIngreso,
+        'Tecnología': catTecnologias.find((t) => t.id === item.tecnologia)?.name || item.tecnologia || '---',
+        'Marca': catMarcas.find((b) => b.id === item.marca)?.name || item.marca || 'N/A',
+        'Modelo': catModelos.find((m) => m.id === item.modelo)?.name || item.modelo || 'N/A',
+        'Ubicación': isSinRack ? 'SIN RACK' : item.rack,
+        'Rack': rackVal,
+        'Nivel': nivelVal,
+        'Posición': posicionVal,
+        'Área': item.area || '',
+        'Unidades': item.unitCount ?? item.series?.length ?? 0,
+        'Capacidad': item.cantidad || 0,
+        'Estatus': item.status,
+        'Usuario Ingreso': String(item.usuarioIngreso || 'SISTEMA').split('@')[0],
+      };
+    });
+    try {
+      const XLSX = await import('xlsx');
+      const ws = XLSX.utils.json_to_sheet(rows);
+      ws['!cols'] = [
+        { wch: 12 }, { wch: 20 }, { wch: 12 }, { wch: 16 }, { wch: 18 },
+        { wch: 26 }, { wch: 8 }, { wch: 8 }, { wch: 10 }, { wch: 16 },
+        { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 18 },
+      ];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Detalle Cajas');
+      const today = new Date().toISOString().slice(0, 10);
+      XLSX.writeFile(wb, `Reporte_Detalle_Cajas_${today}.xlsx`);
+      notify.success('Reporte generado', { description: `${rows.length} cajas exportadas con su ubicación.` });
+    } catch (err) {
+      console.error('Error generando reporte de cajas:', err);
+      notify.error('No se pudo generar el reporte', { description: 'Intente nuevamente.' });
+    }
+  };
 
   useEffect(() => {
     if (pathname !== '/bodega/gestion') return;
@@ -994,6 +1074,36 @@ export default function BodegaGestionPage() {
     setLoading(false);
   };
 
+  const handleBulkUpdateRack = async () => {
+    if (selectedBoxIds.length === 0) return;
+    setLoading(true);
+    const supabase = getSupabaseBrowserClient();
+
+    const rn = rackNum.trim() || 'S/N';
+    const rnl = rackNivel.trim() || '0';
+    const rp = rackPosicion.trim() || 'S/P';
+    const finalRack = `RACK-${rn} - NIVEL-${rnl} - POSICION-${rp}`.toUpperCase();
+
+    if (supabase) {
+      const realIds = selectedBoxIds.map((id) => {
+        const box = inventory.find((b) => b.id === id);
+        return box ? box.realDbId || box.id : id;
+      });
+      const { error } = await supabase.from('boxes').update({ rack_location: finalRack }).in('id', realIds);
+      if (error) {
+        notify.error('Error al actualizar ubicaciones', { description: error.message });
+      } else {
+        await fetchBoxes();
+        notify.success('Ubicación asignada', {
+          description: `${selectedBoxIds.length} ${selectedBoxIds.length === 1 ? 'caja' : 'cajas'} → ${finalRack}.`,
+        });
+        setSelectedBoxIds([]);
+      }
+    }
+    setShowBulkRackModal(false);
+    setLoading(false);
+  };
+
   const handleExecuteTransfer = async () => {
     if (selectedBoxesForTransfer.length === 0) return;
     
@@ -1036,7 +1146,40 @@ export default function BodegaGestionPage() {
     setTransferScanInput('');
   };
 
+  const pageBoxIds = boxPagination.slice.map((b: any) => b.id);
+  const allPageSelected = pageBoxIds.length > 0 && pageBoxIds.every((id) => selectedBoxIds.includes(id));
+
   const inventoryColumns: DataTableColumn<any>[] = [
+    {
+      id: 'select',
+      width: '44px',
+      header: (
+        <input
+          type="checkbox"
+          className="w-4 h-4 accent-[#2ec4f1] cursor-pointer"
+          checked={allPageSelected}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => {
+            const checked = e.target.checked;
+            setSelectedBoxIds((prev) =>
+              checked
+                ? Array.from(new Set([...prev, ...pageBoxIds]))
+                : prev.filter((id) => !pageBoxIds.includes(id))
+            );
+          }}
+          title="Seleccionar todas las cajas de esta página"
+        />
+      ),
+      cell: (item) => (
+        <input
+          type="checkbox"
+          className="w-4 h-4 accent-[#2ec4f1] cursor-pointer"
+          checked={selectedBoxIds.includes(item.id)}
+          onClick={(e) => e.stopPropagation()}
+          onChange={() => toggleBoxSelection(item.id)}
+        />
+      ),
+    },
     {
       id: 'id',
       header: 'ID Caja',
@@ -1357,10 +1500,60 @@ export default function BodegaGestionPage() {
           </Card>
         </div>
 
+        {/* Cantidad por Tecnología */}
+        {techStats.length > 0 && (
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <Cpu className="w-4 h-4 text-[#2ec4f1]" />
+              <h3 className="text-[11px] font-black uppercase tracking-widest text-slate-600">
+                Unidades por Tecnología
+              </h3>
+              {filterTech && (
+                <button
+                  type="button"
+                  onClick={() => setFilterTech('')}
+                  className="ml-auto text-[10px] font-black uppercase tracking-widest text-[#2ec4f1] hover:underline"
+                >
+                  Limpiar filtro
+                </button>
+              )}
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+              {techStats.map((t) => {
+                const active = filterTech === t.value;
+                return (
+                  <button
+                    key={t.value}
+                    type="button"
+                    onClick={() => setFilterTech(active ? '' : t.value)}
+                    className={`text-left p-4 rounded-2xl border-2 transition-all ${
+                      active
+                        ? 'border-[#2ec4f1] bg-blue-50/60 shadow-sm'
+                        : 'border-slate-100 bg-white hover:border-slate-200'
+                    }`}
+                    title={`Filtrar por ${t.label}`}
+                  >
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 truncate">
+                      {t.label}
+                    </p>
+                    <h4 className="text-2xl font-black text-[#181c3a] leading-tight mt-1">
+                      {t.units.toLocaleString()}
+                    </h4>
+                    <p className="text-[10px] font-bold text-slate-500 mt-0.5">
+                      {t.boxes} {t.boxes === 1 ? 'caja' : 'cajas'}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Inventory List */}
         <div className="space-y-6">
           <ModuleToolbar 
             onSearch={(val) => setSearchTerm(val)}
+            onExport={handleExportReport}
             onAdd={() => {
               setShowNewBoxModal(true);
               setNewBoxLastScannedInfo(null);
@@ -1394,18 +1587,58 @@ export default function BodegaGestionPage() {
             }
           />
 
+          {selectedBoxIds.length > 0 && (
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-[#181c3a] text-white p-4 rounded-2xl shadow-xl animate-in fade-in slide-in-from-top-2 duration-200">
+              <span className="text-sm font-bold self-center sm:ml-2">
+                {selectedBoxIds.length} {selectedBoxIds.length === 1 ? 'caja seleccionada' : 'cajas seleccionadas'}
+              </span>
+              <div className="flex flex-col sm:flex-row items-stretch gap-3">
+                <Button
+                  variant="primary"
+                  className="bg-[#2ec4f1] text-[#181c3a] hover:bg-[#2ec4f1]/90 font-black uppercase text-[10px] tracking-widest"
+                  leftIcon={<MapPin className="w-4 h-4" />}
+                  onClick={() => {
+                    setRackNum('');
+                    setRackNivel('');
+                    setRackPosicion('');
+                    setShowBulkRackModal(true);
+                  }}
+                >
+                  Asignar Ubicación Masiva
+                </Button>
+                <Button
+                  variant="outline"
+                  className="border-white/20 text-white hover:bg-white/10 font-black uppercase text-[10px] tracking-widest"
+                  onClick={() => setSelectedBoxIds([])}
+                >
+                  Limpiar selección
+                </Button>
+              </div>
+            </div>
+          )}
+
           <Card padding="none" className="overflow-hidden border-2 border-slate-100 shadow-sm">
             <DataTable
               columns={inventoryColumns}
-              data={filteredInventory}
+              data={boxPagination.slice}
               getRowId={(item) => item.id}
               onRowClick={(item) => setSelectedBox(item)}
               rowHeight={72}
-              maxBodyHeight={640}
-              minWidth={1290}
+              maxBodyHeight={720}
+              minWidth={1334}
               headerClassName="bg-[#181c3a] border-b border-[#181c3a]"
               headerTextClassName="text-white/80"
               emptyMessage="No hay cajas en inventario"
+            />
+            <TablePagination
+              totalCount={boxPagination.totalCount}
+              page={boxPagination.page}
+              totalPages={boxPagination.totalPages}
+              startItem={boxPagination.startItem}
+              endItem={boxPagination.endItem}
+              pageSize={BOX_PAGE_SIZE}
+              onPageChange={boxPagination.setPage}
+              itemLabel="cajas"
             />
           </Card>
         </div>
@@ -1564,6 +1797,23 @@ export default function BodegaGestionPage() {
           loading={loading}
           onClose={() => setShowRackModal(null)}
           onSave={handleUpdateRack}
+        />
+      )}
+
+      {/* BULK RACK MODAL (Ubicación Masiva) */}
+      {showBulkRackModal && (
+        <RackModal
+          box={{ id: `${selectedBoxIds.length} cajas` }}
+          count={selectedBoxIds.length}
+          rackNum={rackNum}
+          setRackNum={setRackNum}
+          rackNivel={rackNivel}
+          setRackNivel={setRackNivel}
+          rackPosicion={rackPosicion}
+          setRackPosicion={setRackPosicion}
+          loading={loading}
+          onClose={() => setShowBulkRackModal(false)}
+          onSave={handleBulkUpdateRack}
         />
       )}
 

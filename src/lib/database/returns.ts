@@ -96,8 +96,14 @@ export async function getSapBlockReturnRows() {
       s.receptions?.guide_number ||
       '---';
 
+    // Identificador legible (no UUID): usa la OS (única por fila tras dedup);
+    // si no hay OS, usa el documento SAP + sufijo corto de serie para garantizar unicidad.
+    const friendlyRef =
+      s.service_orders?.os_label ||
+      `${sapDoc?.sap_document_number || 'SAP'}-${String(s.id).slice(0, 6).toUpperCase()}`;
+
     rows.push({
-      id: `SAP-BLK-${osId || s.id}`,
+      id: `SAP-BLK-${friendlyRef}`,
       sn: s.serial_number || guide,
       cliente:
         sapDoc?.reception_guides?.agency ||

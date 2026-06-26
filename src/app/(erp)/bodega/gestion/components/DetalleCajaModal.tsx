@@ -1,7 +1,7 @@
 'use client';
 
-import { memo, type FormEvent } from 'react';
-import { Card, Badge, Button } from '@/components/ui';
+import { memo, useMemo, type FormEvent } from 'react';
+import { Card, Badge, Button, DataTable, type DataTableColumn } from '@/components/ui';
 import {
   Warehouse, Cpu, MapPin, QrCode, Info, Calendar, PackageCheck,
   ArrowRight, History, Eye, Pencil, Printer, Trash2,
@@ -39,6 +39,43 @@ export const DetalleCajaModal = memo(function DetalleCajaModal({
   onClose,
 }: Props) {
   const uniqueEquipmentsCount = new Set(selectedBox.series?.map((s: any) => s.service_orders?.id || s.serial_number)).size;
+
+  // Lookups O(1) para evitar .find() por celda (importante con muchas unidades).
+  const marcaMap = useMemo(() => new Map(catMarcas.map((b) => [b.id, b.name])), [catMarcas]);
+  const modeloMap = useMemo(() => new Map(catModelos.map((m) => [m.id, m.name])), [catModelos]);
+  const tecMap = useMemo(() => new Map(catTecnologias.map((t) => [t.id, t.name])), [catTecnologias]);
+
+  const seriesColumns = useMemo<DataTableColumn<any>[]>(() => [
+    { id: 'fecha', header: 'Fecha / Hora', width: '150px', cell: (item) => <span className="text-[10px] font-bold text-slate-700">{item.fechaHora || item.timestamp}</span> },
+    { id: 'guia', header: 'No. Guía', width: '130px', cell: (item) => <span className="text-[10px] font-mono font-bold text-[#181c3a]">{item.guia || item.agencia}</span> },
+    { id: 'piloto', header: 'Piloto', width: '110px', cell: (item) => <span className="text-[10px] font-medium text-slate-600">{item.piloto || '---'}</span> },
+    { id: 'courier', header: 'Courier', width: '100px', cell: (item) => <span className="text-[10px] font-medium text-slate-400">{item.origen || '---'}</span> },
+    { id: 'recibio', header: 'Recibió', width: '120px', cell: (item) => <span className="text-[10px] font-medium text-slate-600">{item.recibio || 'Admin'}</span> },
+    { id: 'estatus', header: 'Estatus', width: '160px', cell: () => <span className="text-[9px] font-black tracking-widest bg-[#181c3a] text-white px-2 py-1 rounded-full">BODEGA PRINCIPAL</span> },
+    { id: 'os', header: 'Orden Servicio', width: '120px', cell: (item) => <span className="text-[10px] font-black text-[#2ec4f1]">{item.ordenServicio || '---'}</span> },
+    { id: 'ingreso', header: 'Ingreso', width: '110px', cell: (item) => <span className="text-[9px] font-black bg-blue-50 text-blue-600 px-2 py-1 rounded-full">{item.ingreso || '1° Ingreso'}</span> },
+    { id: 'agencia', header: 'Agencia CAC', width: '150px', cell: (item) => <span className="text-[10px] font-bold text-slate-700">{item.agenciaCAC || '---'}</span> },
+    { id: 'tec', header: 'Tecnología', width: '110px', cell: (item) => <span className="text-[10px] font-bold text-[#2ec4f1]">{tecMap.get(item.tecnologia) || item.tecnologia || '---'}</span> },
+    { id: 'marca', header: 'Marca', width: '110px', cell: (item) => <span className="text-[10px] font-bold text-slate-700">{marcaMap.get(item.marca) || item.marca || '---'}</span> },
+    { id: 'modelo', header: 'Modelo', width: '120px', cell: (item) => <span className="text-[10px] font-bold text-slate-700">{modeloMap.get(item.modelo) || item.modelo || '---'}</span> },
+    { id: 's1', header: 'S-1', width: '150px', cell: (item) => (item.s1 || item.sn) ? <span className="inline-block px-2 py-1 bg-slate-50 text-[10px] font-mono font-black text-[#181c3a] rounded-md">{item.s1 || item.sn}</span> : <span className="text-slate-300">---</span> },
+    { id: 's2', header: 'S-2', width: '150px', cell: (item) => item.s2 ? <span className="inline-block px-2 py-1 bg-slate-50 text-[10px] font-mono font-bold text-slate-600 rounded-md">{item.s2}</span> : <span className="text-slate-300">---</span> },
+    { id: 's3', header: 'S-3', width: '150px', cell: (item) => item.s3 ? <span className="inline-block px-2 py-1 bg-slate-50 text-[10px] font-mono font-bold text-slate-600 rounded-md">{item.s3}</span> : <span className="text-slate-300">---</span> },
+    { id: 's4', header: 'S-4', width: '150px', cell: (item) => item.s4 ? <span className="inline-block px-2 py-1 bg-slate-50 text-[10px] font-mono font-bold text-slate-600 rounded-md">{item.s4}</span> : <span className="text-slate-300">---</span> },
+    { id: 'material', header: 'Material', width: '100px', cell: (item) => <span className="text-[10px] font-bold text-slate-700">{item.material || '---'}</span> },
+    { id: 'lote', header: 'Lote', width: '100px', cell: (item) => <span className="text-[10px] font-bold text-slate-700">{item.lote || '---'}</span> },
+    {
+      id: 'actions', header: '', width: '170px', align: 'right', cell: (item) => (
+        <div className="flex items-center justify-end gap-1 opacity-60 hover:opacity-100 transition-opacity">
+          <button onClick={() => onShowTimeline(item)} className="p-1.5 bg-slate-50 hover:bg-[#2ec4f1]/10 hover:text-[#2ec4f1] text-slate-400 rounded-lg transition-colors" title="Historial"><History className="w-3.5 h-3.5" /></button>
+          <button className="p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-400 rounded-lg transition-colors" title="Ver Detalles"><Eye className="w-3.5 h-3.5" /></button>
+          <button className="p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-400 rounded-lg transition-colors" title="Editar"><Pencil className="w-3.5 h-3.5" /></button>
+          <button className="p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-400 rounded-lg transition-colors" title="Imprimir Etiqueta"><Printer className="w-3.5 h-3.5" /></button>
+          <button onClick={() => onRemoveUnit(item)} className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-500 rounded-lg transition-colors ml-1" title="Eliminar de la caja"><Trash2 className="w-3.5 h-3.5" /></button>
+        </div>
+      ),
+    },
+  ], [marcaMap, modeloMap, tecMap, onShowTimeline, onRemoveUnit]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-end bg-[#181c3a]/40 backdrop-blur-sm">
@@ -191,95 +228,19 @@ export const DetalleCajaModal = memo(function DetalleCajaModal({
               Contenido de la Caja <span className="w-1.5 h-1.5 rounded-full bg-slate-300" /> {selectedBox.series.length} Unidades
             </h4>
 
-            <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm bg-white">
-              <table className="w-full text-left whitespace-nowrap">
-                <thead>
-                  <tr className="bg-[#181c3a] text-white">
-                    <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">Fecha / Hora</th>
-                    <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">No. Guía</th>
-                    <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">Piloto</th>
-                    <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">Courier</th>
-                    <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">Recibió</th>
-                    <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">Estatus</th>
-                    <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">Orden Servicio</th>
-                    <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">Ingreso</th>
-                    <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">Agencia CAC</th>
-                    <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">Tecnología</th>
-                    <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">Marca</th>
-                    <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">Modelo</th>
-                    <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">S-1</th>
-                    <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">S-2</th>
-                    <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">S-3</th>
-                    <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">S-4</th>
-                    <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">Material</th>
-                    <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">Lote</th>
-                    <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {selectedBox.series.map((item: any, i: number) => (
-                    <tr key={i} className="hover:bg-slate-50 transition-colors group">
-                      <td className="px-4 py-3 text-[10px] font-bold text-slate-700">{item.fechaHora || item.timestamp}</td>
-                      <td className="px-4 py-3 text-[10px] font-mono font-bold text-[#181c3a]">{item.guia || item.agencia}</td>
-                      <td className="px-4 py-3 text-[10px] font-medium text-slate-600">{item.piloto || '---'}</td>
-                      <td className="px-4 py-3 text-[10px] font-medium text-slate-400">{item.origen || '---'}</td>
-                      <td className="px-4 py-3 text-[10px] font-medium text-slate-600">{item.recibio || 'Admin'}</td>
-                      <td className="px-4 py-3">
-                        <span className="text-[9px] font-black tracking-widest bg-[#181c3a] text-white px-2 py-1 rounded-full">BODEGA PRINCIPAL</span>
-                      </td>
-                      <td className="px-4 py-3 text-[10px] font-black text-[#2ec4f1]">{item.ordenServicio || '---'}</td>
-                      <td className="px-4 py-3">
-                        <span className="text-[9px] font-black bg-blue-50 text-blue-600 px-2 py-1 rounded-full">{item.ingreso || '1° Ingreso'}</span>
-                      </td>
-                      <td className="px-4 py-3 text-[10px] font-bold text-slate-700">{item.agenciaCAC || '---'}</td>
-                      <td className="px-4 py-3 text-[10px] font-bold text-[#2ec4f1]">{catTecnologias.find(t => t.id === item.tecnologia)?.name || item.tecnologia || '---'}</td>
-                      <td className="px-4 py-3 text-[10px] font-bold text-slate-700">{catMarcas.find(b => b.id === item.marca)?.name || item.marca || '---'}</td>
-                      <td className="px-4 py-3 text-[10px] font-bold text-slate-700">{catModelos.find(m => m.id === item.modelo)?.name || item.modelo || '---'}</td>
-                      <td className="px-4 py-3">
-                        {item.s1 || item.sn ? <span className="inline-block px-2 py-1 bg-slate-50 text-[10px] font-mono font-black text-[#181c3a] rounded-md">{item.s1 || item.sn}</span> : <span className="text-slate-300">---</span>}
-                      </td>
-                      <td className="px-4 py-3">
-                        {item.s2 ? <span className="inline-block px-2 py-1 bg-slate-50 text-[10px] font-mono font-bold text-slate-600 rounded-md">{item.s2}</span> : <span className="text-slate-300">---</span>}
-                      </td>
-                      <td className="px-4 py-3">
-                        {item.s3 ? <span className="inline-block px-2 py-1 bg-slate-50 text-[10px] font-mono font-bold text-slate-600 rounded-md">{item.s3}</span> : <span className="text-slate-300">---</span>}
-                      </td>
-                      <td className="px-4 py-3">
-                        {item.s4 ? <span className="inline-block px-2 py-1 bg-slate-50 text-[10px] font-mono font-bold text-slate-600 rounded-md">{item.s4}</span> : <span className="text-slate-300">---</span>}
-                      </td>
-                      <td className="px-4 py-3 text-[10px] font-bold text-slate-700">{item.material || '---'}</td>
-                      <td className="px-4 py-3 text-[10px] font-bold text-slate-700">{item.lote || '---'}</td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex items-center justify-end gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
-                          <button
-                            onClick={() => onShowTimeline(item)}
-                            className="p-1.5 bg-slate-50 hover:bg-[#2ec4f1]/10 hover:text-[#2ec4f1] text-slate-400 rounded-lg transition-colors"
-                            title="Historial"
-                          >
-                            <History className="w-3.5 h-3.5" />
-                          </button>
-                          <button className="p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-400 rounded-lg transition-colors" title="Ver Detalles">
-                            <Eye className="w-3.5 h-3.5" />
-                          </button>
-                          <button className="p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-400 rounded-lg transition-colors" title="Editar">
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          <button className="p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-400 rounded-lg transition-colors" title="Imprimir Etiqueta">
-                            <Printer className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => onRemoveUnit(item)}
-                            className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-500 rounded-lg transition-colors ml-1"
-                            title="Eliminar de la caja"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="rounded-xl border border-slate-200 shadow-sm bg-white overflow-hidden">
+              <DataTable
+                columns={seriesColumns}
+                data={selectedBox.series}
+                getRowId={(item, i) => (item.sn || item.ordenServicio ? `${item.sn || item.ordenServicio}-${i}` : i)}
+                rowHeight={52}
+                maxBodyHeight={560}
+                virtualizeThreshold={20}
+                minWidth={2230}
+                headerClassName="bg-[#181c3a] border-b border-[#181c3a]"
+                headerTextClassName="text-white/80"
+                emptyMessage="Sin unidades en la caja"
+              />
             </div>
           </div>
         </div>

@@ -52,9 +52,75 @@ function formatPersonName(raw: string): string {
   return name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
 }
 
+/** Identifica eventos de captura de equipo (PX) por action/event_type. */
+function isCaptureEventKey(s: string | null | undefined): boolean {
+  const u = (s || '').toLowerCase();
+  return u.includes('equipmentcaptured') || u.includes('equipment.captured');
+}
+
+/** Serial principal del equipo en el payload del evento (mayúsculas). */
+function eventMainSerial(payload: Record<string, unknown> | null | undefined): string | null {
+  const v = payload?.main_serial;
+  return typeof v === 'string' && v.trim() ? v.trim().toUpperCase() : null;
+}
+
+/** Fase de recepción/ingreso (para atribuir al receptor cuando el actor es SISTEMA). */
+function isReceptionPhase(moduleLabel: string, key: string): boolean {
+  const m = (moduleLabel || '').toUpperCase();
+  if (m === 'PX' || m === 'CAC') return true;
+  const k = (key || '').toLowerCase();
+  return (
+    k.includes('recep') ||
+    k.includes('captur') ||
+    k.includes('clasif') ||
+    k.includes('ingreso') ||
+    k.includes('guide')
+  );
+}
+
+/**
+ * Traduce eventos ruidosos de PX (EquipmentCaptured / ReceptionStarted /
+ * ReceptionCompleted) a un estado canónico + comentario legible y específico del
+ * equipo. Devuelve null para eventos que deben conservar su formato original.
+ */
+function describePxEvent(
+  key: string,
+  payload: Record<string, unknown>
+): { status: string; comment: string } | null {
+  const k = (key || '').toLowerCase();
+  if (isCaptureEventKey(k)) {
+    const serial = eventMainSerial(payload);
+    return {
+      status: 'EQUIPO_CAPTURADO',
+      comment: serial ? `Equipo capturado · S/N ${serial}` : 'Equipo capturado',
+    };
+  }
+  if (k.includes('reception.completed') || k === 'receptioncompleted') {
+    const recv = payload?.received_units;
+    const exp = payload?.expected_units;
+    const guide = payload?.guide_number;
+    const parts = ['Recepción finalizada'];
+    if (typeof recv === 'number') parts.push(`${recv}${typeof exp === 'number' ? '/' + exp : ''} u`);
+    if (typeof guide === 'string' && guide) parts.push(`Guía ${guide}`);
+    return { status: 'CLASIFICADA', comment: parts.join(' · ') };
+  }
+  if (k.includes('reception.started') || k === 'receptionstarted') {
+    return { status: 'RECEPCION_INICIADA', comment: 'Recepción iniciada' };
+  }
+  return null;
+}
+
 export function resolveTraceabilityStatusLabel(status: string): string {
   if (!status) return 'DESCONOCIDO';
   switch (status) {
+    case 'EQUIPO_CAPTURADO':
+    case 'EquipmentCaptured':
+      return 'Capturado en Recepción';
+    case 'RECEPCION_INICIADA':
+    case 'ReceptionStarted':
+      return 'Recepción Iniciada';
+    case 'CLASIFICADA':
+      return 'Clasificada';
     case 'in_central_warehouse':
       return 'Ingresado a Bodega General';
     case 'RECEPCIONADO_BODEGA_GENERAL':
@@ -254,6 +320,8 @@ export async function getEquipmentTraceabilityHistory(params: {
   boxId?: string | null;
   guideNumbers?: string[];
   receptionNotes?: string | null;
+  /** Seriales del equipo consultado; filtra capturas de otros equipos de la misma recepción/caja. */
+  equipmentSerials?: string[];
 }): Promise<TraceabilityEvent[]> {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return [];
@@ -355,21 +423,39 @@ export async function getEquipmentTraceabilityHistory(params: {
 
   const merged: TraceabilityEvent[] = [];
 
+  // Seriales de ESTE equipo: para descartar capturas de otros equipos de la
+  // misma recepción/caja (los eventos PX se guardan con record_id = reception_id).
+  const serialFilter = new Set(
+    (params.equipmentSerials || []).map((s) => String(s).toUpperCase()).filter(Boolean)
+  );
+  // Receptor físico (de notes) para atribuir eventos PX automáticos (SISTEMA).
+  const receiverFallback = parseReceptionReceiverFromNotes(params.receptionNotes);
+
   for (const row of auditRows.values()) {
     const payload = (row.new_values || {}) as Record<string, unknown>;
-    const actorFromPayload = extractActorFromPayload(payload);
-    const actorName =
+
+    if (isCaptureEventKey(row.action) && serialFilter.size) {
+      const serial = eventMainSerial(payload);
+      if (serial && !serialFilter.has(serial)) continue; // captura de otro equipo
+    }
+
+    const px = describePxEvent(row.action, payload);
+    const moduleLabel = mapAuditModule(row.module, payload);
+    let actorName =
       (row.user_id && profileNames[row.user_id]) ||
-      actorFromPayload ||
+      extractActorFromPayload(payload) ||
       'SISTEMA';
+    if (actorName === 'SISTEMA' && receiverFallback && isReceptionPhase(moduleLabel, row.action)) {
+      actorName = receiverFallback;
+    }
 
     merged.push({
       id: `audit-${row.id}`,
       changed_at: row.created_at,
       action: row.action,
-      status: auditActionToStatus(row.action, payload),
-      module: mapAuditModule(row.module, payload),
-      comment: row.observations || row.action,
+      status: px?.status || auditActionToStatus(row.action, payload),
+      module: moduleLabel,
+      comment: px?.comment || row.observations || row.action,
       actorName,
       source: 'audit',
     });
@@ -377,19 +463,35 @@ export async function getEquipmentTraceabilityHistory(params: {
 
   for (const row of domainRows.values()) {
     const payload = (row.payload || {}) as Record<string, unknown>;
-    const actorName =
+    const key =
+      row.event_type ||
+      (typeof payload.audit_action === 'string' ? payload.audit_action : '');
+
+    const isCapture = isCaptureEventKey(key) || isCaptureEventKey(payload.audit_action as string);
+    if (isCapture && serialFilter.size) {
+      const serial = eventMainSerial(payload);
+      if (serial && !serialFilter.has(serial)) continue; // captura de otro equipo
+    }
+
+    const px = describePxEvent(key, payload);
+    const moduleLabel = domainEventToModule(row.source);
+    let actorName =
       (row.actor_label && formatPersonName(String(row.actor_label))) ||
       (row.actor_id && profileNames[row.actor_id]) ||
       extractActorFromPayload(payload) ||
       'SISTEMA';
+    if (actorName === 'SISTEMA' && receiverFallback && isReceptionPhase(moduleLabel, key)) {
+      actorName = receiverFallback;
+    }
 
     merged.push({
       id: `domain-${row.id}`,
       changed_at: row.occurred_at,
       action: row.event_type,
-      status: domainEventToStatus(row.event_type, payload),
-      module: domainEventToModule(row.source),
+      status: px?.status || domainEventToStatus(row.event_type, payload),
+      module: moduleLabel,
       comment:
+        px?.comment ||
         (typeof payload.sap_document_number === 'string' && payload.sap_document_number) ||
         row.event_type,
       actorName,
@@ -408,6 +510,7 @@ export async function getEquipmentTraceabilityHistory(params: {
 
 function mapAuditModule(module: string, payload: Record<string, unknown>): string {
   if (module === 'cac_backoffice') return 'CAC';
+  if (module === 'px_reception') return 'PX';
   if (payload?.source === 'px') return 'PX';
   if (payload?.source === 'cac') return 'CAC';
   if (module === 'Trazabilidad') return 'Casa Matriz';
@@ -420,7 +523,9 @@ function dedupeTraceabilityEvents(events: TraceabilityEvent[]): TraceabilityEven
 
   for (const event of events) {
     const bucket = Math.floor(new Date(event.changed_at).getTime() / 60_000);
-    const key = `${bucket}|${event.action}|${event.status}|${event.actorName}`;
+    // Clave por estado+comentario+actor (no por action) para fusionar el mismo
+    // evento registrado en audit ('EquipmentCaptured') y domain ('px.equipment.captured').
+    const key = `${bucket}|${event.status}|${event.comment}|${event.actorName}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(event);
@@ -449,6 +554,8 @@ export function resolveTraceabilityResponsibles(
     receptionCreatedAt?: string | null;
     receptionTime?: string | null;
     trayClassifiedAt?: string | null;
+    /** PX: el receptor es también quien clasifica e ingresa a bodega (mismo flujo). */
+    isPx?: boolean;
   }
 ): TraceabilityResponsible {
   const findAudit = (pred: (e: TraceabilityEvent) => boolean) => history.find(pred);
@@ -482,23 +589,31 @@ export function resolveTraceabilityResponsibles(
       e.comment.toUpperCase().includes('BODEGA CENTRAL')
   );
 
+  const receptionName = pickActorName(
+    notesReceiver,
+    extras?.receptionProfileName,
+    receptionEvent?.actorName
+  );
+  const receptionDate =
+    extras?.receptionTime ||
+    extras?.receptionCreatedAt ||
+    receptionEvent?.changed_at ||
+    '';
+
+  // En PX el mismo operario recepciona, clasifica e ingresa a bodega; cuando no hay
+  // evento explícito de backoffice/bodega, se atribuye al receptor (en vez de N/A).
+  const pxPerson = extras?.isPx ? receptionName : undefined;
+  const pxDate = extras?.isPx ? receptionDate : '';
+
   return {
-    receptionName: pickActorName(
-      notesReceiver,
-      extras?.receptionProfileName,
-      receptionEvent?.actorName
-    ),
-    receptionDate:
-      extras?.receptionTime ||
-      extras?.receptionCreatedAt ||
-      receptionEvent?.changed_at ||
-      '',
+    receptionName,
+    receptionDate,
     receptionGuideNumber:
       extras?.receptionGuideNumber || notesGuides || 'N/A',
-    backofficeName: pickActorName(backofficeEvent?.actorName, extras?.trayReceivedByName),
-    backofficeDate: backofficeEvent?.changed_at || extras?.trayClassifiedAt || '',
-    warehouseName: pickActorName(warehouseEvent?.actorName),
-    warehouseDate: warehouseEvent?.changed_at || '',
+    backofficeName: pickActorName(backofficeEvent?.actorName, extras?.trayReceivedByName, pxPerson),
+    backofficeDate: backofficeEvent?.changed_at || extras?.trayClassifiedAt || pxDate,
+    warehouseName: pickActorName(warehouseEvent?.actorName, pxPerson),
+    warehouseDate: warehouseEvent?.changed_at || pxDate,
   };
 }
 

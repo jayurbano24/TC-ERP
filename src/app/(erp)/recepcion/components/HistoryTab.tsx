@@ -16,6 +16,36 @@ import {
   ReceptionCacHistoryPagination,
 } from './ReceptionCacHistoryPagination';
 
+/**
+ * Mapea el `status` real de una recepción a su etiqueta visible.
+ * Antes el historial mostraba "FINALIZADO" a todo lo no eliminado, ocultando
+ * recepciones que seguían EN_PROCESO (sin finalizar). Esto refleja el estado real.
+ */
+const resolveReceptionStatusLabel = (status?: string | null): string => {
+  switch (status) {
+    case 'ELIMINADO POR BODEGA':
+      return 'ELIMINADO POR BODEGA';
+    case 'ELIMINADO':
+      return 'ELIMINADO';
+    case 'ARCHIVADO':
+      return 'ARCHIVADO';
+    case 'EN_PROCESO':
+    case 'RECEPCIONADA':
+    case 'PENDIENTE DE CLASIFICAR':
+      return 'EN PROCESO';
+    default:
+      return 'FINALIZADO';
+  }
+};
+
+/** Clase de color del badge según la etiqueta de estatus. */
+const receptionStatusBadgeClass = (label: string): string => {
+  if (label === 'ELIMINADO POR BODEGA' || label === 'ELIMINADO') return 'bg-rose-50 text-rose-600';
+  if (label === 'EN PROCESO') return 'bg-sky-50 text-sky-600';
+  if (label === 'ARCHIVADO') return 'bg-slate-100 text-slate-500';
+  return 'bg-emerald-50 text-emerald-600';
+};
+
 export const HistoryTab = ({
   moduleMode,
   pxRecords,
@@ -52,7 +82,7 @@ export const HistoryTab = ({
           const cajas = rec.notes?.match(/Cajas:\\s*(\\d+)/)?.[1] || '1';
           const equipos = rec.received_units || 0;
           const usuario = (rec.notes?.split('Recibido Por: ')?.[1]?.split('\\n')?.[0]?.trim() || rec.received_by || 'SISTEMA').split('@')[0];
-          return { Fecha: fecha, 'Documento SAP': rec.sap_document || '---', 'Nombre Agencia PX': rec.carrier || '---', Usuario: usuario, 'Cant. Cajas': cajas, 'Cantidad Equipos': equipos, Estatus: rec.status === 'ELIMINADO POR BODEGA' ? 'ELIMINADO POR BODEGA' : 'FINALIZADO' };
+          return { Fecha: fecha, 'Documento SAP': rec.sap_document || '---', 'Nombre Agencia PX': rec.carrier || '---', Usuario: usuario, 'Cant. Cajas': cajas, 'Cantidad Equipos': equipos, Estatus: resolveReceptionStatusLabel(rec.status) };
         })
       : cacRecords.map(rec => {
           const fecha = rec.fecha_formateada || new Date(rec.created_at).toLocaleString();
@@ -60,7 +90,7 @@ export const HistoryTab = ({
           const piloto = rec.pilot_display || '';
           const recibidoMatch = rec.notes?.match(/Recibido Por:\\s+([^\\n]+)/);
           const recibido = recibidoMatch ? recibidoMatch[1].trim().split('@')[0] : (rec.usuario || rec.received_by || 'SISTEMA').split('@')[0];
-          const estatus = rec.status === 'ELIMINADO POR BODEGA' ? 'ELIMINADO POR BODEGA' : 'FINALIZADO';
+          const estatus = resolveReceptionStatusLabel(rec.status);
           const isSub = !!rec.notes?.match(/como parte de lote (.*?)\\./);
           let unidades = '-';
           if (!isSub) {
@@ -418,11 +448,14 @@ export const HistoryTab = ({
       cell: (rec: any) => {
         const sap = String(rec.sap_document || '').trim();
         const isDup = sap && duplicatePxSapDocuments.has(sap);
+        const statusLabel = resolveReceptionStatusLabel(rec.status);
+        // El duplicado solo se resalta cuando la recepción está finalizada (no eliminada/en proceso)
+        const showDup = isDup && statusLabel === 'FINALIZADO';
+        const label = showDup ? 'REVISAR DUPLICADO' : statusLabel;
+        const badgeClass = showDup ? 'bg-amber-100 text-amber-700' : receptionStatusBadgeClass(statusLabel);
         return (
-          <Badge
-            className={`border-none font-black text-[9px] ${rec.status === 'ELIMINADO POR BODEGA' ? 'bg-rose-50 text-rose-600' : isDup ? 'bg-amber-100 text-amber-700' : 'bg-emerald-50 text-emerald-600'}`}
-          >
-            {rec.status === 'ELIMINADO POR BODEGA' ? 'ELIMINADO POR BODEGA' : isDup ? 'REVISAR DUPLICADO' : 'FINALIZADO'}
+          <Badge className={`border-none font-black text-[9px] ${badgeClass}`}>
+            {label}
           </Badge>
         );
       },

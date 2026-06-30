@@ -12,8 +12,16 @@ import { OperationalStateRepositoryAdapter } from './infrastructure/supabase/ope
 import { DeriveStateFromLegacyAdapter } from './infrastructure/supabase/derive-state-from-legacy.adapter';
 import { DomainEventsTimelineEmitter } from './infrastructure/timeline/domain-events-timeline.emitter';
 
+function requireSupabaseClient() {
+  const client = getSupabaseBrowserClient();
+  if (!client) {
+    throw new Error('Supabase client no disponible (state-engine).');
+  }
+  return client;
+}
+
 function createRepository() {
-  return new OperationalStateRepositoryAdapter(getSupabaseBrowserClient());
+  return new OperationalStateRepositoryAdapter(requireSupabaseClient());
 }
 
 function createTransitionHandler() {
@@ -47,5 +55,5 @@ export async function getOsOperationalState(serviceOrderId: string) {
 }
 
 export async function refreshOperationalStatesFromLegacy() {
-  return new DeriveStateFromLegacyAdapter(getSupabaseBrowserClient()).refreshAllFromLegacy();
+  return new DeriveStateFromLegacyAdapter(requireSupabaseClient()).refreshAllFromLegacy();
 }

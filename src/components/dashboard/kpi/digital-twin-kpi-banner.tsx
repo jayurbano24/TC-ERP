@@ -1,7 +1,7 @@
 import React from 'react';
 import { Card, Badge } from '@/components/ui';
 import { CheckCircle2, Database, Layers } from 'lucide-react';
-import type { DigitalTwinKpiPayload } from '@/lib/database/digital-twin';
+import type { DigitalTwinKpiPayload } from '@/modules/kpi-analytics/client/digitalTwin';
 
 const STAGE_LABELS: Record<string, string> = {
   clasificacion_cac: 'Clasificación CAC',

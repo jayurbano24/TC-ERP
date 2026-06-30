@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState, startTransition, type Dispatch, type SetStateAction } from 'react';
 import type { CurrentEntry, GuideData } from '../types/reception.types';
-import type { PxBoxSnapshot, PxLotInput } from '@/lib/database/pxReceptionCapture';
-import { snapshotToGuideData, snapshotToPxUiState } from '@/lib/database/pxReceptionCapture';
+import type { PxBoxSnapshot, PxLotInput } from '@/modules/recepcion/client/pxCapture';
+import { snapshotToGuideData, snapshotToPxUiState, pxFingerprintFromSnapshot } from '@/modules/recepcion/client/pxCapture';
 import { getWorkstationLabel } from '../utils/pxWorkstation';
 import { validatePxIncrementalFinalizeReadiness } from '../utils/pxBoxUtils';
 import { notify, confirmDialog, promptDialog } from '@/components/ui';
@@ -14,6 +14,7 @@ import {
   createPxBoxApi,
   fetchPxInProgressList,
   fetchPxReceptionSnapshot,
+  fetchPxReceptionStamp,
   finalizePxReceptionApi,
   joinOrStartPxReceptionApi,
   reopenPxBoxApi,
@@ -176,6 +177,9 @@ export function useReceptionPXIncremental({
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const scannedSeriesRef = useRef<any[]>([]);
   const boxMetaRef = useRef<Record<string, PxBoxSnapshot>>({});
+  // Última huella de sincronización aplicada. El sondeo compara contra esto para
+  // decidir si descarga el snapshot completo (evita egress cuando nada cambió).
+  const syncFingerprintRef = useRef<string | null>(null);
 
   operatorIdRef.current = operatorId;
 
@@ -205,6 +209,7 @@ export function useReceptionPXIncremental({
       setBoxIdByCode(ui.boxIdByCode);
       setBoxVersionByCode(ui.boxVersionByCode);
       setReceptionVersion(snapshot.reception.version ?? 1);
+      syncFingerprintRef.current = pxFingerprintFromSnapshot(snapshot);
       pxState.setGuideData((prev) => ({
         ...prev,
         ...snapshotToGuideData(snapshot),
@@ -309,7 +314,19 @@ export function useReceptionPXIncremental({
       // No sondear si la pestaña está en segundo plano: evita egress innecesario
       // cuando el operador no está mirando la captura.
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
-      refreshSnapshot().catch(() => undefined);
+      // Sondeo incremental: primero pide solo la huella (bytes), y descarga el
+      // snapshot completo SOLO si algo cambió respecto a lo ya aplicado.
+      void (async () => {
+        try {
+          const stamp = await fetchPxReceptionStamp(incrementalReceptionId);
+          if (syncFingerprintRef.current === null || stamp.fingerprint !== syncFingerprintRef.current) {
+            await refreshSnapshot();
+          }
+        } catch {
+          // Si falla la huella, intenta el snapshot completo como respaldo.
+          await refreshSnapshot().catch(() => undefined);
+        }
+      })();
     }, POLL_MS);
 
     // Al volver a la pestaña, refresca una vez de inmediato (sin esperar al tick).

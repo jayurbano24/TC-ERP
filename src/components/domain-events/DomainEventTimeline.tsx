@@ -7,7 +7,7 @@ import {
   fetchCorrelationTimeline,
   fetchEntityTimeline,
   type DomainEventRow,
-} from '@/lib/database/domainEvents';
+} from '@/modules/platform-events/client/domainEvents';
 import {
   domainEventAccent,
   filterDomainEventsByGuide,

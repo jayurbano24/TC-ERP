@@ -1,6 +1,7 @@
 import { getSupabaseServerClient } from '@/lib/supabase/server';
 import { RegistrarAsistenciaCommand } from '../commands/RegistrarAsistenciaCommand';
 import { RrhhSupabaseRepository } from '../../infrastructure/repositories/RrhhSupabaseRepository';
+import { RequestContext } from '../../../../shared/context/RequestContext';
 
 export class ZKTecoSyncService {
   /**
@@ -50,7 +51,7 @@ export class ZKTecoSyncService {
 
     const repo = new RrhhSupabaseRepository();
     const command = new RegistrarAsistenciaCommand(repo);
-    const ctx = { tenantId: employee.tenant_id, branchId: employee.branch_id, userId: 'system' };
+    const ctx = new RequestContext({ tenantId: employee.tenant_id, branchId: employee.branch_id, userId: 'system' });
 
     try {
       if (!asistenciaHoy) {

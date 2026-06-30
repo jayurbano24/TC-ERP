@@ -335,7 +335,7 @@ export async function getEquipmentTraceabilityHistory(params: {
   for (const g of params.guideNumbers || []) if (g) recordIds.add(g);
 
   const idList = [...recordIds];
-  const auditPromises: Promise<any[]>[] = [];
+  const auditPromises: PromiseLike<any[]>[] = [];
 
   if (idList.length) {
     auditPromises.push(

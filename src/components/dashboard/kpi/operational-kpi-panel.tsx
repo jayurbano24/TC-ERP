@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Card } from '@/components/ui';
 import { ChevronDown, ChevronRight, Layers, Package, Truck, Users, Warehouse, Wrench } from 'lucide-react';
-import type { OperationalAreaPayload, OperationalKpiPayload, OperationalKpiRow } from '@/lib/database/kpi-operational';
+import type { OperationalAreaPayload, OperationalKpiPayload, OperationalKpiRow } from '@/modules/kpi-analytics/client/kpiOperational';
 
 const AREA_ICONS: Record<string, React.ReactNode> = {
   recepcion: <Package className="w-4 h-4" />,

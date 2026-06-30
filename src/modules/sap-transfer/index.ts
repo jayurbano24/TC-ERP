@@ -3,12 +3,6 @@ export {
   processBlockReturnBySapTransfer,
 } from './factory';
 
-export {
-  isHexagonalSapTransferEnabled,
-  isAtomicClassifyEnabled,
-  isAtomicBlockReturnEnabled,
-} from './infrastructure/feature-flags';
-
 export type {
   EquipmentUnitPayload,
   ClassifyBatchParams,

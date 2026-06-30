@@ -3,6 +3,9 @@ import { NextResponse } from 'next/server';
 import { GetDespachosPendientesQuery } from '../../../../modules/despacho/application/queries/GetDespachosPendientesQuery';
 import { RequestContextBuilder } from '../../../../shared/context/RequestContextBuilder';
 import { FeatureFlagService } from '../../../../shared/feature-flags/FeatureFlagService';
+import { requireApiUser } from '@/shared/infrastructure/http/requireApiUser';
+import { authorize } from '@/shared/authz/authorize';
+import { AUTHZ_MODULE } from '@/shared/authz/modules';
 
 import { container } from '../../../../shared/di/container';
 
@@ -10,13 +13,19 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   try {
+    const auth = await requireApiUser(request);
+    if (auth instanceof NextResponse) return auth;
+
+    const denied = await authorize(request, auth.user.id, AUTHZ_MODULE.DESPACHO, 'view');
+    if (denied) return denied;
+
     const query = container.resolve(GetDespachosPendientesQuery);
     const featureFlagService = container.resolve(FeatureFlagService);
 
     const ctx = new RequestContextBuilder()
       .withTenant('tenant-1')
       .withBranch('branch-1')
-      .withUser('user-1')
+      .withUser(auth.user.id)
       .build();
 
     const isNewModuleEnabled = await featureFlagService.isEnabled(ctx, 'USE_NEW_DESPACHO_MODULE');

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
-import { createPxCaptureBox } from '@/lib/database/pxReceptionCapture';
+import { createPxCaptureBox } from '@/modules/recepcion/server/pxCapture';
 import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
+import { ROLES_RECEPCION } from '@/shared/authz/roleGuard';
 import { parseJsonBody } from '@/shared/validation/parseRequest';
 import { createBoxSchema } from '../../_schemas';
 
@@ -18,4 +19,4 @@ export const POST = withErrorHandler(async (req: Request, context: RouteContext)
   }
 
   return NextResponse.json(result);
-}, { module: 'recepcion-px', action: 'create-box' });
+}, { module: 'recepcion-px', action: 'create-box', roles: ROLES_RECEPCION });

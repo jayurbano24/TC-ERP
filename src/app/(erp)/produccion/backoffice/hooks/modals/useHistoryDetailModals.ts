@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useState } from 'react';
-import { getSeriesByReceptionId } from '@/lib/database/receptions';
+import { getSeriesByReceptionId } from '@/modules/recepcion/client/receptions';
 
 type Params = {
   historyReceptions: unknown[];

@@ -29,6 +29,7 @@ describe('RegisterIndividualReturnHandler (CHG-007)', () => {
   const sapPort: ISapTransferReturnPort = {
     countActiveUnits: vi.fn(),
     getDocument: vi.fn(),
+    executeBlockReturn: vi.fn(),
   };
   const handler = new RegisterIndividualReturnHandler(sapPort);
 

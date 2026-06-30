@@ -8,24 +8,6 @@ export async function signInWithEmail(identifier: string, password: string) {
     normalizedIdentifier = `${normalizedIdentifier}@techcommwireless.com`;
   }
 
-  // DEV BYPASS (inseguro): solo se habilita explícitamente en desarrollo con
-  // NEXT_PUBLIC_ENABLE_DEV_BYPASS=true. En producción queda DESACTIVADO, por lo
-  // que la sesión forjable en localStorage deja de ser un vector (SEC-02).
-  const devBypassEnabled = process.env.NEXT_PUBLIC_ENABLE_DEV_BYPASS === 'true';
-  const isDevAdmin = devBypassEnabled && (
-    (normalizedIdentifier === 'admin@cenam.com' && password === 'admin123') ||
-    (normalizedIdentifier === 'admin@techcorps.com' && password === 'admin123') ||
-    (normalizedIdentifier === 'admin@techcommwireless.com' && password === 'admin123') ||
-    (normalizedIdentifier === 'admin@tcerp.local' && password === 'admin123')
-  );
-
-  if (isDevAdmin) {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('tcerp_dev_session', JSON.stringify({ email: normalizedIdentifier, role: 'ADMINISTRADOR' }));
-    }
-    return { user: { id: 'dev-user', email: normalizedIdentifier }, session: null };
-  }
-
   const supabase = getSupabaseBrowserClient();
   if (!supabase) throw new Error('Supabase client not configured');
 

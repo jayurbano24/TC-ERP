@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
-import { closePxBox } from '@/lib/database/pxReceptionCapture';
+import { closePxBox } from '@/modules/recepcion/server/pxCapture';
 import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
+import { ROLES_RECEPCION } from '@/shared/authz/roleGuard';
 import { parseJsonBody } from '@/shared/validation/parseRequest';
 import { closeBoxSchema } from '../../../_schemas';
 
@@ -22,4 +23,4 @@ export const POST = withErrorHandler(async (req: Request, context: RouteContext)
 
   if (!result.success) return NextResponse.json(result, { status: 409 });
   return NextResponse.json({ success: true, data: result.data });
-}, { module: 'recepcion-px', action: 'close-box' });
+}, { module: 'recepcion-px', action: 'close-box', roles: ROLES_RECEPCION });

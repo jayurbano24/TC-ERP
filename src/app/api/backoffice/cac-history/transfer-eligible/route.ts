@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { queryTransferEligibleSeries } from '@/lib/database/cacTrayUnits';
+import { queryTransferEligibleSeries } from '@/modules/recepcion/server/cacTrayQueries';
 
 export const dynamic = 'force-dynamic';
 

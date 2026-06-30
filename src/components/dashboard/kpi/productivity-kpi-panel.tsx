@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Card, Badge } from '@/components/ui';
 import { Award, Cpu, Layers, User } from 'lucide-react';
-import type { ProductivityKpiPayload } from '@/lib/database/kpi-productivity';
+import type { ProductivityKpiPayload } from '@/modules/kpi-analytics/client/kpiProductivity';
 
 type TabId = 'personas' | 'tecnologias' | 'modelos';
 

@@ -35,11 +35,12 @@ import {
 
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 // DB Access
-import { getProfiles, assignUserRole, saveProfile } from '@/lib/database/config';
-import { getAdvancedAuditLogs, logAdvancedAudit } from '@/lib/database/audit';
-import { getRoles, getRolePermissions, updateRolePermission, getUsersWithRoles, getUserSecurity, updateUserSecurity, changeUserRole } from '@/lib/database/roles';
+import { getProfiles, assignUserRole, saveProfile } from '@/shared/catalogs/catalogs';
+import { getAdvancedAuditLogs, logAdvancedAudit } from '@/modules/platform/client/audit';
+import { getRoles, getRolePermissions, updateRolePermission, getUsersWithRoles, getUserSecurity, updateUserSecurity, changeUserRole } from '@/modules/platform/client/roles';
 import { adminUpdateUserPassword, adminToggleUserStatus, adminCreateUser } from '@/lib/actions/users';
-import { uploadAvatar } from '@/lib/database/storage';
+import { uploadAvatar } from '@/modules/platform/client/storage';
+import { useCan } from '@/components/authz';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { Camera, Image as ImageIcon } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -75,6 +76,11 @@ export default function SeguridadPage() {
   const [userSearch, setUserSearch] = useState('');
   const [savingPerm, setSavingPerm] = useState<string | null>(null);
   const [dbError, setDbError] = useState<string | null>(null);
+
+  // Solo-UX: refleja el guard server-side (app_can('Seguridad','edit')). Con VER
+  // pero sin EDITAR, los controles se ven pero quedan inertes. La autoridad real
+  // sigue siendo el backend (roles.ts → app_can). No es un mecanismo de seguridad.
+  const canEditSeguridad = useCan('Seguridad', 'edit');
 
   // Modal Action State
   const [userProfileModal, setUserProfileModal] = useState<any>(null);
@@ -178,6 +184,10 @@ export default function SeguridadPage() {
   // ==========================================
   const handleTogglePermission = async (moduleName: string, field: string, currentValue: boolean) => {
     if (!selectedRole) return;
+    if (!canEditSeguridad) {
+      notify.warning('Solo lectura', { description: 'No tienes permiso para editar permisos del módulo Seguridad.' });
+      return;
+    }
     const newValue = !currentValue;
     const permKey = `${moduleName}-${field}`;
     setSavingPerm(permKey);
@@ -241,6 +251,10 @@ export default function SeguridadPage() {
 
   const handleSaveProfile = async () => {
     if (!userProfileModal) return;
+    if (!canEditSeguridad) {
+      notify.warning('Solo lectura', { description: 'No tienes permiso para editar usuarios desde Seguridad.' });
+      return;
+    }
     setActionLoading(true);
     let avatar_url = userProfileModal.avatar_url;
 
@@ -412,6 +426,16 @@ export default function SeguridadPage() {
         </div>
       )}
 
+      {!canEditSeguridad && activeTab !== 'audit' && (
+        <div className="mb-6 bg-amber-50 border-2 border-amber-200 text-amber-800 p-4 rounded-xl flex items-center gap-3">
+          <Eye size={22} />
+          <div>
+            <h4 className="font-bold">Modo solo lectura</h4>
+            <p className="text-sm">Puedes consultar roles, permisos y usuarios, pero no modificarlos. Requiere el permiso <strong>EDITAR</strong> en el módulo Seguridad.</p>
+          </div>
+        </div>
+      )}
+
       {/* PESTAÑA 1: USUARIOS */}
       {activeTab === 'users' && (
         <div className="space-y-6 animate-rise-in">
@@ -435,7 +459,7 @@ export default function SeguridadPage() {
                     className="w-full h-10 pl-10 pr-4 bg-white border-2 border-slate-100 rounded-lg text-xs font-bold outline-none focus:border-[#2ec4f1] transition-all"
                   />
                 </div>
-                <Button variant="primary" className="gap-2 shrink-0" onClick={handleOpenCreateProfile}>
+                <Button variant="primary" className="gap-2 shrink-0" onClick={handleOpenCreateProfile} disabled={!canEditSeguridad}>
                   <Plus className="w-4 h-4" /> Nuevo Usuario
                 </Button>
               </div>
@@ -565,7 +589,7 @@ export default function SeguridadPage() {
                 <p className="text-xs text-slate-500 mt-1">Habilita o deshabilita accesos a nivel de módulo.</p>
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" className="h-8 border-slate-200 text-slate-600"><Copy size={14} className="mr-2" /> Copiar Permisos</Button>
+                <Button variant="outline" className="h-8 border-slate-200 text-slate-600" disabled={!canEditSeguridad}><Copy size={14} className="mr-2" /> Copiar Permisos</Button>
               </div>
             </div>
             
@@ -599,7 +623,7 @@ export default function SeguridadPage() {
                                   className="sr-only peer" 
                                   checked={isChecked}
                                   onChange={() => handleTogglePermission(module, field, isChecked)}
-                                  disabled={isLoading}
+                                  disabled={isLoading || !canEditSeguridad}
                                 />
                                 <div className={`w-9 h-5 rounded-full peer peer-focus:ring-4 peer-focus:ring-[#2ec4f1]/20 transition-all ${isChecked ? 'bg-[#10b981]' : 'bg-slate-200'} ${isLoading ? 'opacity-50' : ''}`}></div>
                                 <div className={`absolute left-[2px] top-[2px] bg-white border border-slate-300 w-4 h-4 rounded-full transition-all ${isChecked ? 'translate-x-full border-white' : ''}`}></div>
@@ -933,7 +957,7 @@ export default function SeguridadPage() {
                <Button variant="ghost" onClick={() => setUserProfileModal(null)}>Cancelar</Button>
                <Button 
                   onClick={handleSaveProfile} 
-                  disabled={actionLoading}
+                  disabled={actionLoading || !canEditSeguridad}
                   className="bg-[#181c3a] hover:bg-slate-800 text-white shadow-lg"
                >
                   {actionLoading ? 'Guardando...' : 'Guardar Cambios'}

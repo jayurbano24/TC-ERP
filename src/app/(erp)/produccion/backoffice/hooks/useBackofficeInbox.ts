@@ -3,7 +3,7 @@
 import type React from 'react';
 import { useCallback, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { getReceptions } from '@/lib/database/receptions';
+import { getReceptions } from '@/modules/recepcion/client/receptions';
 import { notify } from '@/components/ui/messaging/messageStore';
 import { receptionHasTcOs } from '../historyTrayUtils';
 import { shouldShowInCacInbox } from '../cacInboxFilter';

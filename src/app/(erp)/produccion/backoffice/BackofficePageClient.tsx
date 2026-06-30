@@ -167,10 +167,10 @@ export default function BackofficePageClient() {
           onOpenMassTransfer={onOpenMassTransfer}
           onSapBlockReturn={handleSapBlockReturn}
           onReturnToPending={handleReturnToPending}
-          onShowTimeline={onShowTimeline}
+          onShowTimeline={(rec) => onShowTimeline(rec as Record<string, unknown>)}
           onOpenHistoryModal={(rec) => void handleOpenHistoryModal(rec as Record<string, unknown>)}
           onOpenEditMeta={(rec) => handleOpenEditMeta(rec as Record<string, unknown>)}
-          onPrintConduce={handlePrintConduce}
+          onPrintConduce={(rec) => handlePrintConduce(rec as BackofficeReception)}
         />
       )}
 

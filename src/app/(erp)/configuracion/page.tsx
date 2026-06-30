@@ -36,7 +36,7 @@ import {
   getReacondicionadoTests, saveReacondicionadoTest, deleteReacondicionadoTest,
   getPxProviders, savePxProvider, deletePxProvider,
   getReturnReasons, saveReturnReason, deleteReturnReason
-} from '@/lib/database/config';
+} from '@/shared/catalogs/catalogs';
 import { adminChangeUserPassword } from '@/app/actions/admin';
 import { ConfigModal } from './components/ConfigModal';
 import { AgenciasView } from './components/AgenciasView';
@@ -88,7 +88,7 @@ type Agencia = {
 export default function ConfiguracionPage() {
   const [activeView, setActiveView] = useState<'marcas' | 'modelos' | 'tecnologias' | 'diagnosticos' | 'reparaciones' | 'reacondicionado' | 'agencias' | 'transportes' | 'usuarios' | 'px_providers' | 'razones_devolucion'>('marcas');
   const [showModal, setShowModal] = useState(false);
-  const [modalType, setModalType] = useState<'marca' | 'modelo' | 'tecnologia' | 'diagnostico' | 'reparacion' | 'reacondicionado' | 'agencia' | 'transporte' | 'usuario' | 'px_provider'>('marca');
+  const [modalType, setModalType] = useState<'marca' | 'modelo' | 'tecnologia' | 'diagnostico' | 'reparacion' | 'reacondicionado' | 'agencia' | 'transporte' | 'usuario' | 'px_provider' | 'razon_devolucion'>('marca');
   const [editingItem, setEditingItem] = useState<any | null>(null);
 
   const [marcas, setMarcas] = useState<Marca[]>([]);

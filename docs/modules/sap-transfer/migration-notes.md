@@ -13,7 +13,7 @@
 | RPC create | `027_sap_transfer_rls_fix.sql` | Producción |
 | RPC classify TX | `029_classify_equipment_batch_tx.sql` | Producción (flag) |
 | RPC block return TX | `030_block_return_by_sap_transfer_tx.sql` | Listo — aplicar en Supabase |
-| Módulo `modules/sap-transfer/` | `src/modules/sap-transfer/` | **CHG-003 en curso** |
+| Módulo `modules/sap-transfer/` | `src/modules/sap-transfer/` | **CHG-003 cerrado** — 100% hexagonal/RPC, legacy bridge retirado |
 
 ---
 
@@ -43,23 +43,25 @@ Ver plantilla: `docs/architecture/impact-change-template.md`
 | **Doc** | [CHG-004](../../changes/CHG-004-block-return-rpc.md) |
 | **Reglas** | R-RN-30–35, R-031 |
 
-### CHG-002: Sync `INGRESADO_BODEGA`
+### CHG-002: Sync `INGRESADO_BODEGA` ✓ IMPLEMENTADO
 
 | Campo | Valor |
 |-------|-------|
 | **Módulo co-dueño** | `warehouse` |
-| **Trigger** | Todas series SAP doc → `IN_CENTRAL_WAREHOUSE` |
-| **Riesgo** | Bajo |
-| **Fase** | 2 |
+| **Trigger** | Todas series SAP doc → `in_central_warehouse` (con caja) |
+| **Implementación** | RPC `warehouse_sync_sap_for_series` (migración `055`) + `syncSapTransferIngresadoForSeries` en `warehouse.ts` |
+| **Riesgo** | Bajo — aditivo, idempotente, sin flag |
+| **Doc** | [CHG-002](../../changes/CHG-002-warehouse-sap-sync.md) |
+| **Pendiente** | Aplicar migración `055` en Supabase |
 
-### CHG-003: Extraer módulo interno
+### CHG-003: Extraer módulo interno ✓ CERRADO
 
 | Campo | Valor |
 |-------|-------|
-| **Acción** | Mover lógica a `modules/sap-transfer/application/` |
-| **UI** | Backoffice delega a use cases |
-| **Riesgo** | Bajo (misma API pública) |
-| **Fase** | 2 |
+| **Acción** | Lógica en `modules/sap-transfer/application/` (handlers) + `infrastructure/rpc/` (adapters atómicos) |
+| **UI** | Backoffice / despacho consumen `classifyEquipmentBatch` / `processBlockReturnBySapTransfer` vía módulo (factory) |
+| **Cierre** | RPC atómico es el único path vivo; adapters legacy y flags `USE_LEGACY_SAP_TRANSFER` (kill-switch falso, no cableado) eliminados |
+| **Riesgo** | Nulo en runtime — el path legacy ya era inalcanzable antes de eliminarlo |
 
 ---
 
@@ -70,8 +72,8 @@ Ver plantilla: `docs/architecture/impact-change-template.md`
 2. CHG-004 block return RPC — aplicar 030 + paridad
 3. CHG-005 full reception return RPC
 4. Default flags true (fuera de pico)
-5. ~~CHG-003 extracción módulo sap-transfer~~ en curso — handlers + adapters
-6. CHG-006 port returns ↔ sap-transfer
+5. ~~CHG-003 extracción módulo sap-transfer~~ ✓ cerrado — 100% hexagonal/RPC, legacy retirado
+6. ~~CHG-006 port returns ↔ sap-transfer~~ ✓ — `SapTransferReturnPort` inyectado en `returns/factory`
 7. CHG-002 sync warehouse (con warehouse module)
 ```
 

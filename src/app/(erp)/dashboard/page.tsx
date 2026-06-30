@@ -11,8 +11,8 @@ import {
   DashboardMetrics, 
   getBIData,
   getStorageData
-} from '@/lib/database/kpi';
-import { getEngineKPIs } from '@/lib/database/kpi-engine';
+} from '@/modules/kpi-analytics/client/kpi';
+import { getEngineKPIs } from '@/modules/kpi-analytics/client/kpiEngine';
 import { RecepcionKpiView } from '@/components/dashboard/kpi/recepcion-kpi-view';
 import { BackofficeKpiView } from '@/components/dashboard/kpi/backoffice-kpi-view';
 import { BodegaKpiView } from '@/components/dashboard/kpi/bodega-kpi-view';

@@ -1,22 +1,8 @@
-import type { BackofficeTab } from '../types';
+import type { BackofficeReception, BackofficeTab } from '../types';
 
 export type SubBodegaRow = {
   id: string;
-  reception: {
-    id: string;
-    notes?: string;
-    created_at: string;
-    received_by?: string;
-    processed_guides?: string[];
-    guide_number: string;
-    reception_guides?: Array<{
-      guide_number: string;
-      category?: string;
-      classified_at?: string;
-      classified_by?: string;
-    }>;
-    status?: string;
-  };
+  reception: BackofficeReception;
   guide: string;
   processDate: string;
   processUser: string;

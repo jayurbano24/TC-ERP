@@ -153,7 +153,7 @@ flowchart TB
 | **production-order** | ✓ | 0 ✓ | **2A** | P1 |
 | **accessories-dispatch** | ✓ | 0 ✓ | **2A** | P1 |
 | **reporting** | ✓ completo | 0 ✓ | **2B** | P0 |
-| **sap-integration** | pendiente | 0–1 | **2B** | P0 |
+| **sap-integration** | parcial (port validación + gate) | 0 ✓ | **2B** | P0 |
 | **kpi-analytics** | pendiente | 1 | **3** | P0 |
 | **finance-costing** | ✓ | 0 ✓ | **3** | P1 |
 | **logistics-reception** | pendiente | 2 | 2A–3 | P2 |
@@ -246,10 +246,10 @@ Implementar **capacidades de negocio nuevas** que operación exige: lote salida,
 
 | ID | Entregable | CHG |
 |----|------------|-----|
-| C2A-01 | Sync estado `INGRESADO_BODEGA` sap ↔ warehouse | CHG-002 |
-| C2A-02 | sap-transfer: retirar legacy bridge (flag 100%) | CHG-003 |
-| C2A-03 | returns: `SapTransferReturnPort` desacoplado | CHG-006 |
-| C2A-04 | Devolución individual actualiza OS | CHG-007 |
+| C2A-01 | ✓ Sync `INGRESADO_BODEGA` sap ↔ warehouse (migración 055 + wiring, idempotente) | CHG-002 |
+| C2A-02 | ✓ sap-transfer 100% hexagonal/RPC — legacy bridge retirado (adapters + flags muertos eliminados) | CHG-003 |
+| C2A-03 | ✓ returns consume `SapTransferReturnPort` (factory inyecta adapter) | CHG-006 |
+| C2A-04 | ✓ Devolución individual actualiza OS a `DEVUELTO` (`registerIndividualReturnHex`, default vivo) | CHG-007 |
 
 #### Track salidas, PO, accesorios (ADR-002)
 
@@ -331,7 +331,7 @@ Proyectos grandes **separados** del núcleo operativo: reporting, SAP archivo, r
 | ID | Entregable |
 |----|------------|
 | D2B-01 | `docs/modules/sap-integration/` completo |
-| C2B-10 | Ports lectura validación SAP para despacho gate |
+| C2B-10 | ✓ Port `ISapValidationReader` (lectura validación SAP) consumido por gate de despacho/bodega — `modules/sap-integration` |
 | C2B-11 | Provider reportes `SAP_DIFERENCIAS`, `SAP_NO_VALIDADOS` |
 
 #### Split UI backoffice
@@ -345,7 +345,7 @@ Proyectos grandes **separados** del núcleo operativo: reporting, SAP archivo, r
 
 - [ ] Portal `/reportes` con ≥5 reportes migrados
 - [ ] Backoffice <300 líneas contenedor
-- [ ] sap-integration documentado + ports en despacho
+- [~] sap-integration: ports en despacho ✓ · doc base ✓ · carga/matching CSV pendiente
 
 ---
 

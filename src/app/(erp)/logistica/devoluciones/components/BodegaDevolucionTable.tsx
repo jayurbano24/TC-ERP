@@ -4,7 +4,7 @@ import { Badge, Card, DataTable, type DataTableColumn } from '@/components/ui';
 import { Eye, Loader2, RotateCcw, Trash2 } from 'lucide-react';
 import { getAgenciaLabel } from '@/app/(erp)/produccion/backoffice/backofficeHelpers';
 import type { CatalogAgency } from '@/app/(erp)/produccion/backoffice/types';
-import type { BoxReturnRow } from '@/lib/database/returns';
+import type { BoxReturnRow } from '@/modules/returns/client/returnData';
 
 type Props = {
   rows: BoxReturnRow[];

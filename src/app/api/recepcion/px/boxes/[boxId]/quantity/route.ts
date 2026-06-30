@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
-import { adjustPxBoxQuantity } from '@/lib/database/pxReceptionCapture';
+import { adjustPxBoxQuantity } from '@/modules/recepcion/server/pxCapture';
 import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
+import { ROLES_RECEPCION } from '@/shared/authz/roleGuard';
 import { parseJsonBody } from '@/shared/validation/parseRequest';
 import { adjustQuantitySchema } from '../../../_schemas';
 
@@ -23,4 +24,4 @@ export const PATCH = withErrorHandler(async (req: Request, context: RouteContext
 
   if (!result.success) return NextResponse.json(result, { status: 409 });
   return NextResponse.json({ success: true, data: result.data });
-}, { module: 'recepcion-px', action: 'adjust-quantity' });
+}, { module: 'recepcion-px', action: 'adjust-quantity', roles: ROLES_RECEPCION });

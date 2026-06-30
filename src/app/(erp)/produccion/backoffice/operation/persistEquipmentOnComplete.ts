@@ -2,8 +2,8 @@
 
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { notify } from '@/components/ui/messaging/messageStore';
-import { createServiceOrders } from '@/lib/database/receptions';
-import { createOrGetSapTransfer, classifyEquipmentBatch } from '@/lib/database/sapTransfers';
+import { createServiceOrders } from '@/modules/recepcion/client/receptions';
+import { createOrGetSapTransfer, classifyEquipmentBatch } from '@/modules/sap-transfer/client/sapTransferData';
 import { generateClientCorrelationId } from '@/shared/infrastructure/http/correlationId.client';
 import { countReadyEquipmentUnits } from '../historyTrayUtils';
 import type { GuideItem, SapTransferGroup } from '../types';

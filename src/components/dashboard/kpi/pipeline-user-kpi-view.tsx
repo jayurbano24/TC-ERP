@@ -3,7 +3,7 @@
 import React, { useMemo, useState } from 'react';
 import { Card, Badge } from '@/components/ui';
 import { Users, ArrowRight, ChevronDown, ChevronUp } from 'lucide-react';
-import type { PipelineUserRow } from '@/lib/database/kpi-engine';
+import type { PipelineUserRow } from '@/modules/kpi-analytics/client/kpiEngine';
 
 type Props = {
   rows: PipelineUserRow[];

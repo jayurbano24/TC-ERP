@@ -726,7 +726,7 @@ export async function createPxReceptionWithBoxes(
     }
     uiBoxToNewBox.set(b.box_code, newBoxCode as string);
     boxesToInsert.push({
-      reception_id: recData.id,
+      reception_id: recData.id as string,
       box_code: newBoxCode as string,
       brand_id: b.brand_id,
       model_id: b.model_id,

@@ -6,7 +6,7 @@ import { Card } from '@/components/ui/Card';
 import {
   fetchDomainEventsKpiSummary,
   type DomainEventsKpiSummary,
-} from '@/lib/database/domainEvents';
+} from '@/modules/platform-events/client/domainEvents';
 
 type Props = {
   days?: number;

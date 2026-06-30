@@ -1,6 +1,6 @@
 import { receptionRepository } from '../repositories/receptionRepository';
-import { getCurrentReceptionActor } from '@/lib/database/receptionActor';
-import { parseReceptionReceiverFromNotes } from '@/lib/database/traceability';
+import { getCurrentReceptionActor } from '@/modules/recepcion/client/receptionActor';
+import { parseReceptionReceiverFromNotes } from '@/modules/recepcion/client/receptionNotes';
 
 function resolveReceptionDisplayName(row: {
   received_by_profile?: { full_name?: string | null } | null;

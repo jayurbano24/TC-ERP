@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
-import { capturePxEquipment } from '@/lib/database/pxReceptionCapture';
+import { capturePxEquipment } from '@/modules/recepcion/server/pxCapture';
 import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
+import { ROLES_RECEPCION } from '@/shared/authz/roleGuard';
 import { parseJsonBody } from '@/shared/validation/parseRequest';
 import { scanSchema } from '../../../_schemas';
 
@@ -32,4 +33,4 @@ export const POST = withErrorHandler(async (req: Request, context: RouteContext)
   }
 
   return NextResponse.json(result);
-}, { module: 'recepcion-px', action: 'scan' });
+}, { module: 'recepcion-px', action: 'scan', roles: ROLES_RECEPCION });

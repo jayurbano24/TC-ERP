@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { CacTrayQueryParams } from '@/lib/backoffice/cacTrayTypes';
-import { queryCacTrayStats } from '@/lib/database/cacTrayUnits';
+import { queryCacTrayStats } from '@/modules/recepcion/server/cacTrayQueries';
 import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
 
 export const dynamic = 'force-dynamic';

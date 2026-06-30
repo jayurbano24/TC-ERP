@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useState } from 'react';
-import { getTechnologies, getBrands, getModels, getAgencies } from '@/lib/database/config';
+import { getTechnologies, getBrands, getModels, getAgencies } from '@/shared/catalogs/catalogs';
 import type { CatalogAgency, CatalogBrand, CatalogModel, CatalogTech } from '../types';
 
 export function useBackofficeCatalogs() {

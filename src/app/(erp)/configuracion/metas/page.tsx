@@ -4,8 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { Card, Button, Badge, notify, confirmDialog } from '@/components/ui';
 import { ModulePage } from '@/components/module-page';
 import { Settings, Plus, Save, Trash2, Edit2, Users, Target } from 'lucide-react';
-import { getKpiGoals, saveKpiGoal, deleteKpiGoal } from '@/lib/database/kpi-goals';
-import { getProfiles, getModels, getTechnologies } from '@/lib/database/config';
+import { getKpiGoals, saveKpiGoal, deleteKpiGoal } from '@/modules/kpi-analytics/client/kpiGoals';
+import { getProfiles, getModels, getTechnologies } from '@/shared/catalogs/catalogs';
 
 export default function MetasKpiPage() {
   const [goals, setGoals] = useState<any[]>([]);

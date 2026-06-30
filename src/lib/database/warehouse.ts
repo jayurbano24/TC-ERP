@@ -140,14 +140,23 @@ async function fetchSeriesForBoxes(
   //    relaciones (receptions / service_orders / models) se resuelven luego
   //    con consultas por lote y se atan en cliente, conservando la misma forma.
   const pageSize = 1000;
+  // Proyección explícita (en vez de select('*')): este escaneo recorre TODA la
+  // bodega central (tabla `series`, la que más crece). Pedir solo las columnas
+  // que consume la página de bodega evita traer campos pesados/inútiles como
+  // `current_diagnostics`, `s2/s3/s4`, `sap_transfer_id`, etc. → menos egress.
+  // (Función privada: su único consumidor es getInventoryBoxes → bodega/gestion,
+  //  que mapea a objetos explícitos; los crudos no se propagan a hijos.)
+  const SERIES_COLS =
+    'id, serial_number, current_status, current_box_id, current_reception_id, service_order_id, model_id, brand_id, material, valuation, notes, sap_status, created_at';
   const fetchChunkSeries = async (chunk: string[]) => {
     const out: any[] = [];
     let offset = 0;
     while (offset < WAREHOUSE_BOX_FETCH_LIMIT) {
       const { data, error } = await supabase
         .from('series')
-        .select('*')
+        .select(SERIES_COLS)
         .in('current_box_id', chunk)
+        .order('id', { ascending: true })
         .range(offset, offset + pageSize - 1);
       if (error) {
         console.error('Error fetching series for boxes:', error);
@@ -204,6 +213,7 @@ async function fetchAllCentralWarehouseBoxes(
       .select('*')
       .or('rack_location.eq.BODEGA_CENTRAL,rack_location.like.P-*')
       .order('created_at', { ascending: false })
+      .order('id', { ascending: true })
       .range(offset, offset + pageSize - 1);
 
     if (error) {
@@ -270,6 +280,8 @@ async function fetchWarehouseSeriesBoxIds(
         .select('current_box_id')
         .eq('current_status', 'in_central_warehouse')
         .not('current_box_id', 'is', null)
+        .order('current_box_id', { ascending: true })
+        .order('id', { ascending: true })
         .range(p * pageSize, p * pageSize + pageSize - 1)
     )
   );
@@ -282,9 +294,28 @@ async function fetchWarehouseSeriesBoxIds(
   return boxIds;
 }
 
-export async function getInventoryBoxes() {
+// Caché en memoria (vida de la sesión SPA) del inventario completo. Evita
+// re-descargar ~12 MB (24k+ series) cuando el usuario navega fuera y vuelve a
+// Bodega en una ventana corta. Se invalida tras cualquier mutación (force) y al
+// vencer el TTL. NO persiste entre recargas completas de página.
+const INVENTORY_CACHE_TTL_MS = 120_000; // 2 min (ajustable)
+let inventoryCache: { at: number; payload: { data: any[] } } | null = null;
+
+export function invalidateInventoryBoxesCache() {
+  inventoryCache = null;
+}
+
+export async function getInventoryBoxes(options?: { force?: boolean }) {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: 'Supabase not configured' };
+
+  if (
+    !options?.force &&
+    inventoryCache &&
+    Date.now() - inventoryCache.at < INVENTORY_CACHE_TTL_MS
+  ) {
+    return inventoryCache.payload;
+  }
 
   // 1) Cajas por rack operativo
   const boxesById = await fetchAllCentralWarehouseBoxes(supabase);
@@ -304,7 +335,11 @@ export async function getInventoryBoxes() {
 
   // 3) Series completas por caja (chunks pequeños)
   const allBoxIds = [...boxesById.keys()];
-  if (allBoxIds.length === 0) return { data: [] };
+  if (allBoxIds.length === 0) {
+    const empty = { data: [] as any[] };
+    inventoryCache = { at: Date.now(), payload: empty };
+    return empty;
+  }
 
   const allSeries = await fetchSeriesForBoxes(supabase, allBoxIds);
   const seriesByBoxId = new Map<string, any[]>();
@@ -321,17 +356,20 @@ export async function getInventoryBoxes() {
       ...box,
       series: seriesByBoxId.get(box.id as string) || [],
     }))
-    .filter((box) => {
+    .filter((box: Record<string, any>) => {
       const rack = String(box.rack_location || '').toUpperCase();
       if (rack === 'ELIMINADO' || rack === 'DESPACHO') return false;
       // Inventario operativo = cajas con al menos una serie en bodega
       return (box.series as any[])?.length > 0;
     })
     .sort(
-      (a, b) => new Date(String(b.created_at)).getTime() - new Date(String(a.created_at)).getTime()
+      (a: Record<string, any>, b: Record<string, any>) =>
+        new Date(String(b.created_at)).getTime() - new Date(String(a.created_at)).getTime()
     );
 
-  return { data };
+  const payload = { data };
+  inventoryCache = { at: Date.now(), payload };
+  return payload;
 }
 
 export function resolveBoxDisplayStatus(seriesCount: number, capacity: number): 'Vacía' | 'Parcial' | 'Full' {
@@ -349,6 +387,7 @@ export async function createBodegaBoxAtomic(input: {
   serialNumbers: string[];
   boxCode?: string | null;
 }): Promise<{ data?: { box_id: string; box_code: string; series_linked: number }; error?: string }> {
+  invalidateInventoryBoxesCache();
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: 'Supabase not configured' };
 
@@ -388,6 +427,7 @@ export async function reserveNextBoxCode(): Promise<{ code?: string; error?: str
 }
 
 export async function createBoxWithSeries(boxData: any, seriesNumbers: string[]) {
+  invalidateInventoryBoxesCache();
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: "Supabase not configured" };
 
@@ -438,6 +478,7 @@ export async function createBoxWithSeries(boxData: any, seriesNumbers: string[])
 }
 
 export async function addSeriesToBox(boxId: string, seriesNumbers: string[]) {
+  invalidateInventoryBoxesCache();
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: "Supabase not configured" };
 
@@ -463,6 +504,7 @@ export async function addSeriesToBox(boxId: string, seriesNumbers: string[]) {
 }
 
 export async function transferBoxesToArea(boxIds: string[], targetArea: string, targetRack?: string) {
+  invalidateInventoryBoxesCache();
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: "Supabase not configured" };
 
@@ -546,6 +588,7 @@ export async function dispatchBoxFromWarehouse(
   notes?: string,
   dispatchBatchId?: string
 ) {
+  invalidateInventoryBoxesCache();
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: "Supabase not configured" };
 
@@ -573,6 +616,7 @@ export async function dispatchBoxFromWarehouse(
 }
 
 export async function transferSpecificSeriesToArea(boxId: string, seriesNumbers: string[], targetArea: string, userId?: string) {
+  invalidateInventoryBoxesCache();
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: "Supabase not configured" };
 
@@ -623,6 +667,7 @@ export async function dispatchSpecificSeries(
   notes?: string,
   dispatchBatchId?: string
 ) {
+  invalidateInventoryBoxesCache();
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: "Supabase not configured" };
 
@@ -723,6 +768,7 @@ export async function getInventoryDetails() {
         .in('current_box_id', chunk)
         .in('current_status', [...WAREHOUSE_INVENTORY_STATUSES])
         .order('created_at', { ascending: false })
+        .order('id', { ascending: true })
         .range(offset, offset + pageSize - 1);
 
       if (seriesError) {

@@ -10,6 +10,7 @@ import {
   BusinessException,
   DomainException,
 } from '../../errors/Exceptions';
+import { logOnlyRoleCheck } from '../../authz/roleGuard';
 
 /**
  * Traduce una excepción a una respuesta segura para el cliente.
@@ -40,6 +41,11 @@ export type ApiHandler<A extends unknown[] = unknown[]> = (
 export type ApiHandlerMeta = {
   module: string;
   action: string;
+  /**
+   * Roles operacionales (enum app_role) permitidos para esta operación.
+   * Si se define, se ejecuta un chequeo log-only (no bloquea salvo AUTHZ_ENFORCE).
+   */
+  roles?: readonly string[];
 };
 
 export function withErrorHandler<A extends unknown[]>(
@@ -51,6 +57,17 @@ export function withErrorHandler<A extends unknown[]>(
     const started = Date.now();
 
     try {
+      if (meta?.roles) {
+        const denied = await logOnlyRoleCheck(req, meta.roles, {
+          module: meta.module,
+          action: meta.action,
+        });
+        if (denied) {
+          denied.headers.set(CORRELATION_ID_HEADER, correlationId);
+          return denied as Awaited<ReturnType<typeof handler>>;
+        }
+      }
+
       const response = await handler(req, ...args);
       const durationMs = Date.now() - started;
       response.headers.set(CORRELATION_ID_HEADER, correlationId);

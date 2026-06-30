@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useState } from 'react';
-import { updateReception } from '@/lib/database/receptions';
+import { updateReception } from '@/modules/recepcion/client/receptions';
 import { sanitizeCacAgencyRaw } from '@/lib/cacAgencyUtils';
 import type { CatalogAgency } from '../../types';
 
@@ -18,7 +18,7 @@ export function useEditMetaModal({ CAC_AGENCIES, fetchHistory }: Params) {
   const handleOpenEditMeta = useCallback(
     (rec: Record<string, unknown>) => {
       const notes = String(rec.notes || '');
-      const carrier = rec.carrier;
+      const carrier = rec.carrier as string | null | undefined;
       setEditMetaRec(rec);
       setEditMeta({
         agency: sanitizeCacAgencyRaw(

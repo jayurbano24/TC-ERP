@@ -5,7 +5,7 @@ import { Card, Badge, Button, DataTable, type DataTableColumn, notify, confirmDi
 import { useClientPagination } from '@/hooks/useClientPagination';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { assertSapOperationAllowed, resolveUnitSapStatus } from '@/lib/sap/sapValidationStatus';
+import { sapValidationReader } from '@/modules/sap-integration';
 import { ModulePage, ModuleToolbar } from '@/components/module-page';
 import { 
   Box, 
@@ -35,11 +35,11 @@ import {
   Truck,
   PackageMinus
 } from 'lucide-react';
-import { getInventoryBoxes, transferBoxesToArea, createBodegaBoxAtomic, reserveNextBoxCode, addSeriesToBox, dispatchBoxFromWarehouse, dispatchSpecificSeries, transferSpecificSeriesToArea, canScanSeriesIntoWarehouse, resolveBoxDisplayStatus, getBoxHistory } from '@/lib/database/warehouse';
+import { getInventoryBoxes, transferBoxesToArea, createBodegaBoxAtomic, reserveNextBoxCode, addSeriesToBox, dispatchBoxFromWarehouse, dispatchSpecificSeries, transferSpecificSeriesToArea, canScanSeriesIntoWarehouse, resolveBoxDisplayStatus, getBoxHistory } from '@/modules/inventario/client/warehouseBoxes';
 import { DispatchBatchSelector } from '@/modules/outbound-dispatch/components/DispatchBatchSelector';
 import { isHexagonalOutboundDispatchEnabled } from '@/modules/outbound-dispatch';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
-import { getTechnologies, getBrands, getModels } from '@/lib/database/config';
+import { getTechnologies, getBrands, getModels } from '@/shared/catalogs/catalogs';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { PrintBoxModal } from './components/PrintBoxModal';
 import { RackModal } from './components/RackModal';
@@ -48,38 +48,6 @@ import { DispatchModal } from './components/DispatchModal';
 import { TransferModal } from './components/TransferModal';
 import { NewBoxModal } from './components/NewBoxModal';
 import { DetalleCajaModal } from './components/DetalleCajaModal';
-
-// --- MOCK MASTER REGISTRY (Simulando datos de Recepción/Backoffice) ---
-const masterSeriesRegistry = [
-  { 
-    sn: 'SN-001', 
-    marca: 'Huawei', 
-    modelo: 'HG8245H', 
-    tecnologia: 'ONT', 
-    origen: 'Guatemala City', 
-    agencia: 'Monte Verdes', 
-    fechaGuia: '25/04/2024', 
-    fechaRecepcion: '28/04/2024',
-    seriesExtra: { s2: 'MAC-A1B2', s3: 'ID-9901' }
-  },
-  { 
-    sn: 'SN-002', 
-    marca: 'Nokia', 
-    modelo: 'G-2425-G', 
-    tecnologia: 'ROUTER', 
-    origen: 'San Salvador', 
-    agencia: 'Santa Tecla', 
-    fechaGuia: '26/04/2024', 
-    fechaRecepcion: '29/04/2024',
-    seriesExtra: { s2: 'MAC-X4Y5', s3: 'ID-8802' }
-  }
-];
-
-const mockInventory = [
-  { id: 'BOX-001', rack: 'A-12', area: 'Bodega Central', marca: 'Huawei', modelo: 'HG8245H', cantidad: 40, status: 'Full', series: [] },
-  { id: 'BOX-002', rack: 'B-04', area: 'Bodega Central', marca: 'Nokia', modelo: 'G-2425', cantidad: 12, status: 'Partial', series: [] },
-  { id: 'BOX-003', rack: 'A-05', area: 'Bodega Central', marca: 'Huawei', modelo: 'ONT-X', cantidad: 50, status: 'Full', series: [] },
-];
 
 export default function BodegaGestionPage() {
   const pathname = usePathname();
@@ -281,21 +249,21 @@ export default function BodegaGestionPage() {
       }
 
       for (const s of seriesToCheck) {
-        const sapStatus = resolveUnitSapStatus(
-          s.sap_integration_status || s.sap_status,
-          s.series_sap_statuses || [s.sap_status]
-        );
+        const sapInput = {
+          integrationStatus: s.sap_integration_status || s.sap_status,
+          seriesStatuses: s.series_sap_statuses || [s.sap_status],
+        };
         if (dispatchAction === 'despacho') {
-          const check = assertSapOperationAllowed(sapStatus, 'dispatch');
-          if (!check.ok) {
-            notify.warning(`${check.message} Equipo ${s.sn}.`);
+          const decision = sapValidationReader.authorize(sapInput, 'dispatch');
+          if (!decision.allowed) {
+            notify.warning(`${decision.reason} Equipo ${s.sn}.`);
             return;
           }
         } else if (dispatchAction === 'traslado') {
           if (dispatchArea !== 'Diagnóstico' && dispatchArea !== 'Reparación') {
-            const check = assertSapOperationAllowed(sapStatus, 'transfer');
-            if (!check.ok) {
-              notify.warning(`${check.message} Equipo ${s.sn}.`);
+            const decision = sapValidationReader.authorize(sapInput, 'transfer');
+            if (!decision.allowed) {
+              notify.warning(`${decision.reason} Equipo ${s.sn}.`);
               return;
             }
           }
@@ -309,7 +277,7 @@ export default function BodegaGestionPage() {
       let error;
       if (dispatchAction === 'traslado') {
          if (dispatchMode === 'all') {
-            const res = await transferBoxesToArea([realDbId || boxId], dispatchArea, undefined, 'Admin User');
+            const res = await transferBoxesToArea([realDbId || boxId], dispatchArea, undefined);
             error = res.error;
          } else {
             const res = await transferSpecificSeriesToArea(realDbId || boxId, selectedSeriesForDispatch, dispatchArea, 'Admin User');
@@ -340,7 +308,7 @@ export default function BodegaGestionPage() {
       if (error) {
         notify.error('Error despachando', { description: String(error) });
       } else {
-        await fetchBoxes();
+        await fetchBoxes(true);
         setShowDispatchModal(null);
         setDispatchDestination('');
         setDispatchNotes('');
@@ -400,10 +368,10 @@ export default function BodegaGestionPage() {
     }
   }, [showTimeline]);
 
-  const fetchBoxes = async () => {
+  const fetchBoxes = async (force = false) => {
     setLoading(true);
     try {
-      const result = await getInventoryBoxes() as any;
+      const result = await getInventoryBoxes({ force }) as any;
       if (result.error) {
         notify.error('Error al cargar inventario', { description: result.error });
         return;
@@ -428,8 +396,15 @@ export default function BodegaGestionPage() {
           
           const notes = main.receptions?.notes || '';
           const normalizedNotes = notes.replace(/\\n/g, '\n');
+          // Notas a nivel de serie (migración AppSheet guarda "Agencia: X | Guía: Y"
+          // por unidad). Tienen prioridad para no perder el dato por unidad cuando
+          // muchas cajas comparten una sola recepción consolidada.
+          const seriesNotes = (main.notes || '').replace(/\\n/g, '\n');
+          const agenciaFromSeries = seriesNotes.split('Agencia: ')[1]?.split('|')[0]?.split('\n')[0]?.trim();
+          const guiaFromSeries = seriesNotes.split('Guía: ')[1]?.split('\n')[0]?.trim();
           const piloto = normalizedNotes.split('Piloto: ')[1]?.split('\n')[0]?.trim() || '---';
-          const agenciaCAC = normalizedNotes.split('Backoffice_Agency: ')[1]?.split('\n')[0]?.trim()
+          const agenciaCAC = agenciaFromSeries
+            || normalizedNotes.split('Backoffice_Agency: ')[1]?.split('\n')[0]?.trim()
             || main.receptions?.carrier
             || '---';
           // Tech/Brand/Model: model_id en serie → catálogo; fallback notes legacy
@@ -467,7 +442,7 @@ export default function BodegaGestionPage() {
             fuente: main.receptions?.source?.toUpperCase() || 'PX',
             agenciaCAC: agenciaCAC,
             piloto: piloto,
-            guia: main.receptions?.guide_number || 'S/G',
+            guia: guiaFromSeries || main.receptions?.guide_number || 'S/G',
             recibio: normalizedNotes.split('Recibido Por: ')[1]?.split('\n')[0]?.trim() || main.receptions?.received_by || 'SISTEMA',
             estatus: main.receptions?.status || 'N/A',
             ordenServicio: main.service_orders?.os_label || 'S/OS',
@@ -614,7 +589,7 @@ export default function BodegaGestionPage() {
         return;
       }
 
-      await fetchBoxes();
+      await fetchBoxes(true);
       setShowNewBoxModal(false);
       setNewBoxStep('form');
       setTempSerials([]);
@@ -1067,7 +1042,7 @@ export default function BodegaGestionPage() {
       if (error) {
         notify.error('Error al actualizar la ubicación', { description: error.message });
       } else {
-        await fetchBoxes();
+        await fetchBoxes(true);
       }
     }
     setShowRackModal(null);
@@ -1093,7 +1068,7 @@ export default function BodegaGestionPage() {
       if (error) {
         notify.error('Error al actualizar ubicaciones', { description: error.message });
       } else {
-        await fetchBoxes();
+        await fetchBoxes(true);
         notify.success('Ubicación asignada', {
           description: `${selectedBoxIds.length} ${selectedBoxIds.length === 1 ? 'caja' : 'cajas'} → ${finalRack}.`,
         });
@@ -1116,12 +1091,12 @@ export default function BodegaGestionPage() {
     });
 
     // Ejecutar el traspaso, que ahora amarra la caja, la ubicación, y reasigna el status de las series internas.
-    const { error } = await transferBoxesToArea(realBoxIds, destinationArea, undefined, 'Admin User');
+    const { error } = await transferBoxesToArea(realBoxIds, destinationArea, undefined);
     
     if (error) {
       notify.error('Error en la transferencia', { description: String(error) });
     } else {
-      await fetchBoxes();
+      await fetchBoxes(true);
       setShowTransferModal(false);
       setSelectedBoxesForTransfer([]);
       notify.success('Transferencia exitosa', { description: `${selectedBoxesForTransfer.length} cajas movidas a ${destinationArea}.` });

@@ -1,11 +1,11 @@
 import type React from 'react';
-import type { CatalogAgency, CatalogBrand, CatalogModel, CatalogTech, GuideItem, OperationCategory, ReceptionStep, SapTransferGroup } from '../types';
+import type { BackofficeReception, CatalogAgency, CatalogBrand, CatalogModel, CatalogTech, GuideItem, OperationCategory, ReceptionStep, SapTransferGroup } from '../types';
 
 export type OperationContext = {
   receptionStep: ReceptionStep;
   setReceptionStep: React.Dispatch<React.SetStateAction<ReceptionStep>>;
-  activeReception: Record<string, unknown> | null;
-  setActiveReception: React.Dispatch<React.SetStateAction<Record<string, unknown> | null>>;
+  activeReception: BackofficeReception | null;
+  setActiveReception: React.Dispatch<React.SetStateAction<BackofficeReception | null>>;
   accessoryPhotos: string[];
   setAccessoryPhotos: React.Dispatch<React.SetStateAction<string[]>>;
   scannedGuides: string[];
@@ -44,13 +44,13 @@ export type OperationContext = {
   setSelectedItemIdx: React.Dispatch<React.SetStateAction<number | null>>;
   itemSeriesInputs: Record<number, string>;
   setItemSeriesInputs: React.Dispatch<React.SetStateAction<Record<number, string>>>;
-  pendingReceptions: Record<string, unknown>[];
+  pendingReceptions: BackofficeReception[];
   loading: boolean;
   inboxLoadError: string | null;
   isSubmitting: boolean;
   processingDateLabel: string;
   currentUserFullName: string;
-  allReceptions: Record<string, unknown>[];
+  allReceptions: BackofficeReception[];
   historyLoading: boolean;
   CAC_AGENCIES: CatalogAgency[];
   MASTER_TECNOLOGIAS: CatalogTech[];
@@ -60,8 +60,8 @@ export type OperationContext = {
   availableBrandsConfig: CatalogBrand[];
   availableModels: CatalogModel[];
   isActiveSapDocumentFilled: boolean;
-  startProcessingReception: (rec: Record<string, unknown>) => void;
-  handlePrintConduce: (record: Record<string, unknown>) => void;
+  startProcessingReception: (rec: BackofficeReception) => void;
+  handlePrintConduce: (record: BackofficeReception) => void;
   fetchPending: (opts?: { silent?: boolean }) => Promise<void>;
   fetchHistory: (opts?: { silent?: boolean }) => Promise<void>;
   handleTestConnection: () => Promise<void>;

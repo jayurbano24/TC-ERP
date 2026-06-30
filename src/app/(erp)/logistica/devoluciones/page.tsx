@@ -21,12 +21,12 @@ import {
   BarChart3
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { registerNewReturn, processFullReceptionReturn, undoFullReceptionReturn, processBlockReturnBySapTransfer, getSapBlockReturnRows, getBoxReturnRows, dispatchReturnItems, dispatchBoxReturns, undoBoxReturnFromClassification, type ReturnDispatchTarget, type BoxReturnDispatchTarget, type BoxReturnRow } from '@/lib/database/returns';
-import { getAgencies, getReturnReasons } from '@/lib/database/config';
+import { registerNewReturn, processFullReceptionReturn, undoFullReceptionReturn, processBlockReturnBySapTransfer, getSapBlockReturnRows, getBoxReturnRows, dispatchReturnItems, dispatchBoxReturns, undoBoxReturnFromClassification, type ReturnDispatchTarget, type BoxReturnDispatchTarget, type BoxReturnRow } from '@/modules/returns/client/returnData';
+import { getAgencies, getReturnReasons } from '@/shared/catalogs/catalogs';
 import { BodegaDevolucionTable } from './components/BodegaDevolucionTable';
 import { ReturnsReportPanel } from './components/ReturnsReportPanel';
 import type { CatalogAgency } from '@/app/(erp)/produccion/backoffice/types';
-import { getReceptions } from '@/lib/database/receptions';
+import { getReceptions } from '@/modules/recepcion/client/receptions';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { getActualUserFullName } from '@/lib/auth';
 import { useEffect } from 'react';
@@ -82,12 +82,6 @@ const buildBoxDispatchTarget = (dev: Devolucion): BoxReturnDispatchTarget | null
     guideNumber: dev.sn,
   };
 };
-
-const mockDevoluciones: Devolucion[] = [
-  { id: 'DEV-9901', sn: 'SN-HUA-1122', cliente: 'Tienda Zona 10', motivo: 'Garantía - No enciende', fecha: '28/04/2026', estatus: 'Pendiente' },
-  { id: 'DEV-9902', sn: 'SN-NOK-3344', cliente: 'CAC Quetzaltenango', motivo: 'Cambio de Tecnología', fecha: '28/04/2026', estatus: 'Procesado', tecnico: 'Herbert P.' },
-  { id: 'DEV-9905', sn: 'SN-ZTE-5566', cliente: 'Individual - 01', motivo: 'Error de Despacho', fecha: '27/04/2026', estatus: 'Pendiente' },
-];
 
 const RETURN_REASONS = [
   'Garantía - No enciende',
@@ -303,7 +297,7 @@ export default function DevolucionesPage() {
 
     const supabase = getSupabaseBrowserClient();
 
-    const userName = getActualUserFullName();
+    const userName = (await getActualUserFullName()) || 'SISTEMA';
     const res = await processFullReceptionReturn(returnReceptionId!, fullReturnForm, userName);
     setLoading(false);
     if (res.error) {

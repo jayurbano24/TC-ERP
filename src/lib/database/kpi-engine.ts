@@ -1,5 +1,22 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
+/** Fila de movimiento por persona a lo largo del pipeline (bodega → taller → QC). */
+export type PipelineUserRow = {
+  usuario: string;
+  bodegaIngreso: number;
+  bodegaSalida: number;
+  diagnostico: number;
+  diagAReacondicionado: number;
+  diagAReparacion: number;
+  reacondicionado: number;
+  reacEnviadoQC: number;
+  reparacion: number;
+  repEnviadoQC: number;
+  controlCalidad: number;
+  qcAprobado: number;
+  qcDevuelto: number;
+};
+
 // --- NORMALIZADOR DE TECNOLOGÍAS ---
 export function normalizeTechName(raw: string | null | undefined): string {
   if (!raw) return 'EQUIPO';
@@ -220,7 +237,7 @@ export async function getEngineKPIs(timeRange: string = 'Hoy') {
     // Solo registrar si es una tecnología válida, no una clasificación
     if (tName && !['EQUIPO', 'MÓVILES', 'MOVILES', 'ACCESORIOS', 'ACCESORIO', 'N/A', 'TELÉFONOS', 'TELEFONOS'].includes(tName)) {
       if (!backofficeTechStats[tName]) backofficeTechStats[tName] = { ingresada: 0, acumuladaSemana: 0, acumuladaMes: 0 };
-      backofficeTechStats[tName].ingresada += (r.received_units || 0);
+      backofficeTechStats[tName].ingresada += ((r as { received_units?: number }).received_units || 0);
     }
   });
   const backofficeTechTable = Object.keys(backofficeTechStats).map(t => ({

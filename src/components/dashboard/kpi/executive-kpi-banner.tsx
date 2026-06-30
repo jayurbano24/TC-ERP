@@ -11,8 +11,8 @@ import {
   TrendingUp,
   Truck,
 } from 'lucide-react';
-import type { ExecutiveKpiPayload, ExecutiveProjectionStatus } from '@/lib/database/kpi-executive';
-import { EXECUTIVE_TARGETS } from '@/lib/database/kpi-executive';
+import type { ExecutiveKpiPayload, ExecutiveProjectionStatus } from '@/modules/kpi-analytics/client/kpiExecutive';
+import { EXECUTIVE_TARGETS } from '@/modules/kpi-analytics/client/kpiExecutive';
 
 const PROJECTION_STYLES: Record<
   ExecutiveProjectionStatus,

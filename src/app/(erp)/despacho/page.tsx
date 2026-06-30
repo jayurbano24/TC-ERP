@@ -5,8 +5,10 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { Card, Badge, Button, notify, confirmDialog, DataTable, type DataTableColumn } from '@/components/ui';
 import { apiFetch } from '@/lib/http/apiFetch';
+import { sapValidationReader } from '@/modules/sap-integration';
 import * as XLSX from 'xlsx';
 import { ModulePage, ModuleToolbar } from '@/components/module-page';
+import { DispatchBatchPanel } from './DispatchBatchPanel';
 import { 
   Truck, 
   Package, 
@@ -278,9 +280,10 @@ export default function DespachoPage() {
       notify.warning('La marca o modelo del equipo no coinciden con la caja.'); return;
     }
 
-    // 1. Validar Matriz de Bloqueos SAP
+    // 1. Validar Matriz de Bloqueos SAP (gate vía port sap-integration)
     const sapStatus = sData.service_orders?.sap_integration_status || sData.sap_status || 'Pendiente Validación';
-    if (sapStatus !== 'Validado SAP') {
+    const sapDecision = sapValidationReader.authorize({ integrationStatus: sapStatus }, 'dispatch');
+    if (!sapDecision.allowed) {
       notify.error('Bloqueo operativo (Integración SAP)', { description: `El equipo no puede despacharse porque su estado es "${sapStatus}". Solo los equipos "Validado SAP" tienen permitido el despacho.`, duration: 0 });
       return;
     }
@@ -864,9 +867,18 @@ export default function DespachoPage() {
             <Boxes className="w-4 h-4" />
             Pendientes (CQRS Eventos)
           </button>
+          <button 
+            onClick={() => setActiveTab('lotes' as any)}
+            className={`px-6 py-2.5 text-sm font-bold rounded-lg transition-colors flex items-center gap-2 ${(activeTab as any) === 'lotes' ? 'bg-white text-[#181c3a] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            <Boxes className="w-4 h-4" />
+            Lotes de salida
+          </button>
         </div>
 
-        {(activeTab as any) === 'cqrs' ? (
+        {(activeTab as any) === 'lotes' ? (
+          <DispatchBatchPanel />
+        ) : (activeTab as any) === 'cqrs' ? (
           <div className="space-y-6 animate-in fade-in">
             <Card className="p-6">
               <div className="flex justify-between items-center mb-6">

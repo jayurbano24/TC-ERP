@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
 import { requireApiUser } from '@/shared/infrastructure/http/requireApiUser';
+import { authorize } from '@/shared/authz/authorize';
+import { AUTHZ_MODULE } from '@/shared/authz/modules';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,6 +24,9 @@ export async function GET(req: Request) {
   try {
     const auth = await requireApiUser(req);
     if (auth instanceof NextResponse) return auth;
+
+    const denied = await authorize(req, auth.user.id, AUTHZ_MODULE.RECEPCION_GENERAL, 'view');
+    if (denied) return denied;
 
     const supabase = getSupabaseServerClient();
     const { searchParams } = new URL(req.url);

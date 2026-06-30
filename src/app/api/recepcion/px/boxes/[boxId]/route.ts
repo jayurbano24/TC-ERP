@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
-import { deletePxCaptureBox } from '@/lib/database/pxReceptionCapture';
+import { deletePxCaptureBox } from '@/modules/recepcion/server/pxCapture';
 import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
+import { ROLES_RECEPCION } from '@/shared/authz/roleGuard';
 import { parseJsonBody } from '@/shared/validation/parseRequest';
 import { deleteBoxSchema } from '../../_schemas';
 
@@ -22,4 +23,4 @@ export const DELETE = withErrorHandler(async (req: Request, context: RouteContex
 
   if (!result.success) return NextResponse.json(result, { status: 409 });
   return NextResponse.json(result);
-}, { module: 'recepcion-px', action: 'delete-box' });
+}, { module: 'recepcion-px', action: 'delete-box', roles: ROLES_RECEPCION });

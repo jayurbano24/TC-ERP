@@ -4,11 +4,10 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { navigationGroups } from "@/lib/modules";
-import { canViewNavItem, isAdminNavRole } from "@/lib/navigation-permissions";
-import { Badge } from "@/components/ui";
+import { canViewNavItem } from "@/lib/navigation-permissions";
+import { useAuthz } from "@/components/authz";
 import { useTheme } from "@/components/theme-provider";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { getRolePermissions } from "@/lib/database/roles";
 import { registerUserSession } from "@/lib/userSession";
 import { 
   LayoutDashboard, 
@@ -43,70 +42,61 @@ const ICON_MAP: Record<string, React.ElementType> = {
   FileSpreadsheet, Boxes, Database,
 };
 
-const NAV_PERMS_KEY_PREFIX = 'tcerp_nav_permissions_';
+// Marcador de "usuario recurrente": permite no cerrar sesión ante errores
+// transitorios de lectura de `user_sessions` (gracia de sesión, comportamiento
+// preexistente). Los permisos ya NO se cachean aquí: viven en el authz centralizado.
 const LAST_USER_KEY = 'tcerp_last_user_id';
 
-// El acceso de admin vía sesión en localStorage solo se honra cuando el bypass
-// está habilitado explícitamente en desarrollo. En producción
-// (NEXT_PUBLIC_ENABLE_DEV_BYPASS != 'true') una `tcerp_dev_session` forjada se
-// ignora por completo (SEC-02).
-const DEV_BYPASS = process.env.NEXT_PUBLIC_ENABLE_DEV_BYPASS === 'true';
-
-function readCachedPermissions(userId?: string | null): any[] | null {
-  if (typeof window === 'undefined') return null;
-  const id = userId || localStorage.getItem(LAST_USER_KEY);
-  if (!id) return null;
+function isReturningUser(userId: string): boolean {
+  if (typeof window === 'undefined') return false;
   try {
-    const raw = localStorage.getItem(`${NAV_PERMS_KEY_PREFIX}${id}`);
-    return raw ? JSON.parse(raw) : null;
+    return localStorage.getItem(LAST_USER_KEY) === userId;
   } catch {
-    return null;
+    return false;
   }
 }
 
-function writeCachedPermissions(userId: string, perms: any[]) {
+function markUser(userId: string) {
   try {
     localStorage.setItem(LAST_USER_KEY, userId);
-    localStorage.setItem(`${NAV_PERMS_KEY_PREFIX}${userId}`, JSON.stringify(perms));
   } catch {
     /* quota / private mode */
   }
 }
 
-function clearCachedPermissions(userId?: string | null) {
-  if (!userId || typeof window === 'undefined') return;
-  localStorage.removeItem(`${NAV_PERMS_KEY_PREFIX}${userId}`);
-}
+type CurrentUser = {
+  id: string;
+  email: string | null;
+  full_name: string | null;
+  avatar_url: string | null;
+  role: string | null;
+  role_id: string | null;
+};
 
 export function ErpShell({ children }: { children: React.ReactNode }) {
   const { theme, toggleTheme } = useTheme();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const pathname = usePathname();
   const router = useRouter();
-  const [currentUser, setCurrentUser] = useState<any>(null);
-  const [userPermissions, setUserPermissions] = useState<any[] | null>(null);
-  const [permissionsLoading, setPermissionsLoading] = useState(true);
-  const [navReady, setNavReady] = useState(false);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [isMobile, setIsMobile] = useState(false);
+  // Autorización centralizada (solo UX). Sembrada desde el servidor → sin flicker.
+  const authz = useAuthz();
 
-  const applyUserPermissions = (userId: string, perms: any[]) => {
-    setUserPermissions(perms);
-    writeCachedPermissions(userId, perms);
-  };
-
-  useEffect(() => {
-    if (DEV_BYPASS && localStorage.getItem('tcerp_dev_session')) {
-      setUserPermissions([{ is_admin: true }]);
-      setPermissionsLoading(false);
-    } else {
-      const cached = readCachedPermissions();
-      if (cached) {
-        setUserPermissions(cached);
-        setPermissionsLoading(false);
+  const handleLogout = async () => {
+    const supabase = getSupabaseBrowserClient();
+    if (supabase) {
+      const localSessionId = localStorage.getItem('tcerp_session_id');
+      if (localSessionId && currentUser?.id !== 'dev-user') {
+        await supabase.from('user_sessions').delete().eq('id', localSessionId);
       }
+      await supabase.auth.signOut();
     }
-    setNavReady(true);
-  }, []);
+    localStorage.removeItem('tcerp_session_id');
+    localStorage.removeItem('tcerp_dev_session');
+    localStorage.removeItem(LAST_USER_KEY);
+    router.push('/');
+  };
 
   useEffect(() => {
     const handleResize = () => {
@@ -125,21 +115,8 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
 
     async function loadUser() {
       try {
-        const devRaw = DEV_BYPASS && typeof window !== 'undefined' ? localStorage.getItem('tcerp_dev_session') : null;
         const supabase = getSupabaseBrowserClient();
         const session = supabase ? (await supabase.auth.getSession()).data.session : null;
-
-        if (!session?.user && devRaw) {
-          try {
-            const dev = JSON.parse(devRaw);
-            if (cancelled) return;
-            setCurrentUser({ id: 'dev-user', email: dev.email, full_name: 'Dev Admin', role: dev.role || 'ADMINISTRADOR', role_id: null });
-            applyUserPermissions('dev-user', [{ is_admin: true }]);
-            return;
-          } catch {
-            /* ignore */
-          }
-        }
 
         if (!supabase) {
           if (!session?.user) router.push('/');
@@ -152,17 +129,16 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
         }
 
         const userId = session.user.id;
-        const cachedPerms = readCachedPermissions(userId);
-        if (cachedPerms && !cancelled) {
-          setUserPermissions(cachedPerms);
-        }
+        // Gracia de sesión: a un usuario recurrente no se le cierra sesión por
+        // errores transitorios de lectura de `user_sessions`.
+        const returning = isReturningUser(userId);
 
-        if (userId !== 'dev-user') {
+        {
           let localSessionId = localStorage.getItem('tcerp_session_id');
           if (!localSessionId) {
             localSessionId = await registerUserSession(userId);
             if (!localSessionId) {
-              if (!cachedPerms) handleLogout();
+              if (!returning) handleLogout();
               return;
             }
           }
@@ -174,7 +150,7 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
             .single();
 
           if (sessionError?.code === 'PGRST116' || (!sessionError && !sessionData)) {
-            if (!cachedPerms) handleLogout();
+            if (!returning) handleLogout();
             return;
           }
 
@@ -183,7 +159,7 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
               (Date.now() - new Date(sessionData.created_at).getTime()) / (1000 * 60 * 60);
             if (sessionAgeHours > 16) {
               await supabase.from('user_sessions').delete().eq('id', localSessionId);
-              if (!cachedPerms) handleLogout();
+              if (!returning) handleLogout();
               return;
             }
           }
@@ -199,7 +175,6 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
 
         if (profileError || !data) {
           console.warn('No se pudo cargar perfil para menú:', profileError?.message);
-          if (!cachedPerms) setUserPermissions([]);
           return;
         }
 
@@ -214,20 +189,9 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
           role,
           role_id: roleId,
         });
-
-        if (role === 'ADMINISTRADOR' || isAdminNavRole(role) || data.email === 'gurbano@techcommwireless.com' || data.email === 'gurbnao@techcommwireless.com') {
-          applyUserPermissions(userId, [{ is_admin: true }]);
-        } else if (roleId) {
-          const perms = await getRolePermissions(roleId);
-          if (!cancelled) applyUserPermissions(userId, perms || []);
-        } else {
-          applyUserPermissions(userId, []);
-        }
+        markUser(userId);
       } catch (err) {
         console.error('Error cargando sesión/menú:', err);
-        if (!cancelled) setUserPermissions((prev) => prev ?? []);
-      } finally {
-        if (!cancelled) setPermissionsLoading(false);
       }
     }
 
@@ -243,24 +207,6 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
       window.removeEventListener('pageshow', onPageShow);
     };
   }, []);
-
-  const handleLogout = async () => {
-    const supabase = getSupabaseBrowserClient();
-    const logoutUserId = currentUser?.id;
-    if (supabase) {
-      const localSessionId = localStorage.getItem('tcerp_session_id');
-      if (localSessionId && currentUser?.id !== 'dev-user') {
-        await supabase.from('user_sessions').delete().eq('id', localSessionId);
-      }
-      await supabase.auth.signOut();
-    }
-    clearCachedPermissions(logoutUserId);
-    localStorage.removeItem('tcerp_session_id');
-    localStorage.removeItem('tcerp_dev_session');
-    localStorage.removeItem(LAST_USER_KEY);
-    setUserPermissions(null);
-    router.push('/');
-  };
 
 
   return (
@@ -337,7 +283,7 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
 
           {/* Navigation */}
           <nav className="flex-1 overflow-y-auto px-3 py-6 space-y-6 custom-scrollbar">
-            {!navReady || permissionsLoading ? (
+            {authz.isLoading ? (
               <div className="space-y-3 px-2 animate-pulse">
                 {[1, 2, 3, 4, 5].map((i) => (
                   <div key={i} className="h-10 rounded-xl bg-white/5" />
@@ -350,7 +296,7 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
             navigationGroups.map((group) => {
               // Filtrar items basados en permisos
               const filteredItems = group.items.filter((item) =>
-                canViewNavItem(item, userPermissions)
+                canViewNavItem(item, authz)
               );
 
               // Si el grupo no tiene items después de filtrar, no lo renderizamos

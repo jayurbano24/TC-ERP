@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
-import { appendPxCaptureLots } from '@/lib/database/pxReceptionCapture';
+import { appendPxCaptureLots } from '@/modules/recepcion/server/pxCapture';
 import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
+import { ROLES_RECEPCION } from '@/shared/authz/roleGuard';
 import { parseJsonBody } from '@/shared/validation/parseRequest';
 import { appendLotsSchema } from '../../../_schemas';
 
@@ -18,4 +19,4 @@ export const POST = withErrorHandler(async (req: Request, context: RouteContext)
   }
 
   return NextResponse.json({ success: true, data: result });
-}, { module: 'recepcion-px', action: 'append-lots' });
+}, { module: 'recepcion-px', action: 'append-lots', roles: ROLES_RECEPCION });

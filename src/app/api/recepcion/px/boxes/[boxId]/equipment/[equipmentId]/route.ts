@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
-import { voidPxEquipment } from '@/lib/database/pxReceptionCapture';
+import { voidPxEquipment } from '@/modules/recepcion/server/pxCapture';
 import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
+import { ROLES_RECEPCION } from '@/shared/authz/roleGuard';
 import { parseOptionalJsonBody } from '@/shared/validation/parseRequest';
 import { voidEquipmentSchema } from '../../../../_schemas';
 
@@ -24,4 +25,4 @@ export const DELETE = withErrorHandler(async (req: Request, context: RouteContex
 
   if (!result.success) return NextResponse.json(result, { status: 409 });
   return NextResponse.json(result);
-}, { module: 'recepcion-px', action: 'void-equipment' });
+}, { module: 'recepcion-px', action: 'void-equipment', roles: ROLES_RECEPCION });

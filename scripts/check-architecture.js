@@ -98,7 +98,10 @@ function loadBaseline() {
 }
 
 function violationKey(v) {
-  return `${v.file}:${v.line}:${v.rule}`;
+  // Clave insensible a la línea: usa el texto del import en vez del número
+  // de línea, para que mover código no rompa el CI con deuda ya conocida.
+  // Un import genuinamente nuevo (snippet distinto) sí se detecta como NEW.
+  return `${v.file}:${v.rule}:${v.snippet}`;
 }
 
 function main() {

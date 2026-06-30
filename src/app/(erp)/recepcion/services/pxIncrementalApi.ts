@@ -1,5 +1,5 @@
 import type { GuideData } from '../types/reception.types';
-import type { PxLotInput, PxReceptionSnapshot } from '@/lib/database/pxReceptionCapture';
+import type { PxLotInput, PxReceptionSnapshot } from '@/modules/recepcion/client/pxCapture';
 import { apiFetch } from '@/lib/http/apiFetch';
 
 const INCREMENTAL_SESSION_KEY = 'tc_erp_px_incremental_reception_id';
@@ -72,6 +72,17 @@ export async function fetchPxReceptionSnapshot(receptionId: string) {
   const json = await res.json();
   if (!json.success) throw new Error(json.error || 'Recepción no encontrada');
   return json.data as PxReceptionSnapshot;
+}
+
+/**
+ * Huella ligera de sincronización (no descarga el snapshot completo).
+ * Úsese en el sondeo para decidir si hace falta refrescar el snapshot.
+ */
+export async function fetchPxReceptionStamp(receptionId: string) {
+  const res = await apiFetch(`/api/recepcion/px/${receptionId}?stamp=1`);
+  const json = await res.json();
+  if (!json.success) throw new Error(json.error || 'Recepción no encontrada');
+  return { version: json.version as number, fingerprint: json.fingerprint as string };
 }
 
 export async function createPxBoxApi(

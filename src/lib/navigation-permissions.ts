@@ -1,18 +1,16 @@
 import type { NavigationItem } from '@/lib/modules';
 
-type NavPermission = {
-  module_name: string;
-  can_view?: boolean;
-  is_admin?: boolean;
-};
-
-const ADMIN_ROLE_NAMES = new Set([
-  'ADMINISTRADOR',
-  'Administrador',
-  'GERENTE GENERAL',
-  'GERENTE',
-  'SUPER ADMIN',
-]);
+/**
+ * Decisión de visibilidad de items del menú — SOLO UX.
+ *
+ * No usa comparaciones de rol: delega en el API de autorización (`authz.canView`
+ * / `authz.isAdmin`), que a su vez consulta `erp_role_permissions` (app_can).
+ * La autoridad real sigue siendo el backend.
+ */
+export interface NavAuthz {
+  isAdmin: boolean;
+  canView: (module: string) => boolean;
+}
 
 /** Módulos de Gestión visibles si el rol ya tiene acceso a BI/reportes. */
 const GESTION_FALLBACK_MODULES = new Set(['Reportes', 'Productividad', 'Costos']);
@@ -32,36 +30,20 @@ const MODULE_ALIASES: Record<string, string[]> = {
   'Integración SAP': ['Integración SAP'],
 };
 
-function hasViewOnModule(permissions: NavPermission[], names: string[]): boolean {
-  return permissions.some((p) => names.includes(p.module_name) && p.can_view === true);
-}
-
-export function canViewNavItem(
-  item: NavigationItem,
-  permissions: NavPermission[] | null
-): boolean {
-  if (!permissions || permissions.length === 0) return false;
-  if (permissions[0]?.is_admin) return true;
+export function canViewNavItem(item: NavigationItem, authz: NavAuthz | null): boolean {
+  if (!authz) return false;
+  if (authz.isAdmin) return true;
 
   const key = item.permissionKey ?? item.label;
   const aliases = MODULE_ALIASES[key] ?? [key];
 
-  if (hasViewOnModule(permissions, aliases)) return true;
+  if (aliases.some((name) => authz.canView(name))) return true;
 
   if (GESTION_FALLBACK_MODULES.has(key)) {
-    return hasViewOnModule(permissions, [
-      'Productividad',
-      'Costos',
-      'Seguridad',
-      'Reportes',
-      'Dashboard',
-    ]);
+    return ['Productividad', 'Costos', 'Seguridad', 'Reportes', 'Dashboard'].some((m) =>
+      authz.canView(m)
+    );
   }
 
   return false;
-}
-
-export function isAdminNavRole(roleName?: string | null): boolean {
-  if (!roleName) return false;
-  return ADMIN_ROLE_NAMES.has(roleName.trim());
 }

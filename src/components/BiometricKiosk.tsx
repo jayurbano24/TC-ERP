@@ -72,7 +72,10 @@ export function BiometricKiosk() {
     selectedRegisterEmp,
     faceData,
     pendingActionSelect,
-    pendingJustification
+    pendingJustification,
+    employeeToVerify,
+    consecutiveMatches,
+    livenessBuffer
   });
 
   useEffect(() => {

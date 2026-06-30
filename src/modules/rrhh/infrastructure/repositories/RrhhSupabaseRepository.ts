@@ -13,10 +13,9 @@ export class RrhhSupabaseRepository implements IRrhhRepository {
       tenant_id: state.tenantId,
       branch_id: state.branchId,
       nombre: state.nombre,
-      apellidos: state.apellidos,
+      apellidos: state.apellido,
       cargo: state.cargo,
       departamento: state.departamento,
-      pin_reloj: state.pinReloj,
       estado: state.estado,
     });
   }
@@ -38,11 +37,12 @@ export class RrhhSupabaseRepository implements IRrhhRepository {
       data.branch_id,
       {
         nombre: data.nombre,
-        apellidos: data.apellidos,
+        apellido: data.apellidos ?? data.apellido ?? '',
+        dni: data.dni ?? '',
         cargo: data.cargo,
         departamento: data.departamento,
-        pinReloj: data.pin_reloj,
         estado: data.estado,
+        userId: data.user_id ?? undefined,
       }
     );
   }

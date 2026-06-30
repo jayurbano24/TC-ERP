@@ -1,24 +1,25 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { createServerClient } from '@supabase/ssr';
 import { checkRateLimit, type RateLimitResult } from '@/lib/security/rateLimit';
 
 /**
  * Middleware de seguridad:
  *  1) Aplica cabeceras de protección a todas las respuestas.
- *  2) Limita la tasa de peticiones a `/api/*` por IP (SEC-03) para mitigar abuso,
+ *  2) Refresca la sesión Supabase desde cookies (`@supabase/ssr`) en cada request.
+ *  3) Limita la tasa de peticiones a `/api/*` por IP (SEC-03) para mitigar abuso,
  *     scraping y fuerza bruta, con un cupo más estricto en endpoints costosos.
- *  3) Exige autenticación en las rutas `/api/*` (modelo Bearer token), salvo las
- *     públicas (health-check y endpoints de dispositivos biométricos iclock).
+ *  4) Exige autenticación en las rutas `/api/*`, salvo las públicas (health-check
+ *     y endpoints de dispositivos biométricos iclock).
  *
- * Enforcement de auth (SEC-01): el navegador adjunta el access_token de Supabase
- * vía `apiFetch`; aquí se valida contra `${url}/auth/v1/user`. En desarrollo, con
- * NEXT_PUBLIC_ENABLE_DEV_BYPASS=true, se permite sin token para no romper el flujo
- * dev. En producción (sin esa env) se exige token válido.
+ * Enforcement de auth (SEC-01): la sesión viaja en cookies httpOnly-ish gestionadas
+ * por `@supabase/ssr`; aquí se valida con `auth.getUser()`. Como compatibilidad
+ * durante la transición se acepta además un `Authorization: Bearer <token>` válido.
+ * No existe bypass de desarrollo: en cualquier entorno se exige sesión/token real.
  */
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ?? '';
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() ?? '';
-const DEV_BYPASS = process.env.NEXT_PUBLIC_ENABLE_DEV_BYPASS === 'true';
 
 /** Ventana de rate limiting (SEC-03). */
 const RATE_WINDOW_MS = 60_000;
@@ -35,9 +36,33 @@ const STRICT_PREFIXES = [
   '/api/backoffice/cac-history/export',
 ];
 
+/** Cabeceras de correlación end-to-end (Q2.5-10). */
+const CORRELATION_HEADER = 'x-correlation-id';
+const REQUEST_ID_HEADER = 'x-request-id';
+
 /** Rutas /api que NO requieren auth de usuario (dispositivos / health). */
 function isPublicApiPath(pathname: string): boolean {
   return pathname === '/api/health' || pathname.startsWith('/api/iclock');
+}
+
+/**
+ * Reutiliza el correlation/request id entrante (si un proxy o cliente ya lo
+ * envió) o genera uno nuevo. Usa el `crypto` global (Web Crypto) disponible en
+ * el runtime de middleware; no importa el módulo `crypto` de Node.
+ */
+function getOrCreateCorrelationId(req: NextRequest): string {
+  return (
+    req.headers.get(CORRELATION_HEADER) ||
+    req.headers.get(REQUEST_ID_HEADER) ||
+    crypto.randomUUID()
+  );
+}
+
+/** Expone el correlation/request id en la respuesta para trazabilidad. */
+function applyCorrelationHeaders(res: NextResponse, correlationId: string): NextResponse {
+  res.headers.set(CORRELATION_HEADER, correlationId);
+  res.headers.set(REQUEST_ID_HEADER, correlationId);
+  return res;
 }
 
 /** IP del cliente a partir de las cabeceras de proxy habituales. */
@@ -98,15 +123,10 @@ async function isValidSupabaseToken(token: string): Promise<boolean> {
   }
 }
 
-/** Devuelve una respuesta 401 si la petición /api no está autenticada; null si pasa. */
-async function enforceApiAuth(req: NextRequest): Promise<NextResponse | null> {
-  // Dev: con bypass habilitado se permite sin verificación (solo desarrollo).
-  if (DEV_BYPASS) return null;
-
+/** Acepta un Bearer token válido como compatibilidad (apiFetch legacy). */
+async function hasValidBearer(req: NextRequest): Promise<boolean> {
   const token = getBearerToken(req);
-  if (token && (await isValidSupabaseToken(token))) return null;
-
-  return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  return Boolean(token && (await isValidSupabaseToken(token)));
 }
 
 function applySecurityHeaders(res: NextResponse): NextResponse {
@@ -130,21 +150,67 @@ function applySecurityHeaders(res: NextResponse): NextResponse {
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+  // Q2.5-10: un único correlation/request id por petición, propagado al handler
+  // (vía request headers) y expuesto en la respuesta para trazabilidad e2e.
+  const correlationId = getOrCreateCorrelationId(req);
+
+  // Propaga el id al handler aguas abajo reescribiendo las cabeceras de la request.
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set(CORRELATION_HEADER, correlationId);
+  requestHeaders.set(REQUEST_ID_HEADER, correlationId);
+
+  // Sesión Supabase desde cookies (@supabase/ssr). El cliente escribe las cookies
+  // refrescadas en `response`, que se reconstruye en `setAll`.
+  let response = NextResponse.next({ request: { headers: requestHeaders } });
+  let sessionUser: { id: string } | null = null;
+
+  if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+    const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      cookies: {
+        getAll() {
+          return req.cookies.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value }) => req.cookies.set(name, value));
+          response = NextResponse.next({ request: { headers: requestHeaders } });
+          cookiesToSet.forEach(({ name, value, options }) =>
+            response.cookies.set(name, value, options)
+          );
+        },
+      },
+    });
+
+    try {
+      const { data } = await supabase.auth.getUser();
+      sessionUser = data.user ? { id: data.user.id } : null;
+    } catch {
+      sessionUser = null;
+    }
+  }
 
   let rateLimit: RateLimitResult | null = null;
 
   if (pathname.startsWith('/api/') && !isPublicApiPath(pathname)) {
     // SEC-03: rate limiting por IP antes de cualquier trabajo costoso.
     const rl = enforceRateLimit(req, pathname);
-    if (rl instanceof NextResponse) return applySecurityHeaders(rl);
+    if (rl instanceof NextResponse) {
+      return applyCorrelationHeaders(applySecurityHeaders(rl), correlationId);
+    }
     rateLimit = rl;
 
-    const denied = await enforceApiAuth(req);
-    if (denied) return applySecurityHeaders(applyRateLimitHeaders(denied, rateLimit));
+    // SEC-01: exige sesión (cookies) o, como compatibilidad, Bearer válido.
+    const authed = Boolean(sessionUser) || (await hasValidBearer(req));
+    if (!authed) {
+      const denied = NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+      return applyCorrelationHeaders(
+        applySecurityHeaders(applyRateLimitHeaders(denied, rateLimit)),
+        correlationId
+      );
+    }
   }
 
-  const res = applySecurityHeaders(NextResponse.next());
-  return rateLimit ? applyRateLimitHeaders(res, rateLimit) : res;
+  response = applyCorrelationHeaders(applySecurityHeaders(response), correlationId);
+  return rateLimit ? applyRateLimitHeaders(response, rateLimit) : response;
 }
 
 export const config = {

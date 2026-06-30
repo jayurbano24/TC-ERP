@@ -2,8 +2,8 @@
 
 import { useCallback } from 'react';
 import { notify, confirmDialog, promptDialog } from '@/components/ui/messaging/messageStore';
-import { updateReceptionStatus } from '@/lib/database/receptions';
-import { processBlockReturnBySapTransfer } from '@/lib/database/returns';
+import { updateReceptionStatus } from '@/modules/recepcion/client/receptions';
+import { processBlockReturnBySapTransfer } from '@/modules/returns/client/returnData';
 import { downloadReportApi, isCentralReportingEnabledClient } from '@/modules/reporting/client/reportingApi';
 import { exportHistoryReport } from '../history/exportHistoryReport';
 import type { HistoryUnitEntry } from '../historyTrayUtils';

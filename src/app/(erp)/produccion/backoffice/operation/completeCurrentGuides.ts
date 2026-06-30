@@ -2,7 +2,7 @@
 
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { notify } from '@/components/ui/messaging/messageStore';
-import { updateReception } from '@/lib/database/receptions';
+import { updateReception } from '@/modules/recepcion/client/receptions';
 import { sanitizeCacAgencyRaw } from '@/lib/cacAgencyUtils';
 import { generateMovId } from '../backofficeHelpers';
 import type { SapTransferGroup } from '../types';

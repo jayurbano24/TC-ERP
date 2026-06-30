@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@supabase/supabase-js';
+import { getSupabaseUserServerClient } from '@/lib/supabase/server-user';
 
 const getAdminClient = () => {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -8,9 +9,42 @@ const getAdminClient = () => {
   return createClient(url, key, { auth: { persistSession: false } });
 };
 
+// Módulo que gobierna la administración de roles/permisos/seguridad.
+const SECURITY_MODULE = 'Seguridad';
+
+/**
+ * Autorización server-side para administrar roles/permisos/seguridad,
+ * gobernada por PERMISO DE MÓDULO (no por un rol hardcodeado).
+ *
+ * Estas server actions usan el service role (saltan RLS), por lo que la barrera
+ * de seguridad debe imponerse aquí, NO en el cliente. La autoridad es el helper
+ * SQL `app_can(module, action)` (RLS-first, ADR-011), evaluado con la IDENTIDAD
+ * del usuario logueado (JWT en cookies). `app_can` ya concede acceso total a
+ * GERENTE GENERAL vía `app_is_admin()`, por lo que el admin sigue siendo el
+ * respaldo. Falla cerrado: sin sesión, sin permiso o ante error → false.
+ *
+ * @param action 'view' para lecturas, 'edit' para escrituras (ver matriz).
+ */
+async function callerCan(action: 'view' | 'edit'): Promise<boolean> {
+  const supabase = await getSupabaseUserServerClient();
+  if (!supabase) return false;
+  const { data: userData } = await supabase.auth.getUser();
+  if (!userData?.user) return false;
+  const { data, error } = await supabase.rpc('app_can', {
+    p_module: SECURITY_MODULE,
+    p_action: action,
+  });
+  if (error) {
+    console.error('[authz] Verificación app_can(Seguridad) falló:', error.message);
+    return false;
+  }
+  return data === true;
+}
+
 
 // Get all roles
 export async function getRoles() {
+  if (!(await callerCan('view'))) return [];
   const supabase = getAdminClient();
   if (!supabase) return [];
   const { data, error } = await supabase.from('hr_positions').select('*').order('name');
@@ -27,6 +61,7 @@ export async function getRoles() {
 
 // Get permissions for a specific role
 export async function getRolePermissions(roleId: string) {
+  if (!(await callerCan('view'))) return [];
   const supabase = getAdminClient();
   if (!supabase) return [];
   const { data, error } = await supabase.from('erp_role_permissions').select('*').eq('role_id', roleId);
@@ -36,6 +71,7 @@ export async function getRolePermissions(roleId: string) {
 
 // Upsert a permission for a role
 export async function updateRolePermission(roleId: string, moduleName: string, field: string, value: boolean) {
+  if (!(await callerCan('edit'))) return { error: "No autorizado" };
   const supabase = getAdminClient();
   if (!supabase) return { error: "Supabase not configured" };
 
@@ -74,6 +110,7 @@ import { getProfiles } from './config';
 
 // Get users with their current assigned roles
 export async function getUsersWithRoles() {
+  if (!(await callerCan('view'))) return [];
   const supabase = getAdminClient();
   if (!supabase) return [];
   
@@ -143,6 +180,7 @@ export async function getUsersWithRoles() {
 
 // Get user security settings
 export async function getUserSecurity(userId: string) {
+  if (!(await callerCan('view'))) return null;
   const supabase = getAdminClient();
   if (!supabase) return null;
   const { data, error } = await supabase.from('erp_user_security').select('*').eq('user_id', userId).single();
@@ -161,6 +199,7 @@ export async function getUserSecurity(userId: string) {
 
 // Update user security setting
 export async function updateUserSecurity(userId: string, field: string, value: any) {
+  if (!(await callerCan('edit'))) return { error: "No autorizado" };
   const supabase = getAdminClient();
   if (!supabase) return { error: "Supabase not configured" };
 
@@ -190,6 +229,7 @@ export async function updateUserSecurity(userId: string, field: string, value: a
 
 // Change User Role
 export async function changeUserRole(userId: string, roleId: string, roleName: string) {
+  if (!(await callerCan('edit'))) return { error: "No autorizado" };
   const supabase = getAdminClient();
   if (!supabase) return { error: "Supabase not configured" };
 

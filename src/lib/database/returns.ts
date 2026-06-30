@@ -75,6 +75,9 @@ export async function getSapBlockReturnRows() {
     os: string;
     sapDocument: string;
     receptionId?: string;
+    serviceOrderId?: string;
+    seriesId?: string;
+    sapTransferId?: string;
     category: string;
     isSapBlock: boolean;
   }> = [];
@@ -171,7 +174,7 @@ async function backfillDevolucionGuidesFromReceptions(
 
   for (const rec of recs) {
     const guides = (rec.processed_guides?.length ? rec.processed_guides : [rec.guide_number])
-      .map((g) => String(g || '').trim())
+      .map((g: unknown) => String(g || '').trim())
       .filter(Boolean);
 
     for (const guideNumber of guides) {

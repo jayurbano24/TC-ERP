@@ -6,6 +6,7 @@ export interface AsistenciaProps {
   entrada?: Date;
   salida?: Date;
   tipo: 'PRESENCIAL' | 'REMOTO' | 'FALTA' | 'PERMISO';
+  horasTrabajadas?: number;
 }
 
 export class AsistenciaAggregate extends BaseAggregate<AsistenciaProps> {
@@ -22,5 +23,15 @@ export class AsistenciaAggregate extends BaseAggregate<AsistenciaProps> {
       throw new Error('No se puede marcar salida sin haber marcado entrada.');
     }
     this.props.salida = horaSalida;
+  }
+
+  /** Proyecta identidad + props para persistencia. */
+  public toState() {
+    return {
+      id: this.id,
+      tenantId: this.tenantId,
+      branchId: this.branchId,
+      ...this.props,
+    };
   }
 }

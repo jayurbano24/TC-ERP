@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
-import { finalizePxReception } from '@/lib/database/pxReceptionCapture';
+import { finalizePxReception } from '@/modules/recepcion/server/pxCapture';
 import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
+import { ROLES_RECEPCION } from '@/shared/authz/roleGuard';
 import { parseJsonBody } from '@/shared/validation/parseRequest';
 import { finalizeSchema } from '../../_schemas';
 
@@ -26,4 +27,4 @@ export const POST = withErrorHandler(async (req: Request, context: RouteContext)
   }
 
   return NextResponse.json({ success: true, data: result.data });
-}, { module: 'recepcion-px', action: 'finalize' });
+}, { module: 'recepcion-px', action: 'finalize', roles: ROLES_RECEPCION });

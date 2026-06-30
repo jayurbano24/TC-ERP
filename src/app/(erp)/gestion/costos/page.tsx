@@ -16,8 +16,8 @@ import {
   FileText,
   Calculator
 } from 'lucide-react';
-import { getActivityCosts, saveActivityCost, deleteActivityCost, ActivityCost } from '@/lib/database/costs';
-import { getReceptionsWithSeries } from '@/lib/database/receptions'; // To fetch backoffice records
+import { getActivityCosts, saveActivityCost, deleteActivityCost, ActivityCost } from '@/modules/finance-costing/client/costs';
+import { getReceptionsWithSeries } from '@/modules/recepcion/client/receptions'; // To fetch backoffice records
 
 const EMPTY_COSTS: ActivityCost[] = [];
 const EMPTY_RECEPTIONS: any[] = [];
@@ -200,7 +200,7 @@ export default function CostosPage() {
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Costo Total Estimado</p>
                   <p className="text-2xl font-black text-[#181c3a]">
-                    ${(receptions.reduce((acc, rec) => acc + (rec.received_units || 0), 0) * totalCostPerUnit).toFixed(2)}
+                    ${(receptions.reduce((acc: number, rec: any) => acc + (rec.received_units || 0), 0) * totalCostPerUnit).toFixed(2)}
                   </p>
                 </div>
               </div>

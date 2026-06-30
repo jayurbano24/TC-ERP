@@ -34,7 +34,7 @@ export default function BarcodeScanner({ onScanSuccess, onClose }: BarcodeScanne
               scannerRef.current.pause();
               onScanSuccess(decodedText);
               setTimeout(() => {
-                if (scannerRef.current?.isPaused) {
+                if (scannerRef.current && (scannerRef.current as { isPaused?: unknown }).isPaused) {
                   scannerRef.current.resume();
                 }
               }, 1500);

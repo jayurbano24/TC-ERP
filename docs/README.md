@@ -75,14 +75,14 @@
 | ID | Título | Módulo | Fase |
 |----|--------|--------|------|
 | CHG-001 | RPC classify_equipment_batch_tx | sap-transfer | 1 | [doc](changes/CHG-001-classify-atomic-rpc.md) ✓ |
-| CHG-002 | Sync INGRESADO_BODEGA | sap-transfer + warehouse | 2 |
-| CHG-003 | Extraer módulo sap-transfer | sap-transfer | 2 |
+| CHG-002 | Sync INGRESADO_BODEGA | sap-transfer + warehouse | 2 | [doc](changes/CHG-002-warehouse-sap-sync.md) ✓ migración 055 + wiring |
+| CHG-003 | Extraer módulo sap-transfer | sap-transfer | 2 | ✓ 100% hexagonal/RPC, legacy retirado |
 | CHG-004 | RPC block_return_by_sap_transfer_tx | returns + sap-transfer | 1 | [doc](changes/CHG-004-block-return-rpc.md) ✓ |
 | CHG-005 | RPC full_reception_return_tx | returns | 1 | [doc](changes/CHG-005-full-reception-return-rpc.md) ✓ |
-| CHG-006 | Desacoplar SapTransferReturnPort | returns + sap-transfer | 2 |
-| CHG-007 | OS update en devolución individual | returns | 2 |
-| CHG-010 | Tabla `dispatch_batches` + FKs | outbound-dispatch | 2 |
-| CHG-011 | UI lote salida en `/despacho` | outbound-dispatch | 2 |
+| CHG-006 | Desacoplar SapTransferReturnPort | returns + sap-transfer | 2 | ✓ port inyectado en `returns/factory` |
+| CHG-007 | OS update en devolución individual | returns | 2 | ✓ `registerIndividualReturnHex` (default vivo) |
+| CHG-010 | Tabla `dispatch_batches` + FKs | outbound-dispatch | 2 | ✓ migración 048 + RPC adapter |
+| CHG-011 | UI lote salida en `/despacho` | outbound-dispatch | 2 | ✓ pestaña "Lotes de salida" (`DispatchBatchPanel`, gated `USE_HEXAGONAL_OUTBOUND_DISPATCH`) |
 | CHG-020 | `cost_ledger_entries` + materiales | finance-costing | 3 |
 | CHG-021 | Pago por equipo despachado (evento) | finance-costing | 3 |
 | CHG-030 | Accesorios OUT con/sin lote | accessories-dispatch | 2 |
@@ -93,7 +93,7 @@
 | CHG-052 | Migrar reporte CAC histórico (backoffice) | reporting | 2 |
 | CHG-053 | Portal `/reportes` | reporting | 2 |
 
-**Próximo paso:** Paridad staging Fase 1 → activar flags atómicos → CHG-003 UI backoffice delega handlers → CHG-006 port returns.
+**Próximo paso:** Track CAC maduro completo (CHG-002/003/006/007/010/011 ✓). Pendiente: activar flag `USE_HEXAGONAL_OUTBOUND_DISPATCH` y vincular equipos/cajas a un lote (asignación de ítems al `dispatch_batch`).
 
 ---
 
@@ -101,7 +101,7 @@
 
 | Módulo | Incluye | Prioridad doc |
 |--------|---------|---------------|
-| **sap-integration** | Carga CSV SAP, matching, diferencias, gate despacho | **P0** |
+| **sap-integration** | Gate despacho (port validación) ✓ — [doc](modules/sap-integration/README.md) · pendiente: carga CSV SAP, matching, diferencias | **P0** |
 | **reporting** | Reportes Excel/PDF/CSV centralizados — [doc](modules/reporting/README.md) | **P0** ✓ |
 | **kpi-analytics** | Productividad diaria por persona, metas taller | **P0** |
 | **production-order (PO)** | Solicitud producción Taller — [doc](modules/production-order/README.md) | **P1** ✓ |

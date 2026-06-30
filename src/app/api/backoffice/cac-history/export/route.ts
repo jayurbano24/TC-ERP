@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { CacTrayQueryParams } from '@/lib/backoffice/cacTrayTypes';
 import { trayRowsToHistoryEntries } from '@/lib/backoffice/trayRowAdapter';
-import { queryCacTrayAllFiltered } from '@/lib/database/cacTrayUnits';
+import { queryCacTrayAllFiltered } from '@/modules/recepcion/server/cacTrayQueries';
 import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
 
 export const dynamic = 'force-dynamic';

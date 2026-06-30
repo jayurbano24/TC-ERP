@@ -1,24 +1,32 @@
 import { NextResponse } from 'next/server';
-import { createClient, type User } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient, type User } from '@supabase/supabase-js';
 import { appConfig } from '@/lib/app-config';
+import { getSupabaseUserServerClient } from '@/lib/supabase/server-user';
 
 /**
- * Verificación de autenticación para rutas /api/* (modelo Bearer token).
+ * Verificación de autenticación para rutas /api/*.
  *
- * El navegador adjunta el `access_token` de la sesión Supabase en el header
- * `Authorization: Bearer <token>` (ver `apiFetch`). Aquí se valida ese token
- * contra Supabase con `auth.getUser(token)`, que comprueba la firma y expiración
- * del JWT. Las rutas que usan service role (saltándose RLS) DEBEN llamar a este
- * guard para no exponer datos a peticiones anónimas.
+ * Orden de resolución:
+ *  1) Sesión en cookies (`@supabase/ssr`) — vía principal. El cliente devuelto
+ *     respeta RLS (lleva el JWT del usuario), apto para lecturas RLS-first.
+ *  2) `Authorization: Bearer <token>` — compatibilidad durante la transición.
+ *
+ * No hay bypass de desarrollo: en cualquier entorno se exige sesión/token real.
  *
  * Uso en un handler:
  * ```ts
  * const auth = await requireApiUser(req);
  * if (auth instanceof NextResponse) return auth; // 401
  * const user = auth.user;
+ * const supabase = auth.supabase; // cliente con RLS (puede ser null si vino por Bearer)
  * ```
  */
-export type ApiAuthResult = { user: User; token: string };
+export type ApiAuthResult = {
+  user: User;
+  token: string;
+  /** Cliente Supabase con la identidad del usuario (respeta RLS). */
+  supabase: SupabaseClient | null;
+};
 
 function getAuthVerificationClient() {
   return createClient(appConfig.supabase.url, appConfig.supabase.anonKey, {
@@ -39,20 +47,23 @@ export async function requireApiUser(req: Request): Promise<ApiAuthResult | Next
     return NextResponse.json({ error: 'Autenticación no configurada' }, { status: 500 });
   }
 
+  // 1) Sesión en cookies (vía principal, respeta RLS).
+  const userClient = await getSupabaseUserServerClient();
+  if (userClient) {
+    const { data, error } = await userClient.auth.getUser();
+    if (!error && data?.user) {
+      return { user: data.user, token: '', supabase: userClient };
+    }
+  }
+
+  // 2) Bearer token (compatibilidad).
   const token = extractBearerToken(req);
   if (token) {
     const supabase = getAuthVerificationClient();
     const { data, error } = await supabase.auth.getUser(token);
     if (!error && data?.user) {
-      return { user: data.user, token };
+      return { user: data.user, token, supabase: null };
     }
-  }
-
-  // Excepción SOLO desarrollo: con el bypass habilitado se permite sin token real
-  // para no romper el flujo dev. En producción (env != 'true') esto NO aplica y
-  // se exige un token válido.
-  if (process.env.NEXT_PUBLIC_ENABLE_DEV_BYPASS === 'true') {
-    return { user: { id: 'dev-user', email: 'dev@local' } as User, token: token ?? '' };
   }
 
   return NextResponse.json({ error: 'No autenticado' }, { status: 401 });

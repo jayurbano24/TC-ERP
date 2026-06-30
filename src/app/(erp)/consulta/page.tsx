@@ -2,14 +2,14 @@
 
 import { useState } from "react";
 import { Search, Loader2, Package, MapPin, Calendar, Clock, User, Activity, AlertCircle, CheckCircle, XCircle, Eraser } from "lucide-react";
-import { searchSeriesDetailed } from "@/lib/database/series";
+import { searchSeriesDetailed } from "@/modules/traceability/client/series";
 import {
   fetchCacTrayContext,
   getEquipmentTraceabilityHistory,
   resolveTraceabilityResponsibles,
   resolveTraceabilityStatusLabel,
   type TraceabilityEvent,
-} from "@/lib/database/traceability";
+} from "@/modules/traceability/client/traceability";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 export default function ConsultaPage() {

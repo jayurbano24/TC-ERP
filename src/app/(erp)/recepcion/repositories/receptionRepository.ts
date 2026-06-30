@@ -1,6 +1,6 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { getReceptions, createReceptionWithSeries, createReceptionWithGuides, createPxReceptionWithBoxes, resolveUniquePxGuideNumber, generateNextPxGuideNumber, isPxGuideNumberAvailable, findActivePxReceptionBySapDocument, findActivePxReceptionByDocReference, validatePxHeaderUniqueness, validatePxScannedSeriesForFinalize, deletePxReceptionCascade, deleteCacReceptionCascade } from "@/lib/database/receptions";
-import { getCarriers, getPxProviders, getTechnologies, getBrands, getModels } from "@/lib/database/config";
+import { getReceptions, createReceptionWithSeries, createReceptionWithGuides, createPxReceptionWithBoxes, resolveUniquePxGuideNumber, generateNextPxGuideNumber, isPxGuideNumberAvailable, findActivePxReceptionBySapDocument, findActivePxReceptionByDocReference, validatePxHeaderUniqueness, validatePxScannedSeriesForFinalize, deletePxReceptionCascade, deleteCacReceptionCascade } from "@/modules/recepcion/client/receptions";
+import { getCarriers, getPxProviders, getTechnologies, getBrands, getModels } from "@/shared/catalogs/catalogs";
 
 /**
  * Repository for the Reception module.

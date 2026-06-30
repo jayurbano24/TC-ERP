@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CacTrayQueryParams, CacTrayStatsResponse, CacTrayUnitRow } from '@/lib/backoffice/cacTrayTypes';
 import { trayRowsToHistoryEntries } from '@/lib/backoffice/trayRowAdapter';
-import { buildTrayQueryString } from '@/lib/database/cacTrayUnits';
+import { buildTrayQueryString } from '@/modules/recepcion/client/cacTray';
 import { apiFetch } from '@/lib/http/apiFetch';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import {
@@ -18,6 +18,7 @@ type Catalogs = {
   CAC_AGENCIES: CatalogAgency[];
   MASTER_MARCAS: CatalogBrand[];
   MASTER_MODELOS: CatalogModel[];
+  resolveSeriesPerUnit: (modelId: string) => number;
 };
 
 function buildQueryParams(

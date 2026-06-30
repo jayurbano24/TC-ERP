@@ -10,6 +10,7 @@ import type {
   CatalogModel,
   CatalogTech,
   GuideItem,
+  OperationCategory,
   ReceptionStep,
   SapTransferGroup,
 } from '../types';
@@ -21,7 +22,7 @@ type Params = {
   MASTER_MODELOS: CatalogModel[];
   activeReception: BackofficeReception | null;
   selectedAgencyId: string;
-  category: 'Equipo' | 'Accesorio' | 'Teléfono';
+  category: OperationCategory;
   setReceptionStep: React.Dispatch<React.SetStateAction<ReceptionStep>>;
   setAgencia: React.Dispatch<React.SetStateAction<string>>;
   setSelectedAgencyId: React.Dispatch<React.SetStateAction<string>>;

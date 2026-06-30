@@ -77,7 +77,6 @@ export const STATUS_LABELS: Record<string, string> = {
   dispatched: 'Despachado',
   returned: 'Devuelto',
   obsolete: 'Obsoleto',
-  in_validation: 'Validación',
   received: 'Recibido (sin clasificar)',
   SIN_SERIE: 'Sin serie vinculada',
 };

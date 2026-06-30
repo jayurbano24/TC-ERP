@@ -6,7 +6,7 @@ import { Card, Badge, Button, DataTable, type DataTableColumn } from '@/componen
 import { ModulePage, ModuleToolbar } from '@/components/module-page';
 import { Search, MapPin, Package, Download, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
-import { getInventoryDetails, resolveWarehouseStatusLabel } from '@/lib/database/warehouse';
+import { getInventoryDetails, resolveWarehouseStatusLabel } from '@/modules/inventario/client/inventoryQueries';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 
 const EMPTY_ITEMS: any[] = [];

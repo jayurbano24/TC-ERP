@@ -88,7 +88,7 @@ Ver módulo `returns`.
 
 | Gap | Impacto | CHG planeado |
 |-----|---------|--------------|
-| `INGRESADO_BODEGA` nunca seteado | Historial muestra "Pendiente" aunque en bodega | CHG-002 warehouse sync |
+| ~~`INGRESADO_BODEGA` nunca seteado~~ | ✓ Resuelto — sync al encajonar 100% de series en bodega | [CHG-002](../../changes/CHG-002-warehouse-sap-sync.md) (impl.) |
 | Dos vocabularios "ingresado" | Confusión KPI | Unificar via catálogo |
 
 ---

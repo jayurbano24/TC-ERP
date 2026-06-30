@@ -112,7 +112,9 @@ export function resolveWorkshopGoal(
     weekly_goal?: number;
   }>,
   userId: string | null,
-  goalStage: string
+  goalStage: string,
+  modelId?: string | null,
+  techId?: string | null
 ): { daily: number; weekly: number } {
   type Scored = { g: (typeof goals)[number]; score: number };
   const scored: Scored[] = [];
@@ -120,6 +122,10 @@ export function resolveWorkshopGoal(
   goals.forEach((g) => {
     if (g.stage !== goalStage) return;
     if (g.user_id && g.user_id !== userId) return;
+    // Filtra a la meta del modelo/tecnología solicitados cuando se especifican;
+    // las metas globales (sin model_id/technology_id) siguen siendo elegibles.
+    if (modelId && g.model_id && g.model_id !== modelId) return;
+    if (techId && g.technology_id && g.technology_id !== techId) return;
     if (!g.user_id && userId) {
       // global goal — lower priority than user-specific
     }

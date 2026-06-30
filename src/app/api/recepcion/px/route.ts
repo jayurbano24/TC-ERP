@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server';
 import {
   listPxInProgressReceptions,
   joinOrStartPxReception,
-} from '@/lib/database/pxReceptionCapture';
+} from '@/modules/recepcion/server/pxCapture';
 import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
+import { ROLES_RECEPCION } from '@/shared/authz/roleGuard';
 import { parseJsonBody } from '@/shared/validation/parseRequest';
 import { startReceptionSchema } from './_schemas';
 
@@ -29,4 +30,4 @@ export const POST = withErrorHandler(async (req: Request) => {
   }
 
   return NextResponse.json({ ...result, success: true });
-}, { module: 'recepcion-px', action: 'start' });
+}, { module: 'recepcion-px', action: 'start', roles: ROLES_RECEPCION });

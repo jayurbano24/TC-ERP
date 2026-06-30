@@ -1,4 +1,5 @@
 import { getBackofficeClassifierName } from './classifierUtils';
+import { filterUnitEntriesBySearch } from './traySearch';
 import type { HistoryTrayFilters, HistoryUnitEntry } from './types';
 
 function includesFilterText(haystack: string | undefined | null, needle: string): boolean {

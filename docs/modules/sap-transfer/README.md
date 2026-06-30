@@ -66,12 +66,11 @@ Ver [`hexagonal-layout.md`](../../architecture/hexagonal-layout.md). Resumen:
 src/modules/sap-transfer/
 ├── domain/          # entidades, reglas, ports
 ├── application/     # classify-equipment-batch.handler.ts, etc.
-├── infrastructure/  # supabase repo + rpc adapter + legacy bridge
+├── infrastructure/  # supabase repo + rpc adapters (atómicos)
 └── interfaces/      # hooks para backoffice, API handlers
 ```
 
-**Código legacy actual:** `src/lib/database/sapTransfers.ts` → envuelto por `infrastructure/legacy/` hasta CHG-003.  
-**Migración:** Strangler — handlers delegan a legacy bridge; RPC reemplaza bridge con feature flag.
+**Estado (CHG-003 cerrado):** `src/lib/database/sapTransfers.ts` re-exporta el módulo; los handlers usan exclusivamente los adapters RPC atómicos. El bridge legacy (`infrastructure/legacy/`) y los flags `USE_LEGACY_SAP_TRANSFER` se retiraron por ser código muerto (no cableados al factory).
 
 ---
 

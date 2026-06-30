@@ -610,6 +610,88 @@ export async function getPxReceptionSnapshot(receptionId: string): Promise<PxRec
   };
 }
 
+export type PxReceptionSyncStamp = { version: number; fingerprint: string };
+
+// Fórmula ÚNICA de huella de sincronización. La consume tanto el servidor
+// (getPxReceptionSyncStamp, desde la BD) como el cliente (pxFingerprintFromSnapshot,
+// desde el snapshot). Cualquier cambio debe mantener ambos lados idénticos.
+function pxFingerprintParts(parts: {
+  version: number;
+  receivedUnits: number;
+  status: string;
+  boxCount: number;
+  boxVersionSum: number;
+  activeEquip: number;
+}): string {
+  return [
+    parts.version,
+    parts.receivedUnits,
+    parts.status,
+    parts.boxCount,
+    parts.boxVersionSum,
+    parts.activeEquip,
+  ].join('|');
+}
+
+/** Huella derivada del snapshot ya descargado (lado cliente). */
+export function pxFingerprintFromSnapshot(snap: PxReceptionSnapshot): string {
+  return pxFingerprintParts({
+    version: snap.reception.version ?? 1,
+    receivedUnits: snap.reception.received_units ?? 0,
+    status: snap.reception.status ?? '',
+    boxCount: snap.boxes.length,
+    boxVersionSum: snap.boxes.reduce((acc, b) => acc + (b.version ?? 1), 0),
+    activeEquip: snap.total_captured ?? 0,
+  });
+}
+
+/**
+ * Huella ligera para el sondeo de sincronización: evita descargar el snapshot
+ * completo (seriales/lotes) en cada tick. Solo lee cabecera + (version) de cajas
+ * + conteo de equipos activos → unos pocos cientos de bytes vs decenas/cientos KB.
+ * Reduce drásticamente el egress de Supabase durante recepciones abiertas.
+ */
+export async function getPxReceptionSyncStamp(
+  receptionId: string
+): Promise<PxReceptionSyncStamp | null> {
+  const supabase = getSupabaseServerClient();
+
+  const { data: reception, error } = await supabase
+    .from('receptions')
+    .select('version, received_units, status')
+    .eq('id', receptionId)
+    .maybeSingle();
+
+  if (error || !reception) return null;
+
+  const [{ data: boxes }, { count: activeEquip }] = await Promise.all([
+    supabase
+      .from('boxes')
+      .select('version')
+      .eq('reception_id', receptionId)
+      .neq('rack_location', 'ELIMINADO'),
+    supabase
+      .from('px_reception_equipment')
+      .select('id', { count: 'exact', head: true })
+      .eq('reception_id', receptionId)
+      .eq('capture_status', 'active'),
+  ]);
+
+  const boxArr = boxes || [];
+
+  return {
+    version: reception.version ?? 1,
+    fingerprint: pxFingerprintParts({
+      version: reception.version ?? 1,
+      receivedUnits: reception.received_units ?? 0,
+      status: reception.status ?? '',
+      boxCount: boxArr.length,
+      boxVersionSum: boxArr.reduce((acc, b) => acc + (b.version ?? 1), 0),
+      activeEquip: activeEquip ?? 0,
+    }),
+  };
+}
+
 export function mapRpcCaptureError(message: string): string {
   const msg = message || '';
   if (msg.includes('DUPLICATE_IN_RECEPTION')) {

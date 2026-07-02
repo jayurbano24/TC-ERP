@@ -177,7 +177,36 @@ async function attachWorkshopAuditFlags(
   });
 }
 
-async function countWorkshopListoSeries(
+async function countWorkshopTasksByServiceOrder(
+  supabase: NonNullable<ReturnType<typeof getSupabaseBrowserClient>>,
+  status: string
+): Promise<number> {
+  const groupKeys = new Set<string>();
+
+  for (let offset = 0; offset < MAX_ROWS; offset += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from('series')
+      .select('id, service_order_id')
+      .eq('current_status', status)
+      .order('id', { ascending: true })
+      .range(offset, offset + PAGE_SIZE - 1);
+
+    if (error) {
+      console.error('Error counting workshop tasks by OS:', error.message || error);
+      break;
+    }
+    if (!data?.length) break;
+
+    for (const row of data) {
+      groupKeys.add(workshopGroupKey(row));
+    }
+    if (data.length < PAGE_SIZE) break;
+  }
+
+  return groupKeys.size;
+}
+
+async function countWorkshopListoByServiceOrder(
   supabase: NonNullable<ReturnType<typeof getSupabaseBrowserClient>>
 ): Promise<number> {
   const workshopSeriesIds = new Set<string>();
@@ -203,24 +232,28 @@ async function countWorkshopListoSeries(
     auditOffset += PAGE_SIZE;
   }
 
+  const groupKeys = new Set<string>();
   const ids = [...workshopSeriesIds];
-  let count = 0;
+
   for (let i = 0; i < ids.length; i += 80) {
     const chunk = ids.slice(i, i + 80);
-    const { count: chunkCount, error } = await supabase
+    const { data, error } = await supabase
       .from('series')
-      .select('id', { count: 'exact', head: true })
+      .select('id, service_order_id')
       .eq('current_status', 'in_central_warehouse')
       .in('id', chunk);
 
     if (error) {
-      console.error('Error counting workshop listo series:', error.message || error);
+      console.error('Error counting workshop listo by OS:', error.message || error);
       continue;
     }
-    count += chunkCount ?? 0;
+
+    for (const row of data || []) {
+      groupKeys.add(workshopGroupKey(row));
+    }
   }
 
-  return count;
+  return groupKeys.size;
 }
 
 /** Completa os_label cuando el embed service_orders viene null (RLS/join). */
@@ -256,15 +289,21 @@ async function enrichWorkshopServiceOrders(
   });
 }
 
+function workshopGroupKey(row: {
+  id?: string;
+  service_order_id?: string | null;
+  service_orders?: { os_label?: string | null } | null;
+}): string {
+  if (row.service_order_id) return `so:${row.service_order_id}`;
+  if (row.service_orders?.os_label) return `os:${row.service_orders.os_label}`;
+  return `series:${row.id}`;
+}
+
 function groupWorkshopSeriesRows(rows: any[]) {
   const groupedMap = new Map<string, any>();
 
   for (const row of rows) {
-    const groupKey = row.service_order_id
-      ? `so:${row.service_order_id}`
-      : row.service_orders?.os_label
-        ? `os:${row.service_orders.os_label}`
-        : `series:${row.id}`;
+    const groupKey = workshopGroupKey(row);
 
     if (!groupedMap.has(groupKey)) {
       groupedMap.set(groupKey, {
@@ -293,7 +332,7 @@ function groupWorkshopSeriesRows(rows: any[]) {
 
 export { groupWorkshopSeriesRows };
 
-/** Conteos ligeros por pestaña (sin joins pesados). */
+/** Conteos por pestaña agrupados por Orden de Servicio (no por serie suelta). */
 export async function getWorkshopTaskCounts(): Promise<Record<string, number>> {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return {};
@@ -302,16 +341,12 @@ export async function getWorkshopTaskCounts(): Promise<Record<string, number>> {
   const results = await Promise.all(
     entries.map(async ([tab, status]) => {
       if (tab === 'listo') {
-        const count = await countWorkshopListoSeries(supabase);
+        const count = await countWorkshopListoByServiceOrder(supabase);
         return { tab, count };
       }
 
-      const { count, error } = await supabase
-        .from('series')
-        .select('id', { count: 'exact', head: true })
-        .eq('current_status', status);
-
-      return { tab, count: error ? 0 : (count ?? 0) };
+      const count = await countWorkshopTasksByServiceOrder(supabase, status);
+      return { tab, count };
     })
   );
 

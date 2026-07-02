@@ -395,9 +395,7 @@ export default function TallerPage() {
         };
       });
       setTasks(adapted);
-      if (workshopTab === 'listo') {
-        setTabCounts((prev) => ({ ...prev, listo: adapted.length }));
-      }
+      setTabCounts((prev) => ({ ...prev, [workshopTab]: adapted.length }));
     } catch (err) {
       console.error('Error loading workshop tasks:', err);
       notify.error('No se pudo cargar la cola de taller');
@@ -918,7 +916,7 @@ ${funcNotes || 'Ninguno evaluado'}
                       />
                       <div className="p-4 border-t border-slate-50 flex items-center justify-between bg-slate-50/50 rounded-b-3xl">
                         <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                          {filteredTasks.length} EQUIPOS EN COLA
+                          {filteredTasks.length} OS EN COLA
                         </span>
                       </div>
                     </>

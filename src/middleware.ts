@@ -102,6 +102,23 @@ function enforceRateLimit(req: NextRequest, pathname: string): NextResponse | Ra
   return result;
 }
 
+/** Evita 504 en Vercel si Supabase está caído o reiniciando tras upgrade. */
+const SUPABASE_AUTH_TIMEOUT_MS = 5_000;
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((resolve) => {
+        timer = setTimeout(() => resolve(fallback), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function getBearerToken(req: NextRequest): string | null {
   const header = req.headers.get('authorization') ?? req.headers.get('Authorization');
   if (!header) return null;
@@ -113,11 +130,15 @@ function getBearerToken(req: NextRequest): string | null {
 async function isValidSupabaseToken(token: string): Promise<boolean> {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return false;
   try {
-    const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
-      headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` },
-      cache: 'no-store',
-    });
-    return res.ok;
+    const res = await withTimeout(
+      fetch(`${SUPABASE_URL}/auth/v1/user`, {
+        headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` },
+        cache: 'no-store',
+      }),
+      SUPABASE_AUTH_TIMEOUT_MS,
+      null,
+    );
+    return res?.ok ?? false;
   } catch {
     return false;
   }
@@ -181,7 +202,11 @@ export async function middleware(req: NextRequest) {
     });
 
     try {
-      const { data } = await supabase.auth.getUser();
+      const { data } = await withTimeout(
+        supabase.auth.getUser(),
+        SUPABASE_AUTH_TIMEOUT_MS,
+        { data: { user: null }, error: null },
+      );
       sessionUser = data.user ? { id: data.user.id } : null;
     } catch {
       sessionUser = null;

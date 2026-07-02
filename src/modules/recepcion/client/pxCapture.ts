@@ -1,9 +1,15 @@
 /**
- * Recepción PX — tipos y mappers de captura incremental (legacy bridge).
- *
- * ARCH-01 seam: re-exporta los tipos (`PxBoxSnapshot`, `PxLotInput`,
- * `PxReceptionSnapshot`) y mappers puros (`snapshotToGuideData`,
- * `snapshotToPxUiState`) desde la capa legacy para que la UI no dependa
- * directamente de `@/lib/database`.
+ * Recepción PX — tipos y mappers de captura incremental (solo cliente).
  */
-export * from '@/lib/database/pxReceptionCapture';
+export type {
+  PxLotInput,
+  PxBoxSnapshot,
+  PxReceptionSnapshot,
+  PxReceptionSyncStamp,
+} from '@/lib/database/pxReceptionCapture.shared';
+
+export {
+  pxFingerprintFromSnapshot,
+  snapshotToPxUiState,
+  snapshotToGuideData,
+} from '@/lib/database/pxReceptionCapture.shared';

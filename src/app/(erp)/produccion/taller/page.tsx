@@ -285,22 +285,7 @@ export default function TallerPage() {
       ]);
       setTabCounts(counts);
 
-      // Agrupar por Orden de Servicio y Caja para mostrar 1 sola fila por equipo
-      const groupedMap = new Map();
-      data.forEach((t: any) => {
-        const groupKey = `${t.service_orders?.os_label || 'S/OS'}-${t.boxes?.box_code || 'S/C'}`;
-        if (!groupedMap.has(groupKey)) {
-          groupedMap.set(groupKey, { ...t, all_dbIds: [t.id], all_sns: [t.serial_number] });
-        } else {
-          const existing = groupedMap.get(groupKey);
-          if (!existing.all_dbIds.includes(t.id)) existing.all_dbIds.push(t.id);
-          if (t.serial_number && !existing.all_sns.includes(t.serial_number)) existing.all_sns.push(t.serial_number);
-        }
-      });
-
-      const groupedData = Array.from(groupedMap.values());
-
-      const adapted = groupedData.map((t: any) => {
+      const adapted = data.map((t: any) => {
       const notes = (t.receptions?.notes || '').replace(/\\n/g, '\n');
 
       const modelRow = catModelos.find((m: any) => m.id === t.model_id);
@@ -389,9 +374,10 @@ export default function TallerPage() {
 
         return {
           id: t.service_orders?.os_label || `S/OS`,
-          sn: t.all_sns[0] || 'S/N', // Only show primary SN
-          all_sns: t.all_sns,
-          total_series: t.all_sns.length,
+          groupId: t.service_order_id || t.id,
+          sn: t.all_sns?.[0] || t.serial_number || 'S/N',
+          all_sns: t.all_sns?.length ? t.all_sns : [t.serial_number].filter(Boolean),
+          total_series: t.all_sns?.length || 1,
           tecnologia: tecnologiaName,
           marca: marcaName,
           modelo: modeloName,
@@ -399,8 +385,8 @@ export default function TallerPage() {
           updatedAt: t.updated_at ? new Date(t.updated_at).toLocaleString() : 'Desconocida',
           etapa: stageRaw,
           responsable: responsableName,
-          dbId: t.id, // ID representativo para UI (checkboxes)
-          all_dbIds: t.all_dbIds, // Todos los IDs reales en BD para actualizar
+          dbId: t.service_order_id || t.id,
+          all_dbIds: t.all_dbIds?.length ? t.all_dbIds : [t.id],
           courier: `${sourceStr} - ${courierStr}`,
           agencia: agenciaStr,
           guide: t.receptions?.guide_number || 'S/G',
@@ -571,8 +557,11 @@ ${funcNotes || 'Ninguno evaluado'}
     if (debouncedSearchTerm) {
       const searchTokens = debouncedSearchTerm.toUpperCase().split(/[\s,]+/).filter(Boolean);
       if (searchTokens.length > 0) {
-        const itemSN = (t.sn || '').toUpperCase();
-        return searchTokens.some(token => itemSN.includes(token));
+        const serials = (t.all_sns?.length ? t.all_sns : [t.sn]).map((sn: string) => String(sn || '').toUpperCase());
+        const osLabel = String(t.id || '').toUpperCase();
+        return searchTokens.some(
+          (token) => osLabel.includes(token) || serials.some((sn) => sn.includes(token))
+        );
       }
     }
 
@@ -706,9 +695,14 @@ ${funcNotes || 'Ninguno evaluado'}
                 cell: (item: any) => (
                   <button
                     onClick={() => setShowItemDetail(item)}
-                    className="text-[11px] font-mono font-bold text-[#2ec4f1] uppercase hover:underline text-left focus:outline-none truncate"
+                    className="text-[11px] font-mono font-bold text-[#2ec4f1] uppercase hover:underline text-left focus:outline-none truncate flex items-center gap-1.5"
                   >
-                    {item.sn}
+                    <span>{item.sn}</span>
+                    {item.total_series > 1 && (
+                      <span className="text-[8px] font-black bg-[#2ec4f1]/15 text-[#181c3a] px-1.5 py-0.5 rounded-md shrink-0">
+                        +{item.total_series - 1}
+                      </span>
+                    )}
                   </button>
                 ),
               },
@@ -910,7 +904,7 @@ ${funcNotes || 'Ninguno evaluado'}
                       <DataTable
                         columns={tallerColumns}
                         data={filteredTasks}
-                        getRowId={(item: any) => item.dbId}
+                        getRowId={(item: any) => item.groupId || item.dbId}
                         rowHeight={60}
                         maxBodyHeight={620}
                         minWidth={activeTab === 'diagnostico' ? 1120 : 1010}

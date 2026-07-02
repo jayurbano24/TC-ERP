@@ -33,6 +33,7 @@ const WORKSHOP_STATUSES = Object.values(TAB_TO_STATUS);
 const WORKSHOP_SERIES_SELECT = `
   id,
   serial_number,
+  service_order_id,
   current_status,
   updated_at,
   brand_id,
@@ -146,6 +147,76 @@ async function attachWorkshopAuditFlags(
   });
 }
 
+/** Completa os_label cuando el embed service_orders viene null (RLS/join). */
+async function enrichWorkshopServiceOrders(
+  supabase: NonNullable<ReturnType<typeof getSupabaseBrowserClient>>,
+  rows: any[]
+) {
+  const missingIds = [
+    ...new Set(
+      rows
+        .filter((row) => row.service_order_id && !row.service_orders?.os_label)
+        .map((row) => row.service_order_id as string)
+    ),
+  ];
+  if (missingIds.length === 0) return rows;
+
+  const labelById = new Map<string, { id: string; os_label: string }>();
+  for (let i = 0; i < missingIds.length; i += 80) {
+    const chunk = missingIds.slice(i, i + 80);
+    const { data } = await supabase
+      .from('service_orders')
+      .select('id, os_label')
+      .in('id', chunk);
+    for (const row of data || []) {
+      labelById.set(row.id as string, row as { id: string; os_label: string });
+    }
+  }
+
+  return rows.map((row) => {
+    if (row.service_orders?.os_label || !row.service_order_id) return row;
+    const order = labelById.get(row.service_order_id as string);
+    return order ? { ...row, service_orders: order } : row;
+  });
+}
+
+function groupWorkshopSeriesRows(rows: any[]) {
+  const groupedMap = new Map<string, any>();
+
+  for (const row of rows) {
+    const groupKey = row.service_order_id
+      ? `so:${row.service_order_id}`
+      : row.service_orders?.os_label
+        ? `os:${row.service_orders.os_label}`
+        : `series:${row.id}`;
+
+    if (!groupedMap.has(groupKey)) {
+      groupedMap.set(groupKey, {
+        ...row,
+        all_dbIds: [row.id],
+        all_sns: row.serial_number ? [row.serial_number] : [],
+      });
+      continue;
+    }
+
+    const existing = groupedMap.get(groupKey)!;
+    if (!existing.all_dbIds.includes(row.id)) existing.all_dbIds.push(row.id);
+    if (row.serial_number && !existing.all_sns.includes(row.serial_number)) {
+      existing.all_sns.push(row.serial_number);
+    }
+    if (!existing.service_orders?.os_label && row.service_orders?.os_label) {
+      existing.service_orders = row.service_orders;
+    }
+    if (new Date(String(row.updated_at)) > new Date(String(existing.updated_at))) {
+      existing.updated_at = row.updated_at;
+    }
+  }
+
+  return [...groupedMap.values()];
+}
+
+export { groupWorkshopSeriesRows };
+
 /** Conteos ligeros por pestaña (sin joins pesados). */
 export async function getWorkshopTaskCounts(): Promise<Record<string, number>> {
   const supabase = getSupabaseBrowserClient();
@@ -183,13 +254,14 @@ export async function getWorkshopTasks(tab?: WorkshopTabId) {
   const statuses =
     tab && TAB_TO_STATUS[tab] ? [TAB_TO_STATUS[tab]] : WORKSHOP_STATUSES;
 
-  const rows = await fetchWorkshopSeriesPaginated(supabase, statuses);
+  let rows = await fetchWorkshopSeriesPaginated(supabase, statuses);
 
-  if (!statuses.includes('in_central_warehouse')) {
-    return rows;
+  if (statuses.includes('in_central_warehouse')) {
+    rows = await attachWorkshopAuditFlags(supabase, rows);
   }
 
-  return attachWorkshopAuditFlags(supabase, rows);
+  rows = await enrichWorkshopServiceOrders(supabase, rows);
+  return groupWorkshopSeriesRows(rows);
 }
 
 export async function saveDiagnostic(seriesId: string, result: string, notes: string, selectedDiagnostics: string[] = [], actionName: string = 'DIAGNÓSTICO INICIAL COMPLETADO') {

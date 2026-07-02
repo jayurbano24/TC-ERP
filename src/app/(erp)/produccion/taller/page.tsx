@@ -395,6 +395,9 @@ export default function TallerPage() {
         };
       });
       setTasks(adapted);
+      if (workshopTab === 'listo') {
+        setTabCounts((prev) => ({ ...prev, listo: adapted.length }));
+      }
     } catch (err) {
       console.error('Error loading workshop tasks:', err);
       notify.error('No se pudo cargar la cola de taller');

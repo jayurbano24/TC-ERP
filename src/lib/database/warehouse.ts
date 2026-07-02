@@ -562,6 +562,9 @@ export async function addSeriesToBox(boxId: string, seriesNumbers: string[]) {
   return { success: true };
 }
 
+/** Máximo de cajas por lote hacia taller (dispersión = 1 RPC pesado por caja). */
+export const WORKSHOP_TRANSFER_BATCH_LIMIT = 10;
+
 export async function transferBoxesToArea(boxIds: string[], targetArea: string, targetRack?: string) {
   invalidateInventoryBoxesCache();
   const supabase = getSupabaseBrowserClient();
@@ -572,6 +575,12 @@ export async function transferBoxesToArea(boxIds: string[], targetArea: string, 
   const rackFromArea = AREA_TO_RACK[targetArea];
   const rackLocation = targetRack ?? rackFromArea;
   const isWorkshop = rackLocation?.startsWith('TALLER');
+
+  if (isWorkshop && boxIds.length > WORKSHOP_TRANSFER_BATCH_LIMIT) {
+    return {
+      error: `Máximo ${WORKSHOP_TRANSFER_BATCH_LIMIT} cajas por lote hacia Diagnóstico. Seleccionó ${boxIds.length}; divida en grupos más pequeños.`,
+    };
+  }
 
   let successCount = 0;
   let lastError: string | null = null;

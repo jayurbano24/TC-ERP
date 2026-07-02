@@ -9,6 +9,64 @@ const TALLER_WORKSHOP_AUDIT_ACTIONS = new Set([
   'REACONDICIONADO COMPLETADO',
 ]);
 
+export type WorkshopTabId =
+  | 'diagnostico'
+  | 'reparacion'
+  | 'reacondicionado'
+  | 'qc'
+  | 'l3'
+  | 'scraps'
+  | 'listo';
+
+const TAB_TO_STATUS: Record<WorkshopTabId, string> = {
+  diagnostico: 'in_workshop',
+  reparacion: 'in_qc',
+  reacondicionado: 'ready_to_dispatch',
+  qc: 'in_validation',
+  l3: 'in_control_warehouse',
+  scraps: 'irreparable',
+  listo: 'in_central_warehouse',
+};
+
+const WORKSHOP_STATUSES = Object.values(TAB_TO_STATUS);
+
+const WORKSHOP_SERIES_SELECT = `
+  id,
+  serial_number,
+  current_status,
+  updated_at,
+  brand_id,
+  model_id,
+  models (
+    id,
+    name,
+    technology_id,
+    technologies ( id, name )
+  ),
+  brands ( id, name ),
+  service_orders (
+    id,
+    os_label,
+    reception_guide_id,
+    sap_transfer_id,
+    reception_guides ( guide_number, agency ),
+    sap_transfer_documents ( agency )
+  ),
+  receptions:current_reception_id (
+    guide_number,
+    notes,
+    carrier,
+    source,
+    reception_guides ( guide_number, agency )
+  ),
+  boxes ( box_code, rack_location ),
+  ingress_count,
+  current_diagnostics
+`;
+
+const PAGE_SIZE = 1000;
+const MAX_ROWS = 20_000;
+
 /** Stock en racks de bodega física no debe aparecer en cola Taller (Equipo Listo). */
 export function isWarehouseStockOnlyInCentral(series: {
   current_status?: string | null;
@@ -28,63 +86,39 @@ export function isWarehouseStockOnlyInCentral(series: {
   return isPhysicalBodegaRack;
 }
 
-export async function getWorkshopTasks(stage?: string) {
-  const supabase = getSupabaseBrowserClient();
-  if (!supabase) return [];
+async function fetchWorkshopSeriesPaginated(
+  supabase: NonNullable<ReturnType<typeof getSupabaseBrowserClient>>,
+  statuses: string[]
+) {
+  const rows: any[] = [];
+  for (let offset = 0; offset < MAX_ROWS; offset += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from('series')
+      .select(WORKSHOP_SERIES_SELECT)
+      .in('current_status', statuses)
+      .order('updated_at', { ascending: false })
+      .range(offset, offset + PAGE_SIZE - 1);
 
-  let query = supabase
-    .from('series')
-    .select(`
-      id,
-      serial_number,
-      current_status,
-      updated_at,
-      brand_id,
-      model_id,
-      models (
-        id,
-        name,
-        technology_id,
-        technologies ( id, name )
-      ),
-      brands ( id, name ),
-      service_orders (
-        id,
-        os_label,
-        reception_guide_id,
-        sap_transfer_id,
-        reception_guides ( guide_number, agency ),
-        sap_transfer_documents ( agency )
-      ),
-      receptions:current_reception_id (
-        guide_number,
-        notes,
-        carrier,
-        source,
-        reception_guides ( guide_number, agency )
-      ),
-      boxes ( box_code, rack_location ),
-      ingress_count,
-      current_diagnostics
-    `)
-    .in('current_status', ['in_workshop', 'in_qc', 'in_validation', 'in_control_warehouse', 'ready_to_dispatch', 'irreparable', 'in_central_warehouse']);
-
-  if (stage) {
-    // Stage logic could be linked to status
+    if (error) {
+      console.error('Error fetching workshop tasks page:', error.message || error);
+      break;
+    }
+    if (!data?.length) break;
+    rows.push(...data);
+    if (data.length < PAGE_SIZE) break;
   }
+  return rows;
+}
 
-  const { data, error } = await query;
-  if (error) {
-    console.error("Error fetching workshop tasks:", error.message || error);
-    return [];
-  }
-
-  const rows = data || [];
+async function attachWorkshopAuditFlags(
+  supabase: NonNullable<ReturnType<typeof getSupabaseBrowserClient>>,
+  rows: any[]
+) {
   const centralWarehouseIds = rows
     .filter((row) => row.current_status === 'in_central_warehouse')
     .map((row) => row.id as string);
 
-  let workshopAuditIds = new Set<string>();
+  const workshopAuditIds = new Set<string>();
   if (centralWarehouseIds.length > 0) {
     const chunkSize = 200;
     for (let i = 0; i < centralWarehouseIds.length; i += chunkSize) {
@@ -110,6 +144,52 @@ export async function getWorkshopTasks(stage?: string) {
       has_workshop_audit: hasWorkshopAudit,
     });
   });
+}
+
+/** Conteos ligeros por pestaña (sin joins pesados). */
+export async function getWorkshopTaskCounts(): Promise<Record<string, number>> {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return {};
+
+  const entries = Object.entries(TAB_TO_STATUS) as [WorkshopTabId, string][];
+  const results = await Promise.all(
+    entries.map(async ([tab, status]) => {
+      let query = supabase
+        .from('series')
+        .select('id', { count: 'exact', head: true })
+        .eq('current_status', status);
+
+      // Equipo listo: excluir stock de bodega sin historial de taller.
+      if (tab === 'listo') {
+        query = query.gt('ingress_count', 0);
+      }
+
+      const { count, error } = await query;
+      return { tab, count: error ? 0 : (count ?? 0) };
+    })
+  );
+
+  const counts: Record<string, number> = {};
+  for (const { tab, count } of results) {
+    counts[tab] = count;
+  }
+  return counts;
+}
+
+export async function getWorkshopTasks(tab?: WorkshopTabId) {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return [];
+
+  const statuses =
+    tab && TAB_TO_STATUS[tab] ? [TAB_TO_STATUS[tab]] : WORKSHOP_STATUSES;
+
+  const rows = await fetchWorkshopSeriesPaginated(supabase, statuses);
+
+  if (!statuses.includes('in_central_warehouse')) {
+    return rows;
+  }
+
+  return attachWorkshopAuditFlags(supabase, rows);
 }
 
 export async function saveDiagnostic(seriesId: string, result: string, notes: string, selectedDiagnostics: string[] = [], actionName: string = 'DIAGNÓSTICO INICIAL COMPLETADO') {

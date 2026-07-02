@@ -2,7 +2,7 @@
 
 import { memo, type FormEvent } from 'react';
 import { Card, Button } from '@/components/ui';
-import { ArrowLeftRight, QrCode } from 'lucide-react';
+import { ArrowLeftRight, Loader2, QrCode } from 'lucide-react';
 
 type Props = {
   inventory: any[];
@@ -17,6 +17,7 @@ type Props = {
   onScanSubmit: (e: FormEvent) => void;
   onExecute: () => void;
   onClose: () => void;
+  executing?: boolean;
 };
 
 /**
@@ -36,6 +37,7 @@ export const TransferModal = memo(function TransferModal({
   onScanSubmit,
   onExecute,
   onClose,
+  executing = false,
 }: Props) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#181c3a]/40 backdrop-blur-sm p-6">
@@ -121,14 +123,15 @@ export const TransferModal = memo(function TransferModal({
           </div>
 
           <div className="flex gap-4 pt-4">
-            <Button variant="outline" className="flex-1 h-14 font-black uppercase tracking-widest text-[10px]" onClick={onClose}>Cancelar</Button>
+            <Button variant="outline" className="flex-1 h-14 font-black uppercase tracking-widest text-[10px]" onClick={onClose} disabled={executing}>Cancelar</Button>
             <Button
               variant="primary"
               className="flex-1 h-14 font-black uppercase tracking-widest text-[10px] bg-[#181c3a]"
               onClick={onExecute}
-              disabled={selectedBoxesForTransfer.length === 0}
+              disabled={selectedBoxesForTransfer.length === 0 || executing}
+              leftIcon={executing ? <Loader2 className="w-4 h-4 animate-spin" /> : undefined}
             >
-              Ejecutar Movimiento ({selectedBoxesForTransfer.length})
+              {executing ? 'Transfiriendo...' : `Ejecutar Movimiento (${selectedBoxesForTransfer.length})`}
             </Button>
           </div>
         </div>

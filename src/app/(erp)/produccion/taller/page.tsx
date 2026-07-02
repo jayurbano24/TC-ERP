@@ -4,7 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { ModulePage } from "@/components/module-page";
 import { Card, Button, Badge, notify, confirmDialog, DataTable, type DataTableColumn } from "@/components/ui";
 import { Wrench, Stethoscope, Search, Filter, Box, Plus, Activity, AlertCircle, ArrowRight, CheckCircle2, XCircle, Clock, ChevronLeft, ChevronRight, ChevronDown, User, CheckSquare, ServerCrash, RefreshCw, Zap, Trash2, Loader2, RotateCcw, History, ClipboardList, Package, Send, ScanLine, X, BarChart3, Layers, Edit2, Eye, Printer } from 'lucide-react';
-import { getWorkshopTasks, saveDiagnostic } from '@/modules/workshop/client/workshop';
+import { getWorkshopTasks, getWorkshopTaskCounts, saveDiagnostic, type WorkshopTabId } from '@/modules/workshop/client/workshop';
 import { getTechnologies, getBrands, getModels, getDiagnostics, getRepairs, getReacondicionadoTests } from '@/shared/catalogs/catalogs';
 import { getSeriesHistory } from '@/modules/platform/client/audit';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
@@ -178,6 +178,7 @@ export default function TallerPage() {
   const [reacondTests, setReacondTests] = useState<string[]>([]);
 
   const [tasks, setTasks] = useState<any[]>([]);
+  const [tabCounts, setTabCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(false);
   const [showItemDetail, setShowItemDetail] = useState<any | null>(null);
 
@@ -205,7 +206,7 @@ export default function TallerPage() {
   };
 
   useEffect(() => {
-    if (catMarcas.length > 0) {
+    if (catMarcas.length > 0 && activeTab !== 'po' && activeTab !== 'despacho') {
       fetchTasks();
     }
   }, [activeTab, catMarcas]);
@@ -273,25 +274,33 @@ export default function TallerPage() {
   }, [selectedForOperation, activeTab]);
 
   const fetchTasks = async () => {
-    setLoading(true);
-    const data = await getWorkshopTasks();
-    
-    // Agrupar por Orden de Servicio y Caja para mostrar 1 sola fila por equipo
-    const groupedMap = new Map();
-    data.forEach((t: any) => {
-      const groupKey = `${t.service_orders?.os_label || 'S/OS'}-${t.boxes?.box_code || 'S/C'}`;
-      if (!groupedMap.has(groupKey)) {
-        groupedMap.set(groupKey, { ...t, all_dbIds: [t.id], all_sns: [t.serial_number] });
-      } else {
-        const existing = groupedMap.get(groupKey);
-        if (!existing.all_dbIds.includes(t.id)) existing.all_dbIds.push(t.id);
-        if (t.serial_number && !existing.all_sns.includes(t.serial_number)) existing.all_sns.push(t.serial_number);
-      }
-    });
-    
-    const groupedData = Array.from(groupedMap.values());
+    if (activeTab === 'po' || activeTab === 'despacho') return;
 
-    const adapted = groupedData.map((t: any) => {
+    setLoading(true);
+    try {
+      const workshopTab = activeTab as WorkshopTabId;
+      const [data, counts] = await Promise.all([
+        getWorkshopTasks(workshopTab),
+        getWorkshopTaskCounts(),
+      ]);
+      setTabCounts(counts);
+
+      // Agrupar por Orden de Servicio y Caja para mostrar 1 sola fila por equipo
+      const groupedMap = new Map();
+      data.forEach((t: any) => {
+        const groupKey = `${t.service_orders?.os_label || 'S/OS'}-${t.boxes?.box_code || 'S/C'}`;
+        if (!groupedMap.has(groupKey)) {
+          groupedMap.set(groupKey, { ...t, all_dbIds: [t.id], all_sns: [t.serial_number] });
+        } else {
+          const existing = groupedMap.get(groupKey);
+          if (!existing.all_dbIds.includes(t.id)) existing.all_dbIds.push(t.id);
+          if (t.serial_number && !existing.all_sns.includes(t.serial_number)) existing.all_sns.push(t.serial_number);
+        }
+      });
+
+      const groupedData = Array.from(groupedMap.values());
+
+      const adapted = groupedData.map((t: any) => {
       const notes = (t.receptions?.notes || '').replace(/\\n/g, '\n');
 
       const modelRow = catModelos.find((m: any) => m.id === t.model_id);
@@ -398,9 +407,15 @@ export default function TallerPage() {
           ingress_count: t.ingress_count || 1,
           current_diagnostics: t.current_diagnostics || []
         };
-    });
-    setTasks(adapted);
-    setLoading(false);
+      });
+      setTasks(adapted);
+    } catch (err) {
+      console.error('Error loading workshop tasks:', err);
+      notify.error('No se pudo cargar la cola de taller');
+      setTasks([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleCompleteOperation = async () => {
@@ -563,21 +578,6 @@ ${funcNotes || 'Ninguno evaluado'}
 
     return true;
   }), [tasks, activeTab, debouncedSearchTerm]);
-
-  // C1: conteos por pestaña memoizados (antes el reduce corría en cada render).
-  const tabCounts = useMemo(() => tasks.reduce((acc: Record<string, number>, t: any) => {
-    let key = '';
-    if (t.etapa === 'PARA DIAGNOSTICAR') key = 'diagnostico';
-    else if (t.etapa === 'REPARACION') key = 'reparacion';
-    else if (t.etapa === 'REACONDICIONADO') key = 'reacondicionado';
-    else if (t.etapa === 'CONTROL DE CALIDAD') key = 'qc';
-    else if (t.etapa === 'L3') key = 'l3';
-    else if (t.etapa === 'SCRAPS') key = 'scraps';
-    else if (t.etapa === 'EQUIPO LISTO') key = 'listo';
-    
-    if (key) acc[key] = (acc[key] || 0) + 1;
-    return acc;
-  }, {}), [tasks]);
 
   return (
     <ModulePage

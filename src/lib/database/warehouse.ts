@@ -1,5 +1,17 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { v5 as uuidv5 } from "uuid";
+
+/** Namespace fijo para claves idempotentes determinísticas (caja + acción + destino). */
+const WAREHOUSE_IDEMPOTENCY_NS = "a3f2c8e1-9b4d-4e7a-8c1f-2d6e9a0b5c3d";
+
+export function warehouseBoxIdempotencyKey(
+  boxId: string,
+  action: "dispersion" | "traslado" | "salida",
+  target: string
+): string {
+  return uuidv5(`${action}:${boxId}:${target}`, WAREHOUSE_IDEMPOTENCY_NS);
+}
 
 /** CHG-002: todas las series del doc SAP encajonadas en bodega → INGRESADO_BODEGA. */
 async function syncSapTransferIngresadoForSeries(
@@ -129,6 +141,53 @@ function chunkIds(ids: string[], size = 80): string[][] {
   return chunks;
 }
 
+/** PostgREST suele devolver solo `message` en consola; unimos detalle útil para el operador. */
+function formatSupabaseError(error: {
+  message?: string;
+  details?: string;
+  hint?: string;
+  code?: string;
+}): string {
+  return [error.message, error.details, error.hint].filter(Boolean).join(' — ') || 'Error desconocido';
+}
+
+type WarehouseOperator = { operatorId: string | null; userName: string };
+
+/**
+ * `warehouse_movements.performed_by` referencia `profiles(id)`.
+ * Si el auth uid no tiene fila en profiles, enviar el uuid rompe la FK (400).
+ */
+async function resolveWarehouseOperator(
+  supabase: NonNullable<ReturnType<typeof getSupabaseBrowserClient>>
+): Promise<WarehouseOperator> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user?.id) {
+    return { operatorId: null, userName: 'Operador' };
+  }
+
+  const fallbackName =
+    (typeof user.user_metadata?.full_name === 'string' && user.user_metadata.full_name.trim()) ||
+    user.email ||
+    'Operador';
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('id, full_name')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  if (profile?.id) {
+    return {
+      operatorId: profile.id,
+      userName: profile.full_name?.trim() || fallbackName,
+    };
+  }
+
+  return { operatorId: null, userName: fallbackName };
+}
+
 async function fetchSeriesForBoxes(
   supabase: NonNullable<ReturnType<typeof getSupabaseBrowserClient>>,
   boxIds: string[]
@@ -179,7 +238,7 @@ async function fetchSeriesForBoxes(
   const fetchMap = async (table: string, ids: string[], cols: string) => {
     const map = new Map<string, any>();
     const results = await Promise.all(
-      chunkIds(ids, 300).map((c) => supabase.from(table).select(cols).in('id', c))
+      chunkIds(ids, 80).map((c) => supabase.from(table).select(cols).in('id', c))
     );
     for (const { data } of results) for (const row of data || []) map.set((row as any).id, row);
     return map;
@@ -508,37 +567,53 @@ export async function transferBoxesToArea(boxIds: string[], targetArea: string, 
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: "Supabase not configured" };
 
-  const { data: userData } = await supabase.auth.getUser();
-  const operatorId = userData?.user?.id;
-  const userName = userData?.user?.user_metadata?.full_name || userData?.user?.email || 'Operador';
+  const { operatorId, userName } = await resolveWarehouseOperator(supabase);
 
   const rackFromArea = AREA_TO_RACK[targetArea];
   const rackLocation = targetRack ?? rackFromArea;
   const isWorkshop = rackLocation?.startsWith('TALLER');
 
   let successCount = 0;
+  let lastError: string | null = null;
   for (const boxId of boxIds) {
     if (isWorkshop) {
-      const { error } = await supabase.rpc('warehouse_dispersion_tx', {
+      const idempotencyKey = warehouseBoxIdempotencyKey(boxId, "dispersion", "taller");
+      const { data, error } = await supabase.rpc('warehouse_dispersion_tx', {
         p_box_id: boxId,
         p_target_module: 'taller',
         p_operator_id: operatorId,
         p_operator_name: userName,
-        p_idempotency_key: crypto.randomUUID()
+        p_idempotency_key: idempotencyKey
       });
       if (!error) successCount++;
-      else console.error('Error in dispersion:', error);
+      else if (String(error.message || '').includes('ALREADY_DISPERSED')) {
+        successCount++;
+      } else {
+        lastError = formatSupabaseError(error);
+        console.error('Error in dispersion:', error, data);
+      }
     } else {
+      const idempotencyKey = warehouseBoxIdempotencyKey(boxId, "traslado", rackLocation);
       const { error } = await supabase.rpc('warehouse_traslado_tx', {
         p_box_id: boxId,
         p_target_location: rackLocation,
         p_operator_id: operatorId,
         p_operator_name: userName,
-        p_idempotency_key: crypto.randomUUID()
+        p_idempotency_key: idempotencyKey
       });
       if (!error) successCount++;
-      else console.error('Error in traslado:', error);
+      else {
+        lastError = formatSupabaseError(error);
+        console.error('Error in traslado:', error);
+      }
     }
+  }
+
+  if (successCount === 0 && lastError) {
+    return { error: lastError };
+  }
+  if (successCount < boxIds.length && lastError) {
+    return { error: `${successCount}/${boxIds.length} cajas movidas. Último error: ${lastError}` };
   }
 
   return { success: true, seriesUpdated: successCount };
@@ -548,9 +623,7 @@ export async function openDispatchBatch(destination?: string, guideOutbound?: st
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: 'Supabase not configured' };
 
-  const { data: userData } = await supabase.auth.getUser();
-  const operatorId = userData?.user?.id;
-  const userName = userData?.user?.user_metadata?.full_name || userData?.user?.email || 'Operador';
+  const { operatorId, userName } = await resolveWarehouseOperator(supabase);
 
   const { data, error } = await supabase.rpc('dispatch_batch_open_tx', {
     p_destination: destination || null,
@@ -568,9 +641,7 @@ export async function closeDispatchBatch(batchId: string) {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: 'Supabase not configured' };
 
-  const { data: userData } = await supabase.auth.getUser();
-  const operatorId = userData?.user?.id;
-  const userName = userData?.user?.user_metadata?.full_name || userData?.user?.email || 'Operador';
+  const { operatorId, userName } = await resolveWarehouseOperator(supabase);
 
   const { data, error } = await supabase.rpc('dispatch_batch_close_tx', {
     p_batch_id: batchId,
@@ -592,9 +663,7 @@ export async function dispatchBoxFromWarehouse(
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: "Supabase not configured" };
 
-  const { data: userData } = await supabase.auth.getUser();
-  const operatorId = userData?.user?.id;
-  const userName = userData?.user?.user_metadata?.full_name || userData?.user?.email || 'Operador';
+  const { operatorId, userName } = await resolveWarehouseOperator(supabase);
 
   const { error } = await supabase.rpc('warehouse_salida_tx', {
     p_box_id: boxId,
@@ -602,7 +671,7 @@ export async function dispatchBoxFromWarehouse(
     p_guide_number: destination, // mapped to destination/guide
     p_operator_id: operatorId,
     p_operator_name: userName,
-    p_idempotency_key: crypto.randomUUID(),
+    p_idempotency_key: warehouseBoxIdempotencyKey(boxId, "salida", destination),
     p_dispatch_batch_id: dispatchBatchId || null,
   });
 
@@ -624,9 +693,8 @@ export async function transferSpecificSeriesToArea(boxId: string, seriesNumbers:
   const targetLocation = rackFromArea || targetArea;
   let nextStatus = AREA_TO_SERIES_STATUS[targetArea] || 'in_central_warehouse';
 
-  const { data: userData } = await supabase.auth.getUser();
-  const operatorId = userData?.user?.id;
-  const userName = userData?.user?.user_metadata?.full_name || userData?.user?.email || userId || 'Operador';
+  const { operatorId, userName: resolvedName } = await resolveWarehouseOperator(supabase);
+  const userName = resolvedName || userId || 'Operador';
 
   const uniqueSeries = [...new Set((seriesNumbers || []).map((s) => s?.trim().toUpperCase()).filter(Boolean))];
   if (uniqueSeries.length === 0) {
@@ -640,7 +708,11 @@ export async function transferSpecificSeriesToArea(boxId: string, seriesNumbers:
     p_target_status: nextStatus,
     p_operator_id: operatorId,
     p_operator_name: userName,
-    p_idempotency_key: crypto.randomUUID(),
+    p_idempotency_key: warehouseBoxIdempotencyKey(
+      boxId,
+      'traslado',
+      `${targetLocation}:${uniqueSeries.sort().join(',')}`
+    ),
   });
 
   if (error) return { error: error.message };
@@ -671,9 +743,7 @@ export async function dispatchSpecificSeries(
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: "Supabase not configured" };
 
-  const { data: userData } = await supabase.auth.getUser();
-  const operatorId = userData?.user?.id;
-  const userName = userData?.user?.user_metadata?.full_name || userData?.user?.email || 'Operador';
+  const { operatorId, userName } = await resolveWarehouseOperator(supabase);
 
   const uniqueSeries = [...new Set((seriesNumbers || []).map((s) => s?.trim().toUpperCase()).filter(Boolean))];
   if (uniqueSeries.length === 0) {
@@ -695,7 +765,11 @@ export async function dispatchSpecificSeries(
     p_operator_id: operatorId,
     p_operator_name: userName,
     p_notes: notes || null,
-    p_idempotency_key: crypto.randomUUID(),
+    p_idempotency_key: warehouseBoxIdempotencyKey(
+      boxId,
+      'salida',
+      `${destination}:${uniqueSeries.sort().join(',')}`
+    ),
     p_dispatch_batch_id: dispatchBatchId || null,
   });
 

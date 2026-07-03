@@ -9,6 +9,7 @@ import {
 
 type Props = {
   selectedBox: any;
+  loadingSeries?: boolean;
   catMarcas: any[];
   catModelos: any[];
   catTecnologias: any[];
@@ -27,6 +28,7 @@ type Props = {
  */
 export const DetalleCajaModal = memo(function DetalleCajaModal({
   selectedBox,
+  loadingSeries = false,
   catMarcas,
   catModelos,
   catTecnologias,
@@ -38,7 +40,12 @@ export const DetalleCajaModal = memo(function DetalleCajaModal({
   onRemoveUnit,
   onClose,
 }: Props) {
-  const uniqueEquipmentsCount = new Set(selectedBox.series?.map((s: any) => s.service_orders?.id || s.serial_number)).size;
+  const seriesCount = selectedBox.series?.length ?? 0;
+  const unitTotal = Math.max(selectedBox.cantidad || 0, selectedBox.unitCount || 0, seriesCount, 1);
+  const uniqueEquipmentsCount =
+    seriesCount > 0
+      ? new Set(selectedBox.series?.map((s: any) => s.service_orders?.id || s.serial_number)).size
+      : selectedBox.unitCount || 0;
 
   // Lookups O(1) para evitar .find() por celda (importante con muchas unidades).
   const marcaMap = useMemo(() => new Map(catMarcas.map((b) => [b.id, b.name])), [catMarcas]);
@@ -112,13 +119,13 @@ export const DetalleCajaModal = memo(function DetalleCajaModal({
                 <div className="flex justify-between items-end mb-4">
                   <span className="text-[10px] font-black uppercase tracking-widest text-white/40 leading-none">Progreso Caja</span>
                   <span className="text-2xl font-black text-[#2ec4f1] leading-none">
-                    {uniqueEquipmentsCount} <span className="text-sm text-white/20">/ {selectedBox.cantidad}</span>
+                    {uniqueEquipmentsCount} <span className="text-sm text-white/20">/ {unitTotal}</span>
                   </span>
                 </div>
                 <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
                   <div
                     className="h-full bg-[#2ec4f1] transition-all duration-500"
-                    style={{ width: `${(uniqueEquipmentsCount / selectedBox.cantidad) * 100}%` }}
+                    style={{ width: `${Math.min((uniqueEquipmentsCount / unitTotal) * 100, 100)}%` }}
                   />
                 </div>
               </div>
@@ -132,7 +139,7 @@ export const DetalleCajaModal = memo(function DetalleCajaModal({
 
         <div className="flex-1 overflow-y-auto p-8 space-y-8 bg-slate-50/30">
           {/* Ocultar sección de escaneo si la caja ya está llena */}
-          {uniqueEquipmentsCount < selectedBox.cantidad && (
+          {uniqueEquipmentsCount < unitTotal && !loadingSeries && (
             <>
               {/* Buscador Inteligente */}
               <div className="space-y-4">
@@ -225,10 +232,13 @@ export const DetalleCajaModal = memo(function DetalleCajaModal({
           {/* Listado de Series en Caja - Tabla Detallada */}
           <div className="space-y-4">
             <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
-              Contenido de la Caja <span className="w-1.5 h-1.5 rounded-full bg-slate-300" /> {selectedBox.series.length} Unidades
+              Contenido de la Caja <span className="w-1.5 h-1.5 rounded-full bg-slate-300" /> {loadingSeries ? 'Cargando…' : `${seriesCount || selectedBox.unitCount || 0} Unidades`}
             </h4>
 
             <div className="rounded-xl border border-slate-200 shadow-sm bg-white overflow-hidden">
+              {loadingSeries ? (
+                <div className="py-16 text-center text-sm text-slate-500">Cargando series de la caja…</div>
+              ) : (
               <DataTable
                 columns={seriesColumns}
                 data={selectedBox.series}
@@ -241,6 +251,7 @@ export const DetalleCajaModal = memo(function DetalleCajaModal({
                 headerTextClassName="text-white/80"
                 emptyMessage="Sin unidades en la caja"
               />
+              )}
             </div>
           </div>
         </div>

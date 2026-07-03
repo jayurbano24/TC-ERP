@@ -1,6 +1,7 @@
 import type { GuideData } from '../types/reception.types';
 import type { PxLotInput, PxReceptionSnapshot } from '@/modules/recepcion/client/pxCapture';
 import { apiFetch } from '@/lib/http/apiFetch';
+import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
 
 const INCREMENTAL_SESSION_KEY = 'tc_erp_px_incremental_reception_id';
 export const PX_INCREMENTAL_ACTIVE_STATUS = 'EN_PROCESO';
@@ -67,22 +68,15 @@ export async function joinOrStartPxReceptionApi(input: {
 /** @deprecated use joinOrStartPxReceptionApi */
 export const startPxReceptionApi = joinOrStartPxReceptionApi;
 
-export async function fetchPxReceptionSnapshot(receptionId: string) {
-  const res = await apiFetch(`/api/recepcion/px/${receptionId}`);
+export async function fetchPxReceptionSnapshot(
+  receptionId: string,
+  options?: { includeEquipment?: boolean }
+) {
+  const params = options?.includeEquipment ? '?includeEquipment=1' : '';
+  const res = await apiFetch(`/api/recepcion/px/${receptionId}${params}`);
   const json = await res.json();
   if (!json.success) throw new Error(json.error || 'Recepción no encontrada');
   return json.data as PxReceptionSnapshot;
-}
-
-/**
- * Huella ligera de sincronización (no descarga el snapshot completo).
- * Úsese en el sondeo para decidir si hace falta refrescar el snapshot.
- */
-export async function fetchPxReceptionStamp(receptionId: string) {
-  const res = await apiFetch(`/api/recepcion/px/${receptionId}?stamp=1`);
-  const json = await res.json();
-  if (!json.success) throw new Error(json.error || 'Recepción no encontrada');
-  return { version: json.version as number, fingerprint: json.fingerprint as string };
 }
 
 export async function createPxBoxApi(
@@ -327,6 +321,169 @@ export async function deletePxCaptureBoxApi(input: {
   return json as { success: true; boxId: string; boxCode: string; version: number };
 }
 
+export type PxFinalizeProgress = {
+  phase: 'prep' | 'promote';
+  prepDone: number;
+  prepTotal: number;
+  promoteDone: number;
+  promoteTotal: number;
+  label: string;
+};
+
+export async function finalizePxPrepNextApi(input: {
+  receptionId: string;
+  expectedVersion: number;
+}) {
+  const res = await apiFetch(`/api/recepcion/px/${input.receptionId}/finalize/prep-next`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expectedVersion: input.expectedVersion }),
+  });
+  const json = await res.json();
+  if (!json.success) throw new Error(json.error || 'Error al preparar caja');
+  return json.data as {
+    phase: 'preparing' | 'prepared' | 'done';
+    box_code?: string | null;
+    boxes_remaining: number;
+    already_finalized?: boolean;
+    guide_number?: string;
+    received_units?: number;
+  };
+}
+
+export async function finalizePxPromoteNextApi(input: {
+  receptionId: string;
+  expectedVersion: number;
+  varianceReason?: string;
+  operatorId?: string | null;
+  operatorName?: string;
+  stampVariance?: boolean;
+}) {
+  const res = await apiFetch(`/api/recepcion/px/${input.receptionId}/finalize/promote-next`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const json = await res.json();
+  if (!json.success) throw new Error(json.error || 'Error al promover equipos');
+  return json.data as {
+    phase: 'promoting' | 'done';
+    promoted_this_batch: number;
+    remaining_active: number;
+    received_units?: number;
+    reception_id?: string;
+    guide_number?: string;
+    status?: string;
+    expected_units?: number;
+    is_partial?: boolean;
+    already_finalized?: boolean;
+  };
+}
+
+/** Finaliza PX con el cliente orquestando prep/promote paso a paso (progreso en UI). */
+export async function finalizePxReceptionStepwise(
+  input: {
+    receptionId: string;
+    expectedVersion: number;
+    varianceReason?: string;
+    operatorId?: string | null;
+    operatorName?: string;
+    prepTotal: number;
+    promoteTotal: number;
+  },
+  onProgress?: (progress: PxFinalizeProgress) => void,
+) {
+  let prepDone = 0;
+  let prepBatches = 0;
+  let promoteBatches = 0;
+
+  const report = (phase: 'prep' | 'promote', label: string, promoteDone = 0) => {
+    onProgress?.({
+      phase,
+      prepDone,
+      prepTotal: input.prepTotal,
+      promoteDone,
+      promoteTotal: input.promoteTotal,
+      label,
+    });
+  };
+
+  report('prep', 'Preparando cajas para Bodega…');
+
+  for (let i = 1; i <= BATCH_LIMITS.PX_FINALIZE_PREP_MAX_ITERATIONS; i += 1) {
+    prepBatches = i;
+    const prep = await finalizePxPrepNextApi({
+      receptionId: input.receptionId,
+      expectedVersion: input.expectedVersion,
+    });
+
+    if (prep.already_finalized || prep.phase === 'done') {
+      return {
+        reception_id: input.receptionId,
+        guide_number: prep.guide_number ?? '',
+        status: 'CLASIFICADA',
+        received_units: prep.received_units ?? input.promoteTotal,
+        expected_units: input.promoteTotal,
+        is_partial: false,
+        already_finalized: true,
+        batches: { prep: 0, promote: 0 },
+      };
+    }
+
+    prepDone = Math.max(0, input.prepTotal - prep.boxes_remaining);
+    const prepLabel = prep.box_code
+      ? `Caja ${prepDone}/${input.prepTotal} → ${prep.box_code}`
+      : `Preparando ${prepDone}/${input.prepTotal}`;
+    report('prep', prepLabel);
+
+    if (prep.phase === 'prepared') break;
+  }
+
+  let promoteDone = 0;
+  report('promote', 'Ingresando equipos a inventario…', 0);
+
+  let lastDone: Awaited<ReturnType<typeof finalizePxPromoteNextApi>> | null = null;
+  for (let i = 1; i <= BATCH_LIMITS.PX_FINALIZE_PROMOTE_MAX_ITERATIONS; i += 1) {
+    promoteBatches = i;
+    const promote = await finalizePxPromoteNextApi({
+      receptionId: input.receptionId,
+      expectedVersion: input.expectedVersion,
+      varianceReason: input.varianceReason,
+      operatorId: input.operatorId,
+      operatorName: input.operatorName,
+      stampVariance: i === 1,
+    });
+
+    promoteDone = Math.max(0, input.promoteTotal - promote.remaining_active);
+    report(
+      'promote',
+      `Equipos ${promoteDone}/${input.promoteTotal} (+${promote.promoted_this_batch} en lote)`,
+      promoteDone,
+    );
+
+    if (promote.phase === 'done') {
+      lastDone = promote;
+      break;
+    }
+  }
+
+  if (!lastDone || lastDone.phase !== 'done') {
+    throw new Error(
+      'Finalización incompleta. Puede reintentar Finalizar — el progreso quedó guardado en servidor.',
+    );
+  }
+
+  return {
+    reception_id: lastDone.reception_id ?? input.receptionId,
+    guide_number: lastDone.guide_number ?? '',
+    status: lastDone.status ?? 'CLASIFICADA',
+    received_units: lastDone.received_units ?? input.promoteTotal,
+    expected_units: lastDone.expected_units ?? input.promoteTotal,
+    is_partial: lastDone.is_partial ?? false,
+    batches: { prep: prepBatches, promote: promoteBatches },
+  };
+}
+
 export async function finalizePxReceptionApi(input: {
   receptionId: string;
   expectedVersion: number;
@@ -349,5 +506,6 @@ export async function finalizePxReceptionApi(input: {
     expected_units: number;
     is_partial: boolean;
     already_finalized?: boolean;
+    batches?: { prep: number; promote: number };
   };
 }

@@ -1,3 +1,4 @@
+import { LOG_ORDEN_SERVICIO_SELECT } from '@/shared/constants/dbProjections';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { injectable, inject } from 'tsyringe';
 import { IOrdenServicioRepository } from '../../domain/repositories/IOrdenServicioRepository';
@@ -14,7 +15,7 @@ export class SupabaseOrdenServicioRepository implements IOrdenServicioRepository
   async findById(id: string): Promise<OrdenServicioAggregate | null> {
     const { data, error } = await this.supabase
       .from('log_orden_servicio')
-      .select('*, equipo:log_equipo(*)')
+      .select(LOG_ORDEN_SERVICIO_SELECT)
       .eq('id', id)
       .eq('is_deleted', false)
       .single();
@@ -26,7 +27,7 @@ export class SupabaseOrdenServicioRepository implements IOrdenServicioRepository
   async findAll(): Promise<OrdenServicioAggregate[]> {
     const { data, error } = await this.supabase
       .from('log_orden_servicio')
-      .select('*, equipo:log_equipo(*)')
+      .select(LOG_ORDEN_SERVICIO_SELECT)
       .eq('is_deleted', false);
 
     if (error || !data) return [];

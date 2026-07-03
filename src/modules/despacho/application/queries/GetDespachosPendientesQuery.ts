@@ -11,7 +11,7 @@ export class GetDespachosPendientesQuery {
   async execute(ctx: RequestContext) {
     const { data: despachos } = await this.supabase
       .from('despacho_orden')
-      .select('*')
+      .select('id, reparacion_id, cliente_nombre, equipo_info, estado, created_at')
       .eq('tenant_id', ctx.tenantId)
       .eq('estado', 'PENDIENTE')
       .eq('is_deleted', false)

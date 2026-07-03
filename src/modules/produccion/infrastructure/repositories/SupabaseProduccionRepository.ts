@@ -1,3 +1,7 @@
+import {
+  PROD_DIAGNOSTICO_SELECT,
+  PROD_REPARACION_SELECT,
+} from '@/shared/constants/dbProjections';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { injectable, inject } from 'tsyringe';
 import { IProduccionRepository } from '../../domain/repositories/IProduccionRepository';
@@ -30,7 +34,7 @@ export class SupabaseProduccionRepository implements IProduccionRepository {
   async getDiagnosticoById(ctx: RequestContext, id: string): Promise<DiagnosticoAggregate | null> {
     const { data, error } = await this.supabase
       .from('prod_diagnostico')
-      .select('*')
+      .select(PROD_DIAGNOSTICO_SELECT)
       .eq('id', id)
       .eq('tenant_id', ctx.tenantId)
       .single();
@@ -65,7 +69,7 @@ export class SupabaseProduccionRepository implements IProduccionRepository {
   async getReparacionById(ctx: RequestContext, id: string): Promise<ReparacionAggregate | null> {
     const { data, error } = await this.supabase
       .from('prod_reparacion')
-      .select('*')
+      .select(PROD_REPARACION_SELECT)
       .eq('id', id)
       .eq('tenant_id', ctx.tenantId)
       .single();

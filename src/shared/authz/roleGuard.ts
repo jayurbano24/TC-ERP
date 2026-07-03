@@ -32,6 +32,7 @@ export const ROLES_RECEPCION: OperationalRole[] = ['admin', 'supervisor', 'recep
 export const ROLES_BODEGA_DESPACHO: OperationalRole[] = ['admin', 'supervisor', 'bodega'];
 export const ROLES_PRODUCCION: OperationalRole[] = ['admin', 'supervisor', 'gerencia'];
 export const ROLES_RETURNS_SAP: OperationalRole[] = ['admin', 'supervisor'];
+export const ROLES_TALLER: OperationalRole[] = ['admin', 'supervisor', 'tecnico', 'qc'];
 
 const TTL_MS = 30_000;
 const cache = new Map<string, { roles: string[]; ts: number }>();

@@ -1,3 +1,4 @@
+import { TALLER_KPI_GOAL_SELECT } from '@/shared/constants/dbProjections';
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 export async function getKpiGoals() {
@@ -6,7 +7,7 @@ export async function getKpiGoals() {
   
   const { data, error } = await supabase
     .from('taller_kpi_goals')
-    .select('*')
+    .select(TALLER_KPI_GOAL_SELECT)
     .order('created_at', { ascending: false });
 
   if (error) {

@@ -19,8 +19,11 @@ import { useReceptionValidation } from './hooks/useReceptionValidation';
 import { receptionService } from './services/receptionService';
 import { printingService } from './services/printingService';
 import { receptionRepository } from './repositories/receptionRepository';
-import { getSupabaseBrowserClient } from '@/lib/supabase/client';
-import { groupPxSeriesByEquipment } from './utils/pxSeriesUtils';
+import {
+  fetchPxPrintData,
+  fetchCacGuideSerials,
+} from './services/receptionReadsApi';
+import { getCurrentReceptionActor } from '@/modules/recepcion/client/receptionActor';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 // Mapea una fila de `receptions` a la forma legacy que consumen las pestañas
@@ -92,12 +95,8 @@ export default function ReceptionsPage() {
   }, [receptionsQuery.data]);
 
   useEffect(() => {
-    getSupabaseBrowserClient().auth.getUser().then(({data}) => {
-      if (data?.user?.user_metadata?.full_name) {
-        setCurrentUserFullName(data.user.user_metadata.full_name);
-      } else if (data?.user?.email) {
-        setCurrentUserFullName(data.user.email.split('@')[0]);
-      }
+    getCurrentReceptionActor().then((actor) => {
+      if (actor.fullName) setCurrentUserFullName(actor.fullName);
     });
   }, []);
 
@@ -241,30 +240,7 @@ export default function ReceptionsPage() {
 
   const handlePrintPXManifest = async (rec: any) => {
     try {
-      const supabase = getSupabaseBrowserClient();
-      if (!supabase) return;
-      
-      const { data: boxes, error: boxError } = await supabase
-        .from('boxes')
-        .select('*, brands(name), models(name, technologies(name))')
-        .eq('reception_id', rec.id);
-
-      if (boxError) throw boxError;
-
-      const { data: series, error: seriesError } = await supabase
-        .from('series')
-        .select('serial_number, service_order_id, current_box_id, material')
-        .eq('current_reception_id', rec.id);
-
-      if (seriesError) throw seriesError;
-
-      const { data: serviceOrders } = await supabase
-        .from('service_orders')
-        .select('id, main_serial')
-        .eq('reception_id', rec.id);
-
-      const boxCodeById = Object.fromEntries((boxes || []).map((b: any) => [b.id, b.box_code]));
-      const mappedSeries = groupPxSeriesByEquipment(series || [], serviceOrders || [], boxCodeById);
+      const { boxes, equipments } = await fetchPxPrintData(rec.id);
 
       const manifestBoxes = (boxes || []).map((b: any) => ({
         ...b,
@@ -272,10 +248,10 @@ export default function ReceptionsPage() {
         marca: b.brands?.name || 'N/A',
         modelo: b.models?.name || 'N/A',
         tecnologia: b.models?.technologies?.name || 'EQUIPO',
-        totalEsperado: b.capacity || 0
+        totalEsperado: b.capacity || 0,
       }));
 
-      printingService.printPXManifest(rec, mappedSeries, manifestBoxes);
+      printingService.printPXManifest(rec, equipments, manifestBoxes);
     } catch (error: any) {
       notify.error('Error al obtener datos para impresión', { description: error.message });
     }
@@ -283,15 +259,7 @@ export default function ReceptionsPage() {
 
   const handlePrintLabelsPX = async (rec: any) => {
     try {
-      const supabase = getSupabaseBrowserClient();
-      if (!supabase) return;
-      
-      const { data: boxes, error: boxError } = await supabase
-        .from('boxes')
-        .select('*, brands(name), models(name, technologies(name))')
-        .eq('reception_id', rec.id);
-
-      if (boxError) throw boxError;
+      const { boxes } = await fetchPxPrintData(rec.id);
       if (!boxes || boxes.length === 0) {
         notify.warning('No hay cajas para imprimir en esta recepción.');
         return;
@@ -303,7 +271,7 @@ export default function ReceptionsPage() {
         marca: b.brands?.name || 'N/A',
         modelo: b.models?.name || 'N/A',
         tecnologia: b.models?.technologies?.name || 'EQUIPO',
-        totalEsperado: b.capacity || 0
+        totalEsperado: b.capacity || 0,
       }));
 
       printingService.printAllBoxLabels(manifestBoxes);
@@ -363,12 +331,13 @@ export default function ReceptionsPage() {
   const handlePrintCACWrapper = async (item: any) => {
     let allGuias = item.allGuias || [];
     if (allGuias.length === 0 || (allGuias.length === 1 && item.received_units > 1)) {
-      const supabase = getSupabaseBrowserClient();
-      if (supabase) {
-        const { data } = await supabase.from('series').select('serial_number').eq('current_reception_id', item.id);
-        if (data && data.length > 0) {
-          allGuias = data.map((s: any) => s.serial_number);
+      try {
+        const serials = await fetchCacGuideSerials(item.id);
+        if (serials.length > 0) {
+          allGuias = serials;
         }
+      } catch {
+        /* fallback abajo */
       }
     }
     if (allGuias.length === 0 && item.guide_number) {
@@ -419,6 +388,7 @@ export default function ReceptionsPage() {
           moduleMode={moduleMode}
           handleFinalizePX={handleFinalizePX}
           isSubmittingPX={isSubmittingPX || pxIncremental.isScanning}
+          finalizeProgress={pxIncremental.finalizeProgress}
           handleAddCaja={handleAddCaja}
           handleAddSN_PX={handleAddSN_PX}
           isReceptionStarted={pxState.isReceptionStarted}

@@ -1,3 +1,4 @@
+import { COUNT_HEAD, PRODUCTION_ORDER_SELECT } from '@/shared/constants/dbProjections';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
 import type { IProductionOrderGateway } from '../../domain/ports/production-order.gateway.port';
 import type {
@@ -112,7 +113,7 @@ export class ProductionOrderRpcAdapter implements IProductionOrderGateway {
       const supabase = getSupabaseServerClient();
       const { data, error } = await supabase
         .from('production_orders')
-        .select('*')
+        .select(PRODUCTION_ORDER_SELECT)
         .in('status', ['BORRADOR', 'APROBADA', 'EN_PROCESO'])
         .order('created_at', { ascending: false })
         .limit(50);
@@ -123,7 +124,7 @@ export class ProductionOrderRpcAdapter implements IProductionOrderGateway {
       for (const row of data || []) {
         const { count } = await supabase
           .from('service_orders')
-          .select('*', { count: 'exact', head: true })
+          .select(COUNT_HEAD, { count: 'exact', head: true })
           .eq('production_order_id', row.id);
         orders.push(mapRow(row as Record<string, unknown>, count || 0));
       }

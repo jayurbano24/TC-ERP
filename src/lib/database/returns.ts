@@ -7,6 +7,8 @@ import {
   registerIndividualReturnHex,
 } from '@/modules/returns';
 
+import { COUNT_HEAD, RECEPTION_UNDO_SELECT } from '@/shared/constants/dbProjections';
+
 export async function processBlockReturnBySapTransfer(
   sapTransferId: string,
   formData: { motivo: string; guiaSalida: string; observaciones?: string },
@@ -404,7 +406,7 @@ export async function undoBoxReturnFromClassification(
   try {
     const { data: reception, error: recError } = await supabase
       .from('receptions')
-      .select('*')
+      .select(RECEPTION_UNDO_SELECT)
       .eq('id', receptionId)
       .single();
     if (recError || !reception) return { error: 'Recepción no encontrada' };
@@ -587,7 +589,7 @@ export async function dispatchReturnItems(
     for (const sapId of sapTransferIds) {
       const { count } = await supabase
         .from('series')
-        .select('*', { count: 'exact', head: true })
+        .select(COUNT_HEAD, { count: 'exact', head: true })
         .eq('sap_transfer_id', sapId)
         .eq('current_status', 'returned');
       if ((count || 0) === 0) {
@@ -755,7 +757,7 @@ export async function registerNewReturn(returnEntry: any) {
   if (existing.sap_transfer_id) {
     const { count: remaining } = await supabase
       .from('series')
-      .select('*', { count: 'exact', head: true })
+      .select(COUNT_HEAD, { count: 'exact', head: true })
       .eq('sap_transfer_id', existing.sap_transfer_id)
       .eq('current_status', 'RECEPCIONADO_BODEGA_GENERAL');
 
@@ -883,7 +885,7 @@ async function processFullReceptionReturnLegacy(
     // 1. Get the reception details
     const { data: reception, error: recError } = await supabase
       .from('receptions')
-      .select('*')
+      .select(RECEPTION_UNDO_SELECT)
       .eq('id', receptionId)
       .single();
       
@@ -966,7 +968,7 @@ export async function undoFullReceptionReturn(receptionId: string) {
     // 1. Get the reception
     const { data: reception, error: recError } = await supabase
       .from('receptions')
-      .select('*')
+      .select(RECEPTION_UNDO_SELECT)
       .eq('id', receptionId)
       .single();
       

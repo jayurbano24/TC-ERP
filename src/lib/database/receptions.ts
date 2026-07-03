@@ -1,3 +1,4 @@
+import { COUNT_HEAD } from '@/shared/constants/dbProjections';
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { formatFetchError, withRetry } from "@/lib/fetchWithRetry";
 import { apiFetch } from "@/lib/http/apiFetch";
@@ -463,7 +464,7 @@ export async function fixMissingOS(receptionId: string, unit: { main_serial: str
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: "Supabase not configured" };
 
-  const { count } = await supabase.from('service_orders').select('*', { count: 'exact', head: true }).eq('main_serial', unit.main_serial);
+  const { count } = await supabase.from('service_orders').select(COUNT_HEAD, { count: 'exact', head: true }).eq('main_serial', unit.main_serial);
   const reentryCount = (count || 0) + 1;
 
   const { data: osData, error: osError } = await supabase.from('service_orders').insert([{
@@ -507,7 +508,7 @@ export async function createServiceOrders(
     // 1. Verificar cuántas veces ha ingresado esta serie (re-entry)
     const { count, error: countError } = await supabase
       .from('service_orders')
-      .select('*', { count: 'exact', head: true })
+      .select(COUNT_HEAD, { count: 'exact', head: true })
       .eq('main_serial', unit.main_serial);
 
     const reentryCount = (count || 0) + 1;
@@ -757,7 +758,7 @@ export async function createPxReceptionWithBoxes(
 
     // Batch fetch reentry counts
     const countPromises = equipments.map((eq: any) =>
-      supabase.from('service_orders').select('*', { count: 'exact', head: true }).eq('main_serial', eq.sn)
+      supabase.from('service_orders').select(COUNT_HEAD, { count: 'exact', head: true }).eq('main_serial', eq.sn)
     );
     const countResults = await Promise.all(countPromises);
 

@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useRef, useState, startTransition, type Dispatch, type SetStateAction } from 'react';
 import type { CurrentEntry, GuideData } from '../types/reception.types';
 import type { PxBoxSnapshot, PxLotInput } from '@/modules/recepcion/client/pxCapture';
-import { snapshotToGuideData, snapshotToPxUiState, pxFingerprintFromSnapshot } from '@/modules/recepcion/client/pxCapture';
+import { snapshotToGuideData, snapshotToPxUiState } from '@/modules/recepcion/client/pxCapture';
 import { getWorkstationLabel } from '../utils/pxWorkstation';
-import { validatePxIncrementalFinalizeReadiness } from '../utils/pxBoxUtils';
+import { getPxBoxesDefault } from '@/shared/constants/batchLimits';
+import { canCreateNewPxBox, validatePxIncrementalFinalizeReadiness } from '../utils/pxBoxUtils';
 import { notify, confirmDialog, promptDialog } from '@/components/ui';
 import {
   acquireBoxLockApi,
@@ -14,8 +15,8 @@ import {
   createPxBoxApi,
   fetchPxInProgressList,
   fetchPxReceptionSnapshot,
-  fetchPxReceptionStamp,
-  finalizePxReceptionApi,
+  finalizePxReceptionStepwise,
+  type PxFinalizeProgress,
   joinOrStartPxReceptionApi,
   reopenPxBoxApi,
   releaseBoxLockApi,
@@ -27,12 +28,9 @@ import {
   getIncrementalReceptionIdFromSession,
   updatePxReceptionHeaderApi,
 } from '../services/pxIncrementalApi';
-import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { getCurrentReceptionActor } from '@/modules/recepcion/client/receptionActor';
 
-// Sondeo del snapshot PX. Se subió de 4s a 10s y se pausa cuando la pestaña no
-// está visible para reducir egress de Supabase (descarga el snapshot completo en
-// cada tick mientras hay una recepción abierta).
-const POLL_MS = 10000;
+// Sin sondeo: el estado se actualiza tras cada mutación vía API (snapshot bajo demanda).
 const LEGACY_STORAGE_KEY = 'tc_erp_px_reception_state';
 
 type PxStateSlice = {
@@ -174,42 +172,43 @@ export function useReceptionPXIncremental({
   const [operatorId, setOperatorId] = useState<string | null>(null);
   const operatorIdRef = useRef<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [finalizeProgress, setFinalizeProgress] = useState<PxFinalizeProgress | null>(null);
   const scannedSeriesRef = useRef<any[]>([]);
   const boxMetaRef = useRef<Record<string, PxBoxSnapshot>>({});
-  // Última huella de sincronización aplicada. El sondeo compara contra esto para
-  // decidir si descarga el snapshot completo (evita egress cuando nada cambió).
-  const syncFingerprintRef = useRef<string | null>(null);
 
   operatorIdRef.current = operatorId;
 
   const ensureOperatorId = useCallback(async (): Promise<string | null> => {
     if (operatorIdRef.current) return operatorIdRef.current;
-    const supabase = getSupabaseBrowserClient();
-    if (!supabase) return null;
-    const { data } = await supabase.auth.getUser();
-    const id = data?.user?.id ?? null;
-    if (id) {
-      operatorIdRef.current = id;
-      setOperatorId(id);
+    const actor = await getCurrentReceptionActor();
+    if (actor.userId) {
+      operatorIdRef.current = actor.userId;
+      setOperatorId(actor.userId);
     }
-    return id;
+    return actor.userId;
   }, []);
 
   const applySnapshot = useCallback(
-    (snapshot: Awaited<ReturnType<typeof fetchPxReceptionSnapshot>>) => {
+    (
+      snapshot: Awaited<ReturnType<typeof fetchPxReceptionSnapshot>>,
+      options?: { hydrateScannedSeries?: boolean }
+    ) => {
       if (!snapshot) return;
-      const ui = snapshotToPxUiState(snapshot);
+      const hydrateScannedSeries =
+        options?.hydrateScannedSeries ??
+        snapshot.boxes.some((b) => (b.equipment?.length ?? 0) > 0);
+      const ui = snapshotToPxUiState(snapshot, { hydrateScannedSeries });
       pxState.setManifestItems(ui.manifestItems);
-      pxState.setScannedSeries(ui.scannedSeries);
+      if (hydrateScannedSeries) {
+        pxState.setScannedSeries(ui.scannedSeries);
+        scannedSeriesRef.current = ui.scannedSeries;
+      }
       pxState.setClosedBoxes(ui.closedBoxes);
-      scannedSeriesRef.current = ui.scannedSeries;
       setBoxMetaByCode(ui.boxMetaByCode);
       boxMetaRef.current = ui.boxMetaByCode;
       setBoxIdByCode(ui.boxIdByCode);
       setBoxVersionByCode(ui.boxVersionByCode);
       setReceptionVersion(snapshot.reception.version ?? 1);
-      syncFingerprintRef.current = pxFingerprintFromSnapshot(snapshot);
       pxState.setGuideData((prev) => ({
         ...prev,
         ...snapshotToGuideData(snapshot),
@@ -222,8 +221,8 @@ export function useReceptionPXIncremental({
   const getFreshBoxVersion = useCallback(
     async (boxCode: string): Promise<number> => {
       if (!incrementalReceptionId) return 1;
-      const snap = await fetchPxReceptionSnapshot(incrementalReceptionId);
-      applySnapshot(snap);
+      const snap = await fetchPxReceptionSnapshot(incrementalReceptionId, { includeEquipment: false });
+      applySnapshot(snap, { hydrateScannedSeries: false });
       return snap.boxes.find((b) => b.box_code === boxCode)?.version ?? 1;
     },
     [incrementalReceptionId, applySnapshot]
@@ -234,8 +233,8 @@ export function useReceptionPXIncremental({
 
   const refreshSnapshot = useCallback(async () => {
     if (!incrementalReceptionId) return;
-    const snap = await fetchPxReceptionSnapshot(incrementalReceptionId);
-    applySnapshot(snap);
+    const snap = await fetchPxReceptionSnapshot(incrementalReceptionId, { includeEquipment: false });
+    applySnapshot(snap, { hydrateScannedSeries: false });
   }, [incrementalReceptionId, applySnapshot]);
 
   const loadInProgressList = useCallback(async () => {
@@ -248,13 +247,10 @@ export function useReceptionPXIncremental({
   }, []);
 
   useEffect(() => {
-    getSupabaseBrowserClient()
-      ?.auth.getUser()
-      .then(({ data }) => {
-        const id = data?.user?.id ?? null;
-        operatorIdRef.current = id;
-        setOperatorId(id);
-      });
+    getCurrentReceptionActor().then((actor) => {
+      operatorIdRef.current = actor.userId;
+      setOperatorId(actor.userId);
+    });
     loadInProgressList();
 
     try {
@@ -280,14 +276,14 @@ export function useReceptionPXIncremental({
     (async () => {
       setIsLoadingIncrementalResume(true);
       try {
-        const snap = await fetchPxReceptionSnapshot(sessionId);
+        const snap = await fetchPxReceptionSnapshot(sessionId, { includeEquipment: true });
         if (cancelled || !snap) return;
         if (snap.reception.status !== 'EN_PROCESO') {
           setIncrementalReceptionIdInSession(null);
           return;
         }
         setIncrementalReceptionId(sessionId);
-        applySnapshot(snap);
+        applySnapshot(snap, { hydrateScannedSeries: true });
         pxState.setIsReceptionStarted(true);
       } catch {
         setIncrementalReceptionIdInSession(null);
@@ -300,46 +296,6 @@ export function useReceptionPXIncremental({
       cancelled = true;
     };
   }, [applySnapshot, pxState]);
-
-  useEffect(() => {
-    if (!pxState.isReceptionStarted || !incrementalReceptionId) {
-      if (pollRef.current) {
-        clearInterval(pollRef.current);
-        pollRef.current = null;
-      }
-      return;
-    }
-
-    pollRef.current = setInterval(() => {
-      // No sondear si la pestaña está en segundo plano: evita egress innecesario
-      // cuando el operador no está mirando la captura.
-      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
-      // Sondeo incremental: primero pide solo la huella (bytes), y descarga el
-      // snapshot completo SOLO si algo cambió respecto a lo ya aplicado.
-      void (async () => {
-        try {
-          const stamp = await fetchPxReceptionStamp(incrementalReceptionId);
-          if (syncFingerprintRef.current === null || stamp.fingerprint !== syncFingerprintRef.current) {
-            await refreshSnapshot();
-          }
-        } catch {
-          // Si falla la huella, intenta el snapshot completo como respaldo.
-          await refreshSnapshot().catch(() => undefined);
-        }
-      })();
-    }, POLL_MS);
-
-    // Al volver a la pestaña, refresca una vez de inmediato (sin esperar al tick).
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') refreshSnapshot().catch(() => undefined);
-    };
-    document.addEventListener('visibilitychange', onVisible);
-
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-      document.removeEventListener('visibilitychange', onVisible);
-    };
-  }, [pxState.isReceptionStarted, incrementalReceptionId, refreshSnapshot]);
 
   const onStartReceptionIncremental = useCallback(async () => {
     const result = await joinOrStartPxReceptionApi({
@@ -361,11 +317,11 @@ export function useReceptionPXIncremental({
     async (receptionId: string) => {
       setIsLoadingIncrementalResume(true);
       try {
-        const snap = await fetchPxReceptionSnapshot(receptionId);
+        const snap = await fetchPxReceptionSnapshot(receptionId, { includeEquipment: true });
         if (!snap) throw new Error('Recepción no encontrada');
         setIncrementalReceptionId(receptionId);
         setIncrementalReceptionIdInSession(receptionId);
-        applySnapshot(snap);
+        applySnapshot(snap, { hydrateScannedSeries: true });
         pxState.setIsReceptionStarted(true);
       } finally {
         setIsLoadingIncrementalResume(false);
@@ -431,6 +387,14 @@ export function useReceptionPXIncremental({
       try {
         let boxId = existingBoxId;
         if (!boxId) {
+          const limitCheck = canCreateNewPxBox(
+            boxMetaRef.current,
+            pxState.guideData.totalCajasEsperadas ?? getPxBoxesDefault()
+          );
+          if (!limitCheck.ok) {
+            notify.warning(limitCheck.reason);
+            return false;
+          }
           const created = await createPxBoxApi(incrementalReceptionId, boxCode, [lot]);
           boxId = created.id;
         } else {
@@ -1052,15 +1016,37 @@ export function useReceptionPXIncremental({
     }
 
     try {
-      await finalizePxReceptionApi({
-        receptionId: incrementalReceptionId,
-        expectedVersion: receptionVersion,
-        varianceReason,
-        operatorId,
-        operatorName: currentUserFullName,
+      setFinalizeProgress({
+        phase: 'prep',
+        prepDone: 0,
+        prepTotal: readiness.boxCodes.length,
+        promoteDone: 0,
+        promoteTotal: totalCaptured,
+        label: 'Iniciando…',
       });
 
-      notify.success('Recepción PX finalizada', { description: 'Equipos ingresados a Bodega Central (cajas BOX-xxx).' });
+      const result = await finalizePxReceptionStepwise(
+        {
+          receptionId: incrementalReceptionId,
+          expectedVersion: receptionVersion,
+          varianceReason,
+          operatorId,
+          operatorName: currentUserFullName,
+          prepTotal: readiness.boxCodes.length,
+          promoteTotal: totalCaptured,
+        },
+        setFinalizeProgress,
+      );
+
+      const batchDesc =
+        result.batches && (result.batches.prep > 0 || result.batches.promote > 0)
+          ? ` (${result.batches.prep} prep + ${result.batches.promote} lotes)`
+          : '';
+
+      notify.success(
+        result.already_finalized ? 'Recepción ya estaba finalizada' : 'Recepción PX finalizada',
+        { description: `Equipos en Bodega Central${batchDesc}.` },
+      );
 
       setIncrementalReceptionId(null);
       setIncrementalReceptionIdInSession(null);
@@ -1077,7 +1063,7 @@ export function useReceptionPXIncremental({
         guia: '',
         piloto: '',
         courier: '',
-        totalCajasEsperadas: 1,
+        totalCajasEsperadas: getPxBoxesDefault(),
       });
       pxState.setIsReceptionStarted(false);
 
@@ -1091,6 +1077,8 @@ export function useReceptionPXIncremental({
       if (onHistoryRefresh) await onHistoryRefresh();
     } catch (err: unknown) {
       notify.error(err instanceof Error ? err.message : 'Error al finalizar recepción');
+    } finally {
+      setFinalizeProgress(null);
     }
   }, [
     incrementalReceptionId,
@@ -1125,6 +1113,7 @@ export function useReceptionPXIncremental({
     onDeleteEquipmentIncremental,
     onDeleteBoxIncremental,
     handleFinalizePXIncremental,
+    finalizeProgress,
     refreshSnapshot,
   };
 }

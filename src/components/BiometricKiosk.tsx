@@ -3,6 +3,14 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
 import * as faceapi from 'face-api.js';
 import { Camera, CheckCircle2, AlertCircle, Loader2, LogIn, Coffee, Utensils, LogOut, ShieldAlert, Clock, User, Info } from 'lucide-react';
+import {
+  COMPANY_SHIFT_KIOSK_SELECT,
+  EMPLOYEE_BIOMETRIC_EMBEDDING_SELECT,
+  EMPLOYEE_KIOSK_VERIFY_SELECT,
+  EMPLOYEE_REGISTER_LIST_SELECT,
+  HR_POLICY_VERSION_SELECT,
+  TIME_LOG_KIOSK_SELECT,
+} from '@/shared/constants/dbProjections';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { notify } from '@/components/ui';
 import { useAttendanceState, AllowedAction } from '@/hooks/useAttendanceState';
@@ -109,7 +117,7 @@ export function BiometricKiosk() {
   const fetchPolicies = async () => {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
-    const { data } = await supabase.from('hr_policies_versions').select('*').eq('is_active', true).order('version', { ascending: false }).limit(1).single();
+    const { data } = await supabase.from('hr_policies_versions').select(HR_POLICY_VERSION_SELECT).eq('is_active', true).order('version', { ascending: false }).limit(1).single();
     if (data && data.settings) setPolicies(data.settings);
   };
 
@@ -134,14 +142,14 @@ export function BiometricKiosk() {
   const fetchEmployeeEmbeddings = async () => {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
-    const { data } = await supabase.from('employees').select('*').not('face_embedding', 'is', null);
+    const { data } = await supabase.from('employees').select(EMPLOYEE_BIOMETRIC_EMBEDDING_SELECT).not('face_embedding', 'is', null);
     if (data) setFaceData(data);
   };
 
   const fetchEmployeesForRegistration = async () => {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
-    const { data } = await supabase.from('employees').select('*').order('nombre_completo');
+    const { data } = await supabase.from('employees').select(EMPLOYEE_REGISTER_LIST_SELECT).order('nombre_completo');
     if (data) setRegisterEmployees(data);
   };
 
@@ -162,7 +170,7 @@ export function BiometricKiosk() {
     const lookupCodes = Array.from(new Set([employeeInput, formattedCode].filter(Boolean)));
     const { data: emp, error } = await supabase
       .from('employees')
-      .select('*')
+      .select(EMPLOYEE_KIOSK_VERIFY_SELECT)
       .in('codigo_empleado', lookupCodes)
       .single();
 
@@ -299,12 +307,12 @@ export function BiometricKiosk() {
       const supabase = getSupabaseBrowserClient();
       if (!supabase) return;
       
-      const { data: shift } = await supabase.from('company_shifts').select('*').eq('id', employee.shift_id).single();
+      const { data: shift } = await supabase.from('company_shifts').select(COMPANY_SHIFT_KIOSK_SELECT).eq('id', employee.shift_id).single();
       if (!shift) { showError(`Horario no asignado para ${employee.nombre_completo}`); return; }
 
       const localMidnight = new Date(new Date().setHours(0, 0, 0, 0));
       const { data: logs } = await supabase.from('time_logs')
-        .select('*')
+        .select(TIME_LOG_KIOSK_SELECT)
         .eq('employee_id', employee.id)
         .gte('timestamp', localMidnight.toISOString())
         .order('timestamp', { ascending: false });

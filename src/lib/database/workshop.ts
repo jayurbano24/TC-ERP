@@ -1,5 +1,8 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { logAudit } from "@/lib/database/audit";
+import { isWorkshopQueueApiEnabled } from "@/shared/feature-flags/clientFlags";
+import { fetchWorkshopCountsViaApi, fetchWorkshopQueuePage } from "@/lib/api/workshopQueue";
+import { fetchWorkshopTasksViaApi } from "@/lib/api/workshopTasks";
 
 const TALLER_WORKSHOP_AUDIT_ACTIONS = new Set([
   'INGRESO A TALLER',
@@ -96,6 +99,117 @@ export function isWarehouseStockOnlyInCentral(series: {
   const isPhysicalBodegaRack =
     rack.startsWith('BODEGA') || rack.startsWith('P-') || rack.startsWith('RACK-');
   return isPhysicalBodegaRack;
+}
+
+const QUEUE_PAGE_SIZE = 50;
+const MAX_QUEUE_OS = 5_000;
+
+function isRpcMissing(error: { code?: string } | null): boolean {
+  return error?.code === '42883' || error?.code === 'PGRST202';
+}
+
+/** Recorre la cola OS vía API v1 (Strangler). */
+async function collectQueueOsIdsViaApi(tab: string): Promise<string[]> {
+  const ids: string[] = [];
+  let cursor: string | null = null;
+
+  for (let page = 0; page < 100 && ids.length < MAX_QUEUE_OS; page++) {
+    const data = await fetchWorkshopQueuePage(tab, cursor);
+    for (const item of data.items) {
+      ids.push(item.service_order_id);
+    }
+    if (!data.nextCursor) break;
+    cursor = data.nextCursor;
+  }
+
+  return ids;
+}
+
+/** Recorre la cola OS vía RPC (mismo contrato que /api/v1/workshop/queue). */
+async function collectQueueOsIdsViaRpc(
+  supabase: NonNullable<ReturnType<typeof getSupabaseBrowserClient>>,
+  status: string
+): Promise<string[]> {
+  const ids: string[] = [];
+  let cursor: string | null = null;
+
+  for (let page = 0; page < 100 && ids.length < MAX_QUEUE_OS; page++) {
+    const { data, error } = await supabase.rpc('workshop_list_os_queue_page', {
+      p_status: status,
+      p_cursor: cursor,
+      p_limit: QUEUE_PAGE_SIZE + 1,
+    });
+
+    if (error) throw error;
+    if (!data?.length) break;
+
+    const hasMore = data.length > QUEUE_PAGE_SIZE;
+    const slice = hasMore ? data.slice(0, QUEUE_PAGE_SIZE) : data;
+    for (const row of slice) {
+      ids.push(String(row.service_order_id));
+    }
+    if (!hasMore) break;
+    cursor = String(slice[slice.length - 1].service_order_id);
+  }
+
+  return ids;
+}
+
+/** Series completas solo para OS de la cola (evita escanear toda la tabla). */
+async function fetchWorkshopSeriesForOsIds(
+  supabase: NonNullable<ReturnType<typeof getSupabaseBrowserClient>>,
+  osIds: string[],
+  status: string
+): Promise<any[]> {
+  if (osIds.length === 0) return [];
+
+  const rows: any[] = [];
+  const chunkSize = 80;
+
+  for (let i = 0; i < osIds.length; i += chunkSize) {
+    const chunk = osIds.slice(i, i + chunkSize);
+    const { data, error } = await supabase
+      .from('series')
+      .select(WORKSHOP_SERIES_SELECT)
+      .in('service_order_id', chunk)
+      .eq('current_status', status)
+      .order('updated_at', { ascending: false });
+
+    if (error) {
+      console.error('[workshop] series for OS chunk:', error.message || error);
+      continue;
+    }
+    if (data?.length) rows.push(...data);
+  }
+
+  return rows;
+}
+
+async function fetchWorkshopTasksViaOsQueue(
+  supabase: NonNullable<ReturnType<typeof getSupabaseBrowserClient>>,
+  tab: WorkshopTabId,
+  status: string
+): Promise<any[] | null> {
+  try {
+    let osIds: string[] = [];
+
+    if (isWorkshopQueueApiEnabled()) {
+      try {
+        osIds = await collectQueueOsIdsViaApi(tab);
+      } catch (apiErr) {
+        console.warn('[workshop] API queue fallback to RPC:', apiErr);
+        osIds = await collectQueueOsIdsViaRpc(supabase, status);
+      }
+    } else {
+      osIds = await collectQueueOsIdsViaRpc(supabase, status);
+    }
+
+    return fetchWorkshopSeriesForOsIds(supabase, osIds, status);
+  } catch (error: any) {
+    if (isRpcMissing(error)) return null;
+    console.warn('[workshop] OS queue path failed, using legacy scan:', error?.message || error);
+    return null;
+  }
 }
 
 async function fetchWorkshopSeriesPaginated(
@@ -334,8 +448,26 @@ export { groupWorkshopSeriesRows };
 
 /** Conteos por pestaña agrupados por Orden de Servicio (no por serie suelta). */
 export async function getWorkshopTaskCounts(): Promise<Record<string, number>> {
+  try {
+    const counts = await fetchWorkshopCountsViaApi();
+    if (Object.keys(counts).length > 0) {
+      return counts;
+    }
+  } catch (e) {
+    console.warn('[workshop] GET /api/v1/workshop/counts failed:', e);
+  }
+
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return {};
+
+  const { data: rpcCounts, error: rpcError } = await supabase.rpc('count_workshop_os_all_tabs');
+  if (!rpcError && rpcCounts && typeof rpcCounts === 'object') {
+    return rpcCounts as Record<string, number>;
+  }
+
+  if (rpcError && rpcError.code !== '42883' && rpcError.code !== 'PGRST202') {
+    console.warn('[workshop] RPC counts:', rpcError.message);
+  }
 
   const entries = Object.entries(TAB_TO_STATUS) as [WorkshopTabId, string][];
   const results = await Promise.all(
@@ -358,8 +490,27 @@ export async function getWorkshopTaskCounts(): Promise<Record<string, number>> {
 }
 
 export async function getWorkshopTasks(tab?: WorkshopTabId) {
+  if (!tab) return [];
+
+  try {
+    return await fetchWorkshopTasksViaApi(tab);
+  } catch (apiErr) {
+    console.error('[workshop] GET /api/v1/workshop/tasks failed:', apiErr);
+  }
+
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return [];
+
+  if (tab !== 'listo' && TAB_TO_STATUS[tab]) {
+    const status = TAB_TO_STATUS[tab];
+    const queueRows = await fetchWorkshopTasksViaOsQueue(supabase, tab, status);
+
+    if (queueRows !== null) {
+      let rows = queueRows;
+      rows = await enrichWorkshopServiceOrders(supabase, rows);
+      return groupWorkshopSeriesRows(rows);
+    }
+  }
 
   const statuses =
     tab && TAB_TO_STATUS[tab] ? [TAB_TO_STATUS[tab]] : WORKSHOP_STATUSES;

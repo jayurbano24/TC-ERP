@@ -1,3 +1,4 @@
+import { OUTBOX_EVENT_SELECT } from '@/shared/constants/dbProjections';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { IEventBus } from '../shared/events/IEventBus';
 
@@ -32,7 +33,7 @@ export class OutboxPublisherWorker {
 
       const { data: events } = await this.supabase
         .from('outbox_event')
-        .select('*')
+        .select(OUTBOX_EVENT_SELECT)
         .in('status', ['PENDING', 'FAILED'])
         .lt('attempts', this.maxAttempts)
         .or(`next_retry.is.null,next_retry.lte.${now}`)

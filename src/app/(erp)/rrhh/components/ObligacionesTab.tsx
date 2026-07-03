@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Card, Button, Spinner, notify } from '@/components/ui';
+import { EMPLOYEE_PAYROLL_OBLIGATIONS_SELECT, HR_PAYROLL_CLOSURE_SELECT } from '@/shared/constants/dbProjections';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { Calculator, Download, CheckCircle2, History, AlertCircle, FileText, PiggyBank, Briefcase } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -137,7 +138,7 @@ function GenerarCierre() {
     setLoading(true);
     const supabase = getSupabaseBrowserClient();
     if (supabase) {
-      const { data } = await supabase.from('employees').select('*, hr_departments(name)').in('estado_rrhh', ['Activo', null]);
+      const { data } = await supabase.from('employees').select(EMPLOYEE_PAYROLL_OBLIGATIONS_SELECT).in('estado_rrhh', ['Activo', null]);
       if (data) {
         const calculados = data.map(calculateTaxesAndObligations);
         setEmpleadosData(calculados);
@@ -299,7 +300,7 @@ function HistorialPeriodos() {
     const fetchHistorial = async () => {
       const supabase = getSupabaseBrowserClient();
       if (!supabase) return;
-      const { data } = await supabase.from('hr_payroll_closures').select('*').order('created_at', { ascending: false });
+      const { data } = await supabase.from('hr_payroll_closures').select(HR_PAYROLL_CLOSURE_SELECT).order('created_at', { ascending: false });
       setClosures(data || []);
       setLoading(false);
     };

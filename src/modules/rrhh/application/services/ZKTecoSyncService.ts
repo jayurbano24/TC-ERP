@@ -1,3 +1,7 @@
+import {
+  RRHH_ASISTENCIA_SELECT,
+  ZK_RAW_LOG_SELECT,
+} from '@/shared/constants/dbProjections';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
 import { RegistrarAsistenciaCommand } from '../commands/RegistrarAsistenciaCommand';
 import { RrhhSupabaseRepository } from '../../infrastructure/repositories/RrhhSupabaseRepository';
@@ -15,7 +19,7 @@ export class ZKTecoSyncService {
     // 1. Obtener el raw log
     const { data: rawLog, error: rawError } = await supabase
       .from('zk_raw_logs')
-      .select('*')
+      .select(ZK_RAW_LOG_SELECT)
       .eq('id', rawLogId)
       .single();
 
@@ -44,7 +48,7 @@ export class ZKTecoSyncService {
     // 3. Buscar si ya existe una asistencia para este empleado en este día
     const { data: asistenciaHoy } = await supabase
       .from('rrhh_asistencia')
-      .select('*')
+      .select(RRHH_ASISTENCIA_SELECT)
       .eq('empleado_id', employee.id)
       .eq('fecha', fechaSolo)
       .single();

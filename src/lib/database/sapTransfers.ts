@@ -1,3 +1,4 @@
+import { SAP_TRANSFER_DOC_SELECT } from '@/shared/constants/dbProjections';
 import { isCourierLabel } from '@/lib/cacAgencyUtils';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { SAP_TRANSFER_STATUS } from '@/modules/sap-transfer';
@@ -62,7 +63,7 @@ export async function createOrGetSapTransfer(params: {
 
   const { data: existing, error: fetchError } = await supabase
     .from('sap_transfer_documents')
-    .select('*')
+    .select(SAP_TRANSFER_DOC_SELECT)
     .eq('reception_guide_id', params.receptionGuideId)
     .eq('sap_document_number', sapDoc)
     .maybeSingle();

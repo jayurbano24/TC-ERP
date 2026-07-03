@@ -10,7 +10,7 @@ export const PxReceptionTab = (props: any) => {
   const {
     guideData, setGuideData, systemPxProviders, manifestItems, scannedSeries,
     useIncrementalCapture, pxInProgressList, isLoadingIncrementalResume,
-    onResumePxReception, isReceptionStarted, isSubmittingPX, lastSavedAt,
+    onResumePxReception, isReceptionStarted, isSubmittingPX, finalizeProgress, lastSavedAt,
     incrementalReceptionId, boxMetaByCode, closedBoxes, handleFinalizePX,
     handleAddSN_PX, currentEntry, setCurrentEntry, currentScans, setCurrentScans,
     systemTechnologies, filteredBrands, filteredModels, systemModels,
@@ -201,6 +201,7 @@ export const PxReceptionTab = (props: any) => {
         handleFinalizePX={handleFinalizePX}
         incrementalReceptionId={incrementalReceptionId}
         isSubmittingPX={isSubmittingPX}
+        finalizeProgress={finalizeProgress}
         lastSavedAt={lastSavedAt}
         manifestItems={manifestItems}
         openBoxCount={openBoxCount}

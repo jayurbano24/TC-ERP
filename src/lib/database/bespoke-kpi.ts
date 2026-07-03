@@ -1,3 +1,4 @@
+import { TALLER_KPI_GOAL_SELECT } from '@/shared/constants/dbProjections';
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 export async function getBespokeKPIs(timeRange: string = 'Hoy') {
@@ -221,7 +222,7 @@ export async function getBespokeKPIs(timeRange: string = 'Hoy') {
 
   let kpiGoals: any[] = [];
   try {
-    const { data } = await supabase.from('taller_kpi_goals').select('*');
+    const { data } = await supabase.from('taller_kpi_goals').select(TALLER_KPI_GOAL_SELECT);
     if (data) kpiGoals = data;
   } catch(e) {}
 

@@ -1,5 +1,6 @@
 'use client';
 
+import { RECEPTION_UNDO_SELECT } from '@/shared/constants/dbProjections';
 import type React from 'react';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { notify, confirmDialog } from '@/components/ui/messaging/messageStore';
@@ -82,7 +83,7 @@ export async function runUndoClassification(ctx: UndoCtx, guia: string) {
 
       const { data: updatedRec } = await supabase
         .from('receptions')
-        .select('*')
+        .select(RECEPTION_UNDO_SELECT)
         .eq('id', ctx.activeReception.id)
         .single();
 

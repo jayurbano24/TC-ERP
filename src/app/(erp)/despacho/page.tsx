@@ -28,6 +28,22 @@ import {
   Upload
 } from 'lucide-react';
 
+import { fetchDespachoBoxItems } from '@/lib/api/despachoBoxItems';
+import {
+  fetchDespachoBoxesViaApi,
+  fetchDespachoHistoryViaApi,
+  fetchDespachoPendientesViaApi,
+} from '@/lib/api/despachoReads';
+import { fetchReferenceCatalogsViaApi } from '@/lib/api/referenceCatalogs';
+
+const SERIES_BOX_SELECT =
+  'id, serial_number, service_order_id, current_status, current_box_id, brand_id, model_id, material, valuation, updated_at, created_at';
+const SERIES_SIBLING_SELECT =
+  'id, serial_number, service_order_id, material, valuation, created_at';
+
+const BOX_DESPACHO_SELECT =
+  'id, box_code, brand_id, model_id, capacity, status, created_at';
+
 type DispatchItem = {
   id: string;
   dbId?: string;
@@ -42,8 +58,27 @@ type DispatchItem = {
 
 const EMPTY_LIST: any[] = [];
 
-async function fetchDespachoData(supabase: any): Promise<{ history: any[]; dispatches: DispatchItem[] }> {
-  // 1. Historial de despachos
+function getJoinedServiceOrder(row: any): { id?: string; sap_integration_status?: string } | null {
+  const so = row?.service_orders;
+  if (!so) return null;
+  if (Array.isArray(so)) return so[0] ?? null;
+  return so;
+}
+
+async function fetchDespachoData(): Promise<{ history: any[]; dispatches: DispatchItem[] }> {
+  try {
+    const [history, dispatches] = await Promise.all([
+      fetchDespachoHistoryViaApi(),
+      fetchDespachoBoxesViaApi(),
+    ]);
+    return { history, dispatches: dispatches as DispatchItem[] };
+  } catch (apiErr) {
+    console.warn('[despacho] GET /api/v1/despacho/* failed, legacy fallback:', apiErr);
+  }
+
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return { history: EMPTY_LIST, dispatches: EMPTY_LIST as DispatchItem[] };
+
   const { data: hist } = await supabase
     .from('dispatches')
     .select(`
@@ -57,11 +92,14 @@ async function fetchDespachoData(supabase: any): Promise<{ history: any[]; dispa
     `)
     .order('created_at', { ascending: false });
 
-  // 2. Cajas activas (master boxes de despacho)
   let dispatches: DispatchItem[] = [];
   const { data: recData } = await supabase.from('receptions').select('id').eq('guide_number', 'MANUAL_BOXES_DESPACHO').single();
   if (recData) {
-    const { data: boxes } = await supabase.from('boxes').select('*').eq('reception_id', recData.id).order('created_at', { ascending: false });
+    const { data: boxes } = await supabase
+      .from('boxes')
+      .select(BOX_DESPACHO_SELECT)
+      .eq('reception_id', recData.id)
+      .order('created_at', { ascending: false });
     if (boxes && boxes.length > 0) {
       dispatches = boxes.map((b: any) => ({
         id: b.box_code,
@@ -71,7 +109,7 @@ async function fetchDespachoData(supabase: any): Promise<{ history: any[]; dispa
         destino: 'Pendiente de asignar',
         tipo: 'Master Box',
         unidades: b.capacity || 0,
-        estatus: b.status === 'open' ? 'Pendiente' : 'En Ruta',
+        estatus: b.status === 'open' ? ('Pendiente' as const) : ('En Ruta' as const),
         fecha: new Date(b.created_at).toLocaleDateString(),
       }));
     }
@@ -80,26 +118,13 @@ async function fetchDespachoData(supabase: any): Promise<{ history: any[]; dispa
   return { history: hist ?? [], dispatches };
 }
 
-async function fetchDespachoCatalogs(supabase: any) {
-  const [b, m, t] = await Promise.all([
-    supabase.from('brands').select('*'),
-    supabase.from('models').select('*'),
-    supabase.from('technologies').select('*'),
-  ]);
-  return { brands: b.data ?? [], models: m.data ?? [], techs: t.data ?? [] };
-}
-
 export default function DespachoPage() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<'operacion'|'historial'>('operacion');
 
   const despachoQuery = useQuery({
-    queryKey: ['despacho-data'],
-    queryFn: async () => {
-      const supabase = getSupabaseBrowserClient();
-      if (!supabase) return { history: EMPTY_LIST, dispatches: EMPTY_LIST as DispatchItem[] };
-      return fetchDespachoData(supabase);
-    },
+    queryKey: ['despacho-data', 'v1'],
+    queryFn: fetchDespachoData,
   });
   const dispatchHistory = despachoQuery.data?.history ?? EMPTY_LIST;
 
@@ -117,12 +142,17 @@ export default function DespachoPage() {
   const [boxQty, setBoxQty] = useState<number | ''>('');
   
   const catalogsQuery = useQuery({
-    queryKey: ['despacho-catalogs'],
+    queryKey: ['despacho-catalogs', 'v1'],
     queryFn: async () => {
-      const supabase = getSupabaseBrowserClient();
-      if (!supabase) return { brands: EMPTY_LIST, models: EMPTY_LIST, techs: EMPTY_LIST };
-      return fetchDespachoCatalogs(supabase);
+      const lookups = await fetchReferenceCatalogsViaApi();
+      return {
+        brands: lookups.brands,
+        models: lookups.models,
+        techs: lookups.technologies,
+      };
     },
+    staleTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
   const dbBrands: any[] = catalogsQuery.data?.brands ?? EMPTY_LIST;
   const dbModels: any[] = catalogsQuery.data?.models ?? EMPTY_LIST;
@@ -198,26 +228,43 @@ export default function DespachoPage() {
   const [scanCAS, setScanCAS] = useState('');
 
   const loadBoxItems = async (boxDbId: string) => {
+    try {
+      const items = await fetchDespachoBoxItems(boxDbId);
+      setBoxItems(items);
+      return;
+    } catch (e) {
+      console.warn('[despacho] API box items fallback:', e);
+    }
+
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
-    const { data } = await supabase.from('series').select('*, service_orders(id)').eq('current_box_id', boxDbId).order('updated_at', { ascending: false });
+    const { data } = await supabase
+      .from('series')
+      .select(`${SERIES_BOX_SELECT}, service_orders(id)`)
+      .eq('current_box_id', boxDbId)
+      .order('updated_at', { ascending: false });
     if (data && data.length > 0) {
-      const osIds = data.map(d => d.service_orders?.id).filter(Boolean);
+      const osIds = data.map((d) => getJoinedServiceOrder(d)?.id).filter(Boolean) as string[];
       let siblingsData: any[] = [];
       if (osIds.length > 0) {
-        const { data: siblings } = await supabase.from('series').select('*').in('service_order_id', osIds).order('created_at', { ascending: true });
+        const { data: siblings } = await supabase
+          .from('series')
+          .select(SERIES_SIBLING_SELECT)
+          .in('service_order_id', osIds)
+          .order('created_at', { ascending: true });
         if (siblings) siblingsData = siblings;
       }
       
       const enrichedData: any[] = [];
       const processedOsIds = new Set();
 
-      data.forEach(item => {
-        if (item.service_orders?.id) {
-          if (processedOsIds.has(item.service_orders.id)) return; // Ya procesado
-          processedOsIds.add(item.service_orders.id);
-          
-          const siblings = siblingsData.filter(s => s.service_order_id === item.service_orders.id);
+      data.forEach((item) => {
+        const serviceOrder = getJoinedServiceOrder(item);
+        if (serviceOrder?.id) {
+          if (processedOsIds.has(serviceOrder.id)) return;
+          processedOsIds.add(serviceOrder.id);
+
+          const siblings = siblingsData.filter((s) => s.service_order_id === serviceOrder.id);
           const siblingWithMaterial = siblings.find(s => s.material && s.valuation) || siblings[0] || item;
 
           // Asegurar que la serie principal (la de SAP) aparezca como S-1
@@ -267,7 +314,11 @@ export default function DespachoPage() {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
     
-    const { data: sData } = await supabase.from('series').select('*, service_orders(sap_integration_status)').eq('serial_number', scanSN).single();
+    const { data: sData } = await supabase
+      .from('series')
+      .select(`${SERIES_BOX_SELECT}, service_orders(sap_integration_status)`)
+      .eq('serial_number', scanSN)
+      .single();
     if (!sData) {
       notify.warning('Serie no encontrada.'); return;
     }
@@ -281,7 +332,8 @@ export default function DespachoPage() {
     }
 
     // 1. Validar Matriz de Bloqueos SAP (gate vía port sap-integration)
-    const sapStatus = sData.service_orders?.sap_integration_status || sData.sap_status || 'Pendiente Validación';
+    const scanServiceOrder = getJoinedServiceOrder(sData);
+    const sapStatus = scanServiceOrder?.sap_integration_status || 'Pendiente Validación';
     const sapDecision = sapValidationReader.authorize({ integrationStatus: sapStatus }, 'dispatch');
     if (!sapDecision.allowed) {
       notify.error('Bloqueo operativo (Integración SAP)', { description: `El equipo no puede despacharse porque su estado es "${sapStatus}". Solo los equipos "Validado SAP" tienen permitido el despacho.`, duration: 0 });
@@ -301,7 +353,10 @@ export default function DespachoPage() {
     // 3. Traer las series hermanas (S1, S2, S3, S4)
     let idsToUpdate = [sData.id];
     if (sData.service_order_id) {
-      const { data: siblings } = await supabase.from('series').select('*').eq('service_order_id', sData.service_order_id);
+      const { data: siblings } = await supabase
+        .from('series')
+        .select(SERIES_SIBLING_SELECT)
+        .eq('service_order_id', sData.service_order_id);
       if (siblings && siblings.length > 0) {
         // Validar si alguna serie hermana tiene un material/lote distinto (en caso de que estuvieran cargados)
         const mismatch = siblings.find(s => s.material && s.valuation && (s.material !== sData.material || s.valuation !== sData.valuation));
@@ -888,18 +943,16 @@ export default function DespachoPage() {
                 </div>
                 <Button variant="primary" onClick={async () => {
                   try {
-                    const res = await apiFetch('/api/despacho/pendientes');
-                    if (res.ok) {
-                      const data = await res.json();
-                      const ws = XLSX.utils.json_to_sheet(data.data || []);
-                      const wb = XLSX.utils.book_new();
-                      XLSX.utils.book_append_sheet(wb, ws, "Despachos Pendientes");
-                      XLSX.writeFile(wb, `Despachos_CQRS_${new Date().toISOString().split('T')[0]}.xlsx`);
-                    } else {
-                      notify.info('El nuevo módulo Despacho (Feature Flag USE_NEW_DESPACHO_MODULE) no está activo.');
-                    }
-                  } catch(e) {
+                    const items = await fetchDespachoPendientesViaApi();
+                    const ws = XLSX.utils.json_to_sheet(items);
+                    const wb = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(wb, ws, "Despachos Pendientes");
+                    XLSX.writeFile(wb, `Despachos_CQRS_${new Date().toISOString().split('T')[0]}.xlsx`);
+                  } catch (e) {
                     console.error(e);
+                    notify.error('No se pudo exportar pendientes', {
+                      description: 'Verifique que el módulo Despacho CQRS esté activo.',
+                    });
                   }
                 }}>
                   Exportar Reporte CQRS

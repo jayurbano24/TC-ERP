@@ -1,4 +1,5 @@
 import { memo } from 'react';
+import { getPxBoxesDefault } from '@/shared/constants/batchLimits';
 
 type Props = {
   guideData: any;
@@ -91,15 +92,23 @@ export const PxHeaderFields = memo(function PxHeaderFields({
         </select>
       </div>
       <div className="space-y-2">
-        <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Cantidad Total Cajas (Aprox)</label>
+        <label className="text-xs font-black text-slate-400 uppercase tracking-widest">
+          Cantidad de CAJAS (no equipos — cada caja puede tener 40–80 series)
+        </label>
         <input
           type="number"
-          min="1"
+          min={1}
+          max={100}
+          placeholder={`Ej: ${getPxBoxesDefault()}`}
           className="w-full h-12 bg-slate-50 border-2 border-slate-100 rounded-xl px-4 text-sm font-bold outline-none focus:border-[#2ec4f1] transition-all"
-          value={guideData.totalCajasEsperadas || 1}
-          onChange={(e) =>
-            setGuideData({ ...guideData, totalCajasEsperadas: parseInt(e.target.value) || 1 })
-          }
+          value={guideData.totalCajasEsperadas || getPxBoxesDefault()}
+          onChange={(e) => {
+            const n = parseInt(e.target.value, 10);
+            const clamped = Number.isFinite(n)
+              ? Math.min(Math.max(n, 1), 100)
+              : getPxBoxesDefault();
+            setGuideData({ ...guideData, totalCajasEsperadas: clamped });
+          }}
         />
       </div>
     </div>

@@ -1,3 +1,9 @@
+import {
+  ACCESSORY_BOX_LIST_SELECT,
+  ACCESSORY_BOX_SELECT,
+  ACCESSORY_MOVEMENT_SELECT,
+  ACCESSORY_SELECT,
+} from '@/shared/constants/dbProjections';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 
 export async function getAccessories() {
@@ -6,7 +12,7 @@ export async function getAccessories() {
 
   const { data, error } = await supabase
     .from('accessories')
-    .select('*')
+    .select(ACCESSORY_SELECT)
     .order('name');
     
   if (error) {
@@ -99,7 +105,7 @@ export async function registerAccessoryDispatch(
   // Verify stock first
   const { data: accessory } = await supabase
     .from('accessories')
-    .select('*')
+    .select(ACCESSORY_SELECT)
     .eq('id', accessoryId)
     .single();
 
@@ -116,7 +122,7 @@ export async function registerAccessoryDispatch(
     
     if (boxId) {
       // Dispatch from specific box
-      const { data: box } = await supabase.from('accessory_boxes').select('*').eq('id', boxId).single();
+      const { data: box } = await supabase.from('accessory_boxes').select(ACCESSORY_BOX_SELECT).eq('id', boxId).single();
       if (!box || box.status !== 'Clasificado Y Limpio') {
         return { error: 'Caja no encontrada o no está en estado Limpio.' };
       }
@@ -128,7 +134,7 @@ export async function registerAccessoryDispatch(
       // Check clean boxes and deduct sequentially
       const { data: cleanBoxes } = await supabase
         .from('accessory_boxes')
-        .select('*')
+        .select(ACCESSORY_BOX_SELECT)
         .eq('accessory_id', accessoryId)
         .eq('status', 'Clasificado Y Limpio')
         .gt('quantity', 0)
@@ -175,10 +181,7 @@ export async function getAccessoryBoxes() {
 
   const { data, error } = await supabase
     .from('accessory_boxes')
-    .select(`
-      *,
-      accessories(name, sku)
-    `)
+    .select(ACCESSORY_BOX_LIST_SELECT)
     .gt('quantity', 0)
     .order('created_at', { ascending: false });
 
@@ -318,10 +321,7 @@ export async function getAccessoryMovements(accessoryId?: string) {
 
   let query = supabase
     .from('accessory_movements')
-    .select(`
-      *,
-      accessories(name, sku)
-    `)
+    .select(`${ACCESSORY_MOVEMENT_SELECT}, accessories(name, sku)`)
     .order('created_at', { ascending: false })
     .limit(100);
 

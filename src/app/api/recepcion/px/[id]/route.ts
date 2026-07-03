@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getPxReceptionSnapshot, getPxReceptionSyncStamp, updatePxReceptionHeader } from '@/modules/recepcion/server/pxCapture';
+import { getPxReceptionSnapshot, updatePxReceptionHeader } from '@/modules/recepcion/server/pxCapture';
 import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
 import { ROLES_RECEPCION } from '@/shared/authz/roleGuard';
 import { parseJsonBody } from '@/shared/validation/parseRequest';
@@ -11,17 +11,8 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 export const GET = withErrorHandler(async (req: Request, context: RouteContext) => {
   const { id } = await context.params;
-
-  // Modo ligero para el sondeo: solo huella de cambios (ahorro de egress).
-  if (new URL(req.url).searchParams.get('stamp') === '1') {
-    const stamp = await getPxReceptionSyncStamp(id);
-    if (!stamp) {
-      return NextResponse.json({ success: false, error: 'Recepción no encontrada.' }, { status: 404 });
-    }
-    return NextResponse.json({ success: true, version: stamp.version, fingerprint: stamp.fingerprint });
-  }
-
-  const snapshot = await getPxReceptionSnapshot(id);
+  const includeEquipment = new URL(req.url).searchParams.get('includeEquipment') === '1';
+  const snapshot = await getPxReceptionSnapshot(id, { includeEquipment });
   if (!snapshot) {
     return NextResponse.json({ success: false, error: 'Recepción no encontrada.' }, { status: 404 });
   }
@@ -43,6 +34,6 @@ export const PATCH = withErrorHandler(async (req: Request, context: RouteContext
     return NextResponse.json(result, { status: 409 });
   }
 
-  const snapshot = await getPxReceptionSnapshot(id);
+  const snapshot = await getPxReceptionSnapshot(id, { includeEquipment: false });
   return NextResponse.json({ success: true, version: result.version, data: snapshot });
 }, { module: 'recepcion-px', action: 'update-header', roles: ROLES_RECEPCION });

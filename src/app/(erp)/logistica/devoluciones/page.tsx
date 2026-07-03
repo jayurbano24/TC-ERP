@@ -28,6 +28,7 @@ import { ReturnsReportPanel } from './components/ReturnsReportPanel';
 import type { CatalogAgency } from '@/app/(erp)/produccion/backoffice/types';
 import { getReceptions } from '@/modules/recepcion/client/receptions';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { RECEPTION_DETAIL_SELECT } from '@/shared/constants/dbProjections';
 import { getActualUserFullName } from '@/lib/auth';
 import { useEffect } from 'react';
 
@@ -273,9 +274,13 @@ export default function DevolucionesPage() {
     try {
       const supabase = getSupabaseBrowserClient();
       if (!supabase) return;
-      const { data: rec } = await supabase.from('receptions').select('*').eq('id', id).single();
+      const { data: rec } = await supabase
+        .from('receptions')
+        .select(RECEPTION_DETAIL_SELECT)
+        .eq('id', id)
+        .single();
       const { data: series } = await supabase.from('series').select(`
-        *,
+        id, serial_number, current_status, brand_id, model_id, material, valuation, current_box_id,
         models(name, technologies(name)),
         brands(name)
       `).eq('current_reception_id', id);
@@ -635,7 +640,7 @@ export default function DevolucionesPage() {
       // 1. Encontrar la recepción maestra que contiene esta guía
       const { data: masterRecs } = await supabase
         .from('receptions')
-        .select('*')
+        .select(RECEPTION_DETAIL_SELECT)
         .contains('processed_guides', [guideNumber]);
 
       let masterRec = null;
@@ -645,7 +650,7 @@ export default function DevolucionesPage() {
         // Fallback: buscar directamente por guide_number
         const { data: directRecs } = await supabase
           .from('receptions')
-          .select('*')
+          .select(RECEPTION_DETAIL_SELECT)
           .eq('guide_number', guideNumber);
         if (directRecs && directRecs.length > 0) {
            masterRec = directRecs[0];

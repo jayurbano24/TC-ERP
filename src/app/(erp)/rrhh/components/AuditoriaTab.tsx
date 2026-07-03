@@ -2,6 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { Card, Button, Spinner, DataTable, type DataTableColumn } from '@/components/ui';
+import {
+  EMPLOYEE_ABSENCE_AUDIT_SELECT,
+  TIME_LOG_AUDIT_SELECT,
+} from '@/shared/constants/dbProjections';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { FileWarning } from 'lucide-react';
 
@@ -22,13 +26,13 @@ export default function AuditoriaTab() {
     if (supabase) {
       let logsQuery = supabase
         .from('time_logs')
-        .select('*, employees(id, nombre_completo, codigo_empleado), time_justifications(id, descripcion, resolucion)')
+        .select(TIME_LOG_AUDIT_SELECT)
         .order('timestamp', { ascending: false })
         .limit(100);
 
       let absQuery = supabase
         .from('employee_absences')
-        .select('*, employees(nombre_completo)')
+        .select(EMPLOYEE_ABSENCE_AUDIT_SELECT)
         .order('fecha', { ascending: false });
 
       if (selectedDate) {

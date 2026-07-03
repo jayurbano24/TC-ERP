@@ -63,7 +63,9 @@ export default function ConsultaPage() {
         if (supabase) {
           const { data: sibs } = await supabase
             .from('series')
-            .select('*')
+            .select(
+              'id, serial_number, service_order_id, current_status, brand_id, model_id, material, valuation, current_box_id, current_reception_id, created_at, updated_at'
+            )
             .eq('service_order_id', exactMatch.service_order_id)
             .order('created_at', { ascending: true });
           if (sibs?.length) siblings = sibs;

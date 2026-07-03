@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { getPxBoxesDefault } from '@/shared/constants/batchLimits';
 import { PxManifestItem, PxScannedSeries, GuideData, CurrentEntry } from '../types/reception.types';
 
 /** Solo preferencias de UI — los datos operativos viven en Supabase (captura incremental). */
@@ -26,7 +27,7 @@ export const useReceptionPX = () => {
     guia: '',
     piloto: '',
     courier: '',
-    totalCajasEsperadas: 1,
+    totalCajasEsperadas: getPxBoxesDefault(),
   });
 
   const [currentEntry, setCurrentEntry] = useState<CurrentEntry>({

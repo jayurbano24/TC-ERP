@@ -1,15 +1,14 @@
 import { getSupabaseServerClient } from '@/lib/supabase/server';
 import {
-  buildPxReceptionFingerprint,
   type PxBoxSnapshot,
   type PxEquipmentRow,
   type PxLotInput,
   type PxReceptionSnapshot,
-  type PxReceptionSyncStamp,
   pxFingerprintFromSnapshot,
   snapshotToGuideData,
   snapshotToPxUiState,
 } from '@/lib/database/pxReceptionCapture.shared';
+import { resolvePxBoxLimit, getPxFinalizePromoteBatchSize, BATCH_LIMITS } from '@/shared/constants/batchLimits';
 import {
   DOMAIN_EVENT_SOURCE,
   emitDomainEventServer,
@@ -30,7 +29,6 @@ export type {
   PxBoxSnapshot,
   PxEquipmentRow,
   PxReceptionSnapshot,
-  PxReceptionSyncStamp,
 } from '@/lib/database/pxReceptionCapture.shared';
 
 export {
@@ -245,7 +243,7 @@ export async function joinOrStartPxReception(input: PxStartInput): Promise<
     p_sap_document: sap,
     p_carrier: input.guideData.proveedorPx || 'N/A',
     p_notes: buildPxNotes(input.guideData, input.operatorName, input.guideData.totalCajasEsperadas || 0),
-    p_expected_units_sap: input.guideData.totalCajasEsperadas || null,
+    p_expected_units_sap: resolvePxBoxLimit(input.guideData.totalCajasEsperadas),
     p_preferred_guide: input.preferredGuideNumber || input.guideData.guia || null,
     p_operator_id: input.operatorId || null,
     p_operator_name: input.operatorName,
@@ -350,11 +348,11 @@ export async function createPxCaptureBox(
     .eq('reception_id', receptionId)
     .neq('rack_location', 'ELIMINADO');
 
-  const maxBoxes = rec.expected_units_sap ?? 0;
-  if (maxBoxes > 0 && (existingBoxCount || 0) >= maxBoxes) {
+  const maxBoxes = resolvePxBoxLimit(rec.expected_units_sap);
+  if ((existingBoxCount || 0) >= maxBoxes) {
     return {
       success: false,
-      error: `Límite de ${maxBoxes} caja(s) alcanzado. Edite "Cantidad Total Cajas" en la cabecera si necesita agregar más.`,
+      error: `Límite de ${maxBoxes} caja(s) alcanzado. Edite "Cantidad Total Cajas" en la cabecera (máx. ${resolvePxBoxLimit(null)}).`,
     };
   }
 
@@ -480,7 +478,11 @@ export async function appendPxCaptureLots(
   return { success: true, declaredQuantity: newDeclared };
 }
 
-export async function getPxReceptionSnapshot(receptionId: string): Promise<PxReceptionSnapshot | null> {
+export async function getPxReceptionSnapshot(
+  receptionId: string,
+  options?: { includeEquipment?: boolean }
+): Promise<PxReceptionSnapshot | null> {
+  const includeEquipment = options?.includeEquipment ?? false;
   const supabase = getSupabaseServerClient();
 
   const { data: reception, error } = await supabase
@@ -491,6 +493,19 @@ export async function getPxReceptionSnapshot(receptionId: string): Promise<PxRec
 
   if (error || !reception) return null;
 
+  const equipmentQuery = includeEquipment
+    ? supabase
+        .from('px_reception_equipment')
+        .select('id, box_id, main_serial, serial_s2, serial_s3, serial_s4, material, captured_at')
+        .eq('reception_id', receptionId)
+        .eq('capture_status', 'active')
+        .order('captured_at', { ascending: true })
+    : supabase
+        .from('px_reception_equipment')
+        .select('box_id')
+        .eq('reception_id', receptionId)
+        .eq('capture_status', 'active');
+
   const [{ data: boxes }, { data: lots }, { data: equipment }] = await Promise.all([
     supabase
       .from('boxes')
@@ -498,13 +513,11 @@ export async function getPxReceptionSnapshot(receptionId: string): Promise<PxRec
       .eq('reception_id', receptionId)
       .neq('rack_location', 'ELIMINADO')
       .order('created_at', { ascending: true }),
-    supabase.from('px_reception_lots').select('*').eq('reception_id', receptionId),
     supabase
-      .from('px_reception_equipment')
-      .select('id, box_id, main_serial, serial_s2, serial_s3, serial_s4, material, captured_at')
-      .eq('reception_id', receptionId)
-      .eq('capture_status', 'active')
-      .order('captured_at', { ascending: true }),
+      .from('px_reception_lots')
+      .select('id, box_id, technology_name, brand_name, model_name, expected_units, brand_id, model_id')
+      .eq('reception_id', receptionId),
+    equipmentQuery,
   ]);
 
   const lotsByBox = new Map<string, typeof lots>();
@@ -514,28 +527,36 @@ export async function getPxReceptionSnapshot(receptionId: string): Promise<PxRec
   }
 
   const equipByBox = new Map<string, PxEquipmentRow[]>();
+  const countByBox = new Map<string, number>();
+
   for (const eq of equipment || []) {
-    if (!equipByBox.has(eq.box_id)) equipByBox.set(eq.box_id, []);
-    equipByBox.get(eq.box_id)!.push({
-      id: eq.id,
-      main_serial: eq.main_serial,
-      serial_s2: eq.serial_s2,
-      serial_s3: eq.serial_s3,
-      serial_s4: eq.serial_s4,
-      material: eq.material,
-      captured_at: eq.captured_at,
-    });
+    const boxId = String((eq as { box_id: string }).box_id);
+    countByBox.set(boxId, (countByBox.get(boxId) || 0) + 1);
+
+    if (includeEquipment && 'main_serial' in eq) {
+      if (!equipByBox.has(boxId)) equipByBox.set(boxId, []);
+      equipByBox.get(boxId)!.push({
+        id: eq.id,
+        main_serial: eq.main_serial,
+        serial_s2: eq.serial_s2,
+        serial_s3: eq.serial_s3,
+        serial_s4: eq.serial_s4,
+        material: eq.material,
+        captured_at: eq.captured_at,
+      });
+    }
   }
 
   const boxSnapshots: PxBoxSnapshot[] = (boxes || []).map((b) => {
     const eq = equipByBox.get(b.id) || [];
+    const capturedCount = includeEquipment ? eq.length : countByBox.get(b.id) || 0;
     return {
       id: b.id,
       box_code: b.box_code,
       status: b.status,
       declared_quantity: b.declared_quantity ?? b.capacity ?? 0,
       declared_quantity_original: b.declared_quantity_original,
-      captured_count: eq.length,
+      captured_count: capturedCount,
       brand_id: b.brand_id,
       model_id: b.model_id,
       version: b.version ?? 1,
@@ -564,53 +585,6 @@ export async function getPxReceptionSnapshot(receptionId: string): Promise<PxRec
     reception: reception as PxReceptionSnapshot['reception'],
     boxes: boxSnapshots,
     total_captured,
-  };
-}
-
-/**
- * Huella ligera para el sondeo de sincronización: evita descargar el snapshot
- * completo (seriales/lotes) en cada tick. Solo lee cabecera + (version) de cajas
- * + conteo de equipos activos → unos pocos cientos de bytes vs decenas/cientos KB.
- * Reduce drásticamente el egress de Supabase durante recepciones abiertas.
- */
-export async function getPxReceptionSyncStamp(
-  receptionId: string
-): Promise<PxReceptionSyncStamp | null> {
-  const supabase = getSupabaseServerClient();
-
-  const { data: reception, error } = await supabase
-    .from('receptions')
-    .select('version, received_units, status')
-    .eq('id', receptionId)
-    .maybeSingle();
-
-  if (error || !reception) return null;
-
-  const [{ data: boxes }, { count: activeEquip }] = await Promise.all([
-    supabase
-      .from('boxes')
-      .select('version')
-      .eq('reception_id', receptionId)
-      .neq('rack_location', 'ELIMINADO'),
-    supabase
-      .from('px_reception_equipment')
-      .select('id', { count: 'exact', head: true })
-      .eq('reception_id', receptionId)
-      .eq('capture_status', 'active'),
-  ]);
-
-  const boxArr = boxes || [];
-
-  return {
-    version: reception.version ?? 1,
-    fingerprint: buildPxReceptionFingerprint({
-      version: reception.version ?? 1,
-      receivedUnits: reception.received_units ?? 0,
-      status: reception.status ?? '',
-      boxCount: boxArr.length,
-      boxVersionSum: boxArr.reduce((acc, b) => acc + (b.version ?? 1), 0),
-      activeEquip: activeEquip ?? 0,
-    }),
   };
 }
 
@@ -1010,7 +984,7 @@ export async function updatePxReceptionHeader(input: {
     return { success: false, error: 'Conflicto de versión: recargue e intente de nuevo.' };
   }
 
-  const totalCajas = input.guideData.totalCajasEsperadas || 1;
+  const totalCajas = resolvePxBoxLimit(input.guideData.totalCajasEsperadas);
   const { data, error } = await supabase
     .from('receptions')
     .update({
@@ -1026,6 +1000,448 @@ export async function updatePxReceptionHeader(input: {
 
   if (error) return { success: false, error: error.message };
   return { success: true, version: data.version ?? input.expectedVersion + 1 };
+}
+
+type PxFinalizeRpcPayload = Record<string, unknown> & {
+  phase?: string;
+  already_finalized?: boolean;
+  reception_id?: string;
+  guide_number?: string;
+  status?: string;
+  received_units?: number;
+  boxes_remaining?: number;
+  promoted_this_batch?: number;
+  remaining_active?: number;
+};
+
+async function callPxFinalizeRpc(
+  functionName:
+    | 'finalize_px_reception_prep_one_box_tx'
+    | 'finalize_px_reception_batch_tx',
+  args: unknown[],
+): Promise<{ data: PxFinalizeRpcPayload | null; error: { message: string } | null }> {
+  const { rpcViaDirectPostgres } = await import('@/lib/database/pgDirect');
+  const direct = await rpcViaDirectPostgres<PxFinalizeRpcPayload>(
+    `public.${functionName}`,
+    args,
+    { statementTimeout: '120s' },
+  );
+
+  if (!direct.error?.message || direct.error.message === 'NO_DATABASE_URL') {
+    if (!direct.error) return { data: direct.data, error: null };
+  }
+
+  const supabase = getSupabaseServerClient();
+  if (functionName === 'finalize_px_reception_prep_one_box_tx') {
+    const rpc = await supabase.rpc(functionName, {
+      p_reception_id: args[0],
+      p_expected_version: args[1],
+    });
+    return {
+      data: rpc.data as PxFinalizeRpcPayload | null,
+      error: rpc.error ? { message: rpc.error.message } : null,
+    };
+  }
+
+  const rpc = await supabase.rpc(functionName, {
+    p_reception_id: args[0],
+    p_expected_version: args[1],
+    p_variance_reason: args[2],
+    p_operator_id: args[3],
+    p_operator_name: args[4],
+    p_batch_size: args[5],
+  });
+  return {
+    data: rpc.data as PxFinalizeRpcPayload | null,
+    error: rpc.error ? { message: rpc.error.message } : null,
+  };
+}
+
+async function stampPxVarianceReason(
+  receptionId: string,
+  varianceReason: string,
+): Promise<void> {
+  const supabase = getSupabaseServerClient();
+  const trimmed = varianceReason.trim();
+  if (!trimmed) return;
+
+  const { data: boxes } = await supabase
+    .from('boxes')
+    .select('id, declared_quantity, capacity, rack_location')
+    .eq('reception_id', receptionId);
+
+  const eligible = (boxes ?? []).filter(
+    (b) => !['ELIMINADO', 'DESPACHO'].includes(b.rack_location ?? 'PX_CAPTURA'),
+  );
+  const boxIds = eligible.map((b) => b.id);
+  let activeCount = 0;
+  if (boxIds.length > 0) {
+    const { count } = await supabase
+      .from('px_reception_equipment')
+      .select('id', { count: 'exact', head: true })
+      .eq('reception_id', receptionId)
+      .eq('capture_status', 'active')
+      .in('box_id', boxIds);
+    activeCount = count ?? 0;
+  }
+
+  const expected = eligible.reduce(
+    (acc, b) => acc + (b.declared_quantity ?? b.capacity ?? 0),
+    0,
+  );
+  const variance = Math.max(0, expected - activeCount);
+
+  await supabase
+    .from('receptions')
+    .update({
+      variance_reason: trimmed,
+      variance_units: variance > 0 ? variance : null,
+      expected_units: expected,
+    })
+    .eq('id', receptionId);
+}
+
+async function loadPxReceptionFinalizeSummary(receptionId: string): Promise<{
+  reception_id: string;
+  guide_number: string;
+  status: string;
+  received_units: number;
+  expected_units: number;
+  is_partial: boolean;
+  already_finalized?: boolean;
+}> {
+  const supabase = getSupabaseServerClient();
+  const { data: rec, error } = await supabase
+    .from('receptions')
+    .select(
+      'id, guide_number, status, received_units, expected_units, variance_units, variance_reason',
+    )
+    .eq('id', receptionId)
+    .single();
+
+  if (error || !rec) {
+    throw new Error(error?.message ?? 'Recepción no encontrada tras finalizar');
+  }
+
+  const isPartial =
+    (rec.variance_units ?? 0) > 0 ||
+    Boolean(rec.variance_reason?.trim());
+
+  return {
+    reception_id: rec.id,
+    guide_number: rec.guide_number ?? '',
+    status: rec.status ?? '',
+    received_units: rec.received_units ?? 0,
+    expected_units: rec.expected_units ?? 0,
+    is_partial: isPartial,
+    already_finalized: rec.status === 'CLASIFICADA',
+  };
+}
+
+export type PxFinalizePrepStepData = {
+  phase: 'preparing' | 'prepared' | 'done';
+  box_code?: string | null;
+  boxes_remaining: number;
+  already_finalized?: boolean;
+  guide_number?: string;
+  received_units?: number;
+};
+
+export type PxFinalizePromoteStepData = {
+  phase: 'promoting' | 'done';
+  promoted_this_batch: number;
+  remaining_active: number;
+  received_units?: number;
+  reception_id?: string;
+  guide_number?: string;
+  status?: string;
+  expected_units?: number;
+  is_partial?: boolean;
+  already_finalized?: boolean;
+};
+
+async function stampPxVarianceReasonIfNeeded(
+  receptionId: string,
+  varianceReason?: string | null,
+): Promise<void> {
+  if (!varianceReason?.trim()) return;
+  const supabase = getSupabaseServerClient();
+  const { data: rec } = await supabase
+    .from('receptions')
+    .select('variance_reason')
+    .eq('id', receptionId)
+    .maybeSingle();
+  if (rec?.variance_reason?.trim()) return;
+  await stampPxVarianceReason(receptionId, varianceReason);
+}
+
+async function emitPxFinalizeComplete(
+  receptionId: string,
+  payload: {
+    reception_id: string;
+    guide_number: string;
+    status: string;
+    received_units: number;
+    expected_units: number;
+    is_partial: boolean;
+    batches?: { prep: number; promote: number };
+  },
+  durationMs: number,
+): Promise<void> {
+  await emitPxDomainEvent(
+    payload.is_partial ? 'ReceptionPartiallyCompleted' : 'ReceptionCompleted',
+    receptionId,
+    payload as Record<string, unknown>,
+  );
+  await emitPxCaptureMetric({
+    receptionId,
+    action: 'finalize_px_reception',
+    outcome: 'success',
+    durationMs,
+    metadata: payload as Record<string, unknown>,
+  });
+}
+
+/** Un paso de prep: asigna BOX-xxx a una caja cerrada en PX. */
+export async function finalizePxReceptionPrepStep(input: {
+  receptionId: string;
+  expectedVersion: number;
+}): Promise<
+  | { success: true; data: PxFinalizePrepStepData }
+  | { success: false; error: string }
+> {
+  const { data, error } = await callPxFinalizeRpc('finalize_px_reception_prep_one_box_tx', [
+    input.receptionId,
+    input.expectedVersion,
+  ]);
+
+  if (error) {
+    return { success: false, error: mapRpcCaptureError(error.message) };
+  }
+
+  if (data?.already_finalized || data?.phase === 'done') {
+    const summary = await loadPxReceptionFinalizeSummary(input.receptionId);
+    return {
+      success: true,
+      data: {
+        phase: 'done',
+        boxes_remaining: 0,
+        already_finalized: true,
+        guide_number: summary.guide_number,
+        received_units: summary.received_units,
+      },
+    };
+  }
+
+  const boxesRemaining = (data?.boxes_remaining as number | undefined) ?? 0;
+  const phase =
+    data?.phase === 'prepared' || boxesRemaining === 0 ? 'prepared' : 'preparing';
+
+  return {
+    success: true,
+    data: {
+      phase,
+      box_code: (data?.box_code as string | null | undefined) ?? null,
+      boxes_remaining: boxesRemaining,
+    },
+  };
+}
+
+/** Un paso de promote: ingresa un lote de equipos a inventario/OS. */
+export async function finalizePxReceptionPromoteStep(input: {
+  receptionId: string;
+  expectedVersion: number;
+  varianceReason?: string;
+  operatorId?: string | null;
+  operatorName?: string;
+  stampVariance?: boolean;
+}): Promise<
+  | { success: true; data: PxFinalizePromoteStepData }
+  | { success: false; error: string }
+> {
+  if (input.stampVariance !== false) {
+    await stampPxVarianceReasonIfNeeded(input.receptionId, input.varianceReason);
+  }
+
+  const batchSize = getPxFinalizePromoteBatchSize();
+  const varianceReason = input.varianceReason?.trim() || null;
+  const { data, error } = await callPxFinalizeRpc('finalize_px_reception_batch_tx', [
+    input.receptionId,
+    input.expectedVersion,
+    varianceReason,
+    input.operatorId || null,
+    input.operatorName || 'OPERADOR',
+    batchSize,
+  ]);
+
+  if (error) {
+    return { success: false, error: mapRpcCaptureError(error.message) };
+  }
+
+  const remaining = (data?.remaining_active as number | undefined) ?? 0;
+  const promoted = (data?.promoted_this_batch as number | undefined) ?? 0;
+
+  if (data?.phase === 'done') {
+    const summary = await loadPxReceptionFinalizeSummary(input.receptionId);
+    return {
+      success: true,
+      data: {
+        phase: 'done',
+        promoted_this_batch: promoted,
+        remaining_active: 0,
+        received_units: (data?.received_units as number | undefined) ?? summary.received_units,
+        ...summary,
+      },
+    };
+  }
+
+  return {
+    success: true,
+    data: {
+      phase: 'promoting',
+      promoted_this_batch: promoted,
+      remaining_active: remaining,
+    },
+  };
+}
+
+/**
+ * Finaliza PX por lotes: prep 1 caja/RPC + promote equipos en chunks (evita timeout monolítico).
+ */
+export async function finalizePxReceptionInBatches(input: {
+  receptionId: string;
+  expectedVersion: number;
+  varianceReason?: string;
+  operatorId?: string | null;
+  operatorName?: string;
+}): Promise<
+  | {
+      success: true;
+      data: {
+        reception_id: string;
+        guide_number: string;
+        status: string;
+        received_units: number;
+        expected_units: number;
+        is_partial: boolean;
+        already_finalized?: boolean;
+        batches?: { prep: number; promote: number };
+      };
+    }
+  | { success: false; error: string }
+> {
+  const started = Date.now();
+  const varianceReason = input.varianceReason?.trim() || null;
+  const operatorId = input.operatorId || null;
+  const operatorName = input.operatorName || 'OPERADOR';
+  let prepIterations = 0;
+  let promoteBatches = 0;
+
+  for (let i = 1; i <= BATCH_LIMITS.PX_FINALIZE_PREP_MAX_ITERATIONS; i += 1) {
+    prepIterations = i;
+    const prep = await finalizePxReceptionPrepStep({
+      receptionId: input.receptionId,
+      expectedVersion: input.expectedVersion,
+    });
+
+    if (!prep.success) {
+      await emitPxCaptureMetric({
+        receptionId: input.receptionId,
+        action: 'finalize_px_reception',
+        outcome: 'error',
+        errorCode: 'PREP_ERROR',
+        durationMs: Date.now() - started,
+        metadata: { phase: 'prep', iteration: i, message: prep.error },
+      });
+      return prep;
+    }
+
+    if (prep.data.already_finalized || prep.data.phase === 'done') {
+      const summary = await loadPxReceptionFinalizeSummary(input.receptionId);
+      return {
+        success: true,
+        data: { ...summary, already_finalized: true, batches: { prep: 0, promote: 0 } },
+      };
+    }
+
+    if (prep.data.phase === 'prepared') break;
+  }
+
+  let lastPromote: PxFinalizePromoteStepData | null = null;
+  for (let i = 1; i <= BATCH_LIMITS.PX_FINALIZE_PROMOTE_MAX_ITERATIONS; i += 1) {
+    promoteBatches = i;
+    const promote = await finalizePxReceptionPromoteStep({
+      receptionId: input.receptionId,
+      expectedVersion: input.expectedVersion,
+      varianceReason: varianceReason ?? undefined,
+      operatorId,
+      operatorName,
+      stampVariance: i === 1,
+    });
+
+    if (!promote.success) {
+      await emitPxCaptureMetric({
+        receptionId: input.receptionId,
+        action: 'finalize_px_reception',
+        outcome: 'error',
+        errorCode: 'PROMOTE_ERROR',
+        durationMs: Date.now() - started,
+        metadata: { phase: 'promote', batch: i, prepIterations, message: promote.error },
+      });
+      return promote;
+    }
+
+    lastPromote = promote.data;
+    if (promote.data.phase === 'done') break;
+  }
+
+  if (lastPromote?.phase !== 'done') {
+    const remaining = lastPromote?.remaining_active ?? '?';
+    await emitPxCaptureMetric({
+      receptionId: input.receptionId,
+      action: 'finalize_px_reception',
+      outcome: 'error',
+      errorCode: 'PROMOTE_INCOMPLETE',
+      durationMs: Date.now() - started,
+      metadata: { prepIterations, promoteBatches, remaining },
+    });
+    return {
+      success: false,
+      error: `Finalización incompleta: quedan ${remaining} equipos activos. Reintente finalizar.`,
+    };
+  }
+
+  const summary = await loadPxReceptionFinalizeSummary(input.receptionId);
+  const payload = {
+    ...summary,
+    received_units: lastPromote.received_units ?? summary.received_units,
+    batches: { prep: prepIterations, promote: promoteBatches },
+  };
+
+  await emitPxFinalizeComplete(input.receptionId, payload, Date.now() - started);
+
+  return { success: true, data: payload };
+}
+
+/** Emite eventos de dominio tras el último paso promote (flujo cliente). */
+export async function notifyPxReceptionFinalizeComplete(
+  receptionId: string,
+  receivedUnits?: number,
+): Promise<{
+  reception_id: string;
+  guide_number: string;
+  status: string;
+  received_units: number;
+  expected_units: number;
+  is_partial: boolean;
+}> {
+  const summary = await loadPxReceptionFinalizeSummary(receptionId);
+  const payload = {
+    ...summary,
+    received_units: receivedUnits ?? summary.received_units,
+  };
+  await emitPxFinalizeComplete(receptionId, payload, 0);
+  return payload;
 }
 
 export async function finalizePxReception(input: {
@@ -1045,76 +1461,10 @@ export async function finalizePxReception(input: {
         expected_units: number;
         is_partial: boolean;
         already_finalized?: boolean;
+        batches?: { prep: number; promote: number };
       };
     }
   | { success: false; error: string }
 > {
-  const started = Date.now();
-  const rpcArgs = [
-    input.receptionId,
-    input.expectedVersion,
-    input.varianceReason || null,
-    input.operatorId || null,
-    input.operatorName || 'OPERADOR',
-  ] as const;
-
-  const { rpcViaDirectPostgres } = await import('@/lib/database/pgDirect');
-  const direct = await rpcViaDirectPostgres<Record<string, unknown>>(
-    'public.finalize_px_reception_tx',
-    [...rpcArgs],
-    { statementTimeout: '300s' },
-  );
-
-  let data: Record<string, unknown> | null = direct.data;
-  let error: { message: string } | null = direct.error;
-
-  if (direct.error?.message === 'NO_DATABASE_URL') {
-    const supabase = getSupabaseServerClient();
-    const rpc = await supabase.rpc('finalize_px_reception_tx', {
-      p_reception_id: rpcArgs[0],
-      p_expected_version: rpcArgs[1],
-      p_variance_reason: rpcArgs[2],
-      p_operator_id: rpcArgs[3],
-      p_operator_name: rpcArgs[4],
-    });
-    data = rpc.data as Record<string, unknown> | null;
-    error = rpc.error;
-  }
-
-  if (error) {
-    await emitPxCaptureMetric({
-      receptionId: input.receptionId,
-      action: 'finalize_px_reception',
-      outcome: 'error',
-      errorCode: (error.message.match(/^([A-Z_]+):/) || [])[1] || 'RPC_ERROR',
-      durationMs: Date.now() - started,
-      metadata: { message: error.message },
-    });
-    return { success: false, error: mapRpcCaptureError(error.message) };
-  }
-
-  const payload = data as {
-    reception_id: string;
-    guide_number: string;
-    status: string;
-    received_units: number;
-    expected_units: number;
-    is_partial: boolean;
-    already_finalized?: boolean;
-  };
-
-  await emitPxDomainEvent(
-    payload.is_partial ? 'ReceptionPartiallyCompleted' : 'ReceptionCompleted',
-    input.receptionId,
-    payload as Record<string, unknown>
-  );
-  await emitPxCaptureMetric({
-    receptionId: input.receptionId,
-    action: 'finalize_px_reception',
-    outcome: 'success',
-    durationMs: Date.now() - started,
-    metadata: payload as Record<string, unknown>,
-  });
-
-  return { success: true, data: payload };
+  return finalizePxReceptionInBatches(input);
 }

@@ -1,6 +1,6 @@
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { getReceptions, createReceptionWithSeries, createReceptionWithGuides, createPxReceptionWithBoxes, resolveUniquePxGuideNumber, generateNextPxGuideNumber, isPxGuideNumberAvailable, findActivePxReceptionBySapDocument, findActivePxReceptionByDocReference, validatePxHeaderUniqueness, validatePxScannedSeriesForFinalize, deletePxReceptionCascade, deleteCacReceptionCascade } from "@/modules/recepcion/client/receptions";
 import { getCarriers, getPxProviders, getTechnologies, getBrands, getModels } from "@/shared/catalogs/catalogs";
+import { fetchLatestServiceOrder, lookupReceptionSerial } from "../services/receptionReadsApi";
 
 /**
  * Repository for the Reception module.
@@ -31,52 +31,10 @@ export const receptionRepository = {
   getBrands: async () => await getBrands(),
   getModels: async () => await getModels(),
 
-  // Specialized queries specific to Reception can be added here
-  checkSerialExists: async (serial: string) => {
-    const supabase = getSupabaseBrowserClient();
-    if (!supabase) return null;
+  checkSerialExists: async (serial: string) => lookupReceptionSerial(serial),
 
-    const { data } = await supabase
-      .from('series')
-      .select('id, serial_number, current_status, current_reception_id, service_order_id, receptions:current_reception_id(guide_number, created_at, status, source, sap_document)')
-      .eq('serial_number', serial.toUpperCase())
-      .maybeSingle();
-
-    return data;
-  },
-
-  getLatestServiceOrder: async (seriesId: string, mainSerial?: string) => {
-    const supabase = getSupabaseBrowserClient();
-    if (!supabase) return null;
-
-    const { data: series } = await supabase
-      .from('series')
-      .select('service_order_id, serial_number')
-      .eq('id', seriesId)
-      .maybeSingle();
-
-    if (series?.service_order_id) {
-      const { data: linked } = await supabase
-        .from('service_orders')
-        .select('os_label, status, reentry_count')
-        .eq('id', series.service_order_id)
-        .maybeSingle();
-      if (linked) return linked;
-    }
-
-    const main = (mainSerial || series?.serial_number || '').trim().toUpperCase();
-    if (!main) return null;
-
-    const { data } = await supabase
-      .from('service_orders')
-      .select('os_label, status, reentry_count')
-      .eq('main_serial', main)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    return data;
-  },
+  getLatestServiceOrder: async (seriesId: string, mainSerial?: string) =>
+    fetchLatestServiceOrder(seriesId, mainSerial),
 
   generateNextRECNumber: async () => generateNextPxGuideNumber(),
 

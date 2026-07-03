@@ -1,3 +1,4 @@
+import { ZK_COMMAND_SELECT } from '@/shared/constants/dbProjections';
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
 import { parseDeviceSn } from '../_shared';
@@ -27,7 +28,7 @@ export async function GET(request: NextRequest) {
 
     const { data: commands, error } = await supabase
       .from('zk_commands')
-      .select('*')
+      .select(ZK_COMMAND_SELECT)
       .eq('device_sn', sn)
       .eq('status', 'PENDING')
       .order('created_at', { ascending: true })

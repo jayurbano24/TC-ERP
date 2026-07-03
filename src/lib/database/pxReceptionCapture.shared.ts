@@ -1,4 +1,4 @@
-import type { GuideData } from '@/app/(erp)/recepcion/types/reception.types';
+import { getPxBoxesDefault } from '@/shared/constants/batchLimits';
 
 export type PxLotInput = {
   technologyName?: string;
@@ -99,7 +99,10 @@ export function pxFingerprintFromSnapshot(snap: PxReceptionSnapshot): string {
   });
 }
 
-export function snapshotToPxUiState(snapshot: PxReceptionSnapshot): {
+export function snapshotToPxUiState(
+  snapshot: PxReceptionSnapshot,
+  options?: { hydrateScannedSeries?: boolean }
+): {
   manifestItems: Array<{
     id: string;
     boxCode: string;
@@ -148,6 +151,7 @@ export function snapshotToPxUiState(snapshot: PxReceptionSnapshot): {
       });
     }
     for (const eq of box.equipment) {
+      if (!options?.hydrateScannedSeries) continue;
       scannedSeries.push({
         boxCode: box.box_code,
         sn: eq.main_serial,
@@ -175,7 +179,7 @@ export function snapshotToGuideData(snapshot: PxReceptionSnapshot): Partial<Guid
     guia: snapshot.reception.guide_number,
     piloto: pilotoMatch?.[1]?.trim() === '---' ? '' : pilotoMatch?.[1]?.trim() || '',
     courier: courierMatch?.[1]?.trim() === '---' ? '' : courierMatch?.[1]?.trim() || '',
-    totalCajasEsperadas: snapshot.reception.expected_units_sap || 1,
+    totalCajasEsperadas: snapshot.reception.expected_units_sap || getPxBoxesDefault(),
   };
 }
 

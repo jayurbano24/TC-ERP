@@ -1,3 +1,4 @@
+import { COUNT_HEAD } from '@/shared/constants/dbProjections';
 import { injectable, inject } from 'tsyringe';
 import { IQueryHandler } from '../../../../modules/recepcion/application/cqrs/IQueryHandler';
 import { GetProduccionDashboardQuery } from './GetProduccionDashboardQuery';
@@ -14,10 +15,10 @@ export class GetProduccionDashboardHandler implements IQueryHandler<GetProduccio
     const tenantId = ctx.tenantId;
 
     const [{ count: diagPendientes }, { count: diagProceso }, { count: repEspera }, { count: repActivas }] = await Promise.all([
-      this.supabase.from('prod_diagnostico').select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId).eq('estado', 'PENDIENTE').eq('is_deleted', false),
-      this.supabase.from('prod_diagnostico').select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId).eq('estado', 'EN_PROCESO').eq('is_deleted', false),
-      this.supabase.from('prod_reparacion').select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId).eq('estado', 'ESPERA_REPUESTOS').eq('is_deleted', false),
-      this.supabase.from('prod_reparacion').select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId).eq('estado', 'REPARANDO').eq('is_deleted', false),
+      this.supabase.from('prod_diagnostico').select(COUNT_HEAD, { count: 'exact', head: true }).eq('tenant_id', tenantId).eq('estado', 'PENDIENTE').eq('is_deleted', false),
+      this.supabase.from('prod_diagnostico').select(COUNT_HEAD, { count: 'exact', head: true }).eq('tenant_id', tenantId).eq('estado', 'EN_PROCESO').eq('is_deleted', false),
+      this.supabase.from('prod_reparacion').select(COUNT_HEAD, { count: 'exact', head: true }).eq('tenant_id', tenantId).eq('estado', 'ESPERA_REPUESTOS').eq('is_deleted', false),
+      this.supabase.from('prod_reparacion').select(COUNT_HEAD, { count: 'exact', head: true }).eq('tenant_id', tenantId).eq('estado', 'REPARANDO').eq('is_deleted', false),
     ]);
 
     const { data: ultimosDiagnosticos } = await this.supabase

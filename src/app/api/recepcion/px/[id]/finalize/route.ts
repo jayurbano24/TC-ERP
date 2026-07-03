@@ -6,6 +6,7 @@ import { parseJsonBody } from '@/shared/validation/parseRequest';
 import { finalizeSchema } from '../../_schemas';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
 
 type RouteContext = { params: Promise<{ id: string }> };
 

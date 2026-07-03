@@ -1,3 +1,4 @@
+import { ACTIVITY_COST_SELECT } from '@/shared/constants/dbProjections';
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 export type ActivityCost = {
@@ -25,7 +26,7 @@ export async function getActivityCosts(): Promise<ActivityCost[]> {
   if (!supabase) return FALLBACK_COSTS;
 
   try {
-    const { data, error } = await supabase.from('activity_costs').select('*').order('name');
+    const { data, error } = await supabase.from('activity_costs').select(ACTIVITY_COST_SELECT).order('name');
     if (error) {
       console.warn("Tabla 'activity_costs' podría no existir aún. Usando valores por defecto.", error.message);
       return FALLBACK_COSTS;

@@ -8,6 +8,7 @@ import type {
 import { enrichCacTrayRowsWithSapValidation } from '@/lib/backoffice/enrichCacTraySapValidation';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
 import { sanitizeOrFilterValue } from '@/lib/database/postgrestSafe';
+import { CAC_TRAY_UNIT_SELECT, COUNT_HEAD } from '@/shared/constants/dbProjections';
 
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 200;
@@ -83,7 +84,7 @@ export async function queryCacTrayPage(
 
   let rowsQuery = supabase
     .from('cac_tray_units')
-    .select('*')
+    .select(CAC_TRAY_UNIT_SELECT)
     .order('classified_at', { ascending: false })
     .order('os_number', { ascending: false })
     .range(offset, offset + limit - 1);
@@ -136,7 +137,7 @@ export async function queryCacTrayStats(params: CacTrayQueryParams): Promise<Cac
   const countFiltered = (
     extra?: (q: ReturnType<typeof applyTrayFilters>) => ReturnType<typeof applyTrayFilters>
   ) => {
-    let q = supabase.from('cac_tray_units').select('*', { count: 'exact', head: true }).eq('is_active', true);
+    let q = supabase.from('cac_tray_units').select(COUNT_HEAD, { count: 'exact', head: true }).eq('is_active', true);
     q = applyTrayFilters(q, params);
     if (extra) q = extra(q);
     return q;
@@ -181,7 +182,7 @@ export async function queryCacTrayAllFiltered(
 
   let query = supabase
     .from('cac_tray_units')
-    .select('*')
+    .select(CAC_TRAY_UNIT_SELECT)
     .order('classified_at', { ascending: false })
     .order('os_number', { ascending: false })
     .limit(maxRows);

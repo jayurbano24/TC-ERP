@@ -3,6 +3,7 @@
 import { memo, type FormEvent } from 'react';
 import { Card, Button } from '@/components/ui';
 import { ArrowLeftRight, Loader2, QrCode } from 'lucide-react';
+import { WORKSHOP_TRANSFER_BATCH_LIMIT } from '@/modules/inventario/client/warehouseBoxes';
 
 type Props = {
   inventory: any[];
@@ -39,6 +40,13 @@ export const TransferModal = memo(function TransferModal({
   onClose,
   executing = false,
 }: Props) {
+  const isWorkshopDest = destinationArea === 'Diagnóstico';
+  const selectionCount = selectedBoxesForTransfer.length;
+  const autoBatchCount =
+    isWorkshopDest && selectionCount > 0
+      ? Math.ceil(selectionCount / WORKSHOP_TRANSFER_BATCH_LIMIT)
+      : 1;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#181c3a]/40 backdrop-blur-sm p-6">
       <Card className="max-w-2xl w-full shadow-2xl animate-rise-in p-0 overflow-hidden">
@@ -122,16 +130,27 @@ export const TransferModal = memo(function TransferModal({
             </div>
           </div>
 
+          {isWorkshopDest && selectionCount > WORKSHOP_TRANSFER_BATCH_LIMIT && (
+            <p className="text-xs text-[#2ec4f1] font-bold bg-[#2ec4f1]/10 border border-[#2ec4f1]/30 rounded-xl px-4 py-3">
+              {selectionCount} cajas → se ejecutarán <strong>{autoBatchCount} lotes</strong> automáticos
+              (hasta {WORKSHOP_TRANSFER_BATCH_LIMIT} cajas por lote). Un solo clic.
+            </p>
+          )}
+
           <div className="flex gap-4 pt-4">
             <Button variant="outline" className="flex-1 h-14 font-black uppercase tracking-widest text-[10px]" onClick={onClose} disabled={executing}>Cancelar</Button>
             <Button
               variant="primary"
               className="flex-1 h-14 font-black uppercase tracking-widest text-[10px] bg-[#181c3a]"
               onClick={onExecute}
-              disabled={selectedBoxesForTransfer.length === 0 || executing}
+              disabled={selectionCount === 0 || executing}
               leftIcon={executing ? <Loader2 className="w-4 h-4 animate-spin" /> : undefined}
             >
-              {executing ? 'Transfiriendo...' : `Ejecutar Movimiento (${selectedBoxesForTransfer.length})`}
+              {executing
+                ? autoBatchCount > 1
+                  ? `Transfiriendo (${autoBatchCount} lotes)...`
+                  : 'Transfiriendo...'
+                : `Ejecutar movimiento (${selectionCount}${autoBatchCount > 1 ? ` · ${autoBatchCount} lotes` : ''})`}
             </Button>
           </div>
         </div>

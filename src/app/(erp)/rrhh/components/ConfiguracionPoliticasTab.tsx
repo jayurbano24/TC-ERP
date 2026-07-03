@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from 'react';
+import { HR_POLICY_VERSION_SELECT } from '@/shared/constants/dbProjections';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { confirmDialog } from '@/components/ui';
 import { Settings, Save, Clock, AlertCircle, Speaker, ShieldAlert, History, GitCommit, RotateCcw, Copy, Eye, CheckCircle2, ChevronRight, CheckSquare, Plus, X } from 'lucide-react';
@@ -78,7 +79,7 @@ export default function ConfiguracionPoliticasTab() {
     // Fetch active policy
     const { data: activeData } = await supabase
       .from('hr_policies_versions')
-      .select('*')
+      .select(HR_POLICY_VERSION_SELECT)
       .eq('is_active', true)
       .order('version', { ascending: false })
       .limit(1)
@@ -122,7 +123,7 @@ export default function ConfiguracionPoliticasTab() {
     // Fetch history
     const { data: historyData } = await supabase
       .from('hr_policies_versions')
-      .select('*')
+      .select(HR_POLICY_VERSION_SELECT)
       .order('version', { ascending: false });
       
     if (historyData) {

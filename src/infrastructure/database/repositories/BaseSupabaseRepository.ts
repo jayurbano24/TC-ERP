@@ -2,6 +2,10 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { BaseEntity } from '../../../shared/domain/BaseEntity';
 import { IRepository } from '../../../shared/domain/IRepository';
 
+/**
+ * Repositorio base genérico. Las subclases deben sobrescribir `selectColumns`
+ * con proyección explícita; el default queda acotado a `id` (no select('*')).
+ */
 export abstract class BaseSupabaseRepository<TEntity extends BaseEntity<any>>
   implements IRepository<TEntity>
 {
@@ -10,10 +14,14 @@ export abstract class BaseSupabaseRepository<TEntity extends BaseEntity<any>>
     protected readonly tableName: string
   ) {}
 
+  protected get selectColumns(): string {
+    return 'id';
+  }
+
   async findById(id: string): Promise<TEntity | null> {
     const { data, error } = await this.supabase
       .from(this.tableName)
-      .select('*')
+      .select(this.selectColumns)
       .eq('id', id)
       .eq('is_deleted', false)
       .single();
@@ -25,7 +33,7 @@ export abstract class BaseSupabaseRepository<TEntity extends BaseEntity<any>>
   async findAll(): Promise<TEntity[]> {
     const { data, error } = await this.supabase
       .from(this.tableName)
-      .select('*')
+      .select(this.selectColumns)
       .eq('is_deleted', false);
 
     if (error || !data) return [];

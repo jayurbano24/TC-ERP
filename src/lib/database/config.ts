@@ -1,17 +1,39 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { notify } from "@/components/ui/messaging/messageStore";
+import {
+  getCachedReferenceCatalog,
+  invalidateReferenceCatalogCache,
+  setCachedReferenceCatalog,
+} from '@/shared/catalogs/referenceCatalogCache';
+import {
+  AGENCY_SELECT,
+  BRAND_SELECT,
+  CARRIER_SELECT,
+  CAT_DIAGNOSTIC_REPAIR_SELECT,
+  CAT_DIAGNOSTIC_SELECT,
+  CAT_REACOND_TEST_SELECT,
+  CAT_REPAIR_SELECT,
+  MODEL_SELECT,
+  PX_PROVIDER_SELECT,
+  RETURN_REASON_SELECT,
+  TECHNOLOGY_SELECT,
+} from '@/shared/constants/dbProjections';
 
 // --- TECNOLOGÍAS ---
 
 export async function getTechnologies() {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return [];
-  const { data, error } = await supabase.from('technologies').select('*').order('name');
+  const cached = getCachedReferenceCatalog<any>('technologies');
+  if (cached) return cached;
+  const { data, error } = await supabase.from('technologies').select(TECHNOLOGY_SELECT).order('name');
   if (error) {
     console.error("Error fetching technologies:", JSON.stringify(error, null, 2));
     return [];
   }
-  return data || [];
+  const rows = data || [];
+  setCachedReferenceCatalog('technologies', rows);
+  return rows;
 }
 
 export async function saveTechnology(tech: any) {
@@ -33,11 +55,13 @@ export async function saveTechnology(tech: any) {
     // Update existing UUID
     const { data, error } = await supabase.from('technologies').update(dbTech).eq('id', id).select().single();
     if (error) console.error("Error updating technology:", error);
+    else invalidateReferenceCatalogCache();
     return { data, error };
   } else {
     // New insert
     const { data, error } = await supabase.from('technologies').insert([dbTech]).select().single();
     if (error) console.error("Error inserting technology:", error);
+    else invalidateReferenceCatalogCache();
     return { data, error };
   }
 }
@@ -46,6 +70,7 @@ export async function deleteTechnology(id: string) {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: "Supabase not configured" };
   const { error } = await supabase.from('technologies').delete().eq('id', id);
+  if (!error) invalidateReferenceCatalogCache();
   return { error };
 }
 
@@ -54,12 +79,16 @@ export async function deleteTechnology(id: string) {
 export async function getBrands() {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return [];
-  const { data, error } = await supabase.from('brands').select('*').order('name');
+  const cached = getCachedReferenceCatalog<any>('brands');
+  if (cached) return cached;
+  const { data, error } = await supabase.from('brands').select(BRAND_SELECT).order('name');
   if (error) { 
     console.error("Error fetching brands:", JSON.stringify(error, null, 2)); 
     return []; 
   }
-  return data || [];
+  const rows = data || [];
+  setCachedReferenceCatalog('brands', rows);
+  return rows;
 }
 
 export async function saveBrand(brand: any) {
@@ -77,6 +106,7 @@ export async function saveBrand(brand: any) {
 
   if (id && id.length > 10) { // UUID
     const { data, error } = await supabase.from('brands').update({ name: dbBrand.name }).eq('id', id).select().single();
+    if (!error) invalidateReferenceCatalogCache();
     return { data, error };
   } else {
     // New insert
@@ -85,6 +115,7 @@ export async function saveBrand(brand: any) {
         console.error("Error saving brand:", error);
         return { error: error };
     }
+    invalidateReferenceCatalogCache();
     return { data, error };
   }
 }
@@ -93,6 +124,7 @@ export async function deleteBrand(id: string) {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: "Supabase not configured" };
   const { error } = await supabase.from('brands').delete().eq('id', id);
+  if (!error) invalidateReferenceCatalogCache();
   return { error };
 }
 
@@ -101,7 +133,7 @@ export async function deleteBrand(id: string) {
 export async function getPxProviders() {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return [];
-  const { data, error } = await supabase.from('px_providers').select('*').order('name');
+  const { data, error } = await supabase.from('px_providers').select(PX_PROVIDER_SELECT).order('name');
   if (error) { 
     console.error("Error fetching px_providers:", JSON.stringify(error, null, 2)); 
     return []; 
@@ -149,7 +181,7 @@ export async function deletePxProvider(id: string) {
 export async function getReturnReasons() {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return [];
-  const { data, error } = await supabase.from('return_reasons').select('*').eq('active', true).order('name');
+  const { data, error } = await supabase.from('return_reasons').select(RETURN_REASON_SELECT).eq('active', true).order('name');
   if (error) {
     console.error("Error fetching return_reasons:", JSON.stringify(error, null, 2));
     return [];
@@ -191,12 +223,16 @@ export async function deleteReturnReason(id: string) {
 export async function getModels() {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return [];
-  const { data, error } = await supabase.from('models').select('*').order('name');
+  const cached = getCachedReferenceCatalog<any>('models');
+  if (cached) return cached;
+  const { data, error } = await supabase.from('models').select(MODEL_SELECT).order('name');
   if (error) { 
     console.error("Error fetching models:", JSON.stringify(error, null, 2)); 
     return []; 
   }
-  return data || [];
+  const rows = data || [];
+  setCachedReferenceCatalog('models', rows);
+  return rows;
 }
 
 export async function saveModel(model: any) {
@@ -216,9 +252,11 @@ export async function saveModel(model: any) {
 
   if (id && id.length > 10) {
     const { data, error } = await supabase.from('models').update(dbModel).eq('id', id).select().single();
+    if (!error) invalidateReferenceCatalogCache();
     return { data, error };
   } else {
     const { data, error } = await supabase.from('models').insert([dbModel]).select().single();
+    if (!error) invalidateReferenceCatalogCache();
     return { data, error };
   }
 }
@@ -227,6 +265,7 @@ export async function deleteModel(id: string) {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: "Supabase not configured" };
   const { error } = await supabase.from('models').delete().eq('id', id);
+  if (!error) invalidateReferenceCatalogCache();
   return { error };
 }
 
@@ -235,7 +274,7 @@ export async function deleteModel(id: string) {
 export async function getAgencies() {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return [];
-  const { data, error } = await supabase.from('agencies').select('*').order('name');
+  const { data, error } = await supabase.from('agencies').select(AGENCY_SELECT).order('name');
   if (error) { 
     console.error("Error fetching agencies:", JSON.stringify(error, null, 2)); 
     return []; 
@@ -377,7 +416,7 @@ export async function deleteAgenciesBulk(ids: string[]) {
 export async function getCarriers() {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return [];
-  const { data, error } = await supabase.from('logistics_carriers').select('*').order('name');
+  const { data, error } = await supabase.from('logistics_carriers').select(CARRIER_SELECT).order('name');
   if (error) { 
     console.error("Error fetching carriers:", JSON.stringify(error, null, 2)); 
     return []; 
@@ -421,7 +460,7 @@ export async function deleteCarrier(id: string) {
 export async function getRepairs() {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return [];
-  const { data, error } = await supabase.from('cat_repairs').select('*').order('name');
+  const { data, error } = await supabase.from('cat_repairs').select(CAT_REPAIR_SELECT).order('name');
   if (error) { 
     console.error("Error fetching repairs:", error); 
     return []; 
@@ -460,7 +499,7 @@ export async function getDiagnostics() {
   
   const { data, error } = await supabase
     .from('cat_diagnostics')
-    .select('*')
+    .select(CAT_DIAGNOSTIC_SELECT)
     .order('name');
 
   if (error) { 
@@ -470,7 +509,7 @@ export async function getDiagnostics() {
   }
   
   // We can fetch relations separately to avoid PostgREST join issues
-  const { data: relData } = await supabase.from('cat_diagnostic_repairs').select('*');
+  const { data: relData } = await supabase.from('cat_diagnostic_repairs').select(CAT_DIAGNOSTIC_REPAIR_SELECT);
   
   return (data || []).map(d => {
     const rels = (relData || []).filter((r: any) => r.diagnostic_id === d.id);
@@ -529,7 +568,7 @@ export async function getReacondicionadoTests() {
   
   const { data, error } = await supabase
     .from('cat_reacondicionado_tests')
-    .select('*')
+    .select(CAT_REACOND_TEST_SELECT)
     .order('name');
 
   if (error) { 

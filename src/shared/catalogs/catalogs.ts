@@ -6,3 +6,4 @@
  * UI no importe `@/lib/database/config` directamente.
  */
 export * from '@/lib/database/config';
+export { invalidateReferenceCatalogCache } from './referenceCatalogCache';

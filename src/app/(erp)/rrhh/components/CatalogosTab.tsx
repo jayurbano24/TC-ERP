@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Card, Button, Spinner, confirmDialog } from '@/components/ui';
+import { HR_DEPARTMENT_SELECT, HR_EMPLOYEE_TYPE_SELECT, HR_POSITION_SELECT } from '@/shared/constants/dbProjections';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { Plus, Trash2, Edit2 } from 'lucide-react';
 
@@ -24,7 +25,14 @@ export default function CatalogosTab() {
       if (activeCatalog === 'positions') table = 'hr_positions';
       if (activeCatalog === 'employeeTypes') table = 'hr_employee_types';
 
-      const { data: resData } = await supabase.from(table).select('*').order('name');
+      const catalogSelect =
+        activeCatalog === 'departments'
+          ? HR_DEPARTMENT_SELECT
+          : activeCatalog === 'positions'
+            ? HR_POSITION_SELECT
+            : HR_EMPLOYEE_TYPE_SELECT;
+
+      const { data: resData } = await supabase.from(table).select(catalogSelect).order('name');
       if (resData) setData(resData);
     }
     setLoading(false);

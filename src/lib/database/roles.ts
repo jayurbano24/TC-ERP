@@ -1,6 +1,11 @@
 'use server';
 
 import { createClient } from '@supabase/supabase-js';
+import {
+  ERP_ROLE_PERMISSION_SELECT,
+  ERP_USER_SECURITY_SELECT,
+  HR_POSITION_SELECT,
+} from '@/shared/constants/dbProjections';
 import { getSupabaseUserServerClient } from '@/lib/supabase/server-user';
 
 const getAdminClient = () => {
@@ -47,7 +52,7 @@ export async function getRoles() {
   if (!(await callerCan('view'))) return [];
   const supabase = getAdminClient();
   if (!supabase) return [];
-  const { data, error } = await supabase.from('hr_positions').select('*').order('name');
+  const { data, error } = await supabase.from('hr_positions').select(HR_POSITION_SELECT).order('name');
   if (error) {
     const errorMsg = error instanceof Error ? error.message : (error as any).message || JSON.stringify(error);
     console.error("Error fetching roles:", errorMsg, error);
@@ -64,7 +69,7 @@ export async function getRolePermissions(roleId: string) {
   if (!(await callerCan('view'))) return [];
   const supabase = getAdminClient();
   if (!supabase) return [];
-  const { data, error } = await supabase.from('erp_role_permissions').select('*').eq('role_id', roleId);
+  const { data, error } = await supabase.from('erp_role_permissions').select(ERP_ROLE_PERMISSION_SELECT).eq('role_id', roleId);
   if (error) console.error("Error fetching permissions:", error);
   return data || [];
 }
@@ -133,7 +138,7 @@ export async function getUsersWithRoles() {
     console.error("Error fetching profiles as admin:", profilesError);
   }
 
-  const { data: erpRoles } = await supabase.from('hr_positions').select('*');
+  const { data: erpRoles } = await supabase.from('hr_positions').select(HR_POSITION_SELECT);
   
   return (profilesData || []).map((p: any) => {
     // getProfiles returns user_roles inside the profile object (p.user_roles)
@@ -183,7 +188,7 @@ export async function getUserSecurity(userId: string) {
   if (!(await callerCan('view'))) return null;
   const supabase = getAdminClient();
   if (!supabase) return null;
-  const { data, error } = await supabase.from('erp_user_security').select('*').eq('user_id', userId).single();
+  const { data, error } = await supabase.from('erp_user_security').select(ERP_USER_SECURITY_SELECT).eq('user_id', userId).single();
   if (error && error.code !== 'PGRST116') { // PGRST116 is not found
     console.error("Error fetching user security:", error);
   }

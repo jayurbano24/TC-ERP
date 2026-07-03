@@ -4,6 +4,9 @@ import { IDespachoRepository } from '../../domain/repositories/IDespachoReposito
 import { DespachoAggregate } from '../../domain/aggregates/DespachoAggregate';
 import { RequestContext } from '../../../../shared/context/RequestContext';
 
+const DESPACHO_ORDEN_SELECT =
+  'id, tenant_id, branch_id, reparacion_id, cliente_nombre, equipo_info, estado, direccion, tracking_code, fecha_entrega, is_deleted';
+
 @injectable()
 export class SupabaseDespachoRepository implements IDespachoRepository {
   constructor(
@@ -49,7 +52,7 @@ export class SupabaseDespachoRepository implements IDespachoRepository {
   async getById(ctx: RequestContext, id: string): Promise<DespachoAggregate | null> {
     const { data, error } = await this.supabase
       .from('despacho_orden')
-      .select('*')
+      .select(DESPACHO_ORDEN_SELECT)
       .eq('id', id)
       .eq('tenant_id', ctx.tenantId)
       .single();
@@ -61,7 +64,7 @@ export class SupabaseDespachoRepository implements IDespachoRepository {
   async getByReparacionId(ctx: RequestContext, reparacionId: string): Promise<DespachoAggregate | null> {
     const { data, error } = await this.supabase
       .from('despacho_orden')
-      .select('*')
+      .select(DESPACHO_ORDEN_SELECT)
       .eq('reparacion_id', reparacionId)
       .eq('tenant_id', ctx.tenantId)
       .single();

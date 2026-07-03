@@ -4,12 +4,13 @@ import React, { useState, useMemo } from 'react';
 import { ModulePage } from "@/components/module-page";
 import { Card, Button, Badge, notify, confirmDialog, DataTable, type DataTableColumn } from "@/components/ui";
 import { Wrench, Stethoscope, Search, Filter, Box, Plus, Activity, AlertCircle, ArrowRight, CheckCircle2, XCircle, Clock, ChevronLeft, ChevronRight, ChevronDown, User, CheckSquare, ServerCrash, RefreshCw, Zap, Trash2, Loader2, RotateCcw, History, ClipboardList, Package, Send, ScanLine, X, BarChart3, Layers, Edit2, Eye, Printer } from 'lucide-react';
-import { getWorkshopTasks, getWorkshopTaskCounts, saveDiagnostic, type WorkshopTabId } from '@/modules/workshop/client/workshop';
-import { getTechnologies, getBrands, getModels, getDiagnostics, getRepairs, getReacondicionadoTests } from '@/shared/catalogs/catalogs';
+import { getWorkshopTasks, saveDiagnostic, type WorkshopTabId } from '@/modules/workshop/client/workshop';
+import { fetchWorkshopOperationCatalogsViaApi } from '@/lib/api/referenceCatalogs';
+import { useReferenceCatalogs } from '@/hooks/useReferenceCatalogs';
 import { getSeriesHistory } from '@/modules/platform/client/audit';
-import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useWorkshopTabCounts } from '@/hooks/useWorkshopTabCounts';
 import { isHexagonalProductionOrderEnabled } from '@/modules/production-order';
 import { apiFetch } from '@/lib/http/apiFetch';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
@@ -23,6 +24,7 @@ import { OperationDrawer } from './components/OperationDrawer';
 type TabType = 'diagnostico' | 'reparacion' | 'reacondicionado' | 'qc' | 'l3' | 'scraps' | 'listo' | 'despacho' | 'po';
 
 export default function TallerPage() {
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<TabType>('diagnostico');
   const useProductionOrderHex = isHexagonalProductionOrderEnabled();
   const [selectedForOperation, setSelectedForOperation] = useState<any | null>(null);
@@ -178,38 +180,43 @@ export default function TallerPage() {
   const [reacondTests, setReacondTests] = useState<string[]>([]);
 
   const [tasks, setTasks] = useState<any[]>([]);
-  const [tabCounts, setTabCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(false);
   const [showItemDetail, setShowItemDetail] = useState<any | null>(null);
 
-  const [catMarcas, setCatMarcas] = useState<any[]>([]);
-  const [catModelos, setCatModelos] = useState<any[]>([]);
-  const [catTecnologias, setCatTecnologias] = useState<any[]>([]);
+  const tabCountsQuery = useWorkshopTabCounts();
+  const tabCounts = tabCountsQuery.data ?? {};
+
+  const {
+    technologies: catTecnologias,
+    brands: catMarcas,
+    models: catModelos,
+    techName,
+    brandName,
+    modelName,
+  } = useReferenceCatalogs();
   const [catDiagnosticos, setCatDiagnosticos] = useState<any[]>([]);
   const [catReparaciones, setCatReparaciones] = useState<any[]>([]);
   const [catReacondicionadoTests, setCatReacondicionadoTests] = useState<any[]>([]);
 
-  useEffect(() => {
-    loadCatalogs();
-  }, []);
-
-  const loadCatalogs = async () => {
-    const [techs, brands, models, diag, reps, rTests] = await Promise.all([
-      getTechnologies(), getBrands(), getModels(), getDiagnostics(), getRepairs(), getReacondicionadoTests()
-    ]);
-    setCatTecnologias(techs);
-    setCatMarcas(brands);
-    setCatModelos(models);
-    setCatDiagnosticos(diag);
-    setCatReparaciones(reps.map((r: any) => ({ id: r.id, nombre: r.name })));
-    setCatReacondicionadoTests(rTests);
-  };
+  const workshopCatalogsQuery = useQuery({
+    queryKey: ['workshop-operation-catalogs', 'v1'],
+    queryFn: fetchWorkshopOperationCatalogsViaApi,
+    staleTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
 
   useEffect(() => {
-    if (catMarcas.length > 0 && activeTab !== 'po' && activeTab !== 'despacho') {
+    if (!workshopCatalogsQuery.data) return;
+    setCatDiagnosticos(workshopCatalogsQuery.data.diagnostics);
+    setCatReparaciones(workshopCatalogsQuery.data.repairs);
+    setCatReacondicionadoTests(workshopCatalogsQuery.data.reacondicionadoTests);
+  }, [workshopCatalogsQuery.data]);
+
+  useEffect(() => {
+    if (activeTab !== 'po' && activeTab !== 'despacho') {
       fetchTasks();
     }
-  }, [activeTab, catMarcas]);
+  }, [activeTab]);
 
   useEffect(() => {
     const fetchHistory = async () => {
@@ -279,11 +286,7 @@ export default function TallerPage() {
     setLoading(true);
     try {
       const workshopTab = activeTab as WorkshopTabId;
-      const [data, counts] = await Promise.all([
-        getWorkshopTasks(workshopTab),
-        getWorkshopTaskCounts(),
-      ]);
-      setTabCounts(counts);
+      const data = await getWorkshopTasks(workshopTab);
 
       const adapted = data.map((t: any) => {
       const notes = (t.receptions?.notes || '').replace(/\\n/g, '\n');
@@ -344,17 +347,17 @@ export default function TallerPage() {
 
       const tecnologiaName =
         t.models?.technologies?.name ||
-        catTecnologias.find((tech) => tech.id === techId)?.name ||
+        techName(techId) ||
         (techId && !/^cajas:/i.test(techId) ? techId : null) ||
         'EQUIPO';
       const marcaName =
         t.brands?.name ||
-        catMarcas.find((b) => b.id === brandId)?.name ||
+        brandName(brandId) ||
         brandId ||
         'Desconocida';
       const modeloName =
         t.models?.name ||
-        catModelos.find((m) => m.id === modelId)?.name ||
+        modelName(modelId) ||
         modelId ||
         'S/N';
 
@@ -395,7 +398,6 @@ export default function TallerPage() {
         };
       });
       setTasks(adapted);
-      setTabCounts((prev) => ({ ...prev, [workshopTab]: adapted.length }));
     } catch (err) {
       console.error('Error loading workshop tasks:', err);
       notify.error('No se pudo cargar la cola de taller');
@@ -485,6 +487,7 @@ ${funcNotes || 'Ninguno evaluado'}
       setQcChecklist(null);
       setQcLegible(null);
       setReacondTests([]);
+      await queryClient.invalidateQueries({ queryKey: ['workshop-tab-counts'] });
       fetchTasks();
     } catch (error: any) {
       notify.error('Error guardando diagnóstico', { description: error.message });
@@ -521,6 +524,7 @@ ${funcNotes || 'Ninguno evaluado'}
       }
       notify.success(`Equipo movido a ${label}`);
       setReturnModalOpen({isOpen: false, item: null});
+      await queryClient.invalidateQueries({ queryKey: ['workshop-tab-counts'] });
       fetchTasks();
     } catch (error) {
       console.error(error);

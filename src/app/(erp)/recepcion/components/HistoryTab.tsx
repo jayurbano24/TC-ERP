@@ -7,10 +7,15 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { notify, confirmDialog, promptDialog, DataTable } from '@/components/ui';
-import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { printingService } from '../services/printingService';
-import { groupPxSeriesByEquipment } from '../utils/pxSeriesUtils';
+import {
+  fetchPxPrintData,
+  fetchCacReceptionGuides,
+  fetchReceptionHistoryKpis,
+  patchReceptionSap,
+  patchReceptionWarehouseDelete,
+} from '../services/receptionReadsApi';
 import {
   CAC_HISTORY_PAGE_SIZE,
   ReceptionCacHistoryPagination,
@@ -316,24 +321,23 @@ export const HistoryTab = ({
 
   React.useEffect(() => {
     if (moduleMode !== 'cac') return;
-    const supabase = getSupabaseBrowserClient();
-    if (!supabase) return;
 
     const masterIds = cacPaginatedGroups.map((g) => g.master?.id).filter(Boolean);
     if (masterIds.length === 0) return;
 
     let cancelled = false;
     (async () => {
-      const { data } = await supabase
-        .from('reception_guides')
-        .select('*')
-        .in('reception_id', masterIds);
-      if (cancelled || !data?.length) return;
-      setReceptionGuides((prev) => {
-        const map = new Map(prev.map((g) => [`${g.reception_id}:${g.guide_number}`, g]));
-        for (const g of data) map.set(`${g.reception_id}:${g.guide_number}`, g);
-        return Array.from(map.values());
-      });
+      try {
+        const data = await fetchCacReceptionGuides(masterIds);
+        if (cancelled || !data?.length) return;
+        setReceptionGuides((prev) => {
+          const map = new Map(prev.map((g) => [`${g.reception_id}:${g.guide_number}`, g]));
+          for (const g of data) map.set(`${g.reception_id}:${g.guide_number}`, g);
+          return Array.from(map.values());
+        });
+      } catch {
+        /* ignore */
+      }
     })();
 
     return () => {
@@ -349,24 +353,7 @@ export const HistoryTab = ({
     setShowPxDetails(rec);
     setPxDetailsData({ boxes: [], equipments: [], loading: true });
     try {
-      const supabase = getSupabaseBrowserClient();
-      if (!supabase) return;
-      const { data: boxes } = await supabase
-        .from('boxes')
-        .select('*, brands(name), models(name, technologies(name))')
-        .eq('reception_id', rec.id);
-      const { data: series } = await supabase
-        .from('series')
-        .select('serial_number, service_order_id, current_box_id, material')
-        .eq('current_reception_id', rec.id);
-      const { data: serviceOrders } = await supabase
-        .from('service_orders')
-        .select('id, main_serial')
-        .eq('reception_id', rec.id);
-
-      const boxCodeById = Object.fromEntries((boxes || []).map((b: any) => [b.id, b.box_code]));
-      const equipments = groupPxSeriesByEquipment(series || [], serviceOrders || [], boxCodeById);
-
+      const { boxes, equipments } = await fetchPxPrintData(rec.id);
       setPxDetailsData({ boxes: boxes || [], equipments, loading: false });
     } catch (error) {
       console.error(error);
@@ -485,10 +472,7 @@ export const HistoryTab = ({
               const newSap = await promptDialog({ title: 'Editar Documento SAP', prompt: { defaultValue: rec.sap_document || '' } });
               if (newSap === null || newSap.trim() === '' || newSap.trim() === rec.sap_document) return;
               try {
-                const supabase = getSupabaseBrowserClient();
-                if (!supabase) return;
-                const { error } = await supabase.from('receptions').update({ sap_document: newSap.trim() }).eq('id', rec.id);
-                if (error) throw error;
+                await patchReceptionSap(rec.id, newSap.trim());
                 setPxRecords((prev: any) => prev.map((r: any) => (r.id === rec.id ? { ...r, sap_document: newSap.trim() } : r)));
               } catch (err: any) {
                 notify.error('Error al actualizar', { description: err.message });
@@ -528,10 +512,7 @@ export const HistoryTab = ({
                     await handleDeleteHistoryPX(rec.id);
                     return;
                   }
-                  const supabase = getSupabaseBrowserClient();
-                  if (!supabase) return;
-                  const { error } = await supabase.from('receptions').update({ status: 'ELIMINADO POR BODEGA' }).eq('id', rec.id);
-                  if (error) throw error;
+                  await patchReceptionWarehouseDelete(rec.id);
                   setPxRecords((prev: any) => prev.map((r: any) => (r.id === rec.id ? { ...r, status: 'ELIMINADO POR BODEGA' } : r)));
                 } catch (err: any) {
                   notify.error('Error al eliminar', { description: err.message });
@@ -562,62 +543,14 @@ export const HistoryTab = ({
 
         React.useEffect(() => {
           async function fetchKPIs() {
-            const supabase = getSupabaseBrowserClient();
-            if (!supabase) return;
-
-            // 1. Calcular inicio y fin del día actual en Guatemala (UTC-6) -> a UTC para la DB
-            const now = new Date();
-            // Formateador en zona horaria America/Guatemala
-            const formatter = new Intl.DateTimeFormat('en-US', {
-              timeZone: 'America/Guatemala',
-              year: 'numeric', month: '2-digit', day: '2-digit'
-            });
-            const [{ value: mo }, , { value: da }, , { value: ye }] = formatter.formatToParts(now);
-            
-            // Creamos fechas representando las 00:00:00 y 23:59:59 en UTC-6
-            // "YYYY-MM-DD T00:00:00 -06:00"
-            const startOfDayGuatemalaStr = `${ye}-${mo}-${da}T00:00:00.000-06:00`;
-            const endOfDayGuatemalaStr = `${ye}-${mo}-${da}T23:59:59.999-06:00`;
-
-            const startOfDayUtc = new Date(startOfDayGuatemalaStr).toISOString();
-            const endOfDayUtc = new Date(endOfDayGuatemalaStr).toISOString();
-
             try {
-              // Consultar las 3 métricas
-              const [
-                { count: guiasHoyCount, error: err1 },
-                { count: equiposHoyCount, error: err2 },
-                { count: enEsperaCount, error: err3 }
-              ] = await Promise.all([
-                supabase.from('reception_guides')
-                  .select('*', { count: 'exact', head: true })
-                  .gte('created_at', startOfDayUtc)
-                  .lte('created_at', endOfDayUtc),
-
-                supabase.from('reception_guides')
-                  .select('*', { count: 'exact', head: true })
-                  .eq('category', 'equipo')
-                  .gte('classified_at', startOfDayUtc)
-                  .lte('classified_at', endOfDayUtc),
-
-                supabase.from('reception_guides')
-                  .select('*', { count: 'exact', head: true })
-                  .is('category', null)
-                  .gte('created_at', startOfDayUtc)
-                  .lte('created_at', endOfDayUtc)
-              ]);
-
-              // Validamos que ninguna haya arrojado error
-              if (!err1 && !err2 && !err3 && (guiasHoyCount! > 0 || equiposHoyCount! > 0 || enEsperaCount! > 0)) {
-                setKpis({
-                  guiasHoy: guiasHoyCount || 0,
-                  equiposHoy: equiposHoyCount || 0,
-                  enEspera: enEsperaCount || 0
-                });
-                return; // Si funcionó, salimos
+              const kpis = await fetchReceptionHistoryKpis();
+              if (kpis.guiasHoy > 0 || kpis.equiposHoy > 0 || kpis.enEspera > 0) {
+                setKpis(kpis);
+                return;
               }
             } catch (err) {
-              console.error("Error fetching KPIs from reception_guides:", err);
+              console.error('Error fetching KPIs from API:', err);
             }
 
             // --- FALLBACK: Lógica antigua con Regex ---

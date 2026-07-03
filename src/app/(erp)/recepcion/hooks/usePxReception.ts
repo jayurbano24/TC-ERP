@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react';
 import { notify, confirmDialog, promptDialog } from '@/components/ui';
 import { useClientPagination } from '@/hooks/useClientPagination';
+import { getPxBoxesDefault } from '@/shared/constants/batchLimits';
 import {
   canClosePxBox,
   getPxActiveBoxCodes,
@@ -138,7 +139,7 @@ export function usePxReception(props: any) {
       guia: '',
       piloto: '',
       courier: '',
-      totalCajasEsperadas: 1,
+      totalCajasEsperadas: getPxBoxesDefault(),
     });
     setIsReceptionStarted(false);
     setIsEditingHeader(false);
@@ -186,7 +187,10 @@ export function usePxReception(props: any) {
 
   const handleCreateNewBox = () => {
     if (useIncrementalCapture) {
-      const limitCheck = canCreateNewPxBox(boxMetaByCode || {}, guideData.totalCajasEsperadas || 1);
+      const limitCheck = canCreateNewPxBox(
+        boxMetaByCode || {},
+        guideData.totalCajasEsperadas ?? getPxBoxesDefault()
+      );
       if (!limitCheck.ok) {
         notify.warning(limitCheck.reason);
         return;
@@ -395,7 +399,7 @@ export function usePxReception(props: any) {
     ? Object.keys(boxMetaByCode)
     : getPxActiveBoxCodes(manifestItems, scannedSeries);
   const boxLimitReached = useIncrementalCapture
-    ? !canCreateNewPxBox(boxMetaByCode || {}, guideData.totalCajasEsperadas || 1).ok
+    ? !canCreateNewPxBox(boxMetaByCode || {}, guideData.totalCajasEsperadas ?? getPxBoxesDefault()).ok
     : false;
   const finalizeCheck =
     useIncrementalCapture && boxMetaByCode && Object.keys(boxMetaByCode).length > 0

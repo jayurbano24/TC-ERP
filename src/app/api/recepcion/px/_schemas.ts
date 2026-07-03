@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { BATCH_LIMITS, getPxBoxesDefault, resolvePxBoxLimit } from '@/shared/constants/batchLimits';
 
 /**
  * SEC-P1: Esquemas Zod para las rutas de mutación de recepción PX.
@@ -21,7 +22,12 @@ export const guideDataSchema = z.object({
   guia: z.string().max(160).optional().default(''),
   piloto: z.string().max(160).optional().default(''),
   courier: z.string().max(160).optional().default(''),
-  totalCajasEsperadas: z.coerce.number().int().nonnegative().optional().default(0),
+  totalCajasEsperadas: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(BATCH_LIMITS.PX_BOXES_MAX)
+    .default(getPxBoxesDefault()),
 });
 
 export const pxLotSchema = z.object({
@@ -30,7 +36,7 @@ export const pxLotSchema = z.object({
   modelId: z.string().nullish(),
   brandName: z.string().max(160).optional(),
   modelName: z.string().max(160).optional(),
-  expectedUnits: z.coerce.number().int().nonnegative(),
+  expectedUnits: z.coerce.number().int().min(1).max(BATCH_LIMITS.PX_UNITS_PER_BOX_MAX),
   material: z.string().max(160).optional(),
 });
 
@@ -55,6 +61,11 @@ export const finalizeSchema = z.object({
   varianceReason: z.string().max(2000).optional(),
   variance_reason: z.string().max(2000).optional(),
   ...operatorFields,
+});
+
+// POST /api/recepcion/px/[id]/finalize/promote-next
+export const finalizePromoteNextSchema = finalizeSchema.extend({
+  stampVariance: z.boolean().optional(),
 });
 
 // POST /api/recepcion/px/[id]/boxes

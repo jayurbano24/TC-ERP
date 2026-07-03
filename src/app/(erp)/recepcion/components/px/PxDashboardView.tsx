@@ -14,6 +14,7 @@ import {
   validatePxIncrementalFinalizeReadiness,
   canCreateNewPxBox,
 } from '../../utils/pxBoxUtils';
+import type { PxFinalizeProgress } from '../../services/pxIncrementalApi';
 
 export const PxDashboardView = (props: any) => {
   const {
@@ -21,9 +22,25 @@ export const PxDashboardView = (props: any) => {
     closedBoxCount, closedBoxes, finalizeCheck, guideData,
     handleAbandonReception, handleCreateNewBox, handleDeleteBox, handleEditBox,
     handleEnterBox, handleFinalizePX, incrementalReceptionId, isSubmittingPX,
+    finalizeProgress,
     lastSavedAt, manifestItems, openBoxCount, openHeaderEdit,
     scannedSeries, useIncrementalCapture,
   } = props;
+
+  const prepPct =
+    finalizeProgress && finalizeProgress.prepTotal > 0
+      ? Math.min(100, Math.round((finalizeProgress.prepDone / finalizeProgress.prepTotal) * 100))
+      : 0;
+  const promotePct =
+    finalizeProgress && finalizeProgress.promoteTotal > 0
+      ? Math.min(100, Math.round((finalizeProgress.promoteDone / finalizeProgress.promoteTotal) * 100))
+      : 0;
+  const overallPct =
+    finalizeProgress?.phase === 'prep'
+      ? prepPct * 0.35
+      : finalizeProgress
+        ? 35 + promotePct * 0.65
+        : 0;
 
   return (
       <div className="space-y-8 animate-rise-in">
@@ -50,7 +67,12 @@ export const PxDashboardView = (props: any) => {
           <div className="flex items-center gap-4">
             {useIncrementalCapture && incrementalReceptionId ? (
               <span className="hidden lg:inline text-[10px] font-bold text-emerald-600 uppercase tracking-widest">
-                Servidor · {scannedSeries.length} equipos · REC {guideData.guia}
+                Servidor ·{' '}
+                {Object.values(boxMetaByCode || {}).reduce(
+                  (acc, b) => acc + (b.captured_count ?? 0),
+                  0
+                ) || scannedSeries.length}{' '}
+                equipos · REC {guideData.guia}
               </span>
             ) : lastSavedAt ? (
               <span className="hidden lg:inline text-[10px] font-bold text-emerald-600 uppercase tracking-widest">
@@ -84,10 +106,42 @@ export const PxDashboardView = (props: any) => {
               title={!finalizeCheck.ok ? finalizeCheck.reason : 'Enviar cajas cerradas a Bodega Central'}
               className="bg-emerald-500 hover:bg-emerald-600 text-white h-12 px-6 font-black text-[11px] uppercase tracking-widest shadow-xl shadow-emerald-500/20 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <CheckCircle2 className="w-4 h-4 mr-2" /> {isSubmittingPX ? 'Guardando...' : 'Finalizar Recepción'}
+              <CheckCircle2 className="w-4 h-4 mr-2" />{' '}
+              {isSubmittingPX ? 'Finalizando…' : 'Finalizar Recepción'}
             </Button>
           </div>
         </div>
+
+        {finalizeProgress && (
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 px-5 py-4 space-y-3">
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-[11px] font-black uppercase tracking-widest text-emerald-800">
+                {finalizeProgress.phase === 'prep' ? 'Fase 1 — Cajas a Bodega' : 'Fase 2 — Equipos a inventario'}
+              </p>
+              <span className="text-[10px] font-bold text-emerald-700 tabular-nums">
+                {Math.round(overallPct)}%
+              </span>
+            </div>
+            <div className="h-2.5 w-full rounded-full bg-emerald-100 overflow-hidden">
+              <div
+                className="h-full bg-emerald-500 transition-all duration-300 ease-out"
+                style={{ width: `${overallPct}%` }}
+              />
+            </div>
+            <p className="text-xs font-bold text-emerald-900">{finalizeProgress.label}</p>
+            <div className="flex flex-wrap gap-4 text-[10px] font-bold uppercase tracking-widest text-emerald-700">
+              <span>
+                Cajas {finalizeProgress.prepDone}/{finalizeProgress.prepTotal}
+              </span>
+              <span>
+                Equipos {finalizeProgress.promoteDone}/{finalizeProgress.promoteTotal}
+              </span>
+            </div>
+            <p className="text-[10px] text-emerald-600">
+              No cierre esta pestaña. Si se interrumpe, puede reintentar Finalizar — el servidor retoma desde donde quedó.
+            </p>
+          </div>
+        )}
 
         {!canFinalize && activeBoxCodes.length > 0 && (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-3">

@@ -27,7 +27,7 @@ export default function TestConnectionPage() {
       // Test 1: Fetch version or a simple table
       const { data, error: queryError } = await supabase
         .from('profiles') // Table defined in our schema
-        .select('*')
+        .select('id, full_name, email, is_active')
         .limit(1);
 
       if (queryError) {

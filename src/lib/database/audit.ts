@@ -1,5 +1,7 @@
+import { ERP_AUDIT_LOG_SELECT } from '@/shared/constants/dbProjections';
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { apiFetch } from "@/lib/http/apiFetch";
+import { fetchSeriesHistoryViaApi } from '@/lib/api/seriesHistory';
 
 export type AuditSeverity = 'INFO' | 'WARNING' | 'CRITICAL';
 
@@ -84,6 +86,12 @@ export async function logAdvancedAudit(params: AdvancedAuditPayload) {
 
 
 export async function getSeriesHistory(recordIds: string | string[]) {
+  try {
+    return await fetchSeriesHistoryViaApi(recordIds);
+  } catch (apiErr) {
+    console.warn('[audit] GET /api/v1/audit/series-history failed:', apiErr);
+  }
+
   const ids = Array.isArray(recordIds) ? recordIds : [recordIds];
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return [];
@@ -166,7 +174,7 @@ export async function getAdvancedAuditLogs(filters?: {
 
   let query = supabase
     .from('erp_audit_logs')
-    .select('*', { count: 'exact' });
+    .select(ERP_AUDIT_LOG_SELECT, { count: 'exact' });
 
   if (filters?.module) query = query.eq('module', filters.module);
   if (filters?.severity) query = query.eq('severity', filters.severity);

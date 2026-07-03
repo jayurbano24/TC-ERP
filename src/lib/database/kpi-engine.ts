@@ -1,3 +1,4 @@
+import { TALLER_KPI_GOAL_SELECT } from '@/shared/constants/dbProjections';
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 /** Fila de movimiento por persona a lo largo del pipeline (bodega → taller → QC). */
@@ -278,7 +279,7 @@ export async function getEngineKPIs(timeRange: string = 'Hoy') {
 
   let kpiGoals: any[] = [];
   try {
-    const { data } = await supabase.from('taller_kpi_goals').select('*');
+    const { data } = await supabase.from('taller_kpi_goals').select(TALLER_KPI_GOAL_SELECT);
     if (data) kpiGoals = data;
   } catch(e) {}
 

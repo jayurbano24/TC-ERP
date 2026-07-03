@@ -1,4 +1,5 @@
 import type { PxManifestItem, PxScannedSeries } from '../types/reception.types';
+import { resolvePxBoxLimit, BATCH_LIMITS } from '@/shared/constants/batchLimits';
 
 export type PxBoxStats = {
   lots: PxManifestItem[];
@@ -156,11 +157,11 @@ export function canCreateNewPxBox(
   totalCajasEsperadas: number
 ): { ok: true } | { ok: false; reason: string } {
   const serverCount = Object.keys(boxMetaByCode).length;
-  const limit = totalCajasEsperadas || 1;
+  const limit = resolvePxBoxLimit(totalCajasEsperadas);
   if (serverCount >= limit) {
     return {
       ok: false,
-      reason: `Ya alcanzó el límite de ${limit} caja(s) declaradas. Use "Editar cabecera" para aumentar "Cantidad Total Cajas" si necesita agregar más.`,
+      reason: `Ya alcanzó el límite de ${limit} caja(s) declaradas. Use "Editar cabecera" → "Cantidad Total Cajas" (máx. ${BATCH_LIMITS.PX_BOXES_MAX}).`,
     };
   }
   return { ok: true };

@@ -1,3 +1,4 @@
+import { SERVICE_ORDER_OPS_STATE_SELECT } from '@/shared/constants/dbProjections';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
   OperationalSnapshot,
@@ -46,7 +47,7 @@ export class OperationalStateRepositoryAdapter implements IOperationalStateRepos
   async getByServiceOrderId(serviceOrderId: string): Promise<ServiceOrderOperationalState | null> {
     const { data, error } = await this.supabase
       .from('service_order_operational_state')
-      .select('*')
+      .select(SERVICE_ORDER_OPS_STATE_SELECT)
       .eq('service_order_id', serviceOrderId)
       .maybeSingle();
 
@@ -68,7 +69,7 @@ export class OperationalStateRepositoryAdapter implements IOperationalStateRepos
         tray_excluded: params.trayExcluded ?? null,
         updated_at: new Date().toISOString(),
       })
-      .select('*')
+      .select(SERVICE_ORDER_OPS_STATE_SELECT)
       .single();
 
     if (error) throw new Error(error.message);

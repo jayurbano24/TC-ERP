@@ -2,6 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import { Card, Button, Spinner, notify, confirmDialog } from '@/components/ui';
+import {
+  COMPANY_SHIFT_SELECT,
+  EMPLOYEE_LIST_SELECT,
+  HR_DEPARTMENT_SELECT,
+  HR_EMPLOYEE_TYPE_SELECT,
+  HR_POSITION_SELECT,
+} from '@/shared/constants/dbProjections';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { UserPlus, UploadCloud, Download, Upload, Trash2, CheckSquare, Clock } from 'lucide-react';
 import EmployeeModal from './EmployeeModal';
@@ -30,19 +37,23 @@ export default function GestionPersonalTab() {
     setLoading(true);
     const supabase = getSupabaseBrowserClient();
     if (supabase) {
-      const { data: empData } = await supabase.from('employees').select('*, company_shifts(name), hr_departments(name), hr_positions(name)').order('created_at', { ascending: false });
-      if (empData) setEmployees(empData);
+      const { data: empData } = await supabase.from('employees').select(EMPLOYEE_LIST_SELECT).order('created_at', { ascending: false });
+      if (empData) {
+        const { data: bioRows } = await supabase.from('employees').select('id').not('face_embedding', 'is', null);
+        const bioSet = new Set((bioRows || []).map((r) => r.id));
+        setEmployees(empData.map((emp) => ({ ...emp, face_embedding: bioSet.has(emp.id) ? true : null })));
+      }
 
-      const { data: shiftData } = await supabase.from('company_shifts').select('*');
+      const { data: shiftData } = await supabase.from('company_shifts').select(COMPANY_SHIFT_SELECT);
       if (shiftData) setShifts(shiftData);
 
-      const { data: dptData } = await supabase.from('hr_departments').select('*').order('name');
+      const { data: dptData } = await supabase.from('hr_departments').select(HR_DEPARTMENT_SELECT).order('name');
       if (dptData) setDepartments(dptData);
 
-      const { data: posData } = await supabase.from('hr_positions').select('*').order('name');
+      const { data: posData } = await supabase.from('hr_positions').select(HR_POSITION_SELECT).order('name');
       if (posData) setPositions(posData);
 
-      const { data: typeData } = await supabase.from('hr_employee_types').select('*').order('name');
+      const { data: typeData } = await supabase.from('hr_employee_types').select(HR_EMPLOYEE_TYPE_SELECT).order('name');
       if (typeData) setEmployeeTypes(typeData);
     }
     setLoading(false);

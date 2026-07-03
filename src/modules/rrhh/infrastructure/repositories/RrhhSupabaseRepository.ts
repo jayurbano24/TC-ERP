@@ -1,3 +1,4 @@
+import { EMPLOYEE_DOMAIN_SELECT } from '@/shared/constants/dbProjections';
 import { IRrhhRepository } from '../../domain/repositories/IRrhhRepository';
 import { EmpleadoAggregate } from '../../domain/aggregates/EmpleadoAggregate';
 import { AsistenciaAggregate } from '../../domain/aggregates/AsistenciaAggregate';
@@ -24,7 +25,7 @@ export class RrhhSupabaseRepository implements IRrhhRepository {
     const supabase = getSupabaseServerClient();
     const { data } = await supabase
       .from('employees')
-      .select('*')
+      .select(EMPLOYEE_DOMAIN_SELECT)
       .eq('id', id)
       .eq('tenant_id', ctx.tenantId)
       .single();

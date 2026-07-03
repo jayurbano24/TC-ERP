@@ -1,6 +1,9 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { v5 as uuidv5 } from "uuid";
+import { BATCH_LIMITS } from "@/shared/constants/batchLimits";
+import { isWarehouseTransferApiEnabled } from "@/shared/feature-flags/clientFlags";
+import { transferBoxesToWorkshopViaApi } from "@/lib/api/warehouseTransfer";
 
 /** Namespace fijo para claves idempotentes determinísticas (caja + acción + destino). */
 const WAREHOUSE_IDEMPOTENCY_NS = "a3f2c8e1-9b4d-4e7a-8c1f-2d6e9a0b5c3d";
@@ -13,7 +16,9 @@ export function warehouseBoxIdempotencyKey(
   return uuidv5(`${action}:${boxId}:${target}`, WAREHOUSE_IDEMPOTENCY_NS);
 }
 
-/** CHG-002: todas las series del doc SAP encajonadas en bodega → INGRESADO_BODEGA. */
+/** Proyección mínima de cajas (evita select('*')). */
+const BOX_MINIMAL_SELECT =
+  'id, box_code, rack_location, status, capacity, brand_id, model_id, reception_id, created_at, updated_at';
 async function syncSapTransferIngresadoForSeries(
   supabase: SupabaseClient,
   seriesIds: string[]
@@ -269,7 +274,7 @@ async function fetchAllCentralWarehouseBoxes(
   while (offset < WAREHOUSE_BOX_FETCH_LIMIT) {
     const { data, error } = await supabase
       .from('boxes')
-      .select('*')
+      .select(BOX_MINIMAL_SELECT)
       .or('rack_location.eq.BODEGA_CENTRAL,rack_location.like.P-*')
       .order('created_at', { ascending: false })
       .order('id', { ascending: true })
@@ -300,7 +305,7 @@ async function fetchBoxesByIds(
 ) {
   const boxesById = new Map<string, Record<string, unknown>>();
   for (const chunk of chunkIds(boxIds)) {
-    const { data, error } = await supabase.from('boxes').select('*').in('id', chunk);
+    const { data, error } = await supabase.from('boxes').select(BOX_MINIMAL_SELECT).in('id', chunk);
     if (error) {
       console.error('Error fetching boxes by id:', error);
       continue;
@@ -563,7 +568,7 @@ export async function addSeriesToBox(boxId: string, seriesNumbers: string[]) {
 }
 
 /** Máximo de cajas por lote hacia taller (dispersión = 1 RPC pesado por caja). */
-export const WORKSHOP_TRANSFER_BATCH_LIMIT = 10;
+export const WORKSHOP_TRANSFER_BATCH_LIMIT = BATCH_LIMITS.WORKSHOP_TRANSFER_BOXES;
 
 export async function transferBoxesToArea(boxIds: string[], targetArea: string, targetRack?: string) {
   invalidateInventoryBoxesCache();
@@ -575,6 +580,14 @@ export async function transferBoxesToArea(boxIds: string[], targetArea: string, 
   const rackFromArea = AREA_TO_RACK[targetArea];
   const rackLocation = targetRack ?? rackFromArea;
   const isWorkshop = rackLocation?.startsWith('TALLER');
+
+  if (isWorkshop && isWarehouseTransferApiEnabled()) {
+    const apiResult = await transferBoxesToWorkshopViaApi(boxIds);
+    if (!apiResult.success) {
+      return { error: apiResult.error ?? 'Transferencia fallida' };
+    }
+    return { success: true, seriesUpdated: apiResult.transferred ?? boxIds.length };
+  }
 
   if (isWorkshop && boxIds.length > WORKSHOP_TRANSFER_BATCH_LIMIT) {
     return {
@@ -626,6 +639,77 @@ export async function transferBoxesToArea(boxIds: string[], targetArea: string, 
   }
 
   return { success: true, seriesUpdated: successCount };
+}
+
+function chunkBoxIds(ids: string[], size: number): string[][] {
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += size) {
+    chunks.push(ids.slice(i, i + size));
+  }
+  return chunks;
+}
+
+export type BatchTransferResult = {
+  success: boolean;
+  transferred: number;
+  total: number;
+  batches: number;
+  error?: string;
+};
+
+/**
+ * Traslado a área con auto-lotes hacia Diagnóstico/taller (máx. WORKSHOP_TRANSFER_BATCH_LIMIT por RPC).
+ */
+export async function transferBoxesToAreaInBatches(
+  boxIds: string[],
+  targetArea: string,
+  targetRack?: string
+): Promise<BatchTransferResult> {
+  if (boxIds.length === 0) {
+    return { success: false, transferred: 0, total: 0, batches: 0, error: 'Sin cajas seleccionadas' };
+  }
+
+  const rackFromArea = AREA_TO_RACK[targetArea];
+  const rackLocation = targetRack ?? rackFromArea;
+  const isWorkshop = rackLocation?.startsWith('TALLER');
+
+  const chunks =
+    isWorkshop && boxIds.length > WORKSHOP_TRANSFER_BATCH_LIMIT
+      ? chunkBoxIds(boxIds, WORKSHOP_TRANSFER_BATCH_LIMIT)
+      : [boxIds];
+
+  let transferred = 0;
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+    const result = await transferBoxesToArea(chunk, targetArea, targetRack);
+    if (result.error) {
+      const batchLabel = chunks.length > 1 ? ` — lote ${i + 1}/${chunks.length}` : '';
+      if (transferred === 0) {
+        return {
+          success: false,
+          transferred: 0,
+          total: boxIds.length,
+          batches: chunks.length,
+          error: `${result.error}${batchLabel}`,
+        };
+      }
+      return {
+        success: false,
+        transferred,
+        total: boxIds.length,
+        batches: chunks.length,
+        error: `${transferred}/${boxIds.length} cajas movidas antes del fallo${batchLabel}: ${result.error}`,
+      };
+    }
+    transferred += chunk.length;
+  }
+
+  return {
+    success: true,
+    transferred,
+    total: boxIds.length,
+    batches: chunks.length,
+  };
 }
 
 export async function openDispatchBatch(destination?: string, guideOutbound?: string, notes?: string) {

@@ -24,7 +24,7 @@ export class SupabaseInventarioRepository implements IInventarioRepository {
   async findById(id: string): Promise<InventarioAggregate | null> {
     const { data, error } = await this.supabase
       .from('inventario')
-      .select('*')
+      .select('id, tenant_id, branch_id')
       .eq('id', id)
       .single();
 

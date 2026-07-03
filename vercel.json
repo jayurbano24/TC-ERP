@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/internal/refresh-summary-views",
+      "schedule": "*/10 * * * *"
+    }
+  ]
+}

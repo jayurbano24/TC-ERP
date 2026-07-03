@@ -2,6 +2,10 @@
 
 import { useState } from 'react';
 import { Card, Button, Spinner, notify } from '@/components/ui';
+import {
+  EMPLOYEE_ABSENCE_PAYROLL_SELECT,
+  TIME_LOG_PAYROLL_SELECT,
+} from '@/shared/constants/dbProjections';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { Calculator, Download, CheckCircle2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -19,8 +23,8 @@ export default function PlanillaTab() {
     const { data: employees } = await supabase.from('employees').select('id, codigo_empleado, nombre_completo, sueldo_mensual_base, bono_metas, numero_cuenta, banco, tipo_pago, tipo_contrato');
     
     // Simplificado para MVP: Traemos todo o deberíamos filtrar por periodo
-    const { data: logs } = await supabase.from('time_logs').select('*');
-    const { data: absences } = await supabase.from('employee_absences').select('*');
+    const { data: logs } = await supabase.from('time_logs').select(TIME_LOG_PAYROLL_SELECT);
+    const { data: absences } = await supabase.from('employee_absences').select(EMPLOYEE_ABSENCE_PAYROLL_SELECT);
 
     if (employees && logs && absences) {
       const results = employees.map(emp => {

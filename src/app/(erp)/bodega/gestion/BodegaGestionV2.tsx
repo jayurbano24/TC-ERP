@@ -35,12 +35,12 @@ import {
   Truck,
   PackageMinus
 } from 'lucide-react';
-import { getInventoryBoxes, transferBoxesToArea, createBodegaBoxAtomic, reserveNextBoxCode, addSeriesToBox, dispatchBoxFromWarehouse, dispatchSpecificSeries, transferSpecificSeriesToArea, canScanSeriesIntoWarehouse, resolveBoxDisplayStatus, getBoxHistory } from '@/modules/inventario/client/warehouseBoxes';
+import { getInventoryBoxes, transferBoxesToArea, transferBoxesToAreaInBatches, createBodegaBoxAtomic, reserveNextBoxCode, addSeriesToBox, dispatchBoxFromWarehouse, dispatchSpecificSeries, transferSpecificSeriesToArea, canScanSeriesIntoWarehouse, resolveBoxDisplayStatus, getBoxHistory } from '@/modules/inventario/client/warehouseBoxes';
 import { DispatchBatchSelector } from '@/modules/outbound-dispatch/components/DispatchBatchSelector';
 import { isHexagonalOutboundDispatchEnabled } from '@/modules/outbound-dispatch';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
-import { getTechnologies, getBrands, getModels } from '@/shared/catalogs/catalogs';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { useReferenceCatalogs } from '@/hooks/useReferenceCatalogs';
 import { PrintBoxModal } from './components/PrintBoxModal';
 import { RackModal } from './components/RackModal';
 import { TimelineModal } from './components/TimelineModal';
@@ -50,6 +50,7 @@ import { NewBoxModal } from './components/NewBoxModal';
 import { DetalleCajaModal } from './components/DetalleCajaModal';
 import { fetchBoxSeriesUi } from '@/modules/inventario/client/warehouseBoxSeries';
 import { formatWarehouseBoxId } from '@/modules/inventario/client/warehouseBoxDisplay';
+import { RECEPTION_TIMELINE_SELECT } from '@/shared/constants/dbProjections';
 
 function isWarehouseSummaryMissingError(message: unknown): boolean {
   const text = String(message ?? '');
@@ -63,6 +64,17 @@ export default function BodegaGestionV2({
 }) {
   const pathname = usePathname();
   const queryClient = useQueryClient();
+  const {
+    technologies: catTecnologias,
+    brands: catMarcas,
+    models: catModelos,
+    techName,
+    brandName,
+    modelName,
+    techNameForModel,
+    techIdByModelId,
+    isReady: catalogsReady,
+  } = useReferenceCatalogs();
   const boxSeriesCache = useRef(new Map<string, any[]>());
   const [searchTerm, setSearchTerm] = useState('');
   // C5: filtrado de inventario sobre término debounced (input fluido).
@@ -135,16 +147,7 @@ export default function BodegaGestionV2({
       setSelectedBox({ ...item, series: [] });
       setLoadingBoxDetail(true);
       try {
-        const supabase = getSupabaseBrowserClient();
-        let capacity = item.cantidad || item.unitCount || 0;
-        if (supabase && item.realDbId) {
-          const { data: meta } = await supabase
-            .from('boxes')
-            .select('capacity, created_at')
-            .eq('id', item.realDbId)
-            .maybeSingle();
-          if (meta?.capacity) capacity = meta.capacity;
-        }
+        let capacity = item.cantidad || item.capacity || item.unitCount || 0;
         const series = await ensureBoxSeriesLoaded(item);
         setSelectedBox({
           ...item,
@@ -208,17 +211,11 @@ export default function BodegaGestionV2({
     [ensureBoxSeriesLoaded]
   );
 
-  const [catTecnologias, setCatTecnologias] = useState<any[]>([]);
-  const [catMarcas, setCatMarcas] = useState<any[]>([]);
-  const [catModelos, setCatModelos] = useState<any[]>([]);
-
   const inventory = useMemo(() => {
     return (boxesData?.pages || []).flatMap(p => p.items || []).map((b: any) => {
        const boxCode = b.label || '';
        const boxIdFmt = formatWarehouseBoxId(boxCode, b.box_id);
-       const boxTechLabel = catModelos.find((m: any) => m.id === b.sample_model_id)
-         ? catTecnologias.find((t: any) => t.id === catModelos.find((m: any) => m.id === b.sample_model_id)?.technology_id)?.name || '---'
-         : '---';
+       const tecnologiaId = b.technology_id ?? (b.sample_model_id ? techIdByModelId.get(b.sample_model_id) : undefined);
 
        return {
          id: boxCode || b.box_id,
@@ -231,16 +228,19 @@ export default function BodegaGestionV2({
          area: 'Bodega Central',
          marca: b.sample_brand_id || 'N/A',
          modelo: b.sample_model_id || 'N/A',
+         marcaLabel: b.brand_name || brandName(b.sample_brand_id),
+         modeloLabel: b.model_name || modelName(b.sample_model_id),
          cantidad: b.capacity || 0,
          unitCount: b.series_count || 0,
          status: resolveBoxDisplayStatus(b.series_count || 0, b.capacity || b.series_count || 1),
          series: [] as any[],
          fechaIngreso: new Date(b.created_at || Date.now()).toLocaleString(),
-         tecnologia: boxTechLabel,
+         tecnologiaId,
+         tecnologia: b.tech_name || techNameForModel(b.sample_model_id),
          usuarioIngreso: 'Admin User'
        };
     });
-  }, [boxesData, catModelos, catTecnologias]);
+  }, [boxesData, techIdByModelId, techNameForModel, brandName, modelName]);
   const [showTimeline, setShowTimeline] = useState<any>(null);
   const [timelineGuideDetails, setTimelineGuideDetails] = useState<any>(null);
   const [boxHistoryData, setBoxHistoryData] = useState<any[]>([]);
@@ -278,7 +278,7 @@ export default function BodegaGestionV2({
 
   const filteredInventory = useMemo(() => {
     return inventory.filter((item) => {
-      if (filterTech && item.tecnologia !== filterTech) return false;
+      if (filterTech && item.tecnologiaId !== filterTech) return false;
 
       const isFull = item.status === 'Full';
       if (filterStatus === 'Full' && !isFull) return false;
@@ -286,20 +286,20 @@ export default function BodegaGestionV2({
 
       if (!debouncedSearch) return true;
       const term = debouncedSearch.toLowerCase();
-      const marcaName = catMarcas.find((b) => b.id === item.marca)?.name || item.marca || '';
-      const modeloName = catModelos.find((m) => m.id === item.modelo)?.name || item.modelo || '';
-      const techName = catTecnologias.find((t) => t.id === item.tecnologia)?.name || item.tecnologia || '';
+      const marcaName = brandName(item.marca);
+      const modeloName = modelName(item.modelo);
+      const techLabel = item.tecnologia || '---';
       const rackName = item.rack || '';
       const idName = String(item.id || '');
       return (
         idName.toLowerCase().includes(term) ||
         marcaName.toLowerCase().includes(term) ||
         modeloName.toLowerCase().includes(term) ||
-        techName.toLowerCase().includes(term) ||
+        techLabel.toLowerCase().includes(term) ||
         rackName.toLowerCase().includes(term)
       );
     });
-  }, [inventory, filterTech, filterStatus, debouncedSearch, catMarcas, catModelos, catTecnologias]);
+  }, [inventory, filterTech, filterStatus, debouncedSearch, brandName, modelName]);
 
   const { data: statsData } = useQuery({
     queryKey: ['warehouse-stats'],
@@ -323,11 +323,11 @@ export default function BodegaGestionV2({
   const techStats = useMemo((): { value: string; label: string; boxes: number; units: number }[] => {
     return (statsData || []).map((s: any) => ({
       value: s.technology_id,
-      label: catTecnologias.find((t: any) => t.id === s.technology_id)?.name || s.technology_id || '---',
+      label: s.tech_name || techName(s.technology_id),
       boxes: s.total_boxes,
       units: s.total_units
     }));
-  }, [statsData, catTecnologias]);
+  }, [statsData, techName]);
 
   const handleExportReport = () => {
     window.open('/api/v1/warehouse/boxes/export', '_blank');
@@ -336,30 +336,25 @@ export default function BodegaGestionV2({
   useEffect(() => {
     if (pathname !== '/bodega/gestion') return;
     void fetchBoxes();
-    void loadCatalogs();
   }, [pathname]);
 
-  const loadCatalogs = async () => {
-    try {
-      const [techs, brands, models] = await Promise.all([
-        getTechnologies(), getBrands(), getModels()
-      ]);
-      setCatTecnologias(techs);
-      setCatMarcas(brands);
-      setCatModelos(models);
-      // Pre-seleccionar primer item de cada catálogo como default
-      setNewBox(prev => ({
-        ...prev,
-        tecnologia: prev.tecnologia || techs[0]?.id || '',
-        marca: prev.marca || brands[0]?.id || '',
-        modelo: prev.modelo || models.find((m: any) =>
-          m.technology_id === (techs[0]?.id || '') && m.brand_id === (brands[0]?.id || '')
-        )?.id || models[0]?.id || '',
-      }));
-    } catch (err) {
-      console.error('Error loading catalogs:', err);
-    }
-  };
+  useEffect(() => {
+    if (!catalogsReady) return;
+    setNewBox((prev) => ({
+      ...prev,
+      tecnologia: prev.tecnologia || catTecnologias[0]?.id || '',
+      marca: prev.marca || catMarcas[0]?.id || '',
+      modelo:
+        prev.modelo ||
+        catModelos.find(
+          (m: any) =>
+            m.technology_id === (catTecnologias[0]?.id || '') &&
+            m.brand_id === (catMarcas[0]?.id || '')
+        )?.id ||
+        catModelos[0]?.id ||
+        '',
+    }));
+  }, [catalogsReady, catTecnologias, catMarcas, catModelos]);
 
   useEffect(() => {
     if (showNewBoxModal) {
@@ -468,6 +463,9 @@ export default function BodegaGestionV2({
       } else {
         notify.success(dispatchAction === 'despacho' ? 'Despacho registrado' : 'Traslado registrado');
         await refreshWarehouseLists();
+        if (dispatchAction === 'traslado' && dispatchArea === 'Diagnóstico') {
+          await queryClient.invalidateQueries({ queryKey: ['workshop-tab-counts'] });
+        }
         setShowDispatchModal(null);
         setSelectedBox(null);
         setDispatchDestination('');
@@ -492,13 +490,7 @@ export default function BodegaGestionV2({
         
         const { data, error } = await supabase
           .from('receptions')
-          .select(`
-            *,
-            service_orders(
-              id, os_label, main_serial, model_id, brand_id,
-              series(serial_number)
-            )
-          `)
+          .select(RECEPTION_TIMELINE_SELECT)
           .eq('guide_number', showTimeline.guide_number)
           .order('created_at', { ascending: false })
           .limit(1)
@@ -538,7 +530,6 @@ export default function BodegaGestionV2({
     const onPageShow = (event: PageTransitionEvent) => {
       if (event.persisted) {
         void fetchBoxes();
-        void loadCatalogs();
       }
     };
     window.addEventListener('pageshow', onPageShow);
@@ -691,18 +682,17 @@ export default function BodegaGestionV2({
     const brandId = trueBrandId || notes.split('Backoffice_Brand: ')[1]?.split('\n')[0]?.trim() || '';
     const modelId = trueModelId || notes.split('Backoffice_Model: ')[1]?.split('\n')[0]?.trim() || '';
 
-    const selectedTechName = catTecnologias.find(t => t.id === newBox.tecnologia)?.name;
-    const selectedBrandName = catMarcas.find(b => b.id === newBox.marca)?.name;
-    const selectedModelName = catModelos.find(m => m.id === newBox.modelo)?.name;
+    const selectedTechName = techName(newBox.tecnologia);
+    const selectedBrandName = brandName(newBox.marca);
+    const selectedModelName = modelName(newBox.modelo);
 
     const isTechMatch = techId === newBox.tecnologia || techId === selectedTechName;
     const isBrandMatch = brandId === newBox.marca || brandId === selectedBrandName;
     const isModelMatch = modelId === newBox.modelo || modelId === selectedModelName;
 
-    // Buscar nombre legible en catálogos cargados para mostrar en caso de error
-    const tecnologiaBO = catTecnologias.find(t => t.id === techId)?.name || techId || newBox.tecnologia;
-    const marcaBO = catMarcas.find(b => b.id === brandId)?.name || brandId || newBox.marca;
-    const modeloBO = catModelos.find(m => m.id === modelId)?.name || modelId || newBox.modelo;
+    const tecnologiaBO = techName(techId || null, String(techId || newBox.tecnologia));
+    const marcaBO = brandName(brandId || null, String(brandId || newBox.marca));
+    const modeloBO = modelName(modelId || null, String(modelId || newBox.modelo));
 
     // Validar que la serie escaneada coincida con la configuración de la caja actual
     if (!isTechMatch || !isBrandMatch || !isModelMatch) {
@@ -752,8 +742,8 @@ export default function BodegaGestionV2({
   };
 
   const printBoxLabel = (box: any, type: 'simple' | 'master') => {
-    const brandName = catMarcas.find(b => b.id === box.marca)?.name || box.marca || 'N/A';
-    const modelName = catModelos.find(m => m.id === box.modelo)?.name || box.modelo || 'N/A';
+    const brandLabel = brandName(box.marca);
+    const modelLabel = modelName(box.modelo);
 
     const printWindow = window.open('', '', 'width=600,height=400');
     if (!printWindow) return;
@@ -793,8 +783,8 @@ export default function BodegaGestionV2({
         <div class="barcode">*${box.id}*</div>
         
         <div class="details">
-          MARCA: ${brandName}<br>
-          MODELO: ${modelName}<br>
+          MARCA: ${brandLabel}<br>
+          MODELO: ${modelLabel}<br>
           CANTIDAD: ${box.cantidad} Unidades<br>
           FECHA: ${box.fechaIngreso || new Date().toLocaleDateString()}
         </div>
@@ -817,7 +807,7 @@ export default function BodegaGestionV2({
         </div>
         
         <div class="details" style="font-size: 12px; margin-bottom: 15px; border-bottom: 1px solid #000; padding-bottom: 10px;">
-          <strong>MARCA:</strong> ${brandName} &nbsp;|&nbsp; <strong>MODELO:</strong> ${modelName} <br>
+          <strong>MARCA:</strong> ${brandLabel} &nbsp;|&nbsp; <strong>MODELO:</strong> ${modelLabel} <br>
           <strong>TECNOLOGÍA:</strong> ${box.tecnologia || '---'} &nbsp;|&nbsp; <strong>FECHA:</strong> ${box.fechaIngreso || new Date().toLocaleDateString()}
         </div>
         
@@ -948,9 +938,9 @@ export default function BodegaGestionV2({
     const modelId = mainSeries.model_id || notes.split('Backoffice_Model: ')[1]?.split('\n')[0]?.trim() || '';
 
     // Buscar nombre legible en catálogos cargados
-    const tecnologiaBO = catTecnologias.find(t => t.id === techId)?.name || techId || 'EQUIPO';
-    const marcaBO = catMarcas.find(b => b.id === brandId)?.name || brandId || selectedBox.marca;
-    const modeloBO = catModelos.find(m => m.id === modelId)?.name || modelId || selectedBox.modelo;
+    const tecnologiaBO = techName(techId || null, String(techId || 'EQUIPO'));
+    const marcaBO = brandName(brandId || null, String(brandId || selectedBox.marca));
+    const modeloBO = modelName(modelId || null, String(modelId || selectedBox.modelo));
 
     const reentryCount = mainSeries.service_orders?.reentry_count || 1;
     const ingresoLabel = `${reentryCount}° Ingreso`;
@@ -1102,7 +1092,6 @@ export default function BodegaGestionV2({
   const handleExecuteTransfer = async () => {
     if (selectedBoxesForTransfer.length === 0 || transferExecuting) return;
 
-    const boxCount = selectedBoxesForTransfer.length;
     setTransferExecuting(true);
 
     try {
@@ -1111,15 +1100,20 @@ export default function BodegaGestionV2({
         return box ? (box.realDbId || box.id) : id;
       });
 
-      const { error } = await transferBoxesToArea(realBoxIds, destinationArea, undefined);
+      const result = await transferBoxesToAreaInBatches(realBoxIds, destinationArea, undefined);
 
-      if (error) {
-        notify.error('Error en la transferencia', { description: String(error) });
+      if (!result.success) {
+        notify.error('Error en la transferencia', { description: result.error ?? 'Transferencia fallida' });
       } else {
-        await fetchBoxes(true);
+        await refreshWarehouseLists();
+        await queryClient.invalidateQueries({ queryKey: ['workshop-tab-counts'] });
         setShowTransferModal(false);
         setSelectedBoxesForTransfer([]);
-        notify.success('Transferencia exitosa', { description: `${boxCount} cajas movidas a ${destinationArea}.` });
+        const batchNote =
+          result.batches > 1 ? ` en ${result.batches} lotes automáticos` : '';
+        notify.success('Transferencia exitosa', {
+          description: `${result.transferred} cajas movidas a ${destinationArea}${batchNote}.`,
+        });
       }
     } catch (err) {
       console.error('Transfer error:', err);
@@ -1217,7 +1211,7 @@ export default function BodegaGestionV2({
       header: 'Tecnología',
       width: '110px',
       cellClassName: 'text-[10px] font-bold text-cyan-800',
-      cell: (item) => catTecnologias.find(t => t.id === item.tecnologia)?.name || item.tecnologia || '---',
+      cell: (item) => item.tecnologia || '---',
     },
     {
       id: 'usuario',
@@ -1286,10 +1280,10 @@ export default function BodegaGestionV2({
       cell: (item) => (
         <div className="flex flex-col">
           <span className="text-xs font-bold text-slate-700">
-            {catMarcas.find(b => b.id === item.marca)?.name || item.marca || 'N/A'}
+            {item.marcaLabel || brandName(item.marca)}
           </span>
           <span className="text-[10px] font-medium text-slate-600">
-            {catModelos.find(m => m.id === item.modelo)?.name || item.modelo || 'N/A'}
+            {item.modeloLabel || modelName(item.modelo)}
           </span>
         </div>
       ),

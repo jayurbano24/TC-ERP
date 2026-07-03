@@ -1,3 +1,4 @@
+import { COUNT_HEAD } from '@/shared/constants/dbProjections';
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 export type UserKPI = {
@@ -734,21 +735,21 @@ export async function getBIData() {
   const endOfDay = new Date();
   endOfDay.setHours(23, 59, 59, 999);
 
-  // Fetch workshop jobs with deep relation to get the model name
-  const { data: jobs } = await supabase
+  // Fetch workshop jobs — model vía service_orders.model_id (evita embed ambiguo series↔OS)
+  const { data: jobs, error: jobsError } = await supabase
     .from('workshop_jobs')
     .select(`
       result,
       service_orders (
-        series (
-          models (
-            name
-          )
-        )
+        models ( name )
       )
     `)
     .gte('created_at', startOfMonth.toISOString())
     .lte('created_at', endOfDay.toISOString());
+
+  if (jobsError) {
+    console.warn('getBIData workshop_jobs:', jobsError.message);
+  }
 
   if (jobs) {
     jobs.forEach((job: any) => {
@@ -759,13 +760,7 @@ export async function getBIData() {
       
       if (!condition) return;
 
-      // Extract model name
-      let modelName = '';
-      try {
-        modelName = job.service_orders?.series?.models?.name || '';
-      } catch (e) {}
-
-      modelName = modelName.toUpperCase();
+      const modelName = String(job.service_orders?.models?.name || '').toUpperCase();
 
       // Determine technology from model name (fallback to ONT if not found to catch stragglers, or just try to match)
       let tech = 'ONT'; // default
@@ -798,11 +793,11 @@ export async function getStorageData() {
 
   const { count: ingresados } = await supabase
     .from('series')
-    .select('*', { count: 'exact', head: true });
+    .select(COUNT_HEAD, { count: 'exact', head: true });
 
   const { count: despachados } = await supabase
     .from('series')
-    .select('*', { count: 'exact', head: true })
+    .select(COUNT_HEAD, { count: 'exact', head: true })
     .eq('current_status', 'dispatched');
 
   const date60 = new Date();
@@ -813,14 +808,14 @@ export async function getStorageData() {
 
   const { count: sinMovimiento60 } = await supabase
     .from('series')
-    .select('*', { count: 'exact', head: true })
+    .select(COUNT_HEAD, { count: 'exact', head: true })
     .neq('current_status', 'dispatched')
     .lt('updated_at', date60.toISOString())
     .gte('updated_at', date90.toISOString()); // only those between 60 and 90
 
   const { count: sinMovimiento90 } = await supabase
     .from('series')
-    .select('*', { count: 'exact', head: true })
+    .select(COUNT_HEAD, { count: 'exact', head: true })
     .neq('current_status', 'dispatched')
     .lt('updated_at', date90.toISOString()); // older than 90 days
 

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Card, Button, Spinner, notify } from '@/components/ui';
+import { EMPLOYEE_REPORT_SELECT, TIME_LOG_REPORT_SELECT } from '@/shared/constants/dbProjections';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { apiFetch } from '@/lib/http/apiFetch';
 import { FileSpreadsheet, Calendar, Clock, AlertTriangle, UserX, Briefcase, RefreshCw, BarChart, CalendarDays, Calculator } from 'lucide-react';
@@ -34,7 +35,7 @@ export default function ReportesTab() {
   const getEmployeesData = async () => {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return [];
-    const { data } = await supabase.from('employees').select('*, hr_departments(name), hr_positions(name), company_shifts(*)');
+    const { data } = await supabase.from('employees').select(EMPLOYEE_REPORT_SELECT);
     return data || [];
   };
 
@@ -50,11 +51,7 @@ export default function ReportesTab() {
 
     const { data } = await supabase
       .from('time_logs')
-      .select(`
-        *, 
-        employees(*, company_shifts(*)),
-        time_justifications(estado)
-      `)
+      .select(TIME_LOG_REPORT_SELECT)
       .gte('timestamp', startObj.toISOString())
       .lte('timestamp', endObj.toISOString())
       .order('timestamp', { ascending: true });

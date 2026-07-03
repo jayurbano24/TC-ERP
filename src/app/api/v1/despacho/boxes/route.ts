@@ -1,0 +1,90 @@
+import { NextResponse } from 'next/server';
+import { z } from 'zod';
+import { requireApiUser } from '@/shared/infrastructure/http/requireApiUser';
+import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
+import { ROLES_BODEGA_DESPACHO } from '@/shared/authz/roleGuard';
+import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
+import { estimateJsonBytes, logEgress } from '@/shared/infrastructure/http/egressLog';
+import { getCorrelationIdFromHeaders } from '@/shared/infrastructure/http/correlationId';
+
+const BOX_SELECT =
+  'id, box_code, brand_id, model_id, capacity, status, rack_location, created_at';
+
+const ListQuery = z.object({
+  cursor: z.string().uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(BATCH_LIMITS.API_PAGE_MAX).default(100),
+});
+
+export const GET = withErrorHandler(
+  async (req: Request) => {
+    const started = Date.now();
+    const correlationId = getCorrelationIdFromHeaders(req.headers);
+    const route = '/api/v1/despacho/boxes';
+
+    const auth = await requireApiUser(req);
+    if (auth instanceof NextResponse) return auth;
+    const { supabase } = auth;
+
+    if (!supabase) {
+      return NextResponse.json({ error: 'SERVER_CLIENT_REQUIRED' }, { status: 500 });
+    }
+
+    const parsed = ListQuery.safeParse(Object.fromEntries(new URL(req.url).searchParams));
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'VALIDATION_ERROR', issues: parsed.error.flatten() },
+        { status: 400 }
+      );
+    }
+
+    const { cursor, limit } = parsed.data;
+
+    const { data: recData } = await supabase
+      .from('receptions')
+      .select('id')
+      .eq('guide_number', 'MANUAL_BOXES_DESPACHO')
+      .maybeSingle();
+
+    if (!recData?.id) {
+      return NextResponse.json({ items: [], nextCursor: null });
+    }
+
+    let q = supabase
+      .from('boxes')
+      .select(BOX_SELECT)
+      .eq('reception_id', recData.id)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: true })
+      .limit(limit + 1);
+
+    if (cursor) q = q.lt('id', cursor);
+
+    const { data, error } = await q;
+    if (error) {
+      return NextResponse.json({ error: 'QUERY_FAILED', detail: error.message }, { status: 500 });
+    }
+
+    const rows = data ?? [];
+    const hasMore = rows.length > limit;
+    const items = hasMore ? rows.slice(0, -1) : rows;
+
+    const responseBody = {
+      items,
+      nextCursor: hasMore ? items[items.length - 1]?.id : null,
+    };
+
+    logEgress({
+      route,
+      module: 'despacho',
+      action: 'list_boxes',
+      correlationId,
+      rowCount: items.length,
+      bytesEstimate: estimateJsonBytes(responseBody),
+      durationMs: Date.now() - started,
+      status: 200,
+    });
+
+    return NextResponse.json(responseBody);
+  },
+  { module: 'despacho', action: 'list_boxes', roles: ROLES_BODEGA_DESPACHO }
+);

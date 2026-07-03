@@ -1,12 +1,29 @@
--- 086: Índice único en idempotency_key (046 lo declara en CREATE TABLE pero en prod
--- la columna pudo añadirse sin UNIQUE). Sin esto, ON CONFLICT de 085 falla con:
--- "there is no unique or exclusion constraint matching the ON CONFLICT specification"
+-- 086: Índice único en idempotency_key + limpieza de duplicados (doble clic / reintentos).
+-- Ejecutar completo en SQL Editor si falló solo el CREATE INDEX.
 
+-- 1) Eliminar movimientos duplicados por idempotency_key.
+--    Conserva el registro "mejor": más series, luego el más antiguo.
+WITH ranked AS (
+  SELECT
+    id,
+    ROW_NUMBER() OVER (
+      PARTITION BY idempotency_key
+      ORDER BY series_count DESC, created_at ASC, id ASC
+    ) AS rn
+  FROM public.warehouse_movements
+  WHERE idempotency_key IS NOT NULL
+)
+DELETE FROM public.warehouse_movements wm
+USING ranked r
+WHERE wm.id = r.id
+  AND r.rn > 1;
+
+-- 2) Índice único (requerido para idempotencia en transferencias).
 CREATE UNIQUE INDEX IF NOT EXISTS idx_wh_movements_idempotency_key
   ON public.warehouse_movements (idempotency_key)
   WHERE idempotency_key IS NOT NULL;
 
--- Reemplaza log interno: idempotencia por SELECT previo (sin depender de ON CONFLICT).
+-- 3) Log interno: SELECT previo + manejo de unique_violation (sin ON CONFLICT).
 CREATE OR REPLACE FUNCTION public.warehouse_log_movement_internal(
   p_movement_type text,
   p_source_module text,

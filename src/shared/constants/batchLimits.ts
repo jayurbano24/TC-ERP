@@ -2,6 +2,14 @@
 export const BATCH_LIMITS = {
   /** Dispersión Bodega → Diagnóstico (1 RPC pesado por caja). */
   WORKSHOP_TRANSFER_BOXES: 10,
+  /** Equipos (filas) seleccionables en operación masiva Taller — 1 equipo = 1 OS. */
+  WORKSHOP_OPERATE_MAX_EQUIPMENTS: 25,
+  /** Series (registros en BD) máximas por operación masiva Taller. */
+  WORKSHOP_OPERATE_MAX_SERIES: 120,
+  /** Equipos procesados por llamada POST /api/v1/workshop/operate-batch. */
+  WORKSHOP_OPERATE_SERIES_BATCH: 40,
+  /** Equipos por página al listar cola Taller (1 equipo = 1 OS en cola). */
+  WORKSHOP_QUEUE_PAGE_OS: 50,
   /** IDs en cláusula PostgREST in.() */
   UUID_IN_CLAUSE: 80,
   /** Equipos por operación PX (finalize lote RPC — no limita captura scan a scan). */
@@ -42,6 +50,15 @@ export function getPxFinalizePromoteBatchSize(): number {
     return Math.min(fromEnv, BATCH_LIMITS.PX_EQUIPMENT_PER_OP);
   }
   return BATCH_LIMITS.PX_FINALIZE_PROMOTE_BATCH;
+}
+
+/** Tamaño de lote operate Taller (override vía NEXT_PUBLIC_WORKSHOP_OPERATE_BATCH). */
+export function getWorkshopOperateBatchSize(): number {
+  const fromEnv = parseInt(process.env.NEXT_PUBLIC_WORKSHOP_OPERATE_BATCH ?? '', 10);
+  if (Number.isFinite(fromEnv) && fromEnv >= 1) {
+    return Math.min(fromEnv, BATCH_LIMITS.WORKSHOP_OPERATE_MAX_SERIES);
+  }
+  return BATCH_LIMITS.WORKSHOP_OPERATE_SERIES_BATCH;
 }
 
 /** Límite efectivo de cajas para una recepción PX. */

@@ -4,7 +4,16 @@ import React, { useState, useMemo } from 'react';
 import { ModulePage } from "@/components/module-page";
 import { Card, Button, Badge, notify, confirmDialog, DataTable, type DataTableColumn } from "@/components/ui";
 import { Wrench, Stethoscope, Search, Filter, Box, Plus, Activity, AlertCircle, ArrowRight, CheckCircle2, XCircle, Clock, ChevronLeft, ChevronRight, ChevronDown, User, CheckSquare, ServerCrash, RefreshCw, Zap, Trash2, Loader2, RotateCcw, History, ClipboardList, Package, Send, ScanLine, X, BarChart3, Layers, Edit2, Eye, Printer } from 'lucide-react';
-import { getWorkshopTasks, saveDiagnostic, type WorkshopTabId } from '@/modules/workshop/client/workshop';
+import { type WorkshopTabId } from '@/modules/workshop/client/workshop';
+import { fetchWorkshopTasksPageViaApi } from '@/lib/api/workshopTasks';
+import {
+  operateWorkshopInBatches,
+  countSeriesInSelection,
+  countEquipmentsInSelection,
+  validateWorkshopOperateSelection,
+  formatWorkshopSelectionLabel,
+} from '@/lib/api/workshopOperate';
+import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
 import { fetchWorkshopOperationCatalogsViaApi } from '@/lib/api/referenceCatalogs';
 import { useReferenceCatalogs } from '@/hooks/useReferenceCatalogs';
 import { getSeriesHistory } from '@/modules/platform/client/audit';
@@ -181,6 +190,15 @@ export default function TallerPage() {
 
   const [tasks, setTasks] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [tasksCursor, setTasksCursor] = useState<string | null>(null);
+  const [tasksHasMore, setTasksHasMore] = useState(false);
+  const [tasksTotalOs, setTasksTotalOs] = useState<number | null>(null);
+  const [operateProgress, setOperateProgress] = useState<{
+    processedSeries: number;
+    totalSeries: number;
+    equipmentCount: number;
+  } | null>(null);
   const [showItemDetail, setShowItemDetail] = useState<any | null>(null);
 
   const tabCountsQuery = useWorkshopTabCounts();
@@ -214,9 +232,142 @@ export default function TallerPage() {
 
   useEffect(() => {
     if (activeTab !== 'po' && activeTab !== 'despacho') {
-      fetchTasks();
+      void fetchTasks(false);
     }
+    setSelectedRows([]);
   }, [activeTab]);
+
+  const adaptWorkshopRow = (t: any) => {
+    const notes = (t.receptions?.notes || '').replace(/\\n/g, '\n');
+
+    const modelRow = catModelos.find((m: any) => m.id === t.model_id);
+    let techId =
+      t.models?.technology_id ||
+      modelRow?.technology_id ||
+      '';
+
+    let brandId = t.brand_id || '';
+    let modelId = t.model_id || '';
+    let courierStr = t.receptions?.carrier || 'Desconocido';
+    let sourceStr = t.receptions?.source?.toUpperCase() || 'CAC';
+    let agenciaStr = 'N/A';
+
+    const receptionGuide = (t.receptions?.reception_guides || []).find(
+      (rg: any) => rg.guide_number === t.receptions?.guide_number
+    );
+    const soGuide = t.service_orders?.reception_guides;
+    const sapAgency = t.service_orders?.sap_transfer_documents?.agency;
+
+    if (notes) {
+      try {
+        const parsed = JSON.parse(notes);
+        if (parsed.courier && courierStr === 'Desconocido') courierStr = parsed.courier;
+        if (parsed.agencia) agenciaStr = parsed.agencia;
+      } catch {
+        /* not JSON */
+      }
+
+      const techFromNotes = notes.split('Backoffice_Tech: ')[1]?.split('\n')[0]?.trim() || '';
+      if (!techId && techFromNotes && !/^cajas:/i.test(techFromNotes)) {
+        techId = techFromNotes;
+      }
+
+      const brandFromNotes = notes.split('Backoffice_Brand: ')[1]?.split('\n')[0]?.trim() || '';
+      if (!brandId && brandFromNotes) brandId = brandFromNotes;
+
+      const modelFromNotes = notes.split('Backoffice_Model: ')[1]?.split('\n')[0]?.trim() || '';
+      if (!modelId && modelFromNotes) modelId = modelFromNotes;
+
+      const agenciaFromNotes =
+        notes.split('Agencia: ')[1]?.split('\n')[0]?.trim() ||
+        notes.split('Backoffice_Agency: ')[1]?.split('\n')[0]?.trim() ||
+        notes.split('Proveedor PX: ')[1]?.split('\n')[0]?.trim() ||
+        '';
+      if (agenciaFromNotes) agenciaStr = agenciaFromNotes;
+    }
+
+    if (agenciaStr === 'N/A') {
+      agenciaStr =
+        receptionGuide?.agency ||
+        soGuide?.agency ||
+        sapAgency ||
+        (sourceStr === 'PX' ? courierStr : 'N/A');
+    }
+
+    const tecnologiaName =
+      t.models?.technologies?.name ||
+      techName(techId) ||
+      (techId && !/^cajas:/i.test(techId) ? techId : null) ||
+      'EQUIPO';
+    const marcaName =
+      t.brands?.name ||
+      brandName(brandId) ||
+      brandId ||
+      'Desconocida';
+    const modeloName =
+      t.models?.name ||
+      modelName(modelId) ||
+      modelId ||
+      'S/N';
+
+    const stageRaw = t.current_status === 'in_workshop' ? 'PARA DIAGNOSTICAR'
+      : t.current_status === 'in_qc' ? 'REPARACION'
+      : t.current_status === 'in_validation' ? 'CONTROL DE CALIDAD'
+      : t.current_status === 'in_control_warehouse' ? 'L3'
+      : t.current_status === 'ready_to_dispatch' ? 'REACONDICIONADO'
+      : t.current_status === 'irreparable' || t.current_status === 'scrapped' ? 'SCRAPS'
+      : t.current_status === 'in_central_warehouse' ? 'EQUIPO LISTO'
+      : t.current_status.toUpperCase();
+    let responsableName = 'ADMIN USER';
+    if (notes) {
+      const respMatch = notes.match(/Por:\s*([^\n]+)/i);
+      if (respMatch) responsableName = respMatch[1].trim().toUpperCase();
+    }
+
+    return {
+      id: t.service_orders?.os_label || `S/OS`,
+      groupId: t.service_order_id || t.id,
+      sn: t.all_sns?.[0] || t.serial_number || 'S/N',
+      all_sns: t.all_sns?.length ? t.all_sns : [t.serial_number].filter(Boolean),
+      total_series: t.all_sns?.length || 1,
+      tecnologia: tecnologiaName,
+      marca: marcaName,
+      modelo: modeloName,
+      boxCode: t.boxes?.box_code || 'S/C',
+      updatedAt: t.updated_at ? new Date(t.updated_at).toLocaleString() : 'Desconocida',
+      etapa: stageRaw,
+      responsable: responsableName,
+      dbId: t.service_order_id || t.id,
+      all_dbIds: t.all_dbIds?.length ? t.all_dbIds : [t.id],
+      courier: `${sourceStr} - ${courierStr}`,
+      agencia: agenciaStr,
+      guide: t.receptions?.guide_number || 'S/G',
+      ingress_count: t.ingress_count || 1,
+      current_diagnostics: t.current_diagnostics || []
+    };
+  };
+
+  const collectSeriesIdsFromSelection = (selection: any | any[]): string[] => {
+    const items = Array.isArray(selection) ? selection : [selection];
+    const ids: string[] = [];
+    for (const item of items) {
+      if (item.all_dbIds?.length) ids.push(...item.all_dbIds);
+      else if (item.dbId) ids.push(item.dbId);
+    }
+    return [...new Set(ids)];
+  };
+
+  const openMassOperation = () => {
+    const selectedItems = tasks.filter((t) => selectedRows.includes(t.dbId));
+    const equipmentCount = countEquipmentsInSelection(selectedItems);
+    const seriesCount = countSeriesInSelection(selectedItems);
+    const check = validateWorkshopOperateSelection(equipmentCount, seriesCount);
+    if (!check.ok) {
+      notify.warning(check.message);
+      return;
+    }
+    setSelectedForOperation(selectedItems);
+  };
 
   useEffect(() => {
     const fetchHistory = async () => {
@@ -280,130 +431,29 @@ export default function TallerPage() {
     }
   }, [selectedForOperation, activeTab]);
 
-  const fetchTasks = async () => {
+  const fetchTasks = async (append = false) => {
     if (activeTab === 'po' || activeTab === 'despacho') return;
 
-    setLoading(true);
+    if (append) setLoadingMore(true);
+    else setLoading(true);
+
     try {
       const workshopTab = activeTab as WorkshopTabId;
-      const data = await getWorkshopTasks(workshopTab);
+      const cursor = append ? tasksCursor : null;
+      const page = await fetchWorkshopTasksPageViaApi(workshopTab, cursor);
+      const adapted = page.items.map(adaptWorkshopRow);
 
-      const adapted = data.map((t: any) => {
-      const notes = (t.receptions?.notes || '').replace(/\\n/g, '\n');
-
-      const modelRow = catModelos.find((m: any) => m.id === t.model_id);
-      let techId =
-        t.models?.technology_id ||
-        modelRow?.technology_id ||
-        '';
-
-      let brandId = t.brand_id || '';
-      let modelId = t.model_id || '';
-      let courierStr = t.receptions?.carrier || 'Desconocido';
-      let sourceStr = t.receptions?.source?.toUpperCase() || 'CAC';
-      let agenciaStr = 'N/A';
-
-      const receptionGuide = (t.receptions?.reception_guides || []).find(
-        (rg: any) => rg.guide_number === t.receptions?.guide_number
-      );
-      const soGuide = t.service_orders?.reception_guides;
-      const sapAgency = t.service_orders?.sap_transfer_documents?.agency;
-
-      if (notes) {
-        try {
-          const parsed = JSON.parse(notes);
-          if (parsed.courier && courierStr === 'Desconocido') courierStr = parsed.courier;
-          if (parsed.agencia) agenciaStr = parsed.agencia;
-        } catch {
-          /* not JSON */
-        }
-
-        const techFromNotes = notes.split('Backoffice_Tech: ')[1]?.split('\n')[0]?.trim() || '';
-        if (!techId && techFromNotes && !/^cajas:/i.test(techFromNotes)) {
-          techId = techFromNotes;
-        }
-
-        const brandFromNotes = notes.split('Backoffice_Brand: ')[1]?.split('\n')[0]?.trim() || '';
-        if (!brandId && brandFromNotes) brandId = brandFromNotes;
-
-        const modelFromNotes = notes.split('Backoffice_Model: ')[1]?.split('\n')[0]?.trim() || '';
-        if (!modelId && modelFromNotes) modelId = modelFromNotes;
-
-        const agenciaFromNotes =
-          notes.split('Agencia: ')[1]?.split('\n')[0]?.trim() ||
-          notes.split('Backoffice_Agency: ')[1]?.split('\n')[0]?.trim() ||
-          notes.split('Proveedor PX: ')[1]?.split('\n')[0]?.trim() ||
-          '';
-        if (agenciaFromNotes) agenciaStr = agenciaFromNotes;
-      }
-
-      if (agenciaStr === 'N/A') {
-        agenciaStr =
-          receptionGuide?.agency ||
-          soGuide?.agency ||
-          sapAgency ||
-          (sourceStr === 'PX' ? courierStr : 'N/A');
-      }
-
-      const tecnologiaName =
-        t.models?.technologies?.name ||
-        techName(techId) ||
-        (techId && !/^cajas:/i.test(techId) ? techId : null) ||
-        'EQUIPO';
-      const marcaName =
-        t.brands?.name ||
-        brandName(brandId) ||
-        brandId ||
-        'Desconocida';
-      const modeloName =
-        t.models?.name ||
-        modelName(modelId) ||
-        modelId ||
-        'S/N';
-
-        const stageRaw = t.current_status === 'in_workshop' ? 'PARA DIAGNOSTICAR' 
-          : t.current_status === 'in_qc' ? 'REPARACION'
-          : t.current_status === 'in_validation' ? 'CONTROL DE CALIDAD'
-          : t.current_status === 'in_control_warehouse' ? 'L3'
-          : t.current_status === 'ready_to_dispatch' ? 'REACONDICIONADO'
-          : t.current_status === 'irreparable' || t.current_status === 'scrapped' ? 'SCRAPS'
-          : t.current_status === 'in_central_warehouse' ? 'EQUIPO LISTO'
-          : t.current_status.toUpperCase();
-        let responsableName = 'ADMIN USER';
-        if (notes) {
-          const respMatch = notes.match(/Por:\s*([^\n]+)/i);
-          if (respMatch) responsableName = respMatch[1].trim().toUpperCase();
-        }
-
-        return {
-          id: t.service_orders?.os_label || `S/OS`,
-          groupId: t.service_order_id || t.id,
-          sn: t.all_sns?.[0] || t.serial_number || 'S/N',
-          all_sns: t.all_sns?.length ? t.all_sns : [t.serial_number].filter(Boolean),
-          total_series: t.all_sns?.length || 1,
-          tecnologia: tecnologiaName,
-          marca: marcaName,
-          modelo: modeloName,
-          boxCode: t.boxes?.box_code || 'S/C',
-          updatedAt: t.updated_at ? new Date(t.updated_at).toLocaleString() : 'Desconocida',
-          etapa: stageRaw,
-          responsable: responsableName,
-          dbId: t.service_order_id || t.id,
-          all_dbIds: t.all_dbIds?.length ? t.all_dbIds : [t.id],
-          courier: `${sourceStr} - ${courierStr}`,
-          agencia: agenciaStr,
-          guide: t.receptions?.guide_number || 'S/G',
-          ingress_count: t.ingress_count || 1,
-          current_diagnostics: t.current_diagnostics || []
-        };
-      });
-      setTasks(adapted);
+      setTasks((prev) => (append ? [...prev, ...adapted] : adapted));
+      setTasksCursor(page.nextCursor);
+      setTasksHasMore(Boolean(page.nextCursor));
+      setTasksTotalOs(page.totalOs);
     } catch (err) {
       console.error('Error loading workshop tasks:', err);
       notify.error('No se pudo cargar la cola de taller');
-      setTasks([]);
+      if (!append) setTasks([]);
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   };
 
@@ -452,30 +502,46 @@ ${funcNotes || 'Ninguno evaluado'}
       : 'OPERACIÓN COMPLETADA';
     
     try {
-      if (Array.isArray(selectedForOperation)) {
-        // Massive
-        for (const item of selectedForOperation) {
-          if (item.all_dbIds) {
-            for (const realId of item.all_dbIds) {
-              await saveDiagnostic(realId, diagnosticResult, finalNotes, selectedDiagnostics, actionName);
-            }
-          } else {
-            await saveDiagnostic(item.dbId, diagnosticResult, finalNotes, selectedDiagnostics, actionName);
-          }
-        }
-      } else {
-        // Single
-        if (selectedForOperation.all_dbIds) {
-          for (const realId of selectedForOperation.all_dbIds) {
-            await saveDiagnostic(realId, diagnosticResult, finalNotes, selectedDiagnostics, actionName);
-          }
-        } else {
-          await saveDiagnostic(selectedForOperation.dbId, diagnosticResult, finalNotes, selectedDiagnostics, actionName);
-        }
+      const seriesIds = collectSeriesIdsFromSelection(selectedForOperation);
+      const equipmentCount = Array.isArray(selectedForOperation)
+        ? selectedForOperation.length
+        : 1;
+      const check = validateWorkshopOperateSelection(equipmentCount, seriesIds.length);
+      if (!check.ok) {
+        notify.warning(check.message);
+        return;
       }
-      
-      notify.success("Diagnóstico guardado exitosamente.");
+
+      setOperateProgress({
+        processedSeries: 0,
+        totalSeries: seriesIds.length,
+        equipmentCount,
+      });
+
+      await operateWorkshopInBatches(
+        {
+          seriesIds,
+          equipmentCount,
+          result: diagnosticResult,
+          notes: finalNotes,
+          selectedDiagnostics,
+          actionName,
+        },
+        (p) =>
+          setOperateProgress({
+            processedSeries: p.processedSeries,
+            totalSeries: p.totalSeries,
+            equipmentCount: p.equipmentCount,
+          })
+      );
+
+      notify.success(
+        Array.isArray(selectedForOperation)
+          ? `${equipmentCount} equipo${equipmentCount !== 1 ? 's' : ''} trasladados (${seriesIds.length} series).`
+          : `Equipo trasladado (${seriesIds.length} serie${seriesIds.length !== 1 ? 's' : ''}).`
+      );
       setSelectedForOperation(null);
+      setSelectedRows([]);
       setDiagnosticResult(null);
       setDiagnosticNotes('');
       setFunctionalChecks({});
@@ -488,12 +554,13 @@ ${funcNotes || 'Ninguno evaluado'}
       setQcLegible(null);
       setReacondTests([]);
       await queryClient.invalidateQueries({ queryKey: ['workshop-tab-counts'] });
-      fetchTasks();
+      await fetchTasks(false);
     } catch (error: any) {
-      notify.error('Error guardando diagnóstico', { description: error.message });
+      notify.error('Error guardando operación', { description: error.message });
+    } finally {
+      setOperateProgress(null);
+      setLoading(false);
     }
-    
-    setLoading(false);
   };
 
   const handleReturnToStage = async () => {
@@ -704,8 +771,11 @@ ${funcNotes || 'Ninguno evaluado'}
                   >
                     <span>{item.sn}</span>
                     {item.total_series > 1 && (
-                      <span className="text-[8px] font-black bg-[#2ec4f1]/15 text-[#181c3a] px-1.5 py-0.5 rounded-md shrink-0">
-                        +{item.total_series - 1}
+                      <span
+                        className="text-[8px] font-black bg-[#2ec4f1]/15 text-[#181c3a] px-1.5 py-0.5 rounded-md shrink-0"
+                        title={`${item.total_series} series en este equipo`}
+                      >
+                        {item.total_series} ser.
                       </span>
                     )}
                   </button>
@@ -852,15 +922,17 @@ ${funcNotes || 'Ninguno evaluado'}
                                 setSelectedRows([]);
                               }}
                             >
-                              Asignar a Mí ({selectedRows.length})
+                              Asignar a Mí ({selectedRows.length} eq.)
                             </Button>
                             <Button 
                               variant="primary" 
                               className="bg-amber-500 hover:bg-amber-600 text-white shadow-lg shadow-amber-500/20" 
                               leftIcon={<Activity className="w-4 h-4" />}
-                              onClick={() => setSelectedForOperation(tasks.filter(t => selectedRows.includes(t.dbId)))}
+                              onClick={openMassOperation}
                             >
                               {activeTab === 'diagnostico' ? 'Diagnóstico Masivo' : 'Operar Selección'}
+                              {' '}
+                              ({formatWorkshopSelectionLabel(tasks.filter((t) => selectedRows.includes(t.dbId)))})
                             </Button>
                           </>
                         )}
@@ -890,16 +962,38 @@ ${funcNotes || 'Ninguno evaluado'}
                         )}
                       </div>
                     ) : activeTab !== 'scraps' ? (
-                      <Button variant="outline" className="border-slate-200 text-slate-400 hover:bg-slate-50 opacity-50 cursor-not-allowed">
-                        Selecciona equipos para acciones masivas
-                      </Button>
+                      <div className="text-right">
+                        <Button variant="outline" className="border-slate-200 text-slate-400 hover:bg-slate-50 opacity-50 cursor-not-allowed">
+                          Selecciona equipos para acciones masivas
+                        </Button>
+                        <p className="text-[9px] font-black text-slate-300 mt-1">
+                          Máx. {BATCH_LIMITS.WORKSHOP_OPERATE_MAX_EQUIPMENTS} equipos / {BATCH_LIMITS.WORKSHOP_OPERATE_MAX_SERIES} series
+                        </p>
+                      </div>
                     ) : null}
 
                   </div>
                 </div>
 
                 <Card padding="none" className="border-2 border-slate-100 shadow-sm rounded-3xl p-2">
-                  {loading ? (
+                  {operateProgress ? (
+                    <div className="py-16 px-8 text-center space-y-4">
+                      <Loader2 className="w-8 h-8 text-amber-500 animate-spin mx-auto" />
+                      <p className="text-[11px] font-black text-slate-600 uppercase tracking-widest">
+                        Traspasando {operateProgress.equipmentCount} equipo
+                        {operateProgress.equipmentCount !== 1 ? 's' : ''}…{' '}
+                        {operateProgress.processedSeries}/{operateProgress.totalSeries} series
+                      </p>
+                      <div className="max-w-md mx-auto h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-amber-500 transition-all duration-300"
+                          style={{
+                            width: `${Math.min(100, Math.round((operateProgress.processedSeries / operateProgress.totalSeries) * 100))}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ) : loading ? (
                     <div className="py-20 text-center">
                       <Loader2 className="w-8 h-8 text-[#2ec4f1] animate-spin mx-auto" />
                       <p className="text-[10px] font-black text-slate-400 uppercase mt-4 tracking-widest">Sincronizando con Servidor...</p>
@@ -920,8 +1014,24 @@ ${funcNotes || 'Ninguno evaluado'}
                       />
                       <div className="p-4 border-t border-slate-50 flex items-center justify-between bg-slate-50/50 rounded-b-3xl">
                         <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                          {filteredTasks.length} OS EN COLA
+                          {tasksTotalOs != null
+                            ? `${filteredTasks.length} de ${tasksTotalOs} equipos en cola`
+                            : `${filteredTasks.length} equipos en cola`}
+                          {tabCounts[activeTab] != null && tasksTotalOs != null && tabCounts[activeTab] !== tasksTotalOs && (
+                            <span className="text-slate-300"> · badge {tabCounts[activeTab]}</span>
+                          )}
                         </span>
+                        {tasksHasMore && !debouncedSearchTerm && (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            disabled={loadingMore}
+                            leftIcon={loadingMore ? <Loader2 className="w-3 h-3 animate-spin" /> : <ChevronDown className="w-3 h-3" />}
+                            onClick={() => void fetchTasks(true)}
+                          >
+                            {loadingMore ? 'Cargando…' : 'Cargar más equipos'}
+                          </Button>
+                        )}
                       </div>
                     </>
                   )}

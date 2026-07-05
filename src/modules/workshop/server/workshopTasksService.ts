@@ -3,6 +3,7 @@ import {
   CAT_DIAGNOSTIC_REPAIR_SELECT,
   CAT_DIAGNOSTIC_SELECT,
 } from '@/shared/constants/dbProjections';
+import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
 
 export type WorkshopTabId =
   | 'diagnostico'
@@ -326,26 +327,84 @@ export async function queryWorkshopTasks(
   supabase: SupabaseClient,
   tab: WorkshopTabId
 ): Promise<any[]> {
+  const page = await queryWorkshopTasksPage(supabase, tab, {});
+  return page.items;
+}
+
+export type WorkshopTasksPageResult = {
+  items: any[];
+  nextCursor: string | null;
+  totalOs: number | null;
+};
+
+/** Cola paginada por OS — evita cargar 400+ OS de una sola vez. */
+export async function queryWorkshopTasksPage(
+  supabase: SupabaseClient,
+  tab: WorkshopTabId,
+  opts: { cursor?: string | null; limit?: number }
+): Promise<WorkshopTasksPageResult> {
+  const limit = Math.min(
+    Math.max(opts.limit ?? BATCH_LIMITS.WORKSHOP_QUEUE_PAGE_OS, 1),
+    BATCH_LIMITS.API_PAGE_MAX
+  );
+
   if (tab === 'listo') {
     let rows = await fetchWorkshopSeriesPaginated(supabase, ['in_central_warehouse']);
     rows = await attachWorkshopAuditFlags(supabase, rows, 'listo');
     rows = await enrichWorkshopServiceOrders(supabase, rows);
-    return groupWorkshopSeriesRows(rows);
+    const items = groupWorkshopSeriesRows(rows);
+    return { items, nextCursor: null, totalOs: items.length };
   }
 
   const status = TAB_TO_STATUS[tab];
-  const queueRows = await fetchWorkshopTasksViaOsQueue(supabase, tab, status);
 
-  let rows: any[];
-  if (queueRows !== null) {
-    rows = queueRows;
-  } else {
-    rows = await fetchWorkshopSeriesPaginated(supabase, [status]);
-    if (status === 'in_central_warehouse') {
-      rows = await attachWorkshopAuditFlags(supabase, rows, 'exclude_warehouse_stock');
+  const [{ data: queueRows, error: queueError }, { data: totalOs, error: countError }] =
+    await Promise.all([
+      supabase.rpc('workshop_list_os_queue_page', {
+        p_status: status,
+        p_cursor: opts.cursor ?? null,
+        p_limit: limit + 1,
+      }),
+      supabase.rpc('count_workshop_os_by_status', { p_status: status }),
+    ]);
+
+  if (queueError) {
+    if (isRpcMissing(queueError)) {
+      const items = await queryWorkshopTasksLegacyAll(supabase, tab);
+      return { items, nextCursor: null, totalOs: items.length };
     }
+    throw queueError;
   }
 
+  if (countError && !isRpcMissing(countError)) {
+    console.warn('[workshop/server] count RPC failed:', countError.message);
+  }
+
+  const rows = queueRows ?? [];
+  const hasMore = rows.length > limit;
+  const pageRows = hasMore ? rows.slice(0, limit) : rows;
+  const osIds = pageRows.map((r: { service_order_id: string }) => String(r.service_order_id));
+
+  let seriesRows = await fetchWorkshopSeriesForOsIds(supabase, osIds, status);
+  seriesRows = await enrichWorkshopServiceOrders(supabase, seriesRows);
+  const items = groupWorkshopSeriesRows(seriesRows);
+
+  return {
+    items,
+    nextCursor: hasMore ? String(pageRows[pageRows.length - 1].service_order_id) : null,
+    totalOs: typeof totalOs === 'number' ? totalOs : null,
+  };
+}
+
+async function queryWorkshopTasksLegacyAll(
+  supabase: SupabaseClient,
+  tab: WorkshopTabId
+): Promise<any[]> {
+  const status = TAB_TO_STATUS[tab as Exclude<WorkshopTabId, 'listo'>];
+  let rows = await fetchWorkshopSeriesPaginated(supabase, [status]);
+  if (status === 'in_central_warehouse') {
+    rows = await attachWorkshopAuditFlags(supabase, rows, 'exclude_warehouse_stock');
+  }
   rows = await enrichWorkshopServiceOrders(supabase, rows);
   return groupWorkshopSeriesRows(rows);
 }

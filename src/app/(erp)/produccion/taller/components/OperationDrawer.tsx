@@ -122,7 +122,9 @@ export const OperationDrawer = memo(function OperationDrawer({
                 <div>
                   <div className="flex flex-wrap items-center gap-2 mb-2">
                     <Badge variant="blue" className="bg-white/20 text-white font-black text-[9px] uppercase border-none backdrop-blur-sm">
-                      {Array.isArray(selectedForOperation) ? `OPERACIÓN MASIVA (${selectedForOperation.length})` : selectedForOperation.id}
+                      {Array.isArray(selectedForOperation)
+                        ? `MASIVO · ${selectedForOperation.length} eq. / ${selectedForOperation.reduce((n, it) => n + (it.all_dbIds?.length || it.total_series || 1), 0)} ser.`
+                        : selectedForOperation.id}
                     </Badge>
                     <span className="text-[10px] font-bold text-white/90 uppercase tracking-[0.2em]">
                       Ejecución de {activeTab === 'diagnostico' ? 'Diagnóstico' : activeTab === 'reparacion' ? 'Reparación' : activeTab === 'qc' ? 'Control de Calidad' : activeTab === 'reacondicionado' ? 'Reacondicionado' : 'Operación'}

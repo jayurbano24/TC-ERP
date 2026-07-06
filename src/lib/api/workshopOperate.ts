@@ -2,6 +2,7 @@ import {
   BATCH_LIMITS,
   getWorkshopOperateBatchSize,
 } from '@/shared/constants/batchLimits';
+import { apiFetch } from '@/lib/http/apiFetch';
 
 export type WorkshopOperatePayload = {
   seriesIds: string[];
@@ -20,7 +21,7 @@ function chunkSeriesIds(ids: string[], size: number): string[][] {
 }
 
 export async function operateWorkshopBatchCall(payload: WorkshopOperatePayload): Promise<number> {
-  const res = await fetch('/api/v1/workshop/operate-batch', {
+  const res = await apiFetch('/api/v1/workshop/operate-batch', {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },

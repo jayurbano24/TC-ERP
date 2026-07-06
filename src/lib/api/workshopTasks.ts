@@ -1,5 +1,6 @@
 import type { WorkshopTabId } from '@/lib/database/workshop';
 import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
+import { apiFetch } from '@/lib/http/apiFetch';
 
 export type WorkshopTasksPage = {
   items: any[];
@@ -24,7 +25,7 @@ export async function fetchWorkshopTasksPageViaApi(
   if (cursor) params.set('cursor', cursor);
   if (search?.trim()) params.set('q', search.trim());
 
-  const res = await fetch(`/api/v1/workshop/tasks?${params}`, { credentials: 'include' });
+  const res = await apiFetch(`/api/v1/workshop/tasks?${params}`, { credentials: 'include' });
   const data = await res.json();
   if (!res.ok) {
     throw new Error(data.error ?? data.detail ?? `HTTP ${res.status}`);
@@ -50,7 +51,7 @@ export async function locateWorkshopEquipmentViaApi(
   query: string
 ): Promise<WorkshopLocateResult> {
   const params = new URLSearchParams({ q: query.trim() });
-  const res = await fetch(`/api/v1/workshop/locate?${params}`, { credentials: 'include' });
+  const res = await apiFetch(`/api/v1/workshop/locate?${params}`, { credentials: 'include' });
   const data = await res.json();
   if (!res.ok) {
     throw new Error(data.error ?? data.detail ?? `HTTP ${res.status}`);

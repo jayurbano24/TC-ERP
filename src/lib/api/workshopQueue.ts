@@ -1,3 +1,5 @@
+import { apiFetch } from '@/lib/http/apiFetch';
+
 export type WorkshopQueueItem = {
   service_order_id: string;
   os_label: string;
@@ -19,7 +21,7 @@ export async function fetchWorkshopQueuePage(
   const params = new URLSearchParams({ tab, limit: '50' });
   if (cursor) params.set('cursor', cursor);
 
-  const res = await fetch(`/api/v1/workshop/queue?${params}`, { credentials: 'include' });
+  const res = await apiFetch(`/api/v1/workshop/queue?${params}`, { credentials: 'include' });
   const data = await res.json();
   if (!res.ok) {
     throw new Error(data.error ?? data.detail ?? `HTTP ${res.status}`);
@@ -28,7 +30,7 @@ export async function fetchWorkshopQueuePage(
 }
 
 export async function fetchWorkshopCountsViaApi(): Promise<Record<string, number>> {
-  const res = await fetch('/api/v1/workshop/counts', { credentials: 'include' });
+  const res = await apiFetch('/api/v1/workshop/counts', { credentials: 'include' });
   const data = await res.json();
   if (!res.ok) {
     throw new Error(data.error ?? data.detail ?? `HTTP ${res.status}`);

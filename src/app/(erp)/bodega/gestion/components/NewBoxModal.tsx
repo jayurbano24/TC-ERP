@@ -47,6 +47,9 @@ export const NewBoxModal = memo(function NewBoxModal({
   onNext,
   onClose,
 }: Props) {
+  const canProceedToScan =
+    Boolean(newBox.tecnologia && newBox.marca && newBox.modelo && newBox.cantidad > 0) && !loading;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#181c3a]/40 backdrop-blur-sm p-6">
       <Card className={`${newBoxStep === 'scanning' ? 'max-w-5xl' : 'max-w-lg'} w-full shadow-2xl animate-rise-in p-0 overflow-hidden transition-all duration-500`}>
@@ -148,7 +151,7 @@ export const NewBoxModal = memo(function NewBoxModal({
                 variant="primary"
                 className="flex-1"
                 onClick={onNext}
-                disabled={!newBox.cantidad || !newBox.rack || loading}
+                disabled={!canProceedToScan}
               >
                 {loading ? 'Validando...' : 'Siguiente: Cargar Series'}
               </Button>

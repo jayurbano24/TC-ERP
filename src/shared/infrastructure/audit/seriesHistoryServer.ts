@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { resolveProfileDisplayNames } from '@/shared/infrastructure/profiles/resolveProfileDisplayNames';
 
 export type SeriesHistoryEntry = {
   id: string;
@@ -8,45 +9,6 @@ export type SeriesHistoryEntry = {
   changed_by: string | null;
   profiles: { full_name: string } | null;
 };
-
-async function resolveProfileNames(
-  supabase: SupabaseClient,
-  userIds: string[]
-): Promise<Record<string, string>> {
-  if (userIds.length === 0) return {};
-
-  const { data: profilesData } = await supabase
-    .from('profiles')
-    .select('id, full_name')
-    .in('id', userIds);
-
-  if (!profilesData?.length) return {};
-
-  const emailsToSearch = profilesData.map((p) => p.full_name).filter((n) => n?.includes('@'));
-  let empMap: Record<string, string> = {};
-
-  if (emailsToSearch.length > 0) {
-    const { data: emps } = await supabase
-      .from('employees')
-      .select('email, nombre_completo')
-      .in('email', emailsToSearch);
-    if (emps) {
-      empMap = emps.reduce((acc: Record<string, string>, e) => {
-        if (e.email && e.nombre_completo) acc[e.email] = e.nombre_completo;
-        return acc;
-      }, {});
-    }
-  }
-
-  return profilesData.reduce((acc: Record<string, string>, p) => {
-    let name = p.full_name;
-    if (name && name.includes('@')) {
-      name = empMap[name] ?? name.split('@')[0];
-    }
-    acc[p.id] = name ?? 'SISTEMA';
-    return acc;
-  }, {});
-}
 
 /** Historial de auditoría para una o varias series (record_id = series.id como texto). */
 export async function querySeriesHistory(
@@ -66,16 +28,22 @@ export async function querySeriesHistory(
   if (!data?.length) return [];
 
   const userIds = Array.from(new Set(data.map((d) => d.user_id).filter(Boolean))) as string[];
-  const profiles = await resolveProfileNames(supabase, userIds);
+  const profiles = await resolveProfileDisplayNames(userIds);
 
-  return data.map((d) => ({
-    id: d.id as string,
-    action: d.action as string,
-    changed_at: d.created_at as string,
-    payload: d.new_values,
-    changed_by: (d.user_id as string | null) ?? null,
-    profiles: d.user_id
-      ? { full_name: profiles[d.user_id as string] || 'SISTEMA' }
-      : null,
-  }));
+  return data.map((d) => {
+    const payload = (d.new_values || {}) as Record<string, unknown>;
+    const payloadName =
+      typeof payload.operator_name === 'string' ? payload.operator_name.trim() : '';
+    const userId = d.user_id as string | null;
+    const resolvedName = (userId && profiles[userId]) || payloadName || '';
+
+    return {
+      id: d.id as string,
+      action: d.action as string,
+      changed_at: d.created_at as string,
+      payload: d.new_values,
+      changed_by: userId,
+      profiles: resolvedName ? { full_name: resolvedName } : userId ? { full_name: 'SISTEMA' } : null,
+    };
+  });
 }

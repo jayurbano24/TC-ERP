@@ -1663,7 +1663,7 @@ export default function BodegaGestionV1() {
               setNewBoxLastScannedInfo(null);
             }}
             onNext={async () => {
-              if (!newBox.cantidad || !newBox.rack || loading) return;
+              if (!newBox.tecnologia || !newBox.marca || !newBox.modelo || !newBox.cantidad || loading) return;
 
               setLoading(true);
               const reserved = await reserveNextBoxCode();

@@ -4,6 +4,7 @@ import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
 import { ROLES_TALLER } from '@/shared/authz/roleGuard';
 import { estimateJsonBytes, logEgress } from '@/shared/infrastructure/http/egressLog';
 import { getCorrelationIdFromHeaders } from '@/shared/infrastructure/http/correlationId';
+import { getWorkshopReadClient } from '@/shared/infrastructure/workshop/workshopReadClient';
 
 export const GET = withErrorHandler(
   async (req: Request) => {
@@ -13,13 +14,8 @@ export const GET = withErrorHandler(
 
     const auth = await requireApiUser(req);
     if (auth instanceof NextResponse) return auth;
-    const { supabase } = auth;
 
-    if (!supabase) {
-      return NextResponse.json({ error: 'SERVER_CLIENT_REQUIRED' }, { status: 500 });
-    }
-
-    const { data, error } = await supabase.rpc('count_workshop_os_all_tabs');
+    const { data, error } = await getWorkshopReadClient().rpc('count_workshop_os_all_tabs');
 
     if (error?.code === '42883' || error?.code === 'PGRST202') {
       return NextResponse.json(

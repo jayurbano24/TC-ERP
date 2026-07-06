@@ -139,10 +139,12 @@ export default function ConsultaPage() {
       case 'in_refurbish': return 'bg-purple-500/10 text-purple-400 border-purple-500/20';
       case 'REPARACION_N3': 
       case 'in_repair': return 'bg-orange-500/10 text-orange-400 border-orange-500/20';
-      case 'in_l3': return 'bg-red-500/10 text-red-400 border-red-500/20';
+      case 'in_qc': return 'bg-blue-500/10 text-blue-400 border-blue-500/20';
+      case 'in_l3':
+      case 'in_control_warehouse': return 'bg-red-500/10 text-red-400 border-red-500/20';
       case 'CONTROL_CALIDAD': 
-      case 'in_qc': 
       case 'in_validation': return 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20';
+      case 'ready_to_dispatch': return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
       case 'CC_APROBADO': return 'bg-green-500/10 text-green-400 border-green-500/20';
       case 'CC_RECHAZADO': return 'bg-red-500/10 text-red-400 border-red-500/20';
       case 'SCRAP': 
@@ -589,7 +591,7 @@ export default function ConsultaPage() {
                                   </span>
                               </td>
                               <td className="px-4 py-3 font-medium whitespace-nowrap">
-                                {event.actorName}
+                                {event.actorName === 'SISTEMA' ? 'Enviado por sistema' : event.actorName}
                               </td>
                               <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">
                                 {event.module}

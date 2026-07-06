@@ -2,6 +2,7 @@ import { ERP_AUDIT_LOG_SELECT } from '@/shared/constants/dbProjections';
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { apiFetch } from "@/lib/http/apiFetch";
 import { fetchSeriesHistoryViaApi } from '@/lib/api/seriesHistory';
+import { fetchProfileDisplayNames } from '@/lib/api/profileDisplayNames';
 
 export type AuditSeverity = 'INFO' | 'WARNING' | 'CRITICAL';
 
@@ -119,37 +120,10 @@ export async function getSeriesHistory(recordIds: string | string[]) {
   
   let profiles: Record<string, string> = {};
   if (userIds.length > 0) {
-    const { data: profilesData } = await supabase
-      .from('profiles')
-      .select('id, full_name')
-      .in('id', userIds);
-      
-    if (profilesData) {
-      const emailsToSearch = profilesData.map(p => p.full_name).filter(n => n?.includes('@'));
-      let empMap: Record<string, string> = {};
-      
-      if (emailsToSearch.length > 0) {
-         const { data: emps } = await supabase.from('employees').select('email, nombre_completo').in('email', emailsToSearch);
-         if (emps) {
-            empMap = emps.reduce((acc: any, e: any) => {
-               if (e.email && e.nombre_completo) acc[e.email] = e.nombre_completo;
-               return acc;
-            }, {});
-         }
-      }
-
-      profiles = profilesData.reduce((acc: any, p: any) => {
-        let name = p.full_name;
-        if (name && name.includes('@')) {
-           if (empMap[name]) {
-              name = empMap[name];
-           } else {
-              name = name.split('@')[0];
-           }
-        }
-        acc[p.id] = name;
-        return acc;
-      }, {});
+    try {
+      profiles = await fetchProfileDisplayNames(userIds);
+    } catch {
+      profiles = {};
     }
   }
 

@@ -6,6 +6,7 @@ import { ROLES_TALLER } from '@/shared/authz/roleGuard';
 import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
 import { assertUuidArray } from '@/shared/infrastructure/http/batchLimit';
 import { operateWorkshopSeriesBatch } from '@/modules/workshop/server/workshopOperateService';
+import { resolveSessionActor } from '@/shared/infrastructure/session/resolveSessionActor';
 import { estimateJsonBytes, logEgress } from '@/shared/infrastructure/http/egressLog';
 import { getCorrelationIdFromHeaders } from '@/shared/infrastructure/http/correlationId';
 
@@ -61,6 +62,8 @@ export const POST = withErrorHandler(
       .eq('user_id', user.id)
       .maybeSingle();
 
+    const actor = await resolveSessionActor(user);
+
     const { processed } = await operateWorkshopSeriesBatch(supabase, {
       seriesIds: series_ids,
       result,
@@ -69,6 +72,7 @@ export const POST = withErrorHandler(
       actionName: action_name,
       userId: user.id,
       userRole: roleData?.role,
+      operatorName: actor.fullName,
     });
 
     const responseBody = { success: true, processed };

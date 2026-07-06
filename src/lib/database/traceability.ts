@@ -1,4 +1,5 @@
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { fetchProfileDisplayNames } from '@/lib/api/profileDisplayNames';
 
 export type TraceabilityEvent = {
   id: string;
@@ -134,8 +135,13 @@ export function resolveTraceabilityStatusLabel(status: string): string {
     case 'in_l3':
       return 'Taller (Nivel 3)';
     case 'in_qc':
+      return 'Taller (Reparación)';
     case 'in_validation':
-      return 'Control de Calidad';
+      return 'Taller (Control de Calidad)';
+    case 'ready_to_dispatch':
+      return 'Taller (Reacondicionado)';
+    case 'in_control_warehouse':
+      return 'Taller (L3 Avanzado)';
     case 'scrap':
     case 'irreparable':
       return 'SCRAP';
@@ -151,6 +157,7 @@ export function resolveTraceabilityStatusLabel(status: string): string {
 function extractActorFromPayload(payload: Record<string, unknown> | null | undefined): string | null {
   if (!payload || typeof payload !== 'object') return null;
   const keys = [
+    'operator_name',
     'registered_by',
     'classified_by',
     'registeredBy',
@@ -274,42 +281,15 @@ function inferStatusFromTimelineAction(action: string, comment: string): string 
 }
 
 async function resolveProfileNames(
-  supabase: NonNullable<ReturnType<typeof getSupabaseBrowserClient>>,
+  _supabase: NonNullable<ReturnType<typeof getSupabaseBrowserClient>>,
   userIds: string[]
 ): Promise<Record<string, string>> {
   if (!userIds.length) return {};
-
-  const { data: profilesData } = await supabase
-    .from('profiles')
-    .select('id, full_name')
-    .in('id', userIds);
-
-  if (!profilesData?.length) return {};
-
-  const emailsToSearch = profilesData.map((p) => p.full_name).filter((n) => n?.includes('@'));
-  let empMap: Record<string, string> = {};
-
-  if (emailsToSearch.length) {
-    const { data: emps } = await supabase
-      .from('employees')
-      .select('email, nombre_completo')
-      .in('email', emailsToSearch);
-    if (emps) {
-      empMap = emps.reduce((acc: Record<string, string>, e) => {
-        if (e.email && e.nombre_completo) acc[e.email] = e.nombre_completo;
-        return acc;
-      }, {});
-    }
+  try {
+    return await fetchProfileDisplayNames(userIds);
+  } catch {
+    return {};
   }
-
-  return profilesData.reduce((acc: Record<string, string>, p) => {
-    let name = p.full_name || '';
-    if (name.includes('@')) {
-      name = empMap[name] || name.split('@')[0];
-    }
-    acc[p.id] = formatPersonName(name);
-    return acc;
-  }, {});
 }
 
 export async function getEquipmentTraceabilityHistory(params: {

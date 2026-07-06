@@ -10,12 +10,14 @@ import {
 import { estimateJsonBytes, logEgress } from '@/shared/infrastructure/http/egressLog';
 import { getCorrelationIdFromHeaders } from '@/shared/infrastructure/http/correlationId';
 import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
+import { getWorkshopReadClient } from '@/shared/infrastructure/workshop/workshopReadClient';
 
 const TasksQuery = z.object({
   tab: z
     .enum(['diagnostico', 'reparacion', 'qc', 'reacondicionado', 'l3', 'scraps', 'listo'])
     .default('diagnostico'),
   cursor: z.string().uuid().optional(),
+  q: z.string().max(120).optional(),
   limit: z.coerce
     .number()
     .int()
@@ -32,11 +34,8 @@ export const GET = withErrorHandler(
 
     const auth = await requireApiUser(req);
     if (auth instanceof NextResponse) return auth;
-    const { supabase } = auth;
 
-    if (!supabase) {
-      return NextResponse.json({ error: 'SERVER_CLIENT_REQUIRED' }, { status: 500 });
-    }
+    const db = getWorkshopReadClient();
 
     const parsed = TasksQuery.safeParse(Object.fromEntries(new URL(req.url).searchParams));
     if (!parsed.success) {
@@ -47,8 +46,12 @@ export const GET = withErrorHandler(
     }
 
     const tab = parsed.data.tab as WorkshopTabId;
-    const { cursor, limit } = parsed.data;
-    const page = await queryWorkshopTasksPage(supabase, tab, { cursor: cursor ?? null, limit });
+    const { cursor, limit, q } = parsed.data;
+    const page = await queryWorkshopTasksPage(db, tab, {
+      cursor: cursor ?? null,
+      limit,
+      search: q,
+    });
     const responseBody = page;
 
     logEgress({

@@ -23,6 +23,29 @@ const TAB_TO_STATUS: Record<Exclude<WorkshopTabId, 'listo'>, string> = {
   scraps: 'irreparable',
 };
 
+const STATUS_TO_TAB: Record<string, WorkshopTabId> = {
+  in_workshop: 'diagnostico',
+  in_qc: 'reparacion',
+  ready_to_dispatch: 'reacondicionado',
+  in_validation: 'qc',
+  in_control_warehouse: 'l3',
+  irreparable: 'scraps',
+  scrap: 'scraps',
+  in_central_warehouse: 'listo',
+};
+
+export const WORKSHOP_TAB_LABELS: Record<WorkshopTabId, string> = {
+  diagnostico: 'Diagnóstico',
+  reparacion: 'Reparación',
+  reacondicionado: 'Reacondicionado',
+  qc: 'Control de Calidad',
+  l3: 'L3 (Avanzado)',
+  scraps: 'SCRAPS',
+  listo: 'Equipo Listo',
+};
+
+const WORKSHOP_QUEUE_STATUSES = Object.values(TAB_TO_STATUS);
+
 const TALLER_WORKSHOP_AUDIT_ACTIONS = new Set([
   'INGRESO A TALLER',
   'DIAGNÓSTICO INICIAL COMPLETADO',
@@ -68,6 +91,122 @@ const WORKSHOP_SERIES_SELECT = `
   ingress_count,
   current_diagnostics
 `;
+
+export type WorkshopLocateResult = {
+  found: boolean;
+  tab: WorkshopTabId | null;
+  tabLabel: string | null;
+  status: string | null;
+  osLabel: string | null;
+  serial: string | null;
+  serviceOrderId: string | null;
+};
+
+function sanitizeWorkshopSearch(raw: string): string {
+  return raw.replace(/[%,()*]/g, '').trim();
+}
+
+/** Busca serie/OS dentro de una pestaña — usa el estatus real de la serie consultada. */
+async function searchWorkshopSeriesInTab(
+  supabase: SupabaseClient,
+  tab: WorkshopTabId,
+  rawQuery: string
+): Promise<any[]> {
+  const query = sanitizeWorkshopSearch(rawQuery);
+  if (!query) return [];
+
+  const located = await locateWorkshopEquipment(supabase, query);
+  if (!located.found || !located.status || !located.serviceOrderId) return [];
+
+  const expectedStatus =
+    tab === 'listo' ? 'in_central_warehouse' : TAB_TO_STATUS[tab as Exclude<WorkshopTabId, 'listo'>];
+  if (located.status !== expectedStatus) return [];
+
+  let rows = await fetchWorkshopSeriesForOsIds(
+    supabase,
+    [located.serviceOrderId],
+    located.status
+  );
+  if (tab === 'listo') {
+    rows = await attachWorkshopAuditFlags(supabase, rows, 'listo');
+  }
+  rows = await enrichWorkshopServiceOrders(supabase, rows);
+  return groupWorkshopSeriesRows(rows);
+}
+
+/** Ubica un equipo en cualquier etapa de Taller por serie u OS. */
+export async function locateWorkshopEquipment(
+  supabase: SupabaseClient,
+  rawQuery: string
+): Promise<WorkshopLocateResult> {
+  const query = sanitizeWorkshopSearch(rawQuery);
+  if (!query) {
+    return {
+      found: false,
+      tab: null,
+      tabLabel: null,
+      status: null,
+      osLabel: null,
+      serial: null,
+      serviceOrderId: null,
+    };
+  }
+
+  const { data: bySerial } = await supabase
+    .from('series')
+    .select('id, serial_number, current_status, service_order_id, service_orders(os_label)')
+    .or(
+      `serial_number.ilike.%${query}%,s2.ilike.%${query}%,s3.ilike.%${query}%,s4.ilike.%${query}%`
+    )
+    .order('updated_at', { ascending: false })
+    .limit(5);
+
+  let hit = bySerial?.[0] ?? null;
+
+  if (!hit) {
+    const { data: osRows } = await supabase
+      .from('service_orders')
+      .select('id, os_label')
+      .ilike('os_label', `%${query}%`)
+      .limit(5);
+    const osId = osRows?.[0]?.id;
+    if (osId) {
+      const { data: byOs } = await supabase
+        .from('series')
+        .select('id, serial_number, current_status, service_order_id, service_orders(os_label)')
+        .eq('service_order_id', osId)
+        .order('updated_at', { ascending: false })
+        .limit(1);
+      hit = byOs?.[0] ?? null;
+    }
+  }
+
+  if (!hit) {
+    return {
+      found: false,
+      tab: null,
+      tabLabel: null,
+      status: null,
+      osLabel: null,
+      serial: null,
+      serviceOrderId: null,
+    };
+  }
+
+  const status = String(hit.current_status || '');
+  const tab = STATUS_TO_TAB[status] ?? null;
+  const osLabel = (hit.service_orders as { os_label?: string } | null)?.os_label || null;
+
+  return {
+    found: true,
+    tab,
+    tabLabel: tab ? WORKSHOP_TAB_LABELS[tab] : null,
+    status,
+    osLabel,
+    serial: hit.serial_number as string,
+    serviceOrderId: (hit.service_order_id as string) || null,
+  };
+}
 
 const PAGE_SIZE = 1000;
 const MAX_ROWS = 20_000;
@@ -341,8 +480,14 @@ export type WorkshopTasksPageResult = {
 export async function queryWorkshopTasksPage(
   supabase: SupabaseClient,
   tab: WorkshopTabId,
-  opts: { cursor?: string | null; limit?: number }
+  opts: { cursor?: string | null; limit?: number; search?: string }
 ): Promise<WorkshopTasksPageResult> {
+  const search = opts.search?.trim();
+  if (search) {
+    const items = await searchWorkshopSeriesInTab(supabase, tab, search);
+    return { items, nextCursor: null, totalOs: items.length };
+  }
+
   const limit = Math.min(
     Math.max(opts.limit ?? BATCH_LIMITS.WORKSHOP_QUEUE_PAGE_OS, 1),
     BATCH_LIMITS.API_PAGE_MAX

@@ -3,9 +3,9 @@
 import React, { useState, useMemo } from 'react';
 import { ModulePage } from "@/components/module-page";
 import { Card, Button, Badge, notify, confirmDialog, DataTable, type DataTableColumn } from "@/components/ui";
-import { Wrench, Stethoscope, Search, Filter, Box, Plus, Activity, AlertCircle, ArrowRight, CheckCircle2, XCircle, Clock, ChevronLeft, ChevronRight, ChevronDown, User, CheckSquare, ServerCrash, RefreshCw, Zap, Trash2, Loader2, RotateCcw, History, ClipboardList, Package, Send, ScanLine, X, BarChart3, Layers, Edit2, Eye, Printer } from 'lucide-react';
+import { Wrench, Stethoscope, Search, Filter, Box, Plus, Activity, AlertCircle, ArrowRight, CheckCircle2, XCircle, Clock, ChevronLeft, ChevronRight, ChevronDown, User, CheckSquare, ServerCrash, RefreshCw, Zap, Trash2, Loader2, RotateCcw, History, ClipboardList, Package, Send, ScanLine, X, BarChart3, Layers, Edit2, Eye, Printer, Download } from 'lucide-react';
 import { type WorkshopTabId } from '@/modules/workshop/client/workshop';
-import { fetchWorkshopTasksPageViaApi } from '@/lib/api/workshopTasks';
+import { fetchWorkshopTasksPageViaApi, locateWorkshopEquipmentViaApi, type WorkshopLocateResult } from '@/lib/api/workshopTasks';
 import {
   operateWorkshopInBatches,
   countSeriesInSelection,
@@ -14,6 +14,7 @@ import {
   formatWorkshopSelectionLabel,
 } from '@/lib/api/workshopOperate';
 import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
+import { exportWorkshopTabToExcel } from '@/lib/api/workshopExport';
 import { fetchWorkshopOperationCatalogsViaApi } from '@/lib/api/referenceCatalogs';
 import { useReferenceCatalogs } from '@/hooks/useReferenceCatalogs';
 import { getSeriesHistory } from '@/modules/platform/client/audit';
@@ -194,11 +195,13 @@ export default function TallerPage() {
   const [tasksCursor, setTasksCursor] = useState<string | null>(null);
   const [tasksHasMore, setTasksHasMore] = useState(false);
   const [tasksTotalOs, setTasksTotalOs] = useState<number | null>(null);
+  const [locateHint, setLocateHint] = useState<WorkshopLocateResult | null>(null);
   const [operateProgress, setOperateProgress] = useState<{
     processedSeries: number;
     totalSeries: number;
     equipmentCount: number;
   } | null>(null);
+  const [exportingReport, setExportingReport] = useState(false);
   const [showItemDetail, setShowItemDetail] = useState<any | null>(null);
 
   const tabCountsQuery = useWorkshopTabCounts();
@@ -232,10 +235,10 @@ export default function TallerPage() {
 
   useEffect(() => {
     if (activeTab !== 'po' && activeTab !== 'despacho') {
-      void fetchTasks(false);
+      void fetchTasks(false, debouncedSearchTerm);
     }
     setSelectedRows([]);
-  }, [activeTab]);
+  }, [activeTab, debouncedSearchTerm]);
 
   const adaptWorkshopRow = (t: any) => {
     const notes = (t.receptions?.notes || '').replace(/\\n/g, '\n');
@@ -431,8 +434,11 @@ export default function TallerPage() {
     }
   }, [selectedForOperation, activeTab]);
 
-  const fetchTasks = async (append = false) => {
+  const fetchTasks = async (append = false, searchOverride?: string) => {
     if (activeTab === 'po' || activeTab === 'despacho') return;
+
+    const search = (searchOverride ?? debouncedSearchTerm).trim();
+    if (append && search) return;
 
     if (append) setLoadingMore(true);
     else setLoading(true);
@@ -440,20 +446,73 @@ export default function TallerPage() {
     try {
       const workshopTab = activeTab as WorkshopTabId;
       const cursor = append ? tasksCursor : null;
-      const page = await fetchWorkshopTasksPageViaApi(workshopTab, cursor);
+      const page = await fetchWorkshopTasksPageViaApi(
+        workshopTab,
+        cursor,
+        append ? undefined : search || undefined
+      );
       const adapted = page.items.map(adaptWorkshopRow);
 
       setTasks((prev) => (append ? [...prev, ...adapted] : adapted));
       setTasksCursor(page.nextCursor);
-      setTasksHasMore(Boolean(page.nextCursor));
+      setTasksHasMore(Boolean(page.nextCursor) && !search);
       setTasksTotalOs(page.totalOs);
+
+      if (!append && search && adapted.length === 0) {
+        try {
+          const loc = await locateWorkshopEquipmentViaApi(search);
+          setLocateHint(
+            loc.found && loc.tab && loc.tab !== workshopTab ? loc : null
+          );
+        } catch {
+          setLocateHint(null);
+        }
+      } else if (!append) {
+        setLocateHint(null);
+      }
     } catch (err) {
       console.error('Error loading workshop tasks:', err);
       notify.error('No se pudo cargar la cola de taller');
-      if (!append) setTasks([]);
+      if (!append) {
+        setTasks([]);
+        setLocateHint(null);
+      }
     } finally {
       setLoading(false);
       setLoadingMore(false);
+    }
+  };
+
+  const handleExportTabReport = async () => {
+    if (activeTab === 'po' || activeTab === 'despacho' || activeTab === 'listo') {
+      notify.warning('Exportación disponible en pestañas operativas de Taller.');
+      return;
+    }
+    setExportingReport(true);
+    try {
+      await exportWorkshopTabToExcel(activeTab as WorkshopTabId, (raw) => {
+        const a = adaptWorkshopRow(raw);
+        return {
+          os: a.id,
+          serie_principal: a.sn,
+          series: (a.all_sns || []).join(', '),
+          cantidad_series: a.total_series,
+          tecnologia: a.tecnologia,
+          marca: a.marca,
+          modelo: a.modelo,
+          ingreso: a.updatedAt,
+          etapa: a.etapa,
+          responsable: a.responsable,
+          guia: a.guide,
+          agencia: a.agencia,
+          courier: a.courier,
+        };
+      });
+      notify.success('Reporte exportado');
+    } catch (err: any) {
+      notify.error('No se pudo exportar', { description: err?.message });
+    } finally {
+      setExportingReport(false);
     }
   };
 
@@ -626,16 +685,8 @@ ${funcNotes || 'Ninguno evaluado'}
 
     if (!matchesTab) return false;
 
-    if (debouncedSearchTerm) {
-      const searchTokens = debouncedSearchTerm.toUpperCase().split(/[\s,]+/).filter(Boolean);
-      if (searchTokens.length > 0) {
-        const serials = (t.all_sns?.length ? t.all_sns : [t.sn]).map((sn: string) => String(sn || '').toUpperCase());
-        const osLabel = String(t.id || '').toUpperCase();
-        return searchTokens.some(
-          (token) => osLabel.includes(token) || serials.some((sn) => sn.includes(token))
-        );
-      }
-    }
+    // Con término de búsqueda la API ya filtró por serie/OS en toda la cola.
+    if (debouncedSearchTerm.trim()) return true;
 
     return true;
   }), [tasks, activeTab, debouncedSearchTerm]);
@@ -874,6 +925,29 @@ ${funcNotes || 'Ninguno evaluado'}
 
             return (
               <div className="space-y-6">
+                {locateHint?.found && locateHint.tab && locateHint.tabLabel && (
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-amber-50 border border-amber-200 rounded-2xl px-6 py-4">
+                    <p className="text-sm font-bold text-amber-900">
+                      {locateHint.osLabel || locateHint.serial} está en{' '}
+                      <span className="text-amber-700">{locateHint.tabLabel}</span>
+                      {locateHint.tab !== activeTab && (
+                        <>
+                          , no en {tabs.find((t) => t.id === activeTab)?.label || 'esta pestaña'}.
+                          {' '}La cola de Taller es compartida — todos los operadores ven los mismos equipos.
+                        </>
+                      )}
+                    </p>
+                    {locateHint.tab !== activeTab && (
+                      <Button
+                        variant="outline"
+                        className="border-amber-300 text-amber-800 font-black uppercase text-[10px] shrink-0"
+                        onClick={() => setActiveTab(locateHint.tab as TabType)}
+                      >
+                        Ir a {locateHint.tabLabel}
+                      </Button>
+                    )}
+                  </div>
+                )}
                 <div className="flex justify-between items-center bg-white p-8 rounded-3xl border-2 border-slate-100 shadow-sm">
                   {/* Left: Search */}
                   <div className="flex gap-4 items-center">
@@ -893,6 +967,16 @@ ${funcNotes || 'Ninguno evaluado'}
 
                   {/* Right: Actions */}
                   <div className="flex gap-3 items-center">
+                    <Button
+                      variant="outline"
+                      className="border-slate-200 text-slate-600 font-black uppercase text-[10px] tracking-widest"
+                      leftIcon={exportingReport ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                      disabled={exportingReport}
+                      onClick={() => void handleExportTabReport()}
+                    >
+                      {exportingReport ? 'Exportando…' : 'Exportar Reporte'}
+                    </Button>
+
                     {/* SCRAPS-specific: Create Dispatch Box button (always visible in SCRAPS) */}
                     {activeTab === 'scraps' && (
                       <Button

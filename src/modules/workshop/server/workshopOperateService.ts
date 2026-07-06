@@ -29,6 +29,7 @@ export type WorkshopOperateParams = {
   actionName: string;
   userId: string;
   userRole?: string;
+  operatorName?: string;
 };
 
 /** Actualiza series + auditoría en lotes (servidor, sin N round-trips al browser). */
@@ -36,7 +37,7 @@ export async function operateWorkshopSeriesBatch(
   supabase: SupabaseClient,
   params: WorkshopOperateParams
 ): Promise<{ processed: number }> {
-  const { seriesIds, result, notes, selectedDiagnostics = [], actionName, userId, userRole } =
+  const { seriesIds, result, notes, selectedDiagnostics = [], actionName, userId, userRole, operatorName } =
     params;
 
   if (seriesIds.length === 0) return { processed: 0 };
@@ -51,6 +52,7 @@ export async function operateWorkshopSeriesBatch(
     result,
     notes,
     nextStatus,
+    operator_name: operatorName,
     diagnostics: actionName === 'DIAGNÓSTICO INICIAL COMPLETADO' ? selectedDiagnostics : undefined,
     repairs: actionName === 'REPARACIÓN COMPLETADA' ? selectedDiagnostics : undefined,
     items: selectedDiagnostics,

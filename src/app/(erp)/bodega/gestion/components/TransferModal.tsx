@@ -1,9 +1,13 @@
 'use client';
 
-import { memo, type FormEvent } from 'react';
+import { memo, useEffect, useMemo, type FormEvent } from 'react';
 import { Card, Button } from '@/components/ui';
 import { ArrowLeftRight, Loader2, QrCode } from 'lucide-react';
-import { WORKSHOP_TRANSFER_BATCH_LIMIT } from '@/modules/inventario/client/warehouseBoxes';
+import {
+  WORKSHOP_TRANSFER_BATCH_LIMIT,
+  availableWarehouseDestinations,
+  resolveInventoryBoxOriginArea,
+} from '@/modules/inventario/client/warehouseBoxes';
 
 type Props = {
   inventory: any[];
@@ -46,6 +50,29 @@ export const TransferModal = memo(function TransferModal({
     isWorkshopDest && selectionCount > 0
       ? Math.ceil(selectionCount / WORKSHOP_TRANSFER_BATCH_LIMIT)
       : 1;
+
+  const excludedOrigins = useMemo(() => {
+    const origins = new Set<string>();
+    for (const boxId of selectedBoxesForTransfer) {
+      const box = inventory.find((b) => b.id === boxId);
+      if (!box) continue;
+      const origin = resolveInventoryBoxOriginArea(box);
+      if (origin) origins.add(origin);
+    }
+    return origins;
+  }, [inventory, selectedBoxesForTransfer]);
+
+  const destinationOptions = useMemo(
+    () => availableWarehouseDestinations(excludedOrigins),
+    [excludedOrigins]
+  );
+
+  useEffect(() => {
+    if (destinationOptions.length === 0) return;
+    if (!destinationOptions.includes(destinationArea)) {
+      setDestinationArea(destinationOptions[0]);
+    }
+  }, [destinationOptions, destinationArea, setDestinationArea]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#181c3a]/40 backdrop-blur-sm p-6">
@@ -116,7 +143,7 @@ export const TransferModal = memo(function TransferModal({
             <div className="space-y-4">
               <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">2. Área de Destino</label>
               <div className="grid grid-cols-2 gap-2">
-                {['Bodega Central', 'Bodega SCRAP', 'Bodega Obsoleto', 'Diagnóstico'].map(area => (
+                {destinationOptions.map(area => (
                   <button
                     key={area}
                     onClick={() => setDestinationArea(area)}

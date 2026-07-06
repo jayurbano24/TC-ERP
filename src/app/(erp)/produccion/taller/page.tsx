@@ -336,7 +336,7 @@ export default function TallerPage() {
       tecnologia: tecnologiaName,
       marca: marcaName,
       modelo: modeloName,
-      boxCode: t.boxes?.box_code || 'S/C',
+      boxCode: t.source_box_code || t.boxes?.box_code || '—',
       updatedAt: t.updated_at ? new Date(t.updated_at).toLocaleString() : 'Desconocida',
       etapa: stageRaw,
       responsable: responsableName,

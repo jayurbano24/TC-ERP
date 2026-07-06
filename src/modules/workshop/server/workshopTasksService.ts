@@ -131,6 +131,9 @@ async function searchWorkshopSeriesInTab(
     rows = await attachWorkshopAuditFlags(supabase, rows, 'listo');
   }
   rows = await enrichWorkshopServiceOrders(supabase, rows);
+  if (tab === 'diagnostico') {
+    rows = await enrichWorkshopSourceBoxCodes(supabase, rows);
+  }
   return groupWorkshopSeriesRows(rows);
 }
 
@@ -238,6 +241,7 @@ function groupWorkshopSeriesRows(rows: any[]) {
         ...row,
         all_dbIds: [row.id],
         all_sns: row.serial_number ? [row.serial_number] : [],
+        source_box_code: row.source_box_code ?? null,
       });
       continue;
     }
@@ -246,6 +250,9 @@ function groupWorkshopSeriesRows(rows: any[]) {
     if (!existing.all_dbIds.includes(row.id)) existing.all_dbIds.push(row.id);
     if (row.serial_number && !existing.all_sns.includes(row.serial_number)) {
       existing.all_sns.push(row.serial_number);
+    }
+    if (!existing.source_box_code && row.source_box_code) {
+      existing.source_box_code = row.source_box_code;
     }
     if (!existing.service_orders?.os_label && row.service_orders?.os_label) {
       existing.service_orders = row.service_orders;
@@ -446,6 +453,44 @@ async function enrichWorkshopServiceOrders(supabase: SupabaseClient, rows: any[]
   });
 }
 
+/** Caja de origen tras dispersión bodega → taller (current_box_id queda NULL). */
+async function enrichWorkshopSourceBoxCodes(
+  supabase: SupabaseClient,
+  rows: any[]
+): Promise<any[]> {
+  const seriesIds = rows.map((r) => r.id as string).filter(Boolean);
+  if (seriesIds.length === 0) return rows;
+
+  const boxBySeries = new Map<string, string>();
+
+  for (let i = 0; i < seriesIds.length; i += 80) {
+    const chunk = seriesIds.slice(i, i + 80);
+    const { data } = await supabase
+      .from('warehouse_movements')
+      .select('box_code, series_ids, created_at')
+      .eq('movement_type', 'DISPERSION_CAJA')
+      .overlaps('series_ids', chunk)
+      .order('created_at', { ascending: false })
+      .limit(300);
+
+    for (const mov of data || []) {
+      const code = String(mov.box_code || '').trim();
+      if (!code) continue;
+      for (const sid of (mov.series_ids as string[]) || []) {
+        if (!boxBySeries.has(sid)) boxBySeries.set(sid, code);
+      }
+    }
+  }
+
+  return rows.map((row) => ({
+    ...row,
+    source_box_code:
+      boxBySeries.get(row.id as string) ||
+      (row.boxes as { box_code?: string } | null)?.box_code ||
+      null,
+  }));
+}
+
 async function fetchWorkshopTasksViaOsQueue(
   supabase: SupabaseClient,
   tab: Exclude<WorkshopTabId, 'listo'>,
@@ -532,6 +577,9 @@ export async function queryWorkshopTasksPage(
 
   let seriesRows = await fetchWorkshopSeriesForOsIds(supabase, osIds, status);
   seriesRows = await enrichWorkshopServiceOrders(supabase, seriesRows);
+  if (tab === 'diagnostico') {
+    seriesRows = await enrichWorkshopSourceBoxCodes(supabase, seriesRows);
+  }
   const items = groupWorkshopSeriesRows(seriesRows);
 
   return {
@@ -551,6 +599,9 @@ async function queryWorkshopTasksLegacyAll(
     rows = await attachWorkshopAuditFlags(supabase, rows, 'exclude_warehouse_stock');
   }
   rows = await enrichWorkshopServiceOrders(supabase, rows);
+  if (tab === 'diagnostico') {
+    rows = await enrichWorkshopSourceBoxCodes(supabase, rows);
+  }
   return groupWorkshopSeriesRows(rows);
 }
 

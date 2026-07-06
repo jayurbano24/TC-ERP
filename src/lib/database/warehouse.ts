@@ -61,6 +61,45 @@ const AREA_TO_RACK: Record<string, string> = {
   L3: 'BODEGA-L3',
 };
 
+/** Áreas seleccionables como destino en transferencia masiva de cajas. */
+export const WAREHOUSE_DESTINATION_AREAS = [
+  'Bodega Central',
+  'Bodega SCRAP',
+  'Bodega Obsoleto',
+  'Diagnóstico',
+] as const;
+
+/** Origen de una caja según rack o etiqueta de área del inventario. */
+export function resolveInventoryBoxOriginArea(box: {
+  area?: string | null;
+  rack?: string | null;
+  rack_location?: string | null;
+}): string | null {
+  if (box.area?.trim()) return box.area.trim();
+  const rack = String(box.rack_location || box.rack || '').toUpperCase();
+  if (!rack || rack === 'SIN RACK') return null;
+  if (
+    rack === 'BODEGA_CENTRAL' ||
+    rack.startsWith('P-') ||
+    rack.startsWith('RACK-') ||
+    rack.startsWith('BODEGA')
+  ) {
+    return 'Bodega Central';
+  }
+  if (rack === 'SCRAP') return 'Bodega SCRAP';
+  if (rack === 'OBSOLETO') return 'Bodega Obsoleto';
+  if (rack.startsWith('TALLER')) return 'Diagnóstico';
+  return null;
+}
+
+/** Destinos permitidos excluyendo la(s) bodega(s) de origen de las cajas seleccionadas. */
+export function availableWarehouseDestinations(
+  excludedOrigins: Iterable<string>
+): string[] {
+  const excluded = new Set(excludedOrigins);
+  return WAREHOUSE_DESTINATION_AREAS.filter((area) => !excluded.has(area));
+}
+
 export function resolveWarehouseStatusLabel(status: string | null | undefined): string {
   switch (status) {
     case 'in_central_warehouse':

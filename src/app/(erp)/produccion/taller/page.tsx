@@ -13,6 +13,11 @@ import {
   validateWorkshopOperateSelection,
   formatWorkshopSelectionLabel,
 } from '@/lib/api/workshopOperate';
+import {
+  fetchRepairWithoutDiagnosisCandidates,
+  returnWorkshopInBatches,
+  validateReturnSelection,
+} from '@/lib/api/workshopReturn';
 import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
 import { exportWorkshopTabToExcel } from '@/lib/api/workshopExport';
 import { fetchWorkshopOperationCatalogsViaApi } from '@/lib/api/referenceCatalogs';
@@ -200,6 +205,12 @@ export default function TallerPage() {
     processedSeries: number;
     totalSeries: number;
     equipmentCount: number;
+  } | null>(null);
+  const [returnProgress, setReturnProgress] = useState<{
+    processedSeries: number;
+    totalSeries: number;
+    batchIndex: number;
+    batchCount: number;
   } | null>(null);
   const [exportingReport, setExportingReport] = useState(false);
   const [showItemDetail, setShowItemDetail] = useState<any | null>(null);
@@ -628,35 +639,118 @@ ${funcNotes || 'Ninguno evaluado'}
 
     setLoading(true);
     try {
-      const { updateSeriesStatus } = await import('@/lib/database/workshop');
-      const { logAudit } = await import('@/lib/database/audit');
+      const seriesIds = item.all_dbIds?.length ? item.all_dbIds : [item.dbId];
+      await returnWorkshopInBatches(seriesIds, {
+        targetStatus: returnTargetStage,
+        reason: 'Movido manualmente desde Taller',
+      });
       const stageLabels: Record<string, string> = {
-        'in_workshop': 'DIAGNÓSTICO',
-        'in_repair': 'REPARACIÓN',
-        'in_refurbish': 'REACONDICIONADO',
-        'in_l3': 'L3',
-        'scrap': 'SCRAPS'
+        in_workshop: 'DIAGNÓSTICO',
+        in_qc: 'REPARACIÓN',
+        in_refurbish: 'REACONDICIONADO',
+        in_l3: 'L3',
+        scrap: 'SCRAPS',
+        irreparable: 'SCRAPS',
       };
       const label = stageLabels[returnTargetStage] || 'OTRA ETAPA';
-      
-      if (item.all_dbIds) {
-        for (const realId of item.all_dbIds) {
-          await updateSeriesStatus(realId, returnTargetStage);
-          await logAudit('series', realId, `TRASLADO A ${label}`, { reason: 'Movido manualmente desde Taller', status: returnTargetStage });
-        }
-      } else {
-        await updateSeriesStatus(item.dbId, returnTargetStage);
-        await logAudit('series', item.dbId, `TRASLADO A ${label}`, { reason: 'Movido manualmente desde Taller', status: returnTargetStage });
-      }
       notify.success(`Equipo movido a ${label}`);
-      setReturnModalOpen({isOpen: false, item: null});
+      setReturnModalOpen({ isOpen: false, item: null });
       await queryClient.invalidateQueries({ queryKey: ['workshop-tab-counts'] });
-      fetchTasks();
-    } catch (error) {
+      await fetchTasks(false);
+    } catch (error: unknown) {
       console.error(error);
-      notify.error('Error moviendo equipo');
+      notify.error('Error moviendo equipo', {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
+  };
+
+  const handleBulkReturnToDiagnosis = async () => {
+    const selectedItems = tasks.filter((t) => selectedRows.includes(t.dbId));
+    const equipmentCount = countEquipmentsInSelection(selectedItems);
+    const seriesIds = collectSeriesIdsFromSelection(selectedItems);
+    const check = validateReturnSelection(equipmentCount, seriesIds.length);
+    if (!check.ok) {
+      notify.warning(check.message);
+      return;
+    }
+
+    const confirmed = await confirmDialog({
+      title: 'Regresar a Diagnóstico',
+      message: `¿Regresar ${equipmentCount} equipo${equipmentCount !== 1 ? 's' : ''} (${seriesIds.length} series) a Diagnóstico?`,
+      confirmText: 'Regresar',
+    });
+    if (!confirmed) return;
+
+    setLoading(true);
+    setReturnProgress({ processedSeries: 0, totalSeries: seriesIds.length, batchIndex: 0, batchCount: 0 });
+    try {
+      await returnWorkshopInBatches(seriesIds, {
+        targetStatus: 'in_workshop',
+        reason: 'Regreso manual — selección en Reparación',
+        onProgress: (p) => setReturnProgress(p),
+      });
+      notify.success(
+        `${equipmentCount} equipo${equipmentCount !== 1 ? 's' : ''} regresados a Diagnóstico (${seriesIds.length} series).`
+      );
+      setSelectedRows([]);
+      await queryClient.invalidateQueries({ queryKey: ['workshop-tab-counts'] });
+      await fetchTasks(false);
+    } catch (error: unknown) {
+      notify.error('No se pudo regresar equipos', {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setReturnProgress(null);
+      setLoading(false);
+    }
+  };
+
+  const handleReturnAllWithoutDiagnosis = async () => {
+    setLoading(true);
+    try {
+      const candidates = await fetchRepairWithoutDiagnosisCandidates();
+      if (candidates.seriesCount === 0) {
+        notify.info('No hay equipos en Reparación sin diagnóstico registrado.');
+        return;
+      }
+
+      const confirmed = await confirmDialog({
+        title: 'Regresar sin diagnóstico',
+        message: `Se encontraron ${candidates.equipmentCount} equipos (${candidates.seriesCount} series) en Reparación sin diagnóstico previo. ¿Regresarlos todos a Diagnóstico?`,
+        confirmText: 'Regresar todos',
+      });
+      if (!confirmed) return;
+
+      setReturnProgress({
+        processedSeries: 0,
+        totalSeries: candidates.seriesCount,
+        batchIndex: 0,
+        batchCount: 0,
+      });
+
+      await returnWorkshopInBatches(candidates.seriesIds, {
+        targetStatus: 'in_workshop',
+        reason: 'Regreso masivo — en Reparación sin diagnóstico previo',
+        onProgress: (p) => setReturnProgress(p),
+      });
+
+      notify.success(
+        `${candidates.equipmentCount} equipos regresados a Diagnóstico (${candidates.seriesCount} series).`
+      );
+      setSelectedRows([]);
+      await queryClient.invalidateQueries({ queryKey: ['workshop-tab-counts'] });
+      await fetchTasks(false);
+    } catch (error: unknown) {
+      notify.error('No se pudo regresar equipos', {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setReturnProgress(null);
+      setLoading(false);
+    }
   };
 
   const tabs = [
@@ -977,6 +1071,18 @@ ${funcNotes || 'Ninguno evaluado'}
                       {exportingReport ? 'Exportando…' : 'Exportar Reporte'}
                     </Button>
 
+                    {activeTab === 'reparacion' && (
+                      <Button
+                        variant="outline"
+                        className="border-amber-300 text-amber-800 font-black uppercase text-[10px] tracking-widest"
+                        leftIcon={loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
+                        disabled={loading}
+                        onClick={() => void handleReturnAllWithoutDiagnosis()}
+                      >
+                        Regresar sin diagnóstico
+                      </Button>
+                    )}
+
                     {/* SCRAPS-specific: Create Dispatch Box button (always visible in SCRAPS) */}
                     {activeTab === 'scraps' && (
                       <Button
@@ -997,6 +1103,16 @@ ${funcNotes || 'Ninguno evaluado'}
                       <div className="flex gap-2 animate-rise-in">
                         {activeTab !== 'scraps' && (
                           <>
+                            {activeTab !== 'diagnostico' && activeTab !== 'scraps' && (
+                              <Button
+                                variant="outline"
+                                className="border-amber-300 text-amber-700 font-black uppercase text-[10px]"
+                                leftIcon={<RotateCcw className="w-4 h-4" />}
+                                onClick={() => void handleBulkReturnToDiagnosis()}
+                              >
+                                Regresar a Diagnóstico ({selectedRows.length})
+                              </Button>
+                            )}
                             <Button 
                               variant="primary" 
                               className="bg-[#181c3a] hover:bg-slate-800 text-white shadow-lg" 
@@ -1073,6 +1189,22 @@ ${funcNotes || 'Ninguno evaluado'}
                           className="h-full bg-amber-500 transition-all duration-300"
                           style={{
                             width: `${Math.min(100, Math.round((operateProgress.processedSeries / operateProgress.totalSeries) * 100))}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ) : returnProgress ? (
+                    <div className="py-16 px-8 text-center space-y-4">
+                      <Loader2 className="w-8 h-8 text-amber-500 animate-spin mx-auto" />
+                      <p className="text-[11px] font-black text-slate-600 uppercase tracking-widest">
+                        Regresando a Diagnóstico… lote {returnProgress.batchIndex}/{returnProgress.batchCount || '…'}{' '}
+                        · {returnProgress.processedSeries}/{returnProgress.totalSeries} series
+                      </p>
+                      <div className="max-w-md mx-auto h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-amber-500 transition-all duration-300"
+                          style={{
+                            width: `${Math.min(100, Math.round((returnProgress.processedSeries / returnProgress.totalSeries) * 100))}%`,
                           }}
                         />
                       </div>

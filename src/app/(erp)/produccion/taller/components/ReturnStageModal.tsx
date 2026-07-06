@@ -48,10 +48,10 @@ export const ReturnStageModal = memo(function ReturnStageModal({
             <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">Etapa de Destino <span className="text-rose-500">*</span></label>
             <select value={returnTargetStage} onChange={e => setReturnTargetStage(e.target.value)} className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-[#181c3a] outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 transition-all">
               <option value="in_workshop">Diagnóstico</option>
+              <option value="in_qc">Reparación</option>
               <option value="in_refurbish">Reacondicionado</option>
-              <option value="in_repair">Reparación</option>
-              <option value="in_l3">L3 (Avanzado)</option>
-              <option value="scrap">SCRAPS</option>
+              <option value="in_control_warehouse">L3 (Avanzado)</option>
+              <option value="irreparable">SCRAPS</option>
             </select>
           </div>
           <Button

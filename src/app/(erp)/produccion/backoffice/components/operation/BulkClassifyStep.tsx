@@ -50,11 +50,7 @@ export function BulkClassifyStep({ ctx }: Props) {
     }
   };
 
-  const canConfirm = isDevolucion
-    ? Boolean(selectedAgencyId && returnReason.trim())
-    : isSubBodega
-      ? Boolean(selectedAgencyId)
-      : true;
+  const canConfirm = isDevolucion ? Boolean(selectedAgencyId && returnReason.trim()) : true;
 
   return (
     <div className="space-y-4 animate-rise-in max-w-3xl mx-auto">
@@ -149,7 +145,7 @@ export function BulkClassifyStep({ ctx }: Props) {
               className="cursor-pointer hover:bg-slate-50 p-3 rounded-xl border border-slate-200 transition-all"
             >
               <p className="text-[9px] font-black text-slate-400 uppercase mb-1">
-                Agencia de origen (CAC) <span className={meta?.color === 'emerald' ? 'text-emerald-500' : 'text-amber-500'}>*</span>
+                Agencia de origen (CAC) <span className="text-slate-300">(opcional)</span>
               </p>
               <p className="text-sm font-black text-[#181c3a] uppercase">
                 {agencyDetails

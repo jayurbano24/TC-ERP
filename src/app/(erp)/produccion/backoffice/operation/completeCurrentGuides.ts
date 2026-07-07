@@ -85,17 +85,12 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
               .normalize('NFD')
               .replace(/[\u0300-\u036f]/g, '');
 
-        const isSubBodega =
-          finalCategory === 'Accesorio' ||
-          finalCategory === 'Teléfono' ||
-          (ctx.receptionStep as string) === 'sub_bodega_transfer';
-
         const agencyLabel = sanitizeCacAgencyRaw(
           agencyObj?.name || ctx.agencia || ctx.selectedAgencyId,
           ctx.activeReception?.carrier,
           ctx.CAC_AGENCIES
         );
-        if (!agencyLabel && (isEquipment || isDevolucion || isSubBodega)) {
+        if (!agencyLabel && (isEquipment || isDevolucion)) {
           notify.warning('Falta la Agencia CAC', {
             description: 'Debe seleccionar la Agencia CAC de ingreso (no es el mismo dato que el Courier).',
           });

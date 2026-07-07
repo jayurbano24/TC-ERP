@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Button, Card, notify } from '@/components/ui';
+import { Button, Card } from '@/components/ui';
 import { ChevronDown, ChevronLeft, Package, Radio } from 'lucide-react';
 import type { OperationContext } from '../../operation/operationContext';
 
@@ -60,7 +60,7 @@ export function SubBodegaTransferStep({ ctx }: Props) {
               </div>
             </div>
             <div className="space-y-4 mb-8">
-              <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Agencia de Origen (CAC)</label>
+              <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Agencia de Origen (CAC) <span className="text-slate-300">(opcional)</span></label>
               <div className="relative">
                 <select 
                   className="w-full p-6 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-[#181c3a] outline-none focus:ring-2 focus:ring-[#2ec4f1] appearance-none transition-all"
@@ -97,16 +97,9 @@ export function SubBodegaTransferStep({ ctx }: Props) {
           <div className="flex gap-4">
             <Button variant="outline" className="flex-1 h-20 rounded-2xl font-black uppercase text-xs" onClick={() => setReceptionStep('classification')}>Cancelar</Button>
              <Button 
-              className={`flex-[2] h-20 text-white rounded-2xl shadow-2xl font-black uppercase text-xs transition-all ${(!agencia || isSubmitting) ? 'bg-slate-300 cursor-not-allowed' : (category === 'Accesorio' ? 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/20' : 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/20')}`}
-              onClick={async () => {
-                if (!agencia || isSubmitting) {
-                  if (!agencia) notify.warning("Por favor, seleccione una agencia de origen.");
-                  return;
-                }
-                // Forzamos que la categoría sea la correcta antes de guardar
-                await completeCurrentGuides();
-              }}
-              disabled={!agencia || isSubmitting}
+              className={`flex-[2] h-20 text-white rounded-2xl shadow-2xl font-black uppercase text-xs transition-all ${isSubmitting ? 'bg-slate-300 cursor-not-allowed' : (category === 'Accesorio' ? 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/20' : 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/20')}`}
+              onClick={() => void completeCurrentGuides()}
+              disabled={isSubmitting}
             >
               {isSubmitting ? 'Procesando...' : 'Confirmar Envío a Sub-Bodega'}
             </Button>

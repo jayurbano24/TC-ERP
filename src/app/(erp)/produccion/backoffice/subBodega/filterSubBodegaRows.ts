@@ -1,4 +1,5 @@
 import type { BackofficeReception, BackofficeTab } from '../types';
+import { parseReceptionGuideList } from '../operation/parseReceptionGuideList';
 
 export type SubBodegaRow = {
   id: string;
@@ -57,19 +58,23 @@ function matchesDateRange(
   return true;
 }
 
+function guidesForReception(r: SubBodegaRow['reception']): string[] {
+  const fromProcessed = (r.processed_guides || []).map((g) => g.trim()).filter(Boolean);
+  if (fromProcessed.length > 0) return fromProcessed;
+  return parseReceptionGuideList(r);
+}
+
 export function buildSubBodegaRows(
   allReceptions: SubBodegaRow['reception'][],
   activeTab: BackofficeTab,
   dateFilterFrom: string,
   dateFilterTo: string
 ): SubBodegaRow[] {
-  const targetTab = activeTab === 'sub_accesorios' ? 'accesorio' : 'telefono';
-
   return allReceptions.flatMap((r) => {
     if (r.status === 'ARCHIVADO') return [];
     if (!matchesDateRange(r.created_at, dateFilterFrom, dateFilterTo)) return [];
 
-    const guides = r.processed_guides?.length ? r.processed_guides : [r.guide_number];
+    const guides = guidesForReception(r);
     const rows: SubBodegaRow[] = [];
 
     for (const g of guides) {

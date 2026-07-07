@@ -40,9 +40,22 @@ const STRICT_PREFIXES = [
 const CORRELATION_HEADER = 'x-correlation-id';
 const REQUEST_ID_HEADER = 'x-request-id';
 
-/** Rutas /api que NO requieren auth de usuario (dispositivos / health). */
+/** Rutas /api que NO requieren auth de usuario (dispositivos / health / cron interno). */
 function isPublicApiPath(pathname: string): boolean {
   return pathname === '/api/health' || pathname.startsWith('/api/iclock');
+}
+
+function isCronInternalPath(pathname: string): boolean {
+  return pathname.startsWith('/api/internal/');
+}
+
+function isValidCronSecret(req: NextRequest): boolean {
+  const expected = process.env.CRON_SECRET?.trim();
+  if (!expected) return false;
+  const secret =
+    req.headers.get('x-cron-secret')?.trim() ??
+    req.headers.get('authorization')?.replace(/^Bearer\s+/i, '').trim();
+  return Boolean(secret && secret === expected);
 }
 
 /**
@@ -223,8 +236,11 @@ export async function middleware(req: NextRequest) {
     }
     rateLimit = rl;
 
-    // SEC-01: exige sesión (cookies) o, como compatibilidad, Bearer válido.
-    const authed = Boolean(sessionUser) || (await hasValidBearer(req));
+    // SEC-01: sesión (cookies), Bearer válido, o cron interno con CRON_SECRET.
+    const authed =
+      Boolean(sessionUser) ||
+      (await hasValidBearer(req)) ||
+      (isCronInternalPath(pathname) && isValidCronSecret(req));
     if (!authed) {
       const denied = NextResponse.json({ error: 'No autenticado' }, { status: 401 });
       return applyCorrelationHeaders(

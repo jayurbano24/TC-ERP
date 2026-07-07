@@ -65,7 +65,12 @@ export function SubBodegaTransferStep({ ctx }: Props) {
                 <select 
                   className="w-full p-6 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-[#181c3a] outline-none focus:ring-2 focus:ring-[#2ec4f1] appearance-none transition-all"
                   value={agencia}
-                  onChange={(e) => setAgencia(e.target.value)}
+                  onChange={(e) => {
+                    const name = e.target.value;
+                    setAgencia(name);
+                    const agency = CAC_AGENCIES.find((a) => a.name === name);
+                    setSelectedAgencyId(agency?.id || '');
+                  }}
                 >
                   <option value="">-- Seleccionar Agencia --</option>
                   {CAC_AGENCIES.map((a: any) => (

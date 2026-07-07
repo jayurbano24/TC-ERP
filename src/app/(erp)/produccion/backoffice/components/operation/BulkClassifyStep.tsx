@@ -39,6 +39,7 @@ export function BulkClassifyStep({ ctx }: Props) {
   const cat = category as OperationCategory;
   const meta = cat !== 'Equipo' ? CATEGORY_META[cat] : null;
   const isDevolucion = cat === 'Devolución';
+  const isSubBodega = cat === 'Accesorio' || cat === 'Teléfono';
   const count = scannedGuides.length;
 
   const handleConfirm = () => {
@@ -51,7 +52,9 @@ export function BulkClassifyStep({ ctx }: Props) {
 
   const canConfirm = isDevolucion
     ? Boolean(selectedAgencyId && returnReason.trim())
-    : true;
+    : isSubBodega
+      ? Boolean(selectedAgencyId)
+      : true;
 
   return (
     <div className="space-y-4 animate-rise-in max-w-3xl mx-auto">
@@ -135,6 +138,24 @@ export function BulkClassifyStep({ ctx }: Props) {
                   onChange={(e) => setReturnCourier(e.target.value)}
                 />
               </div>
+            </div>
+          </div>
+        )}
+
+        {isSubBodega && (
+          <div className="mb-5">
+            <div
+              onClick={() => setShowAgencyModal(true)}
+              className="cursor-pointer hover:bg-slate-50 p-3 rounded-xl border border-slate-200 transition-all"
+            >
+              <p className="text-[9px] font-black text-slate-400 uppercase mb-1">
+                Agencia de origen (CAC) <span className={meta?.color === 'emerald' ? 'text-emerald-500' : 'text-amber-500'}>*</span>
+              </p>
+              <p className="text-sm font-black text-[#181c3a] uppercase">
+                {agencyDetails
+                  ? `${agencyDetails.name} — ${agencyDetails.manager || 'SIN ENCARGADO'}`
+                  : 'Seleccionar agencia...'}
+              </p>
             </div>
           </div>
         )}

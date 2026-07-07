@@ -43,7 +43,9 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
 
       if (hasItems || !isEquipment) {
         const firstItem = hasItems ? ctx.guideItems[0] : null;
-        const agencyObj = ctx.CAC_AGENCIES.find((a) => a.id === ctx.selectedAgencyId);
+        const agencyObj = ctx.CAC_AGENCIES.find(
+          (a) => a.id === ctx.selectedAgencyId || a.name === ctx.agencia
+        );
         const techNameVal = firstItem
           ? ctx.MASTER_TECNOLOGIAS.find((t) => t.id === firstItem.tipo)?.nombre || ''
           : '';
@@ -83,13 +85,20 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
               .normalize('NFD')
               .replace(/[\u0300-\u036f]/g, '');
 
+        const isSubBodega =
+          finalCategory === 'Accesorio' ||
+          finalCategory === 'Teléfono' ||
+          (ctx.receptionStep as string) === 'sub_bodega_transfer';
+
         const agencyLabel = sanitizeCacAgencyRaw(
-          agencyObj?.name || ctx.selectedAgencyId,
+          agencyObj?.name || ctx.agencia || ctx.selectedAgencyId,
           ctx.activeReception?.carrier,
           ctx.CAC_AGENCIES
         );
-        if (!agencyLabel && (isEquipment || isDevolucion)) {
-          notify.warning('Falta la Agencia CAC', { description: 'Debe seleccionar la Agencia CAC de ingreso (no es el mismo dato que el Courier).' });
+        if (!agencyLabel && (isEquipment || isDevolucion || isSubBodega)) {
+          notify.warning('Falta la Agencia CAC', {
+            description: 'Debe seleccionar la Agencia CAC de ingreso (no es el mismo dato que el Courier).',
+          });
           ctx.setIsSubmitting(false);
           ctx.isSubmittingRef.current = false;
           return;
@@ -343,7 +352,13 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
     await ctx.fetchHistory({ page: 1, silent: true });
     const step = ctx.receptionStep as string;
     const isBulkStep = step === 'bulk_classify_confirm';
-    if (step === 'return_confirmation' || (isBulkStep && ctx.category === 'Devolución')) {
+    const isSubBodegaCategory = ctx.category === 'Accesorio' || ctx.category === 'Teléfono';
+    if (
+      step === 'return_confirmation' ||
+      (isBulkStep && ctx.category === 'Devolución') ||
+      isSubBodegaCategory ||
+      step === 'sub_bodega_transfer'
+    ) {
       await ctx.fetchPending?.({ silent: true });
     }
 
@@ -365,6 +380,16 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
       const allDone = receptionGuias.every((g) => normalizedProcessed.includes(g));
       if (ctx.category === 'Devolución') {
         notify.success('Caja(s) enviada(s) a Bodega Devolución', { description: 'Disponibles en Logística → Devoluciones.' });
+      } else if (ctx.category === 'Accesorio') {
+        const n = ctx.scannedGuides.length;
+        notify.success('Caja(s) enviada(s) a Bodega Accesorios', {
+          description: `${n} caja${n !== 1 ? 's' : ''} disponible${n !== 1 ? 's' : ''} en la pestaña BODEGA ACCESORIOS.`,
+        });
+      } else if (ctx.category === 'Teléfono') {
+        const n = ctx.scannedGuides.length;
+        notify.success('Caja(s) enviada(s) a Bodega Teléfonos', {
+          description: `${n} caja${n !== 1 ? 's' : ''} disponible${n !== 1 ? 's' : ''} en la pestaña BODEGA TELÉFONOS.`,
+        });
       }
       ctx.setReceptionStep(allDone ? 'completed' : 'classification');
       if (!allDone) {
@@ -385,6 +410,10 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
         ctx.setActiveTab('sub_telefonos');
       } else if (step === 'return_confirmation' || (isBulkStep && ctx.category === 'Devolución')) {
         notify.success('Caja enviada a Bodega Devolución', { description: 'Disponible en Logística → Devoluciones.' });
+      } else if (ctx.category === 'Accesorio') {
+        notify.success('Caja enviada a Bodega Accesorios', { description: 'Disponible en la pestaña BODEGA ACCESORIOS.' });
+      } else if (ctx.category === 'Teléfono') {
+        notify.success('Caja enviada a Bodega Teléfonos', { description: 'Disponible en la pestaña BODEGA TELÉFONOS.' });
       } else if (ctx.category === 'Equipo') {
         ctx.setActiveTab('history');
         ctx.setHistoryPage(1);

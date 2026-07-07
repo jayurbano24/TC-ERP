@@ -1,6 +1,14 @@
 {
   "crons": [
     {
+      "path": "/api/internal/kpi-sync?tier=critical",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/internal/kpi-sync?tier=standard",
+      "schedule": "*/7 * * * *"
+    },
+    {
       "path": "/api/internal/refresh-summary-views",
       "schedule": "*/10 * * * *"
     }

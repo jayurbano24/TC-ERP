@@ -56,7 +56,16 @@ export async function GET(req: Request) {
         status,
         processed_guides,
         created_at,
-        received_by_profile:received_by (id, full_name)
+        received_by_profile:received_by (id, full_name),
+        reception_guides (
+          id,
+          guide_number,
+          category,
+          agency,
+          classified_at,
+          classified_by,
+          status
+        )
       `)
       .order('created_at', { ascending: false })
       .limit(RECEPTIONS_SAFETY_LIMIT);

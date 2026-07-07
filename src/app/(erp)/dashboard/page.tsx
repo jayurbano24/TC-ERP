@@ -13,6 +13,7 @@ import {
   getStorageData
 } from '@/modules/kpi-analytics/client/kpi';
 import { getEngineKPIs } from '@/modules/kpi-analytics/client/kpiEngine';
+import { fetchDashboardMetricsFromApi, fetchPipelineFromApi, fetchWorkshopOsCountsFromApi, type WorkshopOsByStage } from '@/lib/api/kpiProjections';
 import { RecepcionKpiView } from '@/components/dashboard/kpi/recepcion-kpi-view';
 import { BackofficeKpiView } from '@/components/dashboard/kpi/backoffice-kpi-view';
 import { BodegaKpiView } from '@/components/dashboard/kpi/bodega-kpi-view';
@@ -58,7 +59,30 @@ export default function GeneralDashboardPage() {
   const [sortConfig, setSortConfig] = useState<{key: string, direction: 'asc'|'desc'} | null>(null);
 
   const kpisQuery = useQuery({ queryKey: ['dashboard-kpis', timeRange], queryFn: () => getDailyKPIs(timeRange) });
-  const metricsQuery = useQuery({ queryKey: ['dashboard-metrics', timeRange], queryFn: () => getDashboardMetrics(timeRange) });
+  const metricsQuery = useQuery({
+    queryKey: ['dashboard-metrics', timeRange],
+    queryFn: async () => {
+      try {
+        const { metrics } = await fetchDashboardMetricsFromApi(timeRange);
+        if (metrics.productionByBrand.length > 0 || metrics.totalProduction > 0) {
+          return metrics;
+        }
+      } catch {
+        // fallback legacy
+      }
+      return getDashboardMetrics(timeRange);
+    },
+  });
+  const pipelineQuery = useQuery({
+    queryKey: ['dashboard-pipeline'],
+    queryFn: () => fetchPipelineFromApi(),
+    staleTime: 60_000,
+  });
+  const workshopOsQuery = useQuery({
+    queryKey: ['dashboard-workshop-os'],
+    queryFn: () => fetchWorkshopOsCountsFromApi(),
+    staleTime: 60_000,
+  });
   const engineQuery = useQuery({ queryKey: ['dashboard-engine', timeRange], queryFn: () => getEngineKPIs(timeRange) });
   const biQuery = useQuery({ queryKey: ['dashboard-bi'], queryFn: () => getBIData() });
   const storageQuery = useQuery({ queryKey: ['dashboard-storage'], queryFn: () => getStorageData() });
@@ -66,6 +90,14 @@ export default function GeneralDashboardPage() {
   const kpis = kpisQuery.data ?? EMPTY_KPIS;
   const metrics = metricsQuery.data ?? DEFAULT_METRICS;
   const bespokeData = engineQuery.data ?? null;
+  const pipelineProjection = pipelineQuery.data?.pipeline ?? null;
+  const workshopOs: WorkshopOsByStage | null = React.useMemo(() => {
+    const msi = pipelineProjection?.workshopOs;
+    const live = workshopOsQuery.data;
+    const msiTotal = msi ? Object.values(msi).reduce((a, b) => a + b, 0) : 0;
+    if (msiTotal > 0 && msi) return msi;
+    return live ?? msi ?? null;
+  }, [pipelineProjection, workshopOsQuery.data]);
   const biData = biQuery.data ?? EMPTY_BI;
   const storageData = storageQuery.data ?? DEFAULT_STORAGE;
 
@@ -267,6 +299,41 @@ export default function GeneralDashboardPage() {
           ))}
         </div>
 
+        {workshopOs && (
+          <Card className="p-6 border-2 border-slate-100 shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-6">
+              <div>
+                <h3 className="text-lg font-black text-[#181c3a]">OS en Taller por Etapa</h3>
+                <p className="text-xs text-slate-400 font-medium">
+                  Equipos trasladados desde Bodega Central — conteo por orden de servicio (OS)
+                </p>
+              </div>
+              {pipelineProjection?.workshopOs && (
+                <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded w-fit">MSI</span>
+              )}
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              {[
+                { key: 'diagnostico' as const, label: 'Diagnóstico', color: 'text-amber-600', bg: 'bg-amber-50' },
+                { key: 'reparacion' as const, label: 'Reparación', color: 'text-blue-600', bg: 'bg-blue-50' },
+                { key: 'reacondicionado' as const, label: 'Reacondicionado', color: 'text-emerald-600', bg: 'bg-emerald-50' },
+                { key: 'qc' as const, label: 'Ctrl. Calidad', color: 'text-purple-600', bg: 'bg-purple-50' },
+                { key: 'l3' as const, label: 'L3', color: 'text-orange-600', bg: 'bg-orange-50' },
+                { key: 'scraps' as const, label: 'Scrap', color: 'text-rose-600', bg: 'bg-rose-50' },
+              ].map((stage) => (
+                <div
+                  key={stage.key}
+                  className={`rounded-xl border border-slate-100 p-4 text-center ${stage.bg}`}
+                >
+                  <p className="text-[9px] font-black uppercase tracking-wide text-slate-500 mb-1">{stage.label}</p>
+                  <p className={`text-2xl font-black ${stage.color}`}>{workshopOs[stage.key].toLocaleString()}</p>
+                  <p className="text-[8px] font-bold text-slate-400 mt-1">OS</p>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
         <div className="grid lg:grid-cols-12 gap-8">
           
           {/* Left Column Container */}
@@ -277,7 +344,7 @@ export default function GeneralDashboardPage() {
               <div className="flex items-center justify-between mb-8">
                 <div>
                   <h3 className="text-xl font-black text-[#181c3a]">Producción por Tecnología</h3>
-                  <p className="text-xs text-slate-400 font-medium">Distribución de equipos procesados por marca</p>
+                  <p className="text-xs text-slate-400 font-medium">Distribución de equipos procesados por tecnología</p>
                 </div>
                 <BarChart3 className="w-5 h-5 text-slate-300" />
               </div>
@@ -363,8 +430,8 @@ export default function GeneralDashboardPage() {
           </div>
 
 
-        <Card className="lg:col-span-4 p-8 border-2 border-slate-100 flex flex-col h-full">
-          <div className="bg-[#181c3a] -mx-8 -mt-8 p-6 rounded-t-xl mb-6">
+        <Card className="lg:col-span-4 border-2 border-slate-100 flex flex-col overflow-hidden min-h-0 max-h-[min(720px,calc(100vh-10rem))]">
+          <div className="bg-[#181c3a] p-6 rounded-t-xl shrink-0">
             <h3 className="text-xl font-bold text-white flex items-center gap-2">
               <TrendingUp className="text-[#2ec4f1] w-6 h-6" />
               Rendimiento
@@ -372,7 +439,8 @@ export default function GeneralDashboardPage() {
             <p className="text-white/60 text-xs mt-1">Productividad individual por rol (Meta Diaria)</p>
           </div>
 
-          <div className="space-y-6">
+          <div className="flex-1 overflow-y-auto custom-scrollbar px-6 py-4 min-h-0">
+            <div className="space-y-6">
             {kpis.map((kpi) => {
               const statusLabel = kpi.percentage >= 90 ? 'TOP' : kpi.percentage >= 50 ? 'AVG' : 'LOW';
               const statusColor = kpi.percentage >= 90 ? 'text-emerald-500 bg-emerald-50 border-emerald-200' 
@@ -441,8 +509,11 @@ export default function GeneralDashboardPage() {
             {kpis.length === 0 && (
               <p className="text-sm text-center text-slate-400 py-4">No hay datos de rendimiento registrados hoy.</p>
             )}
+            </div>
+          </div>
 
-            <Button variant="outline" className="w-full mt-4 border-none bg-slate-50 hover:bg-slate-100 text-[10px] font-black uppercase tracking-widest py-6">
+          <div className="px-6 pb-6 pt-2 shrink-0 border-t border-slate-100">
+            <Button variant="outline" className="w-full border-none bg-slate-50 hover:bg-slate-100 text-[10px] font-black uppercase tracking-widest py-6">
               Ver Reporte Completo
             </Button>
           </div>
@@ -454,21 +525,24 @@ export default function GeneralDashboardPage() {
         {activeTab === 'kpi' && bespokeData && (
           <div className="flex flex-col gap-8 animate-rise-in max-w-7xl mx-auto">
             {/* Estado Operativo Banner */}
-            {bespokeData?.estadoOperativo && (
+            {(pipelineProjection || bespokeData?.estadoOperativo) && (
               <div className="mx-4 mb-4 mt-2 px-4 py-3 bg-white border border-slate-200 shadow-sm rounded-xl flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-slate-500 uppercase">Estado Operativo</span>
+                  {pipelineProjection && (
+                    <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">MSI</span>
+                  )}
                 </div>
                 <div className="flex items-center gap-4 text-sm font-bold text-[#181c3a]">
-                  <div className="flex flex-col items-center"><span className="text-xl text-blue-600">{bespokeData.estadoOperativo.recepcion}</span><span className="text-[10px] text-slate-400">Recepción</span></div>
+                  <div className="flex flex-col items-center"><span className="text-xl text-blue-600">{(pipelineProjection ?? bespokeData.estadoOperativo).recepcion}</span><span className="text-[10px] text-slate-400">Recepción</span></div>
                   <span className="text-slate-300">→</span>
-                  <div className="flex flex-col items-center"><span className="text-xl text-indigo-600">{bespokeData.estadoOperativo.backoffice}</span><span className="text-[10px] text-slate-400">Backoffice</span></div>
+                  <div className="flex flex-col items-center"><span className="text-xl text-indigo-600">{(pipelineProjection ?? bespokeData.estadoOperativo).backoffice}</span><span className="text-[10px] text-slate-400">Backoffice</span></div>
                   <span className="text-slate-300">→</span>
-                  <div className="flex flex-col items-center"><span className="text-xl text-purple-600">{bespokeData.estadoOperativo.taller}</span><span className="text-[10px] text-slate-400">Taller</span></div>
+                  <div className="flex flex-col items-center"><span className="text-xl text-purple-600">{(pipelineProjection ?? bespokeData.estadoOperativo).taller}</span><span className="text-[10px] text-slate-400">Taller</span></div>
                   <span className="text-slate-300">→</span>
-                  <div className="flex flex-col items-center"><span className="text-xl text-emerald-600">{bespokeData.estadoOperativo.bodega}</span><span className="text-[10px] text-slate-400">Bodega</span></div>
+                  <div className="flex flex-col items-center"><span className="text-xl text-emerald-600">{(pipelineProjection ?? bespokeData.estadoOperativo).bodega}</span><span className="text-[10px] text-slate-400">Bodega</span></div>
                   <span className="text-slate-300">→</span>
-                  <div className="flex flex-col items-center"><span className="text-xl text-orange-600">{bespokeData.estadoOperativo.despacho}</span><span className="text-[10px] text-slate-400">Despacho</span></div>
+                  <div className="flex flex-col items-center"><span className="text-xl text-orange-600">{(pipelineProjection ?? bespokeData.estadoOperativo).despacho}</span><span className="text-[10px] text-slate-400">Despacho</span></div>
                 </div>
               </div>
             )}

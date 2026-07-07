@@ -78,14 +78,17 @@ export const ItemDetailModal = memo(function ItemDetailModal({ item, activeTab, 
             </div>
           </div>
 
-          {item.all_sns && item.all_sns.length > 1 && (
+          {item.all_sns && item.all_sns.length > 0 && (
             <div>
-              <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Todas las Series Registradas</h4>
-              <div className="flex flex-wrap gap-2">
+              <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Series del equipo (S1, S2…)</h4>
+              <div className="flex flex-col gap-2">
                 {item.all_sns.map((s: string, i: number) => (
-                  <span key={i} className="px-3 py-1.5 bg-blue-50 text-blue-600 border border-blue-100 rounded-lg text-xs font-mono font-bold">
-                    {s}
-                  </span>
+                  <div key={i} className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-100 rounded-lg">
+                    <span className="text-[10px] font-black text-blue-800 bg-white px-2 py-0.5 rounded border border-blue-200 shrink-0">
+                      S{i + 1}
+                    </span>
+                    <span className="text-xs font-mono font-bold text-[#181c3a] truncate">{s}</span>
+                  </div>
                 ))}
               </div>
             </div>

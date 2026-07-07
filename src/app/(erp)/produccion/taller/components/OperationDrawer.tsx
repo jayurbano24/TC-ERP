@@ -103,9 +103,9 @@ export const OperationDrawer = memo(function OperationDrawer({
   handleCompleteOperation,
 }: Props) {
   return (
-        <div className="fixed inset-0 z-50 flex items-start justify-center bg-[#181c3a]/40 backdrop-blur-sm p-6 overflow-y-auto">
-          <Card className="max-w-4xl w-full my-auto shadow-2xl animate-rise-in p-0 flex flex-col">
-            <div className={`p-8 text-white flex justify-between items-center shrink-0 ${
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-[#181c3a]/40 backdrop-blur-sm p-2 sm:p-4 overflow-y-auto">
+          <Card className="max-w-2xl w-full max-h-[92vh] my-2 sm:my-4 shadow-xl animate-rise-in p-0 flex flex-col overflow-hidden">
+            <div className={`px-3 py-2.5 text-white flex items-start justify-between gap-2 shrink-0 ${
               activeTab === 'diagnostico' ? 'bg-amber-500' :
               activeTab === 'reparacion' ? 'bg-blue-500' :
               activeTab === 'reacondicionado' ? 'bg-emerald-500' :
@@ -115,36 +115,36 @@ export const OperationDrawer = memo(function OperationDrawer({
               activeTab === 'listo' ? 'bg-teal-500' :
               'bg-[#181c3a]'
             }`}>
-              <div className="flex items-center gap-4">
-                <div className="bg-white/20 p-3 rounded-2xl backdrop-blur-sm">
-                  <Stethoscope className="w-6 h-6 text-white" />
+              <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                <div className="bg-white/20 p-1.5 rounded-lg backdrop-blur-sm shrink-0">
+                  <Stethoscope className="w-4 h-4 text-white" />
                 </div>
-                <div>
-                  <div className="flex flex-wrap items-center gap-2 mb-2">
-                    <Badge variant="blue" className="bg-white/20 text-white font-black text-[9px] uppercase border-none backdrop-blur-sm">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                    <Badge variant="blue" className="bg-white/20 text-white font-black text-[8px] uppercase border-none backdrop-blur-sm px-1.5 py-0">
                       {Array.isArray(selectedForOperation)
-                        ? `MASIVO · ${selectedForOperation.length} eq. / ${selectedForOperation.reduce((n, it) => n + (it.all_dbIds?.length || it.total_series || 1), 0)} ser.`
+                        ? `MASIVO · ${selectedForOperation.length} eq.`
                         : selectedForOperation.id}
                     </Badge>
-                    <span className="text-[10px] font-bold text-white/90 uppercase tracking-[0.2em]">
-                      Ejecución de {activeTab === 'diagnostico' ? 'Diagnóstico' : activeTab === 'reparacion' ? 'Reparación' : activeTab === 'qc' ? 'Control de Calidad' : activeTab === 'reacondicionado' ? 'Reacondicionado' : 'Operación'}
+                    <span className="text-[8px] font-bold text-white/90 uppercase tracking-wider">
+                      {activeTab === 'diagnostico' ? 'Diagnóstico' : activeTab === 'reparacion' ? 'Reparación' : activeTab === 'qc' ? 'QC' : activeTab === 'reacondicionado' ? 'Reacond.' : 'Operación'}
                     </span>
                     
                     {!Array.isArray(selectedForOperation) && (
-                      <div className="flex gap-2 ml-auto md:ml-4">
-                        <Badge variant="slate" className={`border-none font-black text-[9px] uppercase ${selectedForOperation.ingress_count > 1 ? 'bg-amber-500 text-white shadow-lg shadow-black/10' : 'bg-black/40 text-white backdrop-blur-md shadow-lg shadow-black/10'}`}>
-                          {selectedForOperation.ingress_count === 1 ? '1er Ingreso' : selectedForOperation.ingress_count === 2 ? '2do Ingreso' : `${selectedForOperation.ingress_count}° Ingreso`}
+                      <div className="flex gap-1 flex-wrap">
+                        <Badge variant="slate" className={`border-none font-black text-[7px] uppercase px-1.5 py-0 ${selectedForOperation.ingress_count > 1 ? 'bg-amber-500 text-white' : 'bg-black/40 text-white'}`}>
+                          {selectedForOperation.ingress_count === 1 ? '1° ing.' : `${selectedForOperation.ingress_count}° ing.`}
                         </Badge>
-                        <Badge variant="slate" className="bg-black/40 text-white backdrop-blur-md shadow-lg shadow-black/10 border-none font-black text-[9px] uppercase tracking-widest">
+                        <Badge variant="slate" className="bg-black/40 text-white border-none font-black text-[7px] uppercase px-1.5 py-0">
                           {selectedForOperation.etapa}
                         </Badge>
                       </div>
                     )}
                   </div>
-                  <h3 className="text-2xl font-black mt-1">
-                    {Array.isArray(selectedForOperation) ? 'Múltiples Equipos Seleccionados' : selectedForOperation.modelo} 
-                    <span className="text-white/90 font-mono text-sm ml-2">
-                      {Array.isArray(selectedForOperation) ? 'Varios S/N' : selectedForOperation.sn}
+                  <h3 className="text-sm font-black leading-tight truncate">
+                    {Array.isArray(selectedForOperation) ? 'Varios equipos' : selectedForOperation.modelo}
+                    <span className="text-white/90 font-mono text-[10px] font-bold block sm:inline sm:ml-2 truncate">
+                      {Array.isArray(selectedForOperation) ? '' : selectedForOperation.sn}
                     </span>
                   </h3>
                 </div>
@@ -163,21 +163,21 @@ export const OperationDrawer = memo(function OperationDrawer({
                   setQcLegible(null);
                   setReacondTests([]);
                 }}  
-                className="text-white/80 hover:text-white p-2 hover:bg-white/20 rounded-xl transition-all"
+                className="text-white/80 hover:text-white p-1 hover:bg-white/20 rounded-lg transition-all shrink-0 text-lg leading-none"
               >✕</button>
             </div>
 
-            <div className="p-10 bg-slate-50/50 space-y-8">
+            <div className="p-3 bg-slate-50/50 space-y-3 overflow-y-auto flex-1 min-h-0">
 
 
               {/* 2. CLASIFICACIÓN COSMÉTICA */}
               {activeTab === 'diagnostico' ? (
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 transition-all">
+                <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 transition-all">
                   <button 
                     onClick={() => setIsCosmeticOpen(!isCosmeticOpen)}
                     className="w-full flex items-center justify-between group outline-none"
                   >
-                    <h4 className="text-[11px] font-black uppercase tracking-[0.2em] text-amber-500 flex items-center gap-2">
+                    <h4 className="text-[9px] font-black uppercase tracking-wider text-amber-500 flex items-center gap-2">
                       <Box className="w-4 h-4 group-hover:scale-110 transition-transform" />
                       2. Clasificación Cosmética
                     </h4>
@@ -185,7 +185,7 @@ export const OperationDrawer = memo(function OperationDrawer({
                   </button>
 
                   {isCosmeticOpen && (
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 border-t border-slate-100 pt-6 mt-6 animate-in slide-in-from-top-2 fade-in duration-200">
+                    <div className="grid grid-cols-4 gap-2 border-t border-slate-100 pt-3 mt-3 animate-in slide-in-from-top-2 fade-in duration-200">
                     {[
                       { val: 'A', label: 'Excelente' },
                       { val: 'B', label: 'Bueno' },
@@ -195,18 +195,18 @@ export const OperationDrawer = memo(function OperationDrawer({
                       <button 
                         key={item.val}
                         onClick={() => setCosmeticClass(item.val)}
-                        className={`p-4 rounded-xl border-2 text-center transition-all flex flex-col items-center justify-center gap-1 ${cosmeticClass === item.val ? 'border-amber-500 bg-amber-50 shadow-md scale-[1.02]' : 'border-slate-200 bg-transparent hover:border-amber-400'}`}
+                        className={`p-2 rounded-lg border text-center transition-all flex flex-col items-center justify-center gap-0.5 ${cosmeticClass === item.val ? 'border-amber-500 bg-amber-50 shadow-sm' : 'border-slate-200 bg-transparent hover:border-amber-400'}`}
                       >
-                        <span className={`text-xl font-black ${cosmeticClass === item.val ? 'text-amber-500' : 'text-slate-600'}`}>{item.val}</span>
-                        <span className={`text-[10px] font-bold ${cosmeticClass === item.val ? 'text-amber-500' : 'text-slate-400'}`}>{item.label}</span>
+                        <span className={`text-base font-black ${cosmeticClass === item.val ? 'text-amber-500' : 'text-slate-600'}`}>{item.val}</span>
+                        <span className={`text-[8px] font-bold ${cosmeticClass === item.val ? 'text-amber-500' : 'text-slate-400'}`}>{item.label}</span>
                       </button>
                     ))}
                     </div>
                   )}
                 </div>
               ) : (
-                <div className="bg-slate-50 p-6 rounded-2xl shadow-sm border border-slate-200">
-                  <h4 className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 flex items-center gap-2 mb-4">
+                <div className="bg-slate-50 p-3 rounded-xl shadow-sm border border-slate-200">
+                  <h4 className="text-[9px] font-black uppercase tracking-wider text-slate-500 flex items-center gap-2 mb-4">
                     <Box className="w-4 h-4" />
                     Clasificación Cosmética Inicial (Bloqueada)
                   </h4>
@@ -229,12 +229,12 @@ export const OperationDrawer = memo(function OperationDrawer({
 
               {/* 3. ESTADO DE LA ETIQUETA DE DATOS */}
               {activeTab === 'diagnostico' && (
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 transition-all">
+              <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 transition-all">
                 <button 
                   onClick={() => setIsLabelOpen(!isLabelOpen)}
                   className="w-full flex items-center justify-between group outline-none"
                 >
-                  <h4 className="text-[11px] font-black uppercase tracking-[0.2em] text-amber-500 flex items-center gap-2">
+                  <h4 className="text-[9px] font-black uppercase tracking-wider text-amber-500 flex items-center gap-2">
                     <Badge className="w-4 h-4 group-hover:scale-110 transition-transform" />
                     3. Estado de la Etiqueta de Datos
                   </h4>
@@ -242,18 +242,18 @@ export const OperationDrawer = memo(function OperationDrawer({
                 </button>
 
                 {isLabelOpen && (
-                  <div className="grid grid-cols-2 gap-4 border-t border-slate-100 pt-6 mt-6 animate-in slide-in-from-top-2 fade-in duration-200">
+                  <div className="grid grid-cols-2 gap-2 border-t border-slate-100 pt-3 mt-3 animate-in slide-in-from-top-2 fade-in duration-200">
                   <button 
                     onClick={() => setLabelStatus('OK')}
-                    className={`p-4 rounded-xl border-2 text-center transition-all flex items-center justify-center ${labelStatus === 'OK' ? 'border-emerald-500 bg-emerald-50 shadow-sm scale-[1.02]' : 'border-slate-200 bg-transparent hover:border-amber-400'}`}
+                    className={`p-2 rounded-lg border text-center transition-all flex items-center justify-center ${labelStatus === 'OK' ? 'border-emerald-500 bg-emerald-50 shadow-sm' : 'border-slate-200 bg-transparent hover:border-amber-400'}`}
                   >
-                    <span className={`text-xs font-black uppercase ${labelStatus === 'OK' ? 'text-emerald-600' : 'text-slate-500'}`}>ETIQUETA OK (BIEN)</span>
+                    <span className={`text-[9px] font-black uppercase ${labelStatus === 'OK' ? 'text-emerald-600' : 'text-slate-500'}`}>Etiqueta OK</span>
                   </button>
                   <button 
                     onClick={() => setLabelStatus('MAL')}
-                    className={`p-4 rounded-xl border-2 text-center transition-all flex items-center justify-center ${labelStatus === 'MAL' ? 'border-rose-400 bg-rose-50 shadow-sm scale-[1.02]' : 'border-slate-200 bg-transparent hover:border-amber-400'}`}
+                    className={`p-2 rounded-lg border text-center transition-all flex items-center justify-center ${labelStatus === 'MAL' ? 'border-rose-400 bg-rose-50 shadow-sm' : 'border-slate-200 bg-transparent hover:border-amber-400'}`}
                   >
-                    <span className={`text-xs font-black uppercase ${labelStatus === 'MAL' ? 'text-rose-600' : 'text-slate-500'}`}>ETIQUETA MAL (CON FALLA)</span>
+                    <span className={`text-[9px] font-black uppercase ${labelStatus === 'MAL' ? 'text-rose-600' : 'text-slate-500'}`}>Etiqueta mal</span>
                   </button>
                   </div>
                 )}
@@ -262,8 +262,8 @@ export const OperationDrawer = memo(function OperationDrawer({
 
               {/* DIAGNÓSTICO PREVIO (SOLO EN REPARACIÓN/OTROS) */}
               {activeTab !== 'diagnostico' && (
-                <div className="bg-slate-50 p-6 rounded-2xl shadow-sm border border-slate-200">
-                  <h4 className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 mb-4 flex flex-wrap items-center gap-2">
+                <div className="bg-slate-50 p-3 rounded-xl shadow-sm border border-slate-200">
+                  <h4 className="text-[9px] font-black uppercase tracking-wider text-slate-500 mb-4 flex flex-wrap items-center gap-2">
                     <AlertCircle className="w-4 h-4" />
                     Diagnóstico Inicial (Bloqueado)
                     {lockedDiagProfile && <span className="ml-auto text-[9px] font-black text-slate-100 bg-slate-800 px-3 py-1 rounded-full shadow-sm tracking-widest border border-slate-900">POR: {lockedDiagProfile.toUpperCase()}</span>}
@@ -288,8 +288,8 @@ export const OperationDrawer = memo(function OperationDrawer({
 
               {/* REPARACIONES PREVIAS (SOLO EN QC O POSTERIOR) */}
               {activeTab !== 'diagnostico' && activeTab !== 'reparacion' && (
-                <div className="bg-slate-50 p-6 rounded-2xl shadow-sm border border-slate-200 mt-4">
-                  <h4 className="text-[11px] font-black uppercase tracking-[0.2em] text-blue-500 mb-4 flex flex-wrap items-center gap-2">
+                <div className="bg-slate-50 p-3 rounded-xl shadow-sm border border-slate-200 mt-2">
+                  <h4 className="text-[9px] font-black uppercase tracking-wider text-blue-500 mb-4 flex flex-wrap items-center gap-2">
                     <Wrench className="w-4 h-4" />
                     Reparaciones Aplicadas (Bloqueado)
                     {lockedRepProfile && <span className="ml-auto text-[9px] font-black text-slate-100 bg-slate-800 px-3 py-1 rounded-full shadow-sm tracking-widest border border-slate-900">POR: {lockedRepProfile.toUpperCase()}</span>}
@@ -319,12 +319,12 @@ export const OperationDrawer = memo(function OperationDrawer({
 
               {/* 4. FALLAS O REPARACIONES */}
               {(activeTab === 'diagnostico' || activeTab === 'reparacion') && (
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 transition-all">
+              <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 transition-all">
                 <button 
                   onClick={() => setIsDiagnosticsOpen(!isDiagnosticsOpen)}
                   className="w-full flex items-center justify-between group outline-none"
                 >
-                  <h4 className={`text-[11px] font-black uppercase tracking-[0.2em] flex items-center gap-2 ${activeTab === 'diagnostico' ? 'text-amber-500' : 'text-blue-500'}`}>
+                  <h4 className={`text-[9px] font-black uppercase tracking-wider flex items-center gap-2 ${activeTab === 'diagnostico' ? 'text-amber-500' : 'text-blue-500'}`}>
                     {activeTab === 'diagnostico' ? <AlertCircle className="w-4 h-4 group-hover:scale-110 transition-transform" /> : <Wrench className="w-4 h-4 group-hover:scale-110 transition-transform" />}
                     {activeTab === 'diagnostico' ? '4. Fallas Encontradas (Catálogo)' : '4. Reparaciones Aplicadas (Catálogo)'}
                   </h4>
@@ -415,9 +415,9 @@ export const OperationDrawer = memo(function OperationDrawer({
 
               {/* FORMULARIO DE CONTROL DE CALIDAD */}
               {activeTab === 'qc' && (
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-6">
+                <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 space-y-3">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-                  <h4 className="text-[11px] font-black uppercase tracking-[0.2em] text-purple-600 flex items-center gap-2">
+                  <h4 className="text-[9px] font-black uppercase tracking-wider text-purple-600 flex items-center gap-2">
                     <Activity className="w-4 h-4" />
                     Detalle de Control de Calidad
                   </h4>
@@ -438,32 +438,32 @@ export const OperationDrawer = memo(function OperationDrawer({
                   
                   <div className="grid grid-cols-1 gap-4">
                     {/* Cambio de Etiqueta */}
-                    <div className="flex items-center justify-between p-4 bg-white rounded-2xl border border-slate-200 shadow-sm transition-colors hover:border-purple-200">
-                      <span className="text-sm font-bold text-slate-700">Cambio de Etiqueta</span>
+                    <div className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-200 transition-colors hover:border-purple-200">
+                      <span className="text-xs font-bold text-slate-700">Cambio de Etiqueta</span>
                       <div className="flex gap-2">
                         <button type="button" onClick={(e) => { e.preventDefault(); setQcEtiqueta('SI'); }} className={`w-16 py-2 rounded-xl text-xs font-black transition-all ${qcEtiqueta === 'SI' ? 'bg-purple-600 text-white shadow-md scale-105' : 'bg-slate-50 border border-slate-200 text-slate-400 hover:border-purple-300 hover:bg-white'}`}>SÍ</button>
                         <button type="button" onClick={(e) => { e.preventDefault(); setQcEtiqueta('NO'); }} className={`w-16 py-2 rounded-xl text-xs font-black transition-all ${qcEtiqueta === 'NO' ? 'bg-purple-600 text-white shadow-md scale-105' : 'bg-slate-50 border border-slate-200 text-slate-400 hover:border-purple-300 hover:bg-white'}`}>NO</button>
                       </div>
                     </div>
                     {/* Sello de Seguridad */}
-                    <div className="flex items-center justify-between p-4 bg-white rounded-2xl border border-slate-200 shadow-sm transition-colors hover:border-purple-200">
-                      <span className="text-sm font-bold text-slate-700">Sello de Seguridad</span>
+                    <div className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-200 transition-colors hover:border-purple-200">
+                      <span className="text-xs font-bold text-slate-700">Sello de Seguridad</span>
                       <div className="flex gap-2">
                         <button type="button" onClick={(e) => { e.preventDefault(); setQcSello('SI'); }} className={`w-16 py-2 rounded-xl text-xs font-black transition-all ${qcSello === 'SI' ? 'bg-purple-600 text-white shadow-md scale-105' : 'bg-slate-50 border border-slate-200 text-slate-400 hover:border-purple-300 hover:bg-white'}`}>SÍ</button>
                         <button type="button" onClick={(e) => { e.preventDefault(); setQcSello('NO'); }} className={`w-16 py-2 rounded-xl text-xs font-black transition-all ${qcSello === 'NO' ? 'bg-purple-600 text-white shadow-md scale-105' : 'bg-slate-50 border border-slate-200 text-slate-400 hover:border-purple-300 hover:bg-white'}`}>NO</button>
                       </div>
                     </div>
                     {/* Check List Funcional */}
-                    <div className="flex items-center justify-between p-4 bg-white rounded-2xl border border-slate-200 shadow-sm transition-colors hover:border-purple-200">
-                      <span className="text-sm font-bold text-slate-700">Check List</span>
+                    <div className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-200 transition-colors hover:border-purple-200">
+                      <span className="text-xs font-bold text-slate-700">Check List</span>
                       <div className="flex gap-2">
                         <button type="button" onClick={(e) => { e.preventDefault(); setQcChecklist('SI'); }} className={`w-16 py-2 rounded-xl text-xs font-black transition-all ${qcChecklist === 'SI' ? 'bg-purple-600 text-white shadow-md scale-105' : 'bg-slate-50 border border-slate-200 text-slate-400 hover:border-purple-300 hover:bg-white'}`}>SÍ</button>
                         <button type="button" onClick={(e) => { e.preventDefault(); setQcChecklist('NO'); }} className={`w-16 py-2 rounded-xl text-xs font-black transition-all ${qcChecklist === 'NO' ? 'bg-purple-600 text-white shadow-md scale-105' : 'bg-slate-50 border border-slate-200 text-slate-400 hover:border-purple-300 hover:bg-white'}`}>NO</button>
                       </div>
                     </div>
                     {/* Datos Legibles */}
-                    <div className="flex items-center justify-between p-4 bg-white rounded-2xl border border-slate-200 shadow-sm transition-colors hover:border-purple-200">
-                      <span className="text-sm font-bold text-slate-700">Datos Legibles</span>
+                    <div className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-200 transition-colors hover:border-purple-200">
+                      <span className="text-xs font-bold text-slate-700">Datos Legibles</span>
                       <div className="flex gap-2">
                         <button type="button" onClick={(e) => { e.preventDefault(); setQcLegible('SI'); }} className={`w-16 py-2 rounded-xl text-xs font-black transition-all ${qcLegible === 'SI' ? 'bg-purple-600 text-white shadow-md scale-105' : 'bg-slate-50 border border-slate-200 text-slate-400 hover:border-purple-300 hover:bg-white'}`}>SÍ</button>
                         <button type="button" onClick={(e) => { e.preventDefault(); setQcLegible('NO'); }} className={`w-16 py-2 rounded-xl text-xs font-black transition-all ${qcLegible === 'NO' ? 'bg-purple-600 text-white shadow-md scale-105' : 'bg-slate-50 border border-slate-200 text-slate-400 hover:border-purple-300 hover:bg-white'}`}>NO</button>
@@ -490,8 +490,8 @@ export const OperationDrawer = memo(function OperationDrawer({
                   .map(rt => rt.name);
 
                 return (
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-6">
-                  <h4 className="text-[11px] font-black uppercase tracking-[0.2em] text-emerald-600 flex items-center gap-2 mb-6">
+                <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 space-y-3">
+                  <h4 className="text-[9px] font-black uppercase tracking-wider text-emerald-600 flex items-center gap-2 mb-6">
                     <RefreshCw className="w-4 h-4" />
                     Pruebas de Reacondicionado
                   </h4>
@@ -545,60 +545,59 @@ export const OperationDrawer = memo(function OperationDrawer({
               )})()}
 
               {/* Observaciones Técnicas */}
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
-                <label className="text-[11px] font-black uppercase tracking-[0.2em] text-amber-500 flex items-center gap-2">Observaciones Técnicas</label>
+              <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 space-y-2">
+                <label className="text-[9px] font-black uppercase tracking-wider text-amber-500 flex items-center gap-1.5">Observaciones</label>
                 <textarea 
                   value={diagnosticNotes}
                   onChange={(e) => setDiagnosticNotes(e.target.value)}
-                  className="w-full h-32 bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs font-medium text-slate-700 outline-none focus:border-amber-400 shadow-sm resize-none"
+                  className="w-full h-20 bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs font-medium text-slate-700 outline-none focus:border-amber-400 resize-none"
                   placeholder="Detalle hallazgos, componentes a cambiar o anomalías detectadas..."
                 />
               </div>
             </div>
 
-            <div className="p-8 border-t border-slate-100 bg-white shrink-0 space-y-8">
-              {/* 1. RESULTADO DE EVALUACIÓN AL FINAL */}
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                <h4 className={`text-[11px] font-black uppercase tracking-[0.2em] mb-6 flex items-center gap-2 ${activeTab === 'qc' ? 'text-purple-600' : 'text-amber-500'}`}>
-                  <Activity className="w-4 h-4" />
-                  1. Resultado de Evaluación
+            <div className="p-3 border-t border-slate-100 bg-white shrink-0 space-y-3">
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                <h4 className={`text-[9px] font-black uppercase tracking-wider mb-2 flex items-center gap-1.5 ${activeTab === 'qc' ? 'text-purple-600' : 'text-amber-500'}`}>
+                  <Activity className="w-3.5 h-3.5" />
+                  Resultado de evaluación
                 </h4>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 gap-2">
                   {(activeTab === 'qc' ? [
-                    { label: 'ACEPTADO (ENVIADO A EQUIPO LISTO)', value: 'listo', variant: 'text-emerald-600 border-emerald-500/30 hover:border-emerald-500 hover:bg-emerald-50 col-span-2' },
-                    { label: 'EQUIPO RECHAZADO (DEVOLVER AL TÉCNICO)', value: 'rechazado_qc', variant: 'text-rose-600 border-rose-500/30 hover:border-rose-500 hover:bg-rose-50 col-span-2' },
+                    { label: 'Aceptado → Listo', value: 'listo', variant: 'text-emerald-600 border-emerald-500/30 hover:border-emerald-500 hover:bg-emerald-50' },
+                    { label: 'Rechazado → Técnico', value: 'rechazado_qc', variant: 'text-rose-600 border-rose-500/30 hover:border-rose-500 hover:bg-rose-50' },
                   ] : activeTab === 'reparacion' ? [
-                    { label: 'Control de Calidad', value: 'control_calidad', variant: 'text-purple-600 border-purple-500/30 hover:border-purple-500 hover:bg-purple-50' },
+                    { label: 'Control Calidad', value: 'control_calidad', variant: 'text-purple-600 border-purple-500/30 hover:border-purple-500 hover:bg-purple-50' },
                     { label: 'Reacondicionado', value: 'reacondicionado', variant: 'text-emerald-600 border-emerald-500/30 hover:border-emerald-500 hover:bg-emerald-50' },
                     { label: 'L3 Avanzado', value: 'l3', variant: 'text-orange-600 border-orange-500/30 hover:border-orange-500 hover:bg-orange-50' },
                     { label: 'Scraps', value: 'scraps', variant: 'text-rose-600 border-rose-500/30 hover:border-rose-500 hover:bg-rose-50' }
                   ] : activeTab === 'reacondicionado' ? [
                     { label: 'Equipo Listo', value: 'listo', variant: 'text-emerald-600 border-emerald-500/30 hover:border-emerald-500 hover:bg-emerald-50' },
-                    { label: 'Control de Calidad QC', value: 'control_calidad', variant: 'text-purple-600 border-purple-500/30 hover:border-purple-500 hover:bg-purple-50' },
-                    { label: 'Reparación (L1/L2)', value: 'reparacion', variant: 'text-blue-600 border-blue-500/30 hover:border-blue-500 hover:bg-blue-50' },
+                    { label: 'Control Calidad', value: 'control_calidad', variant: 'text-purple-600 border-purple-500/30 hover:border-purple-500 hover:bg-purple-50' },
+                    { label: 'Reparación L1/L2', value: 'reparacion', variant: 'text-blue-600 border-blue-500/30 hover:border-blue-500 hover:bg-blue-50' },
                     { label: 'Reparación L3', value: 'l3', variant: 'text-orange-600 border-orange-500/30 hover:border-orange-500 hover:bg-orange-50' },
                     { label: 'Scraps', value: 'scraps', variant: 'text-rose-600 border-rose-500/30 hover:border-rose-500 hover:bg-rose-50' }
                   ] : [
                     { label: 'Reacondicionar', value: 'reacondicionado', variant: 'text-emerald-600 border-emerald-500/30 hover:border-emerald-500 hover:bg-emerald-50' },
                     { label: 'Reparación L1/L2', value: 'reparacion', variant: 'text-blue-600 border-blue-500/30 hover:border-blue-500 hover:bg-blue-50' },
                     { label: 'Nivel 3', value: 'l3', variant: 'text-orange-600 border-orange-500/30 hover:border-orange-500 hover:bg-orange-50' },
-                    { label: 'SCRAPS', value: 'scraps', variant: 'text-rose-600 border-rose-500/30 hover:border-rose-500 hover:bg-rose-50' },
+                    { label: 'Scraps', value: 'scraps', variant: 'text-rose-600 border-rose-500/30 hover:border-rose-500 hover:bg-rose-50' },
                   ]).map((res) => (
                     <button 
                       key={res.value} 
                       onClick={() => setDiagnosticResult(res.value)}
-                      className={`p-4 rounded-xl border-2 text-center transition-all ${res.variant} ${diagnosticResult === res.value ? 'bg-current/10 border-current shadow-md scale-[1.02]' : 'bg-transparent'}`}
+                      className={`p-2 rounded-lg border text-center transition-all ${res.variant} ${diagnosticResult === res.value ? 'bg-current/10 border-current shadow-sm' : 'bg-white border-slate-200'}`}
                     >
-                      <p className="text-[10px] font-black uppercase leading-tight">{res.label}</p>
+                      <p className="text-[8px] font-black uppercase leading-tight">{res.label}</p>
                     </button>
                   ))}
                 </div>
               </div>
 
-              <div className="flex gap-4">
+              <div className="flex gap-2">
               <Button 
                 variant="outline" 
-                className="flex-1 h-14 font-black uppercase tracking-widest text-[10px]" 
+                className="flex-1 h-9 font-black uppercase tracking-wide text-[9px]" 
                 onClick={() => {
                   setSelectedForOperation(null);
                   setDiagnosticResult(null);
@@ -613,7 +612,7 @@ export const OperationDrawer = memo(function OperationDrawer({
               </Button>
               <Button 
                 variant="primary" 
-                className="flex-2 h-14 font-black uppercase tracking-widest text-[10px] bg-[#181c3a] shadow-xl shadow-[#181c3a]/20" 
+                className="flex-[2] h-9 font-black uppercase tracking-wide text-[9px] bg-[#181c3a] shadow-md" 
                 disabled={
                   loading || 
                   !diagnosticResult || 
@@ -621,7 +620,7 @@ export const OperationDrawer = memo(function OperationDrawer({
                 }
                 onClick={handleCompleteOperation}
               >
-                {loading ? <Loader2 className="animate-spin" /> : `Guardar ${activeTab === 'diagnostico' ? 'Diagnóstico' : activeTab === 'reparacion' ? 'Reparación' : 'Operación'} y Finalizar`}
+                {loading ? <Loader2 className="animate-spin w-4 h-4" /> : `Guardar ${activeTab === 'diagnostico' ? 'diagnóstico' : activeTab === 'reparacion' ? 'reparación' : 'operación'}`}
               </Button>
             </div>
             </div>

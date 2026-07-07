@@ -20,6 +20,7 @@ export type CompleteFlowParams = {
   sapGroups: SapTransferGroup[];
   sapTransferNumber: string;
   selectedAgencyId: string;
+  agencia: string;
   returnReason: string;
   returnTracking: string;
   returnCourier: string;
@@ -60,6 +61,7 @@ function buildCompleteCtx(params: CompleteFlowParams): CompleteGuidesContext {
     sapGroups: params.sapGroups,
     sapTransferNumber: params.sapTransferNumber,
     selectedAgencyId: params.selectedAgencyId,
+    agencia: params.agencia,
     returnReason: params.returnReason,
     returnTracking: params.returnTracking,
     returnCourier: params.returnCourier,

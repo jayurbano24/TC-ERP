@@ -362,7 +362,15 @@ export async function getDashboardMetrics(timeRange: string = 'Hoy'): Promise<Da
   } else {
     startOfRange.setHours(0, 0, 0, 0);
   }
+  const endOfRange = new Date();
+  if (timeRange === 'Ayer') {
+    endOfRange.setDate(endOfRange.getDate() - 1);
+    endOfRange.setHours(23, 59, 59, 999);
+  } else {
+    endOfRange.setHours(23, 59, 59, 999);
+  }
   const startIso = startOfRange.toISOString();
+  const endIso = endOfRange.toISOString();
 
   // Total Production & Active Technicians
   const { data: jobs } = await supabase
@@ -391,22 +399,23 @@ export async function getDashboardMetrics(timeRange: string = 'Hoy'): Promise<Da
     errorRate = (failed / qc.length) * 100;
   }
 
-  // Producción por Marca
-  // Obtenemos los equipos que se movieron hoy
+  // Producción por tecnología (series movidas en el rango)
   const { data: series } = await supabase
     .from('series')
-    .select('id, brands(name)')
-    .gte('updated_at', startIso);
+    .select('id, models(technologies(name))')
+    .gte('updated_at', startIso)
+    .lte('updated_at', endIso);
 
-  const brandCounts: Record<string, number> = {};
+  const techCounts: Record<string, number> = {};
   if (series) {
     series.forEach((s: any) => {
-      const brandName = s.brands?.name || 'GENERICO';
-      brandCounts[brandName] = (brandCounts[brandName] || 0) + 1;
+      const model = Array.isArray(s.models) ? s.models[0] : s.models;
+      const techName = (model?.technologies?.name || 'GENERICO').trim().toUpperCase();
+      techCounts[techName] = (techCounts[techName] || 0) + 1;
     });
   }
 
-  const productionByBrand = Object.entries(brandCounts)
+  const productionByBrand = Object.entries(techCounts)
     .map(([name, count]) => ({ name, count }))
     .sort((a, b) => b.count - a.count)
     .slice(0, 5); // Top 5

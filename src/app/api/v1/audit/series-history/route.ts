@@ -5,6 +5,7 @@ import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
 import { querySeriesHistory } from '@/shared/infrastructure/audit/seriesHistoryServer';
 import { estimateJsonBytes, logEgress } from '@/shared/infrastructure/http/egressLog';
 import { getCorrelationIdFromHeaders } from '@/shared/infrastructure/http/correlationId';
+import { getSupabaseServerClient } from '@/lib/supabase/server';
 
 const HistoryQuery = z.object({
   ids: z
@@ -27,11 +28,6 @@ export const GET = withErrorHandler(
 
     const auth = await requireApiUser(req);
     if (auth instanceof NextResponse) return auth;
-    const { supabase } = auth;
-
-    if (!supabase) {
-      return NextResponse.json({ error: 'SERVER_CLIENT_REQUIRED' }, { status: 500 });
-    }
 
     const parsed = HistoryQuery.safeParse(
       Object.fromEntries(new URL(req.url).searchParams)
@@ -43,7 +39,8 @@ export const GET = withErrorHandler(
       );
     }
 
-    const items = await querySeriesHistory(supabase, parsed.data.ids);
+    const admin = getSupabaseServerClient();
+    const items = await querySeriesHistory(admin, parsed.data.ids);
     const responseBody = { items };
 
     logEgress({

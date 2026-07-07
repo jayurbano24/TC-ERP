@@ -18,6 +18,8 @@ export interface DataTableColumn<T> {
    */
   width?: string;
   align?: DataTableAlign;
+  /** Mantiene la columna visible al hacer scroll horizontal. */
+  sticky?: 'end';
   headerClassName?: string;
   cellClassName?: string;
 }
@@ -41,6 +43,8 @@ export interface DataTableProps<T> {
   emptyMessage?: string;
   /** Ancho mínimo para habilitar scroll horizontal en tablas anchas. */
   minWidth?: number | string;
+  /** Si true, padding reducido en celdas (tablas densas). */
+  compact?: boolean;
   className?: string;
   rowClassName?: (row: T, index: number) => string | undefined;
   ariaLabel?: string;
@@ -78,6 +82,7 @@ function DataTableComponent<T>({
   overscan = 10,
   emptyMessage = 'Sin registros',
   minWidth,
+  compact = false,
   className = '',
   rowClassName,
   ariaLabel,
@@ -97,30 +102,43 @@ function DataTableComponent<T>({
 
   const clickable = Boolean(onRowClick);
 
+  const cellPad = compact ? 'px-1.5 py-1' : 'px-3';
+  const headerPad = compact ? 'px-1.5 py-1' : 'px-3 py-3';
+  const rowText = compact ? 'text-[10px]' : 'text-xs';
+
+  const stickyEndClass = (col: DataTableColumn<T>, isHeader = false) =>
+    col.sticky === 'end'
+      ? `sticky right-0 z-10 shadow-[-6px_0_10px_-6px_rgba(0,0,0,0.12)] ${isHeader ? '' : 'bg-white group-hover:bg-slate-50'}`
+      : '';
+
   const renderCells = (row: T, index: number) =>
     columns.map((col) => (
       <div
         key={col.id}
-        className={`flex items-center px-3 min-w-0 ${ALIGN_CLASS[col.align ?? 'left']} ${col.cellClassName ?? ''}`}
+        className={`flex items-center ${cellPad} min-w-0 ${col.sticky === 'end' ? 'overflow-visible' : 'overflow-hidden'} ${ALIGN_CLASS[col.align ?? 'left']} ${stickyEndClass(col)} ${col.cellClassName ?? ''}`}
       >
         {col.cell(row, index)}
       </div>
     ));
 
   return (
-    <div className={`overflow-x-auto ${className}`} role="table" aria-label={ariaLabel}>
-      <div style={minWidth ? { minWidth } : undefined}>
+    <div
+      className={`w-full min-w-0 overflow-x-auto custom-scrollbar ${className}`}
+      role="table"
+      aria-label={ariaLabel}
+    >
+      <div className="w-full min-w-0">
         {/* Cabecera */}
         <div
           role="row"
-          className={`grid ${headerClassName}`}
+          className={`grid w-full ${headerClassName}`}
           style={{ gridTemplateColumns }}
         >
           {columns.map((col) => (
             <div
               key={col.id}
               role="columnheader"
-              className={`flex items-center px-3 py-3 text-[10px] uppercase tracking-widest font-black ${headerTextClassName} ${ALIGN_CLASS[col.align ?? 'left']} ${col.headerClassName ?? ''}`}
+              className={`flex items-center ${headerPad} text-[9px] uppercase tracking-wide font-black ${headerTextClassName} ${ALIGN_CLASS[col.align ?? 'left']} ${stickyEndClass(col, true)} ${col.headerClassName ?? ''} min-w-0`}
             >
               {col.header}
             </div>
@@ -133,7 +151,7 @@ function DataTableComponent<T>({
         ) : (
           <div
             ref={parentRef}
-            className="overflow-y-auto"
+            className="overflow-y-auto overflow-x-visible"
             style={{ maxHeight: maxBodyHeight }}
           >
             {shouldVirtualize ? (
@@ -151,7 +169,7 @@ function DataTableComponent<T>({
                       key={getRowId(row, vItem.index)}
                       role="row"
                       onClick={clickable ? () => onRowClick!(row, vItem.index) : undefined}
-                      className={`grid items-center border-b border-slate-50 text-xs font-bold text-[#181c3a] hover:bg-slate-50 ${clickable ? 'cursor-pointer' : ''} ${rowClassName?.(row, vItem.index) ?? ''}`}
+                      className={`grid items-center border-b border-slate-50 ${rowText} font-bold text-[#181c3a] hover:bg-slate-50 group ${clickable ? 'cursor-pointer' : ''} ${rowClassName?.(row, vItem.index) ?? ''}`}
                       style={{
                         position: 'absolute',
                         top: 0,
@@ -173,7 +191,7 @@ function DataTableComponent<T>({
                   key={getRowId(row, index)}
                   role="row"
                   onClick={clickable ? () => onRowClick!(row, index) : undefined}
-                  className={`grid items-center border-b border-slate-50 text-xs font-bold text-[#181c3a] hover:bg-slate-50 ${clickable ? 'cursor-pointer' : ''} ${rowClassName?.(row, index) ?? ''}`}
+                  className={`grid w-full items-center border-b border-slate-50 ${rowText} font-bold text-[#181c3a] hover:bg-slate-50 group ${clickable ? 'cursor-pointer' : ''} ${rowClassName?.(row, index) ?? ''}`}
                   style={{ gridTemplateColumns, minHeight: rowHeight }}
                 >
                   {renderCells(row, index)}

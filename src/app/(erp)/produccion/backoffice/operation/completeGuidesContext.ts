@@ -26,6 +26,7 @@ export type CompleteGuidesContext = {
   sapGroups: SapTransferGroup[];
   sapTransferNumber: string;
   selectedAgencyId: string;
+  agencia: string;
   returnReason: string;
   returnTracking: string;
   returnCourier: string;

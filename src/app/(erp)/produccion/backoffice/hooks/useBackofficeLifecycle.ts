@@ -57,7 +57,7 @@ export function useBackofficeLifecycle({
   }, [activeReception?.id, setAgencia, setSelectedAgencyId]);
 
   useEffect(() => {
-    if (activeTab === 'history') {
+    if (activeTab === 'history' || activeTab === 'sub_accesorios' || activeTab === 'sub_telefonos') {
       void inbox.fetchPending({ silent: true });
     }
   }, [activeTab, inbox]);

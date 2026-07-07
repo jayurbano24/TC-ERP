@@ -1,6 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
 import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
+import { BusinessException } from '@/shared/errors/Exceptions';
+import {
+  loadCompletedWorkshopActionsBySeries,
+  validateSeriesPrerequisites,
+} from '@/modules/workshop/server/workshopStagePrerequisites';
 
 export function resolveWorkshopNextStatus(result: string): string {
   if (result === 'reacondicionado') return 'ready_to_dispatch';
@@ -42,6 +47,13 @@ export async function operateWorkshopSeriesBatch(
 
   if (seriesIds.length === 0) return { processed: 0 };
 
+  const admin = getSupabaseServerClient();
+  const completedBySeries = await loadCompletedWorkshopActionsBySeries(admin, seriesIds);
+  const prerequisiteCheck = validateSeriesPrerequisites(seriesIds, completedBySeries, actionName);
+  if (!prerequisiteCheck.ok) {
+    throw new BusinessException(prerequisiteCheck.message);
+  }
+
   const nextStatus = resolveWorkshopNextStatus(result);
   const updateData: Record<string, unknown> = { current_status: nextStatus };
   if (actionName === 'DIAGNÓSTICO INICIAL COMPLETADO') {
@@ -58,7 +70,6 @@ export async function operateWorkshopSeriesBatch(
     items: selectedDiagnostics,
   };
 
-  const admin = getSupabaseServerClient();
   let processed = 0;
 
   for (const chunk of chunkIds(seriesIds)) {

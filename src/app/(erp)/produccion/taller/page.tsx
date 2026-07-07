@@ -14,12 +14,14 @@ import {
   formatWorkshopSelectionLabel,
 } from '@/lib/api/workshopOperate';
 import {
-  fetchRepairWithoutDiagnosisCandidates,
   returnWorkshopInBatches,
-  validateReturnSelection,
 } from '@/lib/api/workshopReturn';
 import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
 import { exportWorkshopTabToExcel } from '@/lib/api/workshopExport';
+import {
+  validateWorkshopPrerequisitesViaApi,
+  actionNameForTab,
+} from '@/lib/api/workshopPrerequisites';
 import { fetchWorkshopOperationCatalogsViaApi } from '@/lib/api/referenceCatalogs';
 import { useReferenceCatalogs } from '@/hooks/useReferenceCatalogs';
 import { getSeriesHistory } from '@/modules/platform/client/audit';
@@ -206,14 +208,17 @@ export default function TallerPage() {
     totalSeries: number;
     equipmentCount: number;
   } | null>(null);
-  const [returnProgress, setReturnProgress] = useState<{
-    processedSeries: number;
-    totalSeries: number;
-    batchIndex: number;
-    batchCount: number;
-  } | null>(null);
   const [exportingReport, setExportingReport] = useState(false);
   const [showItemDetail, setShowItemDetail] = useState<any | null>(null);
+  const [hideTechCol, setHideTechCol] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 1400px)');
+    const update = () => setHideTechCol(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
 
   const tabCountsQuery = useWorkshopTabCounts();
   const tabCounts = tabCountsQuery.data ?? {};
@@ -250,6 +255,19 @@ export default function TallerPage() {
     }
     setSelectedRows([]);
   }, [activeTab, debouncedSearchTerm]);
+
+  const WORKSHOP_SERIES_SLOTS = 4;
+
+  const seriesAt = (item: { all_sns?: string[]; sn?: string }, index: number): string | null => {
+    const sns = item.all_sns?.length ? item.all_sns : item.sn ? [item.sn] : [];
+    return sns[index] ?? null;
+  };
+
+  const ingressLabel = (count: number) => {
+    if (count === 1) return 'Primer ingreso';
+    if (count === 2) return '2° ingreso';
+    return `${count}° ingreso`;
+  };
 
   const adaptWorkshopRow = (t: any) => {
     const notes = (t.receptions?.notes || '').replace(/\\n/g, '\n');
@@ -349,6 +367,12 @@ export default function TallerPage() {
       modelo: modeloName,
       boxCode: t.source_box_code || t.boxes?.box_code || '—',
       updatedAt: t.updated_at ? new Date(t.updated_at).toLocaleString() : 'Desconocida',
+      fecha: t.updated_at
+        ? new Date(t.updated_at).toLocaleDateString('es-GT', { day: 'numeric', month: 'numeric', year: 'numeric' })
+        : '—',
+      hora: t.updated_at
+        ? new Date(t.updated_at).toLocaleTimeString('es-GT', { hour: 'numeric', minute: '2-digit' })
+        : '',
       etapa: stageRaw,
       responsable: responsableName,
       dbId: t.service_order_id || t.id,
@@ -371,30 +395,71 @@ export default function TallerPage() {
     return [...new Set(ids)];
   };
 
-  const openMassOperation = () => {
-    const selectedItems = tasks.filter((t) => selectedRows.includes(t.dbId));
-    const equipmentCount = countEquipmentsInSelection(selectedItems);
-    const seriesCount = countSeriesInSelection(selectedItems);
+  const validateStagePrerequisites = async (selection: any | any[], tab: TabType) => {
+    if (tab === 'diagnostico') return true;
+
+    const actionName = actionNameForTab(tab);
+    const seriesIds = collectSeriesIdsFromSelection(selection);
+    if (seriesIds.length === 0) {
+      notify.warning('No hay series en la selección.');
+      return false;
+    }
+    try {
+      const prereq = await validateWorkshopPrerequisitesViaApi(seriesIds, actionName);
+      if (!prereq.ok) {
+        notify.warning(prereq.message);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      notify.error('No se pudo validar requisitos de etapa', { description: err?.message });
+      return false;
+    }
+  };
+
+  const openOperationForSelection = async (selection: any | any[]) => {
+    const items = Array.isArray(selection) ? selection : [selection];
+    const equipmentCount = countEquipmentsInSelection(items);
+    const seriesCount = countSeriesInSelection(items);
     const check = validateWorkshopOperateSelection(equipmentCount, seriesCount);
     if (!check.ok) {
       notify.warning(check.message);
       return;
     }
-    setSelectedForOperation(selectedItems);
+    const canProceed = await validateStagePrerequisites(selection, activeTab);
+    if (!canProceed) return;
+    setSelectedForOperation(selection);
+  };
+
+  const openMassOperation = () => {
+    const selectedItems = tasks.filter((t) => selectedRows.includes(t.dbId));
+    void openOperationForSelection(selectedItems);
+  };
+
+  const seriesIdsForHistory = (item: any): string[] => {
+    if (item.all_dbIds?.length) return [...new Set(item.all_dbIds)];
+    if (item.dbId) return [item.dbId];
+    return [];
   };
 
   useEffect(() => {
     const fetchHistory = async () => {
       if (historyModalOpen.isOpen && historyModalOpen.item) {
         setLoadingHistory(true);
-        const data = await getSeriesHistory(historyModalOpen.item.dbId);
-        setHistoryItems(data || []);
-        setLoadingHistory(false);
+        try {
+          const ids = seriesIdsForHistory(historyModalOpen.item);
+          const data = ids.length > 0 ? await getSeriesHistory(ids) : [];
+          setHistoryItems(data || []);
+        } catch {
+          setHistoryItems([]);
+        } finally {
+          setLoadingHistory(false);
+        }
       } else {
         setHistoryItems([]);
       }
     };
-    fetchHistory();
+    void fetchHistory();
   }, [historyModalOpen]);
 
   useEffect(() => {
@@ -506,11 +571,19 @@ export default function TallerPage() {
         return {
           os: a.id,
           serie_principal: a.sn,
+          s1: seriesAt(a, 0) ?? '',
+          s2: seriesAt(a, 1) ?? '',
+          s3: seriesAt(a, 2) ?? '',
+          s4: seriesAt(a, 3) ?? '',
           series: (a.all_sns || []).join(', '),
           cantidad_series: a.total_series,
           tecnologia: a.tecnologia,
           marca: a.marca,
           modelo: a.modelo,
+          caja: a.boxCode,
+          fecha: a.fecha,
+          hora: a.hora,
+          ingresos: ingressLabel(a.ingress_count),
           ingreso: a.updatedAt,
           etapa: a.etapa,
           responsable: a.responsable,
@@ -580,6 +653,14 @@ ${funcNotes || 'Ninguno evaluado'}
       if (!check.ok) {
         notify.warning(check.message);
         return;
+      }
+
+      if (activeTab !== 'diagnostico') {
+        const prereq = await validateWorkshopPrerequisitesViaApi(seriesIds, actionName);
+        if (!prereq.ok) {
+          notify.warning(prereq.message);
+          return;
+        }
       }
 
       setOperateProgress({
@@ -667,92 +748,6 @@ ${funcNotes || 'Ninguno evaluado'}
     }
   };
 
-  const handleBulkReturnToDiagnosis = async () => {
-    const selectedItems = tasks.filter((t) => selectedRows.includes(t.dbId));
-    const equipmentCount = countEquipmentsInSelection(selectedItems);
-    const seriesIds = collectSeriesIdsFromSelection(selectedItems);
-    const check = validateReturnSelection(equipmentCount, seriesIds.length);
-    if (!check.ok) {
-      notify.warning(check.message);
-      return;
-    }
-
-    const confirmed = await confirmDialog({
-      title: 'Regresar a Diagnóstico',
-      message: `¿Regresar ${equipmentCount} equipo${equipmentCount !== 1 ? 's' : ''} (${seriesIds.length} series) a Diagnóstico?`,
-      confirmText: 'Regresar',
-    });
-    if (!confirmed) return;
-
-    setLoading(true);
-    setReturnProgress({ processedSeries: 0, totalSeries: seriesIds.length, batchIndex: 0, batchCount: 0 });
-    try {
-      await returnWorkshopInBatches(seriesIds, {
-        targetStatus: 'in_workshop',
-        reason: 'Regreso manual — selección en Reparación',
-        onProgress: (p) => setReturnProgress(p),
-      });
-      notify.success(
-        `${equipmentCount} equipo${equipmentCount !== 1 ? 's' : ''} regresados a Diagnóstico (${seriesIds.length} series).`
-      );
-      setSelectedRows([]);
-      await queryClient.invalidateQueries({ queryKey: ['workshop-tab-counts'] });
-      await fetchTasks(false);
-    } catch (error: unknown) {
-      notify.error('No se pudo regresar equipos', {
-        description: error instanceof Error ? error.message : undefined,
-      });
-    } finally {
-      setReturnProgress(null);
-      setLoading(false);
-    }
-  };
-
-  const handleReturnAllWithoutDiagnosis = async () => {
-    setLoading(true);
-    try {
-      const candidates = await fetchRepairWithoutDiagnosisCandidates();
-      if (candidates.seriesCount === 0) {
-        notify.info('No hay equipos en Reparación sin diagnóstico registrado.');
-        return;
-      }
-
-      const confirmed = await confirmDialog({
-        title: 'Regresar sin diagnóstico',
-        message: `Se encontraron ${candidates.equipmentCount} equipos (${candidates.seriesCount} series) en Reparación sin diagnóstico previo. ¿Regresarlos todos a Diagnóstico?`,
-        confirmText: 'Regresar todos',
-      });
-      if (!confirmed) return;
-
-      setReturnProgress({
-        processedSeries: 0,
-        totalSeries: candidates.seriesCount,
-        batchIndex: 0,
-        batchCount: 0,
-      });
-
-      await returnWorkshopInBatches(candidates.seriesIds, {
-        targetStatus: 'in_workshop',
-        reason: 'Regreso masivo — en Reparación sin diagnóstico previo',
-        onProgress: (p) => setReturnProgress(p),
-      });
-
-      notify.success(
-        `${candidates.equipmentCount} equipos regresados a Diagnóstico (${candidates.seriesCount} series).`
-      );
-      setSelectedRows([]);
-      await queryClient.invalidateQueries({ queryKey: ['workshop-tab-counts'] });
-      await fetchTasks(false);
-    } catch (error: unknown) {
-      notify.error('No se pudo regresar equipos', {
-        description: error instanceof Error ? error.message : undefined,
-      });
-    } finally {
-      setReturnProgress(null);
-      setLoading(false);
-    }
-  };
-
   const tabs = [
     ...(useProductionOrderHex
       ? [{ id: 'po', label: 'PO Taller', icon: ClipboardList, color: 'text-cyan-600', bg: 'bg-cyan-50' }]
@@ -791,17 +786,17 @@ ${funcNotes || 'Ninguno evaluado'}
       title="Taller & Operación Técnica"
       subtitle=""
       actions={
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-2 sm:gap-3">
           <Button variant="outline" leftIcon={<Activity className="w-4 h-4" />}>Reporte de Fallas</Button>
           <Button variant="primary" leftIcon={<ClipboardList className="w-4 h-4" />}>Mis Tareas</Button>
         </div>
       }
     >
-      <div className="space-y-8">
+      <div className="space-y-6 sm:space-y-8 min-w-0">
         
         {/* NEW CQRS DASHBOARD (Strangler Fig) */}
         {useNewDashboard && dashboardKpis && (
-          <div className="grid grid-cols-4 gap-4 animate-rise-in">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 animate-rise-in">
             <Card className="p-4 bg-[#181c3a] text-white border-2 border-[#2ec4f1] rounded-2xl">
               <h3 className="text-[10px] font-black uppercase tracking-widest opacity-80">Diagnósticos Pendientes</h3>
               <p className="text-3xl font-black text-[#2ec4f1] mt-2">{dashboardKpis.diagnosticosPendientes}</p>
@@ -821,8 +816,9 @@ ${funcNotes || 'Ninguno evaluado'}
           </div>
         )}
 
-        {/* Navigation Tabs - High Contrast & Premium */}
-        <div className="flex flex-wrap gap-2 p-2 bg-slate-100/50 rounded-3xl border border-slate-100">
+        {/* Navigation Tabs - scroll horizontal en pantallas medianas */}
+        <div className="overflow-x-auto custom-scrollbar -mx-1 px-1 pb-1">
+          <div className="flex flex-wrap gap-2 p-2 bg-slate-100/50 rounded-3xl border border-slate-100 min-w-0 w-full">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -830,16 +826,16 @@ ${funcNotes || 'Ninguno evaluado'}
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as TabType)}
-                className={`flex items-center gap-3 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all ${
+                className={`flex items-center gap-2 sm:gap-3 px-3 sm:px-4 lg:px-5 py-3 sm:py-3.5 rounded-2xl font-black uppercase tracking-widest text-[9px] sm:text-[10px] transition-all shrink-0 ${
                   isActive 
-                  ? 'bg-[#181c3a] text-white shadow-xl scale-105' 
+                  ? 'bg-[#181c3a] text-white shadow-xl lg:scale-105' 
                   : 'text-slate-400 hover:bg-white hover:text-slate-600'
                 }`}
               >
                 <Icon size={16} className={isActive ? 'text-[#2ec4f1]' : tab.color} />
-                <span className="flex items-center gap-2">
+                <span className="flex items-center gap-1.5 sm:gap-2 whitespace-nowrap">
                   {tab.label}
-                  <span className={`px-2 py-0.5 rounded-full text-[9px] font-black ${
+                  <span className={`px-1.5 sm:px-2 py-0.5 rounded-full text-[8px] sm:text-[9px] font-black ${
                     isActive ? 'bg-[#2ec4f1]/20 text-[#2ec4f1]' : 'bg-slate-200 text-slate-500'
                   }`}>
                     {tabCounts[tab.id] || 0}
@@ -848,6 +844,7 @@ ${funcNotes || 'Ninguno evaluado'}
               </button>
             );
           })}
+          </div>
         </div>
 
         {/* Dynamic Content Area */}
@@ -872,12 +869,12 @@ ${funcNotes || 'Ninguno evaluado'}
             const tallerColumns: DataTableColumn<any>[] = [
               {
                 id: 'select',
-                width: '48px',
+                width: '28px',
                 align: 'center',
                 header: (
                   <input
                     type="checkbox"
-                    className="w-4 h-4 rounded text-blue-500 focus:ring-blue-500 border-slate-300"
+                    className="w-3.5 h-3.5 rounded text-blue-500 focus:ring-blue-500 border-slate-300"
                     checked={tasks.length > 0 && selectedRows.length === tasks.length}
                     onChange={(e) => {
                       if (e.target.checked) setSelectedRows(tasks.map((t: any) => t.dbId));
@@ -888,7 +885,7 @@ ${funcNotes || 'Ninguno evaluado'}
                 cell: (item: any) => (
                   <input
                     type="checkbox"
-                    className="w-4 h-4 rounded text-blue-500 focus:ring-blue-500 border-slate-300"
+                    className="w-3.5 h-3.5 rounded text-blue-500 focus:ring-blue-500 border-slate-300"
                     checked={selectedRows.includes(item.dbId)}
                     onChange={(e) => {
                       if (e.target.checked) setSelectedRows([...selectedRows, item.dbId]);
@@ -899,118 +896,131 @@ ${funcNotes || 'Ninguno evaluado'}
               },
               {
                 id: 'orden',
-                header: 'Orden Servicio',
-                width: '130px',
+                header: 'OS',
+                width: 'minmax(0,0.7fr)',
                 cell: (item: any) => (
-                  <span className="text-[10px] font-black text-[#181c3a] bg-slate-100 px-2 py-1 rounded-md">{item.id}</span>
+                  <span className="text-[9px] font-black text-[#181c3a] bg-slate-100 px-1 py-0.5 rounded truncate block">{item.id}</span>
                 ),
               },
-              {
-                id: 'serie',
-                header: 'Serie',
-                width: '150px',
-                cell: (item: any) => (
-                  <button
-                    onClick={() => setShowItemDetail(item)}
-                    className="text-[11px] font-mono font-bold text-[#2ec4f1] uppercase hover:underline text-left focus:outline-none truncate flex items-center gap-1.5"
-                  >
-                    <span>{item.sn}</span>
-                    {item.total_series > 1 && (
-                      <span
-                        className="text-[8px] font-black bg-[#2ec4f1]/15 text-[#181c3a] px-1.5 py-0.5 rounded-md shrink-0"
-                        title={`${item.total_series} series en este equipo`}
-                      >
-                        {item.total_series} ser.
-                      </span>
-                    )}
-                  </button>
-                ),
-              },
-              {
-                id: 'tecnologia',
-                header: 'Tecnología',
-                width: '120px',
-                cellClassName: 'text-[10px] font-bold text-slate-500 uppercase truncate',
-                cell: (item: any) => item.tecnologia,
-              },
-              {
-                id: 'modelo',
-                header: 'Modelo',
-                width: 'minmax(150px,1fr)',
-                cellClassName: 'text-[11px] font-black text-[#181c3a] uppercase truncate',
-                cell: (item: any) => `${item.marca} ${item.modelo}`,
-              },
-              ...(activeTab === 'diagnostico'
+              ...Array.from({ length: WORKSHOP_SERIES_SLOTS }, (_, i) => ({
+                id: `s${i + 1}`,
+                header: `S${i + 1}`,
+                width: 'minmax(68px, 0.65fr)',
+                cell: (item: any) => {
+                  const serial = seriesAt(item, i);
+                  if (!serial) {
+                    return <span className="text-slate-300 text-[8px]">—</span>;
+                  }
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => setShowItemDetail(item)}
+                      title={serial}
+                      className="text-[8px] font-mono font-bold text-[#2ec4f1] truncate hover:underline text-left w-full min-w-0 leading-tight"
+                    >
+                      {serial}
+                    </button>
+                  );
+                },
+              } as DataTableColumn<any>)),
+              ...(!hideTechCol
                 ? [{
-                    id: 'caja',
-                    header: 'Caja',
-                    width: '110px',
-                    cellClassName: 'text-[11px] font-black text-[#181c3a] uppercase truncate',
-                    cell: (item: any) => item.boxCode,
+                    id: 'tecnologia',
+                    header: 'Tec.',
+                    width: 'minmax(0,0.5fr)',
+                    cellClassName: 'text-[8px] font-bold text-slate-500 uppercase truncate',
+                    cell: (item: any) => item.tecnologia,
                   } as DataTableColumn<any>]
                 : []),
               {
-                id: 'ingreso',
-                header: 'Ingreso',
-                width: '190px',
+                id: 'modelo',
+                header: 'Modelo',
+                width: 'minmax(0,0.8fr)',
+                cellClassName: 'text-[9px] font-black text-[#181c3a] uppercase truncate',
+                cell: (item: any) => `${item.marca} ${item.modelo}`,
+              },
+              {
+                id: 'caja',
+                header: 'Caja',
+                width: 'minmax(0,0.45fr)',
+                cellClassName: 'text-[9px] font-black text-[#181c3a] uppercase truncate',
+                cell: (item: any) => item.boxCode,
+              },
+              {
+                id: 'fecha',
+                header: 'Fecha',
+                width: 'minmax(0,0.65fr)',
                 cell: (item: any) => (
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-slate-400">{item.updatedAt}</span>
-                    <span className={`text-[9px] font-black uppercase px-2 py-1 rounded-md ${item.ingress_count > 1 ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-500'}`}>
-                      {item.ingress_count === 1 ? '1er Ingreso' : item.ingress_count === 2 ? '2do Ingreso' : `${item.ingress_count}° Ingreso`}
-                    </span>
+                  <div className="flex flex-col gap-0 min-w-0 leading-tight" title={item.updatedAt}>
+                    <span className="text-[8px] font-bold text-slate-500 truncate">{item.fecha}</span>
+                    {item.hora ? (
+                      <span className="text-[7px] font-bold text-slate-400 truncate">{item.hora}</span>
+                    ) : null}
                   </div>
                 ),
               },
               {
-                id: 'etapa',
-                header: 'Etapa',
-                width: '130px',
+                id: 'ingresos',
+                header: 'Ingresos',
+                width: 'minmax(0,0.7fr)',
+                align: 'center',
                 cell: (item: any) => (
-                  <Badge variant="purple" className="bg-purple-50 text-purple-600 border-none font-black text-[8px] tracking-tighter">{item.etapa}</Badge>
+                  <span className={`text-[7px] font-black px-1 py-px rounded w-fit mx-auto block whitespace-nowrap ${item.ingress_count > 1 ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-500'}`}>
+                    {ingressLabel(item.ingress_count)}
+                  </span>
                 ),
               },
               {
                 id: 'accion',
-                header: 'Acción',
-                width: '180px',
+                header: 'Acc.',
+                width: activeTab === 'diagnostico' ? '40px' : activeTab === 'scraps' ? '68px' : '84px',
+                sticky: 'end',
                 align: 'right',
+                headerClassName: `justify-end ${headerBg}`,
                 cell: (item: any) => (
-                  <div className="flex items-center justify-end gap-2">
+                  <div className="flex items-center justify-end gap-0.5">
                     {activeTab !== 'diagnostico' && activeTab !== 'scraps' && (
                       <button
+                        type="button"
                         onClick={() => { setReturnModalOpen({ isOpen: true, item }); setReturnTargetStage('in_workshop'); }}
-                        className="h-9 w-9 flex items-center justify-center rounded-xl border border-slate-200 text-slate-400 hover:text-amber-500 hover:border-amber-200 hover:bg-amber-50 transition-colors"
-                        title="Mover a otra etapa"
+                        className="h-6 w-6 flex items-center justify-center rounded-md border border-slate-200 text-slate-400 hover:text-amber-500 hover:border-amber-200 hover:bg-amber-50 transition-colors shrink-0"
+                        title="Regresar a otra etapa"
+                        aria-label="Regresar a otra etapa"
                       >
-                        <RotateCcw size={14} />
+                        <RotateCcw size={11} />
                       </button>
                     )}
-                    <button
-                      onClick={() => setHistoryModalOpen({ isOpen: true, item })}
-                      className="h-9 w-9 flex items-center justify-center rounded-xl border border-slate-200 text-slate-400 hover:text-blue-500 hover:border-blue-200 hover:bg-blue-50 transition-colors"
-                      title="Ver Historial"
-                    >
-                      <History size={14} />
-                    </button>
+                    {activeTab !== 'diagnostico' && (
+                      <button
+                        type="button"
+                        onClick={() => setHistoryModalOpen({ isOpen: true, item })}
+                        className="h-6 w-6 flex items-center justify-center rounded-md border border-slate-200 text-slate-400 hover:text-blue-500 hover:border-blue-200 hover:bg-blue-50 transition-colors shrink-0"
+                        title="Ver historial"
+                        aria-label="Ver historial"
+                      >
+                        <History size={11} />
+                      </button>
+                    )}
                     {activeTab === 'scraps' ? (
-                      <Button
-                        variant="primary"
-                        className="bg-rose-500 hover:bg-rose-600 text-white rounded-xl shadow-lg shadow-rose-500/20 px-4 h-9 text-[9px] font-black uppercase tracking-widest"
-                        rightIcon={<Send className="w-3 h-3" />}
+                      <button
+                        type="button"
+                        title="Despachar"
+                        aria-label="Despachar"
+                        className="h-6 w-6 flex items-center justify-center rounded-md bg-rose-500 text-white hover:bg-rose-600 shadow-sm shrink-0"
                         onClick={() => { setScrapDispatchModal({ isOpen: true, item }); setScrapGuideNumber(''); setScrapNotes(''); }}
                       >
-                        DESPACHAR
-                      </Button>
+                        <Send size={11} />
+                      </button>
                     ) : (
-                      <Button
-                        variant="primary"
-                        className="bg-[#2ec4f1] hover:bg-[#2ec4f1]/80 text-[#181c3a] rounded-xl shadow-lg px-4 h-9 text-[9px] font-black uppercase tracking-widest"
-                        rightIcon={<ArrowRight className="w-3 h-3" />}
-                        onClick={() => setSelectedForOperation(item)}
+                      <button
+                        type="button"
+                        title="Evaluar"
+                        aria-label="Evaluar"
+                        className="h-6 w-6 flex items-center justify-center rounded-md bg-[#2ec4f1] text-[#181c3a] hover:bg-[#2ec4f1]/80 shadow-sm shrink-0"
+                        onClick={() => void openOperationForSelection(item)}
                       >
-                        EVALUAR
-                      </Button>
+                        <ArrowRight size={11} />
+                      </button>
                     )}
                   </div>
                 ),
@@ -1042,11 +1052,11 @@ ${funcNotes || 'Ninguno evaluado'}
                     )}
                   </div>
                 )}
-                <div className="flex justify-between items-center bg-white p-8 rounded-3xl border-2 border-slate-100 shadow-sm">
-                  {/* Left: Search */}
-                  <div className="flex gap-4 items-center">
-                    <div className="relative">
-                      <Search className="absolute left-4 top-5 text-slate-400 w-4 h-4" />
+                <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4 sm:gap-6 bg-white p-4 sm:p-6 lg:p-8 rounded-3xl border-2 border-slate-100 shadow-sm min-w-0">
+                  {/* Búsqueda */}
+                  <div className="flex gap-4 items-stretch w-full xl:flex-1 xl:max-w-md min-w-0">
+                    <div className="relative flex-1 min-w-0">
+                      <Search className="absolute left-4 top-4 text-slate-400 w-4 h-4 pointer-events-none" />
                       <textarea
                         placeholder="BUSCAR (ACEPTA VARIAS SERIES)..."
                         value={searchTerm}
@@ -1054,13 +1064,13 @@ ${funcNotes || 'Ninguno evaluado'}
                           setSearchTerm(e.target.value);
                         }}
                         rows={2}
-                        className="pl-12 pr-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl text-[10px] font-black uppercase outline-none focus:border-amber-400 w-64 min-w-[300px] transition-all resize-y custom-scrollbar"
+                        className="w-full min-w-0 pl-12 pr-4 py-3 sm:py-4 bg-slate-50 border border-slate-100 rounded-2xl text-[10px] font-black uppercase outline-none focus:border-amber-400 transition-all resize-y custom-scrollbar"
                       />
                     </div>
                   </div>
 
-                  {/* Right: Actions */}
-                  <div className="flex gap-3 items-center">
+                  {/* Acciones — envuelven en varias filas si no caben */}
+                  <div className="flex flex-wrap gap-2 sm:gap-3 items-center justify-start xl:justify-end w-full xl:w-auto min-w-0">
                     <Button
                       variant="outline"
                       className="border-slate-200 text-slate-600 font-black uppercase text-[10px] tracking-widest"
@@ -1070,18 +1080,6 @@ ${funcNotes || 'Ninguno evaluado'}
                     >
                       {exportingReport ? 'Exportando…' : 'Exportar Reporte'}
                     </Button>
-
-                    {activeTab === 'reparacion' && (
-                      <Button
-                        variant="outline"
-                        className="border-amber-300 text-amber-800 font-black uppercase text-[10px] tracking-widest"
-                        leftIcon={loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
-                        disabled={loading}
-                        onClick={() => void handleReturnAllWithoutDiagnosis()}
-                      >
-                        Regresar sin diagnóstico
-                      </Button>
-                    )}
 
                     {/* SCRAPS-specific: Create Dispatch Box button (always visible in SCRAPS) */}
                     {activeTab === 'scraps' && (
@@ -1100,19 +1098,9 @@ ${funcNotes || 'Ninguno evaluado'}
                     )}
 
                     {selectedRows.length > 0 ? (
-                      <div className="flex gap-2 animate-rise-in">
+                      <div className="flex flex-wrap gap-2 animate-rise-in w-full xl:w-auto">
                         {activeTab !== 'scraps' && (
                           <>
-                            {activeTab !== 'diagnostico' && activeTab !== 'scraps' && (
-                              <Button
-                                variant="outline"
-                                className="border-amber-300 text-amber-700 font-black uppercase text-[10px]"
-                                leftIcon={<RotateCcw className="w-4 h-4" />}
-                                onClick={() => void handleBulkReturnToDiagnosis()}
-                              >
-                                Regresar a Diagnóstico ({selectedRows.length})
-                              </Button>
-                            )}
                             <Button 
                               variant="primary" 
                               className="bg-[#181c3a] hover:bg-slate-800 text-white shadow-lg" 
@@ -1162,8 +1150,8 @@ ${funcNotes || 'Ninguno evaluado'}
                         )}
                       </div>
                     ) : activeTab !== 'scraps' ? (
-                      <div className="text-right">
-                        <Button variant="outline" className="border-slate-200 text-slate-400 hover:bg-slate-50 opacity-50 cursor-not-allowed">
+                      <div className="w-full xl:w-auto xl:text-right">
+                        <Button variant="outline" className="border-slate-200 text-slate-400 hover:bg-slate-50 opacity-50 cursor-not-allowed w-full sm:w-auto whitespace-normal text-center">
                           Selecciona equipos para acciones masivas
                         </Button>
                         <p className="text-[9px] font-black text-slate-300 mt-1">
@@ -1175,7 +1163,7 @@ ${funcNotes || 'Ninguno evaluado'}
                   </div>
                 </div>
 
-                <Card padding="none" className="border-2 border-slate-100 shadow-sm rounded-3xl p-2">
+                <Card padding="none" className="border-2 border-slate-100 shadow-sm rounded-2xl p-0 min-w-0 w-full overflow-hidden">
                   {operateProgress ? (
                     <div className="py-16 px-8 text-center space-y-4">
                       <Loader2 className="w-8 h-8 text-amber-500 animate-spin mx-auto" />
@@ -1193,22 +1181,6 @@ ${funcNotes || 'Ninguno evaluado'}
                         />
                       </div>
                     </div>
-                  ) : returnProgress ? (
-                    <div className="py-16 px-8 text-center space-y-4">
-                      <Loader2 className="w-8 h-8 text-amber-500 animate-spin mx-auto" />
-                      <p className="text-[11px] font-black text-slate-600 uppercase tracking-widest">
-                        Regresando a Diagnóstico… lote {returnProgress.batchIndex}/{returnProgress.batchCount || '…'}{' '}
-                        · {returnProgress.processedSeries}/{returnProgress.totalSeries} series
-                      </p>
-                      <div className="max-w-md mx-auto h-2 bg-slate-100 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-amber-500 transition-all duration-300"
-                          style={{
-                            width: `${Math.min(100, Math.round((returnProgress.processedSeries / returnProgress.totalSeries) * 100))}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
                   ) : loading ? (
                     <div className="py-20 text-center">
                       <Loader2 className="w-8 h-8 text-[#2ec4f1] animate-spin mx-auto" />
@@ -1220,15 +1192,15 @@ ${funcNotes || 'Ninguno evaluado'}
                         columns={tallerColumns}
                         data={filteredTasks}
                         getRowId={(item: any) => item.groupId || item.dbId}
-                        rowHeight={60}
-                        maxBodyHeight={620}
-                        minWidth={activeTab === 'diagnostico' ? 1120 : 1010}
+                        rowHeight={34}
+                        maxBodyHeight={680}
+                        compact
                         headerClassName={headerBg}
                         headerTextClassName="text-white/90"
                         emptyMessage="No hay equipos en cola"
                         rowClassName={(item: any) => (selectedRows.includes(item.dbId) ? 'bg-blue-50/30' : '')}
                       />
-                      <div className="p-4 border-t border-slate-50 flex items-center justify-between bg-slate-50/50 rounded-b-3xl">
+                      <div className="px-3 py-2 border-t border-slate-50 flex items-center justify-between bg-slate-50/50 rounded-b-2xl">
                         <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
                           {tasksTotalOs != null
                             ? `${filteredTasks.length} de ${tasksTotalOs} equipos en cola`
@@ -1354,9 +1326,9 @@ ${funcNotes || 'Ninguno evaluado'}
       )}
       {/* Modal de Historial */}
       {historyModalOpen.isOpen && historyModalOpen.item && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#181c3a]/40 backdrop-blur-sm p-6">
-          <Card className="max-w-2xl w-full shadow-2xl animate-rise-in p-0 overflow-hidden flex flex-col">
-            <div className={`p-8 text-white flex justify-between items-center shrink-0 ${
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#181c3a]/40 backdrop-blur-sm p-4">
+          <Card className="max-w-lg w-full shadow-2xl animate-rise-in p-0 overflow-hidden flex flex-col max-h-[85vh]">
+            <div className={`px-4 py-3 text-white flex justify-between items-center shrink-0 ${
               activeTab === 'diagnostico' ? 'bg-amber-500' :
               activeTab === 'reparacion' ? 'bg-blue-500' :
               activeTab === 'reacondicionado' ? 'bg-emerald-500' :
@@ -1366,35 +1338,35 @@ ${funcNotes || 'Ninguno evaluado'}
               activeTab === 'listo' ? 'bg-teal-500' :
               'bg-[#181c3a]'
             }`}>
-              <div className="flex items-center gap-4">
-                <div className="p-3 rounded-2xl bg-white/20 backdrop-blur-sm">
-                  <History className="w-6 h-6 text-white" />
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="p-1.5 rounded-lg bg-white/20 backdrop-blur-sm shrink-0">
+                  <History className="w-4 h-4 text-white" />
                 </div>
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <Badge variant="blue" className="font-black text-[9px] uppercase border-none text-white bg-white/20 backdrop-blur-sm">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="blue" className="font-black text-[8px] uppercase border-none text-white bg-white/20 backdrop-blur-sm">
                       {historyModalOpen.item.id}
                     </Badge>
+                    <span className="text-white/80 font-mono text-[10px] truncate">{historyModalOpen.item.sn}</span>
                   </div>
-                  <h3 className="text-2xl font-black">Historial de Operaciones</h3>
-                  <span className="text-white/90 font-mono text-sm">{historyModalOpen.item.sn}</span>
+                  <h3 className="text-sm font-black truncate">Historial de Operaciones</h3>
                 </div>
               </div>
-              <button onClick={() => setHistoryModalOpen({isOpen: false, item: null})} className="text-white/80 hover:text-white transition-colors">
-                <XCircle size={32} strokeWidth={1.5} />
+              <button onClick={() => setHistoryModalOpen({isOpen: false, item: null})} className="text-white/80 hover:text-white transition-colors shrink-0 ml-2">
+                <XCircle size={22} strokeWidth={1.5} />
               </button>
             </div>
             
-            <div className="p-8 space-y-6 overflow-y-auto max-h-[60vh]">
-              <div className="relative pl-6 border-l-2 border-slate-100 space-y-8">
+            <div className="p-4 space-y-3 overflow-y-auto flex-1 min-h-0">
+              <div className="relative pl-4 border-l-2 border-slate-100 space-y-4">
                 {loadingHistory ? (
-                  <div className="py-10 text-center">
-                    <Loader2 className="w-8 h-8 text-[#2ec4f1] animate-spin mx-auto" />
-                    <p className="text-[10px] font-black text-slate-400 uppercase mt-4 tracking-widest">Cargando historial...</p>
+                  <div className="py-6 text-center">
+                    <Loader2 className="w-6 h-6 text-[#2ec4f1] animate-spin mx-auto" />
+                    <p className="text-[9px] font-black text-slate-400 uppercase mt-2 tracking-widest">Cargando historial...</p>
                   </div>
                 ) : historyItems.length === 0 ? (
-                  <div className="py-10 text-center">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">No hay historial registrado.</p>
+                  <div className="py-6 text-center">
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">No hay historial registrado.</p>
                   </div>
                 ) : (
                   historyItems.map((record: any) => {
@@ -1402,19 +1374,19 @@ ${funcNotes || 'Ninguno evaluado'}
                     const payload = record.payload || {};
                     return (
                       <div className="relative" key={record.id}>
-                        <div className={`absolute -left-[33px] top-1 bg-white border-2 rounded-full p-1 ${isDiagnostic ? 'border-amber-500' : 'border-blue-500'}`}>
+                        <div className={`absolute -left-[21px] top-0.5 bg-white border-2 rounded-full p-0.5 ${isDiagnostic ? 'border-amber-500' : 'border-blue-500'}`}>
                           {isDiagnostic ? (
-                            <Stethoscope className={`w-3 h-3 text-amber-500`} />
+                            <Stethoscope className="w-2.5 h-2.5 text-amber-500" />
                           ) : (
-                            <Activity className={`w-3 h-3 text-blue-500`} />
+                            <Activity className="w-2.5 h-2.5 text-blue-500" />
                           )}
                         </div>
                         <div>
-                          <h4 className="text-sm font-black text-[#181c3a] uppercase">{record.action}</h4>
-                          <p className="text-[10px] font-bold text-slate-400 mt-1">
-                            {new Date(record.changed_at).toLocaleString()} • POR {record.profiles?.full_name?.toUpperCase() || 'SISTEMA'}
+                          <h4 className="text-[11px] font-black text-[#181c3a] uppercase leading-tight">{record.action}</h4>
+                          <p className="text-[9px] font-bold text-slate-400 mt-0.5">
+                            {new Date(record.changed_at).toLocaleString()} • {record.profiles?.full_name?.toUpperCase() || 'SISTEMA'}
                           </p>
-                          <div className="mt-3 bg-slate-50 p-4 rounded-xl border border-slate-100 text-xs text-slate-600">
+                          <div className="mt-2 bg-slate-50 p-2.5 rounded-lg border border-slate-100 text-[10px] text-slate-600 leading-snug">
                             {isDiagnostic || record.action.includes('COMPLETAD') ? (
                               <>
                                 {payload.result && (
@@ -1442,8 +1414,8 @@ ${funcNotes || 'Ninguno evaluado'}
                                   </div>
                                 )}
                                 {payload.nextStatus && (
-                                  <div className="mt-4">
-                                    <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#181c3a] text-white text-[11px] font-black tracking-widest shadow-md">
+                                  <div className="mt-2">
+                                    <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-[#181c3a] text-white text-[9px] font-black tracking-wide">
                                       <span className="text-white/60">DERIVADO A:</span>
                                       {
                                         payload.nextStatus === 'in_workshop' ? 'DIAGNÓSTICO' :
@@ -1460,11 +1432,11 @@ ${funcNotes || 'Ninguno evaluado'}
                                 )}
                               </>
                             ) : (
-                              <div className="space-y-3">
-                                {payload.reason && <p className="text-sm"><strong>Motivo/Razón:</strong> {payload.reason}</p>}
+                              <div className="space-y-2">
+                                {payload.reason && <p className="text-[10px]"><strong>Motivo:</strong> {payload.reason}</p>}
                                 {payload.status && (
                                   <div>
-                                    <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#181c3a] text-white text-[11px] font-black tracking-widest shadow-md">
+                                    <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-[#181c3a] text-white text-[9px] font-black tracking-wide">
                                       <span className="text-white/60">NUEVO ESTADO:</span>
                                       {
                                         payload.status === 'in_workshop' ? 'DIAGNÓSTICO' :

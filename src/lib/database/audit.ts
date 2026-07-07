@@ -3,6 +3,7 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { apiFetch } from "@/lib/http/apiFetch";
 import { fetchSeriesHistoryViaApi } from '@/lib/api/seriesHistory';
 import { fetchProfileDisplayNames } from '@/lib/api/profileDisplayNames';
+import { deduplicateSeriesHistory } from '@/shared/infrastructure/audit/seriesHistoryServer';
 
 export type AuditSeverity = 'INFO' | 'WARNING' | 'CRITICAL';
 
@@ -127,10 +128,13 @@ export async function getSeriesHistory(recordIds: string | string[]) {
     }
   }
 
-  return data.map((d: any) => ({
-    ...d,
-    profiles: d.changed_by ? { full_name: profiles[d.changed_by] || 'SISTEMA' } : null
-  }));
+  return deduplicateSeriesHistory(
+    data.map((d: any) => ({
+      ...d,
+      profiles: d.changed_by ? { full_name: profiles[d.changed_by] || 'SISTEMA' } : null,
+    })),
+    { multiSeries: ids.length > 1 }
+  );
 }
 
 export async function getAdvancedAuditLogs(filters?: {

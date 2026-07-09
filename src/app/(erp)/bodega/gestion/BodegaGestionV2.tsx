@@ -305,28 +305,35 @@ export default function BodegaGestionV2({
   const { data: statsData } = useQuery({
     queryKey: ['warehouse-stats'],
     queryFn: async () => {
-      const supabase = getSupabaseBrowserClient();
-      const { data: { session } } = await supabase?.auth.getSession() || { data: { session: null } };
-      const token = session?.access_token;
-
       const res = await fetch('/api/v1/warehouse/stats', {
-        credentials: 'same-origin'
+        credentials: 'same-origin',
       });
       const data = await res.json();
       if (!res.ok || data.error) {
         notify.error('API Error', { description: JSON.stringify(data.error || 'Fetch stats failed') });
         throw new Error(data.error || 'Failed to fetch stats');
       }
-      return data.stats || [];
-    }
+      return data as {
+        stats: Array<{ technology_id: string; tech_name?: string; total_boxes: number; total_units: number }>;
+        totals?: {
+          total_boxes: number;
+          total_equipos: number;
+          cajas_completas: number;
+          cajas_parciales: number;
+        };
+        unit?: string;
+      };
+    },
   });
 
+  const warehouseTotals = statsData?.totals ?? null;
+
   const techStats = useMemo((): { value: string; label: string; boxes: number; units: number }[] => {
-    return (statsData || []).map((s: any) => ({
+    return (statsData?.stats || []).map((s) => ({
       value: s.technology_id,
       label: s.tech_name || techName(s.technology_id),
       boxes: s.total_boxes,
-      units: s.total_units
+      units: s.total_units,
     }));
   }, [statsData, techName]);
 
@@ -1431,7 +1438,7 @@ export default function BodegaGestionV2({
           />
         )}
 
-        {/* KPI Cards */}
+        {/* KPI Cards — totales globales (Equipos TC / OS), no la página actual */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <Card className="border-l-4 border-l-[#181c3a]" padding="md">
             <div className="flex items-center gap-4">
@@ -1441,7 +1448,7 @@ export default function BodegaGestionV2({
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">Total Cajas</p>
                 <h3 className="text-2xl font-black text-[#181c3a]">
-                  {inventory.length}
+                  {(warehouseTotals?.total_boxes ?? inventory.length).toLocaleString()}
                 </h3>
               </div>
             </div>
@@ -1452,10 +1459,14 @@ export default function BodegaGestionV2({
                 <QrCode className="w-6 h-6 text-[#2ec4f1]" />
               </div>
               <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">Total Unidades</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">Total Equipos TC</p>
                 <h3 className="text-2xl font-black text-[#181c3a]">
-                  {inventory.reduce((sum, b) => sum + (b.unitCount ?? b.series?.length ?? 0), 0).toLocaleString()}
+                  {(
+                    warehouseTotals?.total_equipos ??
+                    inventory.reduce((sum, b) => sum + (b.unitCount ?? b.series?.length ?? 0), 0)
+                  ).toLocaleString()}
                 </h3>
+                <p className="text-[9px] font-bold text-slate-400">Por OS (no series S1–S4)</p>
               </div>
             </div>
           </Card>
@@ -1467,7 +1478,7 @@ export default function BodegaGestionV2({
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">Cajas Completas</p>
                 <h3 className="text-2xl font-black text-[#181c3a]">
-                  {inventory.filter(b => b.status === 'Full').length}
+                  {(warehouseTotals?.cajas_completas ?? inventory.filter((b) => b.status === 'Full').length).toLocaleString()}
                 </h3>
               </div>
             </div>
@@ -1480,7 +1491,7 @@ export default function BodegaGestionV2({
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">Cajas en Proceso</p>
                 <h3 className="text-2xl font-black text-[#181c3a]">
-                  {inventory.filter(b => b.status === 'Parcial').length}
+                  {(warehouseTotals?.cajas_parciales ?? inventory.filter((b) => b.status === 'Parcial').length).toLocaleString()}
                 </h3>
               </div>
             </div>
@@ -1493,7 +1504,7 @@ export default function BodegaGestionV2({
             <div className="flex items-center gap-2 mb-3">
               <Cpu className="w-4 h-4 text-[#2ec4f1]" />
               <h3 className="text-[11px] font-black uppercase tracking-widest text-slate-600">
-                Unidades por Tecnología
+                Equipos TC por Tecnología
               </h3>
               {filterTech && (
                 <button
@@ -1527,7 +1538,7 @@ export default function BodegaGestionV2({
                       {t.units.toLocaleString()}
                     </h4>
                     <p className="text-[10px] font-bold text-slate-500 mt-0.5">
-                      {t.boxes} {t.boxes === 1 ? 'caja' : 'cajas'}
+                      {t.boxes} {t.boxes === 1 ? 'caja' : 'cajas'} · equipos OS
                     </p>
                   </button>
                 );

@@ -322,10 +322,10 @@ export default function IntegracionSapPage() {
     }
 
     const { kpis, lastUpload } = dashboardData || { kpis: {}, lastUpload: null };
-    const seriesBase = kpis?.totalSeries || 0;
     const equiposBase = kpis?.totalTC || 0;
-    const seriesValPct = seriesBase ? Math.round(((kpis?.seriesValidadas || 0) / seriesBase) * 100) : 0;
+    const seriesBase = kpis?.totalSeries || 0;
     const validadosPct = equiposBase ? Math.round((kpis.validados / equiposBase) * 100) : 0;
+    const seriesValPct = seriesBase ? Math.round(((kpis?.seriesValidadas || 0) / seriesBase) * 100) : 0;
     const parcialPct = equiposBase ? Math.round(((kpis?.inconsistentes || 0) / equiposBase) * 100) : 0;
 
     return (
@@ -334,33 +334,33 @@ export default function IntegracionSapPage() {
           <Card className="p-5 border-none shadow-sm rounded-3xl bg-white flex flex-col justify-between h-32">
             <div className="flex justify-between items-start">
               <div>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Series ETL (cruzables)</p>
-                <h3 className="text-2xl font-black text-[#181c3a]">{(kpis?.totalSeries ?? 0).toLocaleString()}</h3>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Equipos TC (OS)</p>
+                <h3 className="text-2xl font-black text-[#181c3a]">{(kpis?.totalTC ?? 0).toLocaleString()}</h3>
               </div>
               <div className="w-10 h-10 rounded-2xl bg-blue-50 flex items-center justify-center">
                 <Database className="w-5 h-5 text-blue-500" />
               </div>
             </div>
             <p className="text-[10px] font-bold text-slate-400">
-              {(kpis?.totalTC ?? 0).toLocaleString()} equipos/OS · universo G985
+              {(kpis?.totalSeries ?? 0).toLocaleString()} series ligadas · 1 OS = 1 equipo
             </p>
           </Card>
 
           <Card className="p-5 border-none shadow-sm rounded-3xl bg-white flex flex-col justify-between h-32">
             <div className="flex justify-between items-start">
               <div>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Series validadas</p>
-                <h3 className="text-2xl font-black text-emerald-600">{(kpis?.seriesValidadas ?? 0).toLocaleString()}</h3>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Equipos validados SAP</p>
+                <h3 className="text-2xl font-black text-emerald-600">{(kpis?.validados ?? 0).toLocaleString()}</h3>
               </div>
               <div className="w-10 h-10 rounded-2xl bg-emerald-50 flex items-center justify-center">
                 <CheckCircle2 className="w-5 h-5 text-emerald-500" />
               </div>
             </div>
             <div className="w-full bg-slate-100 rounded-full h-1.5 mt-2">
-              <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: `${seriesValPct}%` }} />
+              <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: `${validadosPct}%` }} />
             </div>
             <p className="text-[10px] font-bold text-slate-400 mt-1">
-              {(kpis?.validados ?? 0).toLocaleString()} equipos OK ({validadosPct}%)
+              {(kpis?.seriesValidadas ?? 0).toLocaleString()} series OK ({seriesValPct}% series)
             </p>
           </Card>
 

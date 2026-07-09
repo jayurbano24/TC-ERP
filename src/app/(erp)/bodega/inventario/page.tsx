@@ -38,9 +38,10 @@ export default function InventarioDetallePage() {
 
   const exportToExcel = () => {
     const headers = [
-      'Fecha / Hora', 'No. Guía', 'Piloto', 'Courier', 'Recibió', 'Estatus',
-      'Orden Servicio', 'Ingreso', 'Origen', 'Agencia / Proveedor', 'Tecnología',
-      'Marca', 'Modelo', 'Caja', 'Val. SAP', 'S-1', 'S-2', 'S-3', 'S-4', 'Material', 'Valoración'
+      'Fecha / Hora', 'No. Guía', 'Orden Servicio', 'Val. SAP',
+      'S-1 (SAP)', 'S-2', 'S-3', 'S-4', 'Material', 'Valoración',
+      'Estatus', 'Caja', 'Tecnología', 'Marca', 'Modelo',
+      'Piloto', 'Courier', 'Recibió', 'Ingreso', 'Origen', 'Agencia / Proveedor'
     ];
 
     const csvContent = [
@@ -50,18 +51,7 @@ export default function InventarioDetallePage() {
         return [
           i.created_at ? new Date(i.created_at).toLocaleString() : 'N/A',
           r.guide_number || 'PX',
-          extractField(r.notes, 'Piloto') || 'N/A',
-          r.carrier || extractField(r.notes, 'Courier') || 'REDESIS',
-          extractField(r.notes, 'Recibido Por') || r.received_by || 'SISTEMA',
-          resolveWarehouseStatusLabel(i.current_status),
           i.service_orders?.os_label || 'TC-00012',
-          i.service_orders?.reentry_count ? `${i.service_orders.reentry_count}° Ingreso` : '1° Ingreso',
-          r.source === 'cac' ? 'CAC' : 'PX',
-          extractField(r.notes, 'Backoffice_Agency') || extractField(r.notes, 'Agencia') || r.carrier || '---',
-          i.models?.technologies?.name || extractField(r.notes, 'Backoffice_Tech') || 'N/A',
-          i.brands?.name || extractField(r.notes, 'Backoffice_Brand') || 'N/A',
-          i.models?.name || extractField(r.notes, 'Backoffice_Model') || 'N/A',
-          i.boxes?.box_code || i.boxes?.id || 'SIN CAJA',
           i.unitSapValidationStatus || 'Pendiente Validación',
           i.s1 || i.serial_number || '',
           i.s2 || '---',
@@ -69,6 +59,17 @@ export default function InventarioDetallePage() {
           i.s4 || '---',
           i.material || '---',
           i.valuation || '---',
+          resolveWarehouseStatusLabel(i.current_status),
+          i.boxes?.box_code || i.boxes?.id || 'SIN CAJA',
+          i.models?.technologies?.name || extractField(r.notes, 'Backoffice_Tech') || 'N/A',
+          i.brands?.name || extractField(r.notes, 'Backoffice_Brand') || 'N/A',
+          i.models?.name || extractField(r.notes, 'Backoffice_Model') || 'N/A',
+          extractField(r.notes, 'Piloto') || 'N/A',
+          r.carrier || extractField(r.notes, 'Courier') || 'REDESIS',
+          extractField(r.notes, 'Recibido Por') || r.received_by || 'SISTEMA',
+          i.service_orders?.reentry_count ? `${i.service_orders.reentry_count}° Ingreso` : '1° Ingreso',
+          r.source === 'cac' ? 'CAC' : 'PX',
+          extractField(r.notes, 'Backoffice_Agency') || extractField(r.notes, 'Agencia') || r.carrier || '---',
         ].map(v => '"' + v + '"').join(',');
       })
     ].join('\n');
@@ -87,6 +88,33 @@ export default function InventarioDetallePage() {
   const groupedItems = React.useMemo(() => {
     const groups: { [key: string]: any } = {};
     const ungrouped: any[] = [];
+
+    const isSapValidated = (status?: string | null) => {
+      const key = String(status || '').trim().toLowerCase();
+      return key === 'validado' || key === 'validado sap';
+    };
+
+    /** S1 = serie Validada SAP (si hay); luego main_serial; luego fecha. */
+    const orderSeriesForDisplay = (rows: any[]) => {
+      const mainSerial = String(rows.find((r) => r?.service_orders)?.service_orders?.main_serial || '')
+        .trim()
+        .toUpperCase();
+      return [...rows].sort((a, b) => {
+        const aOk = isSapValidated(a.sap_status) ? 0 : 1;
+        const bOk = isSapValidated(b.sap_status) ? 0 : 1;
+        if (aOk !== bOk) return aOk - bOk;
+        if (mainSerial) {
+          const aSn = String(a.serial_number || '').toUpperCase();
+          const bSn = String(b.serial_number || '').toUpperCase();
+          if (aSn === mainSerial && bSn !== mainSerial) return -1;
+          if (bSn === mainSerial && aSn !== mainSerial) return 1;
+        }
+        const ta = new Date(a.created_at || 0).getTime();
+        const tb = new Date(b.created_at || 0).getTime();
+        if (ta !== tb) return ta - tb;
+        return String(a.serial_number || '').localeCompare(String(b.serial_number || ''));
+      });
+    };
 
     items.forEach((i) => {
       const soId = i.service_order_id;
@@ -109,12 +137,10 @@ export default function InventarioDetallePage() {
       if (!groups[soId]) {
         groups[soId] = {
           ...i,
-          series_list: [] as string[],
-          seriesSapStatuses: [] as string[],
+          series_rows: [] as any[],
         };
       }
-      groups[soId].series_list.push(i.serial_number);
-      groups[soId].seriesSapStatuses.push(i.sap_status || 'Pendiente');
+      groups[soId].series_rows.push(i);
       if (i.material) groups[soId].material = i.material;
       if (i.valuation) groups[soId].valuation = i.valuation;
       if (i.service_orders?.sap_integration_status) {
@@ -126,13 +152,20 @@ export default function InventarioDetallePage() {
     });
 
     const mergedGroups = Object.values(groups).map((g) => {
-      const seriesSapStatuses = g.seriesSapStatuses as string[];
+      const ordered = orderSeriesForDisplay(g.series_rows as any[]);
+      // Preferir material/valuation de la serie Validada (S1)
+      const primary = ordered.find((r) => isSapValidated(r.sap_status)) || ordered[0];
+      const seriesSapStatuses = ordered.map((r) => r.sap_status || 'Pendiente');
       return {
         ...g,
-        s1: g.series_list[0] || g.serial_number,
-        s2: g.series_list[1] || '---',
-        s3: g.series_list[2] || '---',
-        s4: g.series_list[3] || '---',
+        ...(primary || {}),
+        service_orders: g.service_orders,
+        material: primary?.material || g.material || null,
+        valuation: primary?.valuation || g.valuation || null,
+        s1: ordered[0]?.serial_number || g.serial_number,
+        s2: ordered[1]?.serial_number || '---',
+        s3: ordered[2]?.serial_number || '---',
+        s4: ordered[3]?.serial_number || '---',
         seriesSapStatuses,
         unitSapValidationStatus: resolveUnitSapStatus(
           g.service_orders?.sap_integration_status,
@@ -169,7 +202,7 @@ export default function InventarioDetallePage() {
     {
       id: 'fecha',
       header: 'Fecha / Hora',
-      width: '150px',
+      width: '140px',
       cellClassName: 'whitespace-nowrap',
       cell: (item: any) => (item.created_at ? new Date(item.created_at).toLocaleString() : 'N/A'),
     },
@@ -181,35 +214,68 @@ export default function InventarioDetallePage() {
       cell: (item: any) => (item.receptions || {}).guide_number || 'PX',
     },
     {
-      id: 'piloto',
-      header: 'Piloto',
-      width: '120px',
-      cellClassName: 'uppercase',
-      cell: (item: any) => extractField((item.receptions || {}).notes, 'Piloto') || 'N/A',
+      id: 'os',
+      header: 'Orden Servicio',
+      width: '110px',
+      cellClassName: 'font-black',
+      cell: (item: any) => item.service_orders?.os_label || 'TC-00012',
     },
     {
-      id: 'courier',
-      header: 'Courier',
-      width: '120px',
-      cellClassName: 'uppercase',
-      cell: (item: any) => {
-        const r = item.receptions || {};
-        return r.carrier || extractField(r.notes, 'Courier') || 'REDESIS';
-      },
+      id: 'val_sap',
+      header: 'Val. SAP',
+      width: '140px',
+      cell: (item: any) => (
+        <div className="flex flex-col gap-0.5 items-start">
+          <SapValidationBadge status={item.unitSapValidationStatus || 'Pendiente Validación'} />
+          <SeriesSapValidationDots statuses={item.seriesSapStatuses || []} />
+        </div>
+      ),
     },
     {
-      id: 'recibio',
-      header: 'Recibió',
-      width: '120px',
-      cell: (item: any) => {
-        const r = item.receptions || {};
-        return extractField(r.notes, 'Recibido Por') || r.received_by || 'SISTEMA';
-      },
+      id: 's1',
+      header: 'S-1 (SAP)',
+      width: '130px',
+      cellClassName: 'font-mono font-medium text-[#181c3a]',
+      cell: (item: any) => item.s1 || item.serial_number,
+    },
+    {
+      id: 's2',
+      header: 'S-2',
+      width: '110px',
+      cellClassName: 'font-mono font-medium text-[#181c3a]',
+      cell: (item: any) => item.s2 || '---',
+    },
+    {
+      id: 's3',
+      header: 'S-3',
+      width: '110px',
+      cellClassName: 'font-mono font-medium text-[#181c3a]',
+      cell: (item: any) => item.s3 || '---',
+    },
+    {
+      id: 's4',
+      header: 'S-4',
+      width: '110px',
+      cellClassName: 'font-mono font-medium text-[#181c3a]',
+      cell: (item: any) => item.s4 || '---',
+    },
+    {
+      id: 'material',
+      header: 'Material',
+      width: '110px',
+      cellClassName: 'font-bold',
+      cell: (item: any) => item.material || '---',
+    },
+    {
+      id: 'valoracion',
+      header: 'Valoración',
+      width: '110px',
+      cell: (item: any) => item.valuation || '---',
     },
     {
       id: 'estatus',
       header: 'Estatus',
-      width: '140px',
+      width: '130px',
       cell: (item: any) => {
         const statusLabel = resolveWarehouseStatusLabel(item.current_status);
         const statusVariant = item.current_status === 'in_central_warehouse' ? 'green' : 'purple';
@@ -217,42 +283,16 @@ export default function InventarioDetallePage() {
       },
     },
     {
-      id: 'os',
-      header: 'Orden Servicio',
-      width: '120px',
-      cellClassName: 'font-black',
-      cell: (item: any) => item.service_orders?.os_label || 'TC-00012',
-    },
-    {
-      id: 'ingreso',
-      header: 'Ingreso',
-      width: '90px',
-      cell: (item: any) =>
-        item.service_orders?.reentry_count
-          ? `${item.service_orders.reentry_count}° Ingreso`
-          : '1° Ingreso',
-    },
-    {
-      id: 'origen',
-      header: 'Origen',
-      width: '80px',
-      cellClassName: 'font-bold text-slate-600',
-      cell: (item: any) => ((item.receptions || {}).source === 'cac' ? 'CAC' : 'PX'),
-    },
-    {
-      id: 'agencia',
-      header: 'Agencia / Proveedor',
-      width: '150px',
-      cellClassName: 'uppercase',
-      cell: (item: any) => {
-        const r = item.receptions || {};
-        return extractField(r.notes, 'Backoffice_Agency') || extractField(r.notes, 'Agencia') || r.carrier || '---';
-      },
+      id: 'caja',
+      header: 'Caja',
+      width: '100px',
+      cellClassName: 'font-black text-amber-500',
+      cell: (item: any) => item.boxes?.box_code || item.boxes?.id || 'SIN CAJA',
     },
     {
       id: 'tecnologia',
       header: 'Tecnología',
-      width: '110px',
+      width: '100px',
       cellClassName: 'uppercase',
       cell: (item: any) =>
         item.models?.technologies?.name || extractField((item.receptions || {}).notes, 'Backoffice_Tech') || 'N/A',
@@ -274,63 +314,56 @@ export default function InventarioDetallePage() {
         item.models?.name || extractField((item.receptions || {}).notes, 'Backoffice_Model') || 'N/A',
     },
     {
-      id: 'caja',
-      header: 'Caja',
-      width: '100px',
-      cellClassName: 'font-black text-amber-500',
-      cell: (item: any) => item.boxes?.box_code || item.boxes?.id || 'SIN CAJA',
-    },
-    {
-      id: 'val_sap',
-      header: 'Val. SAP',
-      width: '140px',
-      cell: (item: any) => (
-        <div className="flex flex-col gap-0.5 items-start">
-          <SapValidationBadge status={item.unitSapValidationStatus || 'Pendiente Validación'} />
-          <SeriesSapValidationDots statuses={item.seriesSapStatuses || []} />
-        </div>
-      ),
-    },
-    {
-      id: 's1',
-      header: 'S-1',
-      width: '120px',
-      cellClassName: 'font-mono font-medium text-[#181c3a]',
-      cell: (item: any) => item.s1 || item.serial_number,
-    },
-    {
-      id: 's2',
-      header: 'S-2',
-      width: '100px',
-      cellClassName: 'font-mono font-medium text-[#181c3a]',
-      cell: (item: any) => item.s2 || '---',
-    },
-    {
-      id: 's3',
-      header: 'S-3',
-      width: '100px',
-      cellClassName: 'font-mono font-medium text-[#181c3a]',
-      cell: (item: any) => item.s3 || '---',
-    },
-    {
-      id: 's4',
-      header: 'S-4',
-      width: '100px',
-      cellClassName: 'font-mono font-medium text-[#181c3a]',
-      cell: (item: any) => item.s4 || '---',
-    },
-    {
-      id: 'material',
-      header: 'Material',
+      id: 'piloto',
+      header: 'Piloto',
       width: '110px',
-      cellClassName: 'font-bold',
-      cell: (item: any) => item.material || '---',
+      cellClassName: 'uppercase',
+      cell: (item: any) => extractField((item.receptions || {}).notes, 'Piloto') || 'N/A',
     },
     {
-      id: 'valoracion',
-      header: 'Valoración',
-      width: '120px',
-      cell: (item: any) => item.valuation || '---',
+      id: 'courier',
+      header: 'Courier',
+      width: '110px',
+      cellClassName: 'uppercase',
+      cell: (item: any) => {
+        const r = item.receptions || {};
+        return r.carrier || extractField(r.notes, 'Courier') || 'REDESIS';
+      },
+    },
+    {
+      id: 'recibio',
+      header: 'Recibió',
+      width: '140px',
+      cell: (item: any) => {
+        const r = item.receptions || {};
+        return extractField(r.notes, 'Recibido Por') || r.received_by || 'SISTEMA';
+      },
+    },
+    {
+      id: 'ingreso',
+      header: 'Ingreso',
+      width: '90px',
+      cell: (item: any) =>
+        item.service_orders?.reentry_count
+          ? `${item.service_orders.reentry_count}° Ingreso`
+          : '1° Ingreso',
+    },
+    {
+      id: 'origen',
+      header: 'Origen',
+      width: '70px',
+      cellClassName: 'font-bold text-slate-600',
+      cell: (item: any) => ((item.receptions || {}).source === 'cac' ? 'CAC' : 'PX'),
+    },
+    {
+      id: 'agencia',
+      header: 'Agencia / Proveedor',
+      width: '140px',
+      cellClassName: 'uppercase',
+      cell: (item: any) => {
+        const r = item.receptions || {};
+        return extractField(r.notes, 'Backoffice_Agency') || extractField(r.notes, 'Agencia') || r.carrier || '---';
+      },
     },
   ], []);
 

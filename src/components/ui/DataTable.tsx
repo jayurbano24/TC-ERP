@@ -108,8 +108,13 @@ function DataTableComponent<T>({
 
   const stickyEndClass = (col: DataTableColumn<T>, isHeader = false) =>
     col.sticky === 'end'
-      ? `sticky right-0 z-10 shadow-[-6px_0_10px_-6px_rgba(0,0,0,0.12)] ${isHeader ? '' : 'bg-[var(--surface)] group-hover:bg-[var(--surface-hover)]'}`
+      ? `sticky right-0 z-20 shadow-[-6px_0_10px_-6px_rgba(0,0,0,0.12)] ${isHeader ? 'bg-inherit' : 'bg-[var(--surface)] group-hover:bg-[var(--surface-hover)]'}`
       : '';
+
+  const minWidthStyle =
+    minWidth == null
+      ? undefined
+      : { minWidth: typeof minWidth === 'number' ? `${minWidth}px` : minWidth };
 
   const renderCells = (row: T, index: number) =>
     columns.map((col) => (
@@ -121,18 +126,21 @@ function DataTableComponent<T>({
       </div>
     ));
 
+  // Un solo contenedor de scroll (X+Y): la cabecera sticky top se mueve
+  // horizontalmente con las filas (evita encabezados “perdidos” al deslizar).
   return (
     <div
-      className={`w-full min-w-0 overflow-x-auto custom-scrollbar ${className}`}
+      ref={parentRef}
+      className={`w-full min-w-0 overflow-auto custom-scrollbar ${className}`}
+      style={{ maxHeight: maxBodyHeight + 48 }}
       role="table"
       aria-label={ariaLabel}
     >
-      <div className="w-full min-w-0">
-        {/* Cabecera */}
+      <div className="w-full" style={minWidthStyle}>
         <div
           role="row"
-          className={`grid w-full ${headerClassName}`}
-          style={{ gridTemplateColumns }}
+          className={`grid w-full sticky top-0 z-30 ${headerClassName}`}
+          style={{ gridTemplateColumns, ...minWidthStyle }}
         >
           {columns.map((col) => (
             <div
@@ -145,60 +153,52 @@ function DataTableComponent<T>({
           ))}
         </div>
 
-        {/* Cuerpo */}
         {data.length === 0 ? (
           <div className="p-6 text-center text-[var(--muted)] text-sm font-medium">{emptyMessage}</div>
-        ) : (
+        ) : shouldVirtualize ? (
           <div
-            ref={parentRef}
-            className="overflow-y-auto overflow-x-visible"
-            style={{ maxHeight: maxBodyHeight }}
+            style={{
+              height: rowVirtualizer.getTotalSize(),
+              position: 'relative',
+              width: '100%',
+              ...minWidthStyle,
+            }}
           >
-            {shouldVirtualize ? (
-              <div
-                style={{
-                  height: rowVirtualizer.getTotalSize(),
-                  position: 'relative',
-                  width: '100%',
-                }}
-              >
-                {rowVirtualizer.getVirtualItems().map((vItem) => {
-                  const row = data[vItem.index];
-                  return (
-                    <div
-                      key={getRowId(row, vItem.index)}
-                      role="row"
-                      onClick={clickable ? () => onRowClick!(row, vItem.index) : undefined}
-                      className={`grid items-center border-b border-[var(--border)] ${rowText} font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)] group ${clickable ? 'cursor-pointer' : ''} ${rowClassName?.(row, vItem.index) ?? ''}`}
-                      style={{
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        width: '100%',
-                        height: vItem.size,
-                        transform: `translateY(${vItem.start}px)`,
-                        gridTemplateColumns,
-                      }}
-                    >
-                      {renderCells(row, vItem.index)}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              data.map((row, index) => (
+            {rowVirtualizer.getVirtualItems().map((vItem) => {
+              const row = data[vItem.index];
+              return (
                 <div
-                  key={getRowId(row, index)}
+                  key={getRowId(row, vItem.index)}
                   role="row"
-                  onClick={clickable ? () => onRowClick!(row, index) : undefined}
-                  className={`grid w-full items-center border-b border-[var(--border)] ${rowText} font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)] group ${clickable ? 'cursor-pointer' : ''} ${rowClassName?.(row, index) ?? ''}`}
-                  style={{ gridTemplateColumns, minHeight: rowHeight }}
+                  onClick={clickable ? () => onRowClick!(row, vItem.index) : undefined}
+                  className={`grid items-center border-b border-[var(--border)] ${rowText} font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)] group ${clickable ? 'cursor-pointer' : ''} ${rowClassName?.(row, vItem.index) ?? ''}`}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: vItem.size,
+                    transform: `translateY(${vItem.start}px)`,
+                    gridTemplateColumns,
+                  }}
                 >
-                  {renderCells(row, index)}
+                  {renderCells(row, vItem.index)}
                 </div>
-              ))
-            )}
+              );
+            })}
           </div>
+        ) : (
+          data.map((row, index) => (
+            <div
+              key={getRowId(row, index)}
+              role="row"
+              onClick={clickable ? () => onRowClick!(row, index) : undefined}
+              className={`grid w-full items-center border-b border-[var(--border)] ${rowText} font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)] group ${clickable ? 'cursor-pointer' : ''} ${rowClassName?.(row, index) ?? ''}`}
+              style={{ gridTemplateColumns, minHeight: rowHeight, ...minWidthStyle }}
+            >
+              {renderCells(row, index)}
+            </div>
+          ))
         )}
       </div>
     </div>

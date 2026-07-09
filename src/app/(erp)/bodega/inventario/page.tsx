@@ -262,15 +262,29 @@ export default function InventarioDetallePage() {
     {
       id: 'material',
       header: 'Material',
-      width: '110px',
+      width: '120px',
       cellClassName: 'font-bold',
-      cell: (item: any) => item.material || '---',
+      cell: (item: any) =>
+        item.material ? (
+          <span className="text-[#181c3a]">{item.material}</span>
+        ) : (
+          <span className="text-slate-300">Sin material</span>
+        ),
     },
     {
       id: 'valoracion',
       header: 'Valoración',
-      width: '110px',
-      cell: (item: any) => item.valuation || '---',
+      width: '130px',
+      cell: (item: any) =>
+        item.valuation ? (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide bg-emerald-50 text-emerald-700 border border-emerald-100">
+            Valorado · {item.valuation}
+          </span>
+        ) : (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide bg-slate-100 text-slate-500 border border-slate-200">
+            No valorado
+          </span>
+        ),
     },
     {
       id: 'estatus',
@@ -446,21 +460,23 @@ export default function InventarioDetallePage() {
           );
         })()}
 
-        <Card className="overflow-hidden border-2 border-slate-100 shadow-sm">
+        <Card className="border-2 border-slate-100 shadow-sm overflow-visible">
           {loading ? (
             <div className="p-8 text-center text-slate-400">Cargando inventario...</div>
           ) : (
-            <DataTable
-              columns={inventarioColumns}
-              data={filteredItems}
-              getRowId={(_item: any, index: number) => index}
-              rowHeight={64}
-              maxBodyHeight={620}
-              minWidth={2680}
-              headerClassName="bg-[#181c3a]"
-              headerTextClassName="text-white/90"
-              emptyMessage="No se encontraron unidades"
-            />
+            <div className="w-full overflow-x-scroll overflow-y-hidden custom-scrollbar">
+              <DataTable
+                columns={inventarioColumns}
+                data={filteredItems}
+                getRowId={(_item: any, index: number) => index}
+                rowHeight={64}
+                maxBodyHeight={620}
+                minWidth={2800}
+                headerClassName="bg-[#181c3a]"
+                headerTextClassName="text-white/90"
+                emptyMessage="No se encontraron unidades"
+              />
+            </div>
           )}
         </Card>
       </div>

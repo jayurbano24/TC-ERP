@@ -8,7 +8,12 @@ import {
 import { Card, Button, Badge, DataTable, type DataTableColumn } from '@/components/ui';
 import { apiFetch } from '@/lib/http/apiFetch';
 import { useQuery } from '@tanstack/react-query';
-import { parseSapUploadFile, type SapUploadRow } from '@/lib/sap/parseSapUploadFile';
+import {
+  parseSapUploadFile,
+  extractSapMaterial,
+  extractSapValuation,
+  type SapUploadRow,
+} from '@/lib/sap/parseSapUploadFile';
 
 // Referencia estable para la query mientras no hay datos.
 const EMPTY_SAP_HISTORY: any[] = [];
@@ -60,9 +65,8 @@ async function runSapMatchingPipeline(
 
   setUploadStatus('matching');
 
-  // Series únicas + material + valoración SAP
-  // G985: Material = código (col A); Valoración = Status del sistema
-  // (VALORADO ALMA / NOVALORAD ALMA). Lote/Lote de stock es otro campo.
+  // Series únicas + material + valoración según layout real G985
+  // Material = código; Valoración = Lote / Lote de stock (VALORADO|NOVALORAD)
   const serialSet = new Set<string>();
   const materials: Record<string, string> = {};
   const valuations: Record<string, string> = {};
@@ -70,15 +74,10 @@ async function runSapMatchingPipeline(
     const sn = String(row['Número de serie'] || '').trim();
     if (!sn || sn.length > 80) continue;
     serialSet.add(sn);
-    const mat = String(row['Material'] || '').trim();
-    if (mat && !materials[sn]) materials[sn] = mat.slice(0, 120);
-
-    const statusSistema = String(row['Status del sistema'] || '').trim();
-    const lote = String(row['Lote'] || row['Lote de stock'] || '').trim();
-    // Preferir VALORADO/NOVALORAD del status SAP; si no, caer a Lote (despacho legacy)
-    const valoracion =
-      /valorad|novalorad/i.test(statusSistema) ? statusSistema : lote || statusSistema;
-    if (valoracion && !valuations[sn]) valuations[sn] = valoracion.slice(0, 120);
+    const mat = extractSapMaterial(row);
+    if (mat && !materials[sn]) materials[sn] = mat;
+    const valoracion = extractSapValuation(row);
+    if (valoracion && !valuations[sn]) valuations[sn] = valoracion;
   }
   const serials = Array.from(serialSet);
   if (serials.length === 0) {
@@ -655,7 +654,8 @@ export default function IntegracionSapPage() {
                     <div>
                       <p className="text-[10px] font-black text-amber-800 uppercase tracking-widest mb-1">Columnas Obligatorias</p>
                       <p className="text-[9px] font-bold text-amber-700/80 leading-relaxed">
-                        Material, Texto breve de material, Número de serie, Centro, Almacén, Lote, Status del sistema, Lote de stock.
+                        Material, Texto breve de material, Número de serie, Centro, Almacén,
+                        Lote (VALORADO/NOVALORAD), Status del sistema (ALMA), Lote de stock.
                       </p>
                     </div>
                   </div>

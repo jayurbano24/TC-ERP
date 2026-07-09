@@ -21,13 +21,43 @@ const HEADER_ALIASES: Record<string, (typeof SAP_REQUIRED_COLUMNS)[number]> = {
   almacen: 'Almacén',
   'número de serie': 'Número de serie',
   'numero de serie': 'Número de serie',
+  'nº de serie': 'Número de serie',
+  'n° de serie': 'Número de serie',
   material: 'Material',
   'texto breve de material': 'Texto breve de material',
+  'texto breve material': 'Texto breve de material',
   centro: 'Centro',
   lote: 'Lote',
   'status del sistema': 'Status del sistema',
+  'estatus del sistema': 'Status del sistema',
   'lote de stock': 'Lote de stock',
 };
+
+/**
+ * Layout real G985 (export SAP):
+ * - Material          → código (ej. 1005749)
+ * - Texto breve…      → descripción
+ * - Número de serie   → serie a cruzar
+ * - Lote / Lote stock → VALORADO | NOVALORAD  ← esto es la "Valoración" en TC
+ * - Status del sistema→ ALMA (estado almacén, NO es valoración)
+ */
+export function extractSapValuation(row: SapUploadRow): string {
+  const lote = String(row['Lote'] || '').trim();
+  const loteStock = String(row['Lote de stock'] || '').trim();
+  const status = String(row['Status del sistema'] || '').trim();
+
+  const candidates = [lote, loteStock, status];
+  const valued = candidates.find((c) => /valorad|novalorad/i.test(c));
+  if (valued) return valued.slice(0, 120);
+
+  // Fallback: primer campo no vacío entre lote / lote stock
+  const fallback = lote || loteStock;
+  return fallback ? fallback.slice(0, 120) : '';
+}
+
+export function extractSapMaterial(row: SapUploadRow): string {
+  return String(row['Material'] || '').trim().slice(0, 120);
+}
 
 export function normalizeSapHeader(header: string): string {
   const trimmed = header.replace(/\uFEFF/g, '').trim();

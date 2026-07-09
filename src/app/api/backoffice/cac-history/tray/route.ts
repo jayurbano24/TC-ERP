@@ -32,8 +32,9 @@ export const GET = withErrorHandler(
     const url = new URL(req.url);
     const includeSapValidation = url.searchParams.get('includeSap') !== '0';
     const result = await queryCacTrayPage(parseTrayParams(url), { includeSapValidation });
+    // Sin cache: VAL. SAP / Bodega deben reflejar el sync G985 y el ingreso a Bodega al instante.
     return NextResponse.json(result, {
-      headers: { 'Cache-Control': 'private, max-age=15, stale-while-revalidate=60' },
+      headers: { 'Cache-Control': 'private, no-store' },
     });
   },
   { module: 'backoffice', action: 'cac-history.tray' }

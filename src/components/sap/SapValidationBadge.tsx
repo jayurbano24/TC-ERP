@@ -29,11 +29,15 @@ type SeriesProps = {
 
 /** Indicador por serie (S1–S4) según sap_status de Integración SAP. */
 export function SeriesSapValidationDots({ statuses }: SeriesProps) {
-  if (!statuses.length) return <span className="text-[10px] text-slate-300">—</span>;
+  const visible = statuses.filter((raw) => {
+    const t = String(raw ?? '').trim();
+    return t.length > 0 && t !== '—';
+  });
+  if (!visible.length) return <span className="text-[10px] text-slate-300">—</span>;
 
   return (
     <div className="flex flex-wrap gap-1">
-      {statuses.map((raw, idx) => {
+      {visible.map((raw, idx) => {
         const state = normalizeSeriesSapStatus(raw);
         const meta = getSapStatusMeta(state);
         return (

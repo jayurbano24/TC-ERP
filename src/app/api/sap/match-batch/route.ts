@@ -12,6 +12,7 @@ export const maxDuration = 60;
 const BatchSchema = z.object({
   serials: z.array(z.string()).min(1).max(3_000),
   materials: z.record(z.string(), z.string()).optional().default({}),
+  valuations: z.record(z.string(), z.string()).optional().default({}),
 });
 
 const MAX_SERIAL_LEN = 80;
@@ -22,6 +23,7 @@ type MatchRow = {
   serial_number: string;
   service_order_id: string;
   material: string | null;
+  valuation: string | null;
 };
 
 /**
@@ -35,6 +37,7 @@ export const POST = withErrorHandler(async (request: Request) => {
 
   const norms: string[] = [];
   const materialByNorm = new Map<string, string>();
+  const valuationByNorm = new Map<string, string>();
   const seen = new Set<string>();
 
   for (const raw of body.serials) {
@@ -51,13 +54,19 @@ export const POST = withErrorHandler(async (request: Request) => {
     if (material) materialByNorm.set(key, material);
   }
 
+  for (const [raw, val] of Object.entries(body.valuations || {})) {
+    const key = normalizeSerial(raw);
+    if (!key || key.length > MAX_SERIAL_LEN) continue;
+    const valuation = String(val || '').trim().slice(0, 120);
+    if (valuation) valuationByNorm.set(key, valuation);
+  }
+
   const matches: MatchRow[] = [];
   let queries = 0;
 
   for (let i = 0; i < norms.length; i += IN_CHUNK) {
     const chunk = norms.slice(i, i + IN_CHUNK);
 
-    // Preferir columna generada (migración 097); fallback a upper(trim)
     let data: { id: string; serial_number: string; service_order_id: string }[] | null = null;
     let error: { message?: string; code?: string } | null = null;
 
@@ -69,9 +78,6 @@ export const POST = withErrorHandler(async (request: Request) => {
     queries += 1;
 
     if (byCol.error && /serial_normalized|column/i.test(byCol.error.message || '')) {
-      // Pre-migración: filtrar en memoria sobre un IN por serial_number exacto no basta;
-      // usamos ilike no sirve para IN. Traemos por filter or de equals case-insensitive
-      // vía RPC no disponible → fallback: .in con valores ya upper (muchas series TC están upper).
       const byExact = await supabase
         .from('series')
         .select('id, serial_number, service_order_id')
@@ -94,6 +100,7 @@ export const POST = withErrorHandler(async (request: Request) => {
         serial_number: row.serial_number,
         service_order_id: row.service_order_id,
         material: materialByNorm.get(norm) ?? null,
+        valuation: valuationByNorm.get(norm) ?? null,
       });
     }
   }

@@ -60,15 +60,19 @@ async function runSapMatchingPipeline(
 
   setUploadStatus('matching');
 
-  // Series únicas + material (payload chico)
+  // Series únicas + material + valoración (Lote SAP)
   const serialSet = new Set<string>();
   const materials: Record<string, string> = {};
+  const valuations: Record<string, string> = {};
   for (const row of rows) {
     const sn = String(row['Número de serie'] || '').trim();
     if (!sn || sn.length > 80) continue;
     serialSet.add(sn);
     const mat = String(row['Material'] || '').trim();
     if (mat && !materials[sn]) materials[sn] = mat.slice(0, 120);
+    // En TC, series.valuation = Lote SAP (misma convención que despacho)
+    const lote = String(row['Lote'] || row['Lote de stock'] || '').trim();
+    if (lote && !valuations[sn]) valuations[sn] = lote.slice(0, 120);
   }
   const serials = Array.from(serialSet);
   if (serials.length === 0) {
@@ -84,6 +88,7 @@ async function runSapMatchingPipeline(
     serial_number: string;
     service_order_id: string;
     material: string | null;
+    valuation: string | null;
   };
   const allMatches: MatchRow[] = [];
   let totalQueries = 0;
@@ -93,8 +98,10 @@ async function runSapMatchingPipeline(
   for (let i = 0; i < serials.length; i += BATCH) {
     const chunk = serials.slice(i, i + BATCH);
     const batchMaterials: Record<string, string> = {};
+    const batchValuations: Record<string, string> = {};
     for (const sn of chunk) {
       if (materials[sn]) batchMaterials[sn] = materials[sn];
+      if (valuations[sn]) batchValuations[sn] = valuations[sn];
     }
     const batchNo = Math.floor(i / BATCH) + 1;
     logProcess(`Lote ${batchNo}/${totalBatches}: ${chunk.length} series...`);
@@ -102,7 +109,11 @@ async function runSapMatchingPipeline(
     const res = await apiFetch('/api/sap/match-batch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ serials: chunk, materials: batchMaterials }),
+      body: JSON.stringify({
+        serials: chunk,
+        materials: batchMaterials,
+        valuations: batchValuations,
+      }),
     });
     const data = await res.json();
     if (!data.success) {
@@ -123,9 +134,9 @@ async function runSapMatchingPipeline(
 
   // Agregar por equipo (solo matches)
   const seriesByEquipo = new Map<string, MatchRow[]>();
-  const matchedSeriesIds = new Set<string>();
+  const matchedById = new Map<string, MatchRow>();
   for (const m of allMatches) {
-    matchedSeriesIds.add(m.id);
+    matchedById.set(m.id, m);
     if (!seriesByEquipo.has(m.service_order_id)) seriesByEquipo.set(m.service_order_id, []);
     seriesByEquipo.get(m.service_order_id)!.push(m);
   }
@@ -133,7 +144,11 @@ async function runSapMatchingPipeline(
   let validados = 0;
   let inconsistencias = 0;
   const matchedEquipos: { id: string; sap_integration_status: string }[] = [];
-  const matchedSeries = Array.from(matchedSeriesIds).map((id) => ({ id }));
+  const matchedSeries = Array.from(matchedById.values()).map((m) => ({
+    id: m.id,
+    material: m.material,
+    valuation: m.valuation,
+  }));
   const validationDetails: Record<string, unknown>[] = [];
 
   for (const [equipoId, eqMatches] of seriesByEquipo) {
@@ -158,6 +173,8 @@ async function runSapMatchingPipeline(
           tipo_serie: `S${idx + 1}`,
           serie: m.serial_number,
           material: m.material,
+          lote: m.valuation,
+          valoracion: m.valuation,
           coincidencia: true,
         });
       });

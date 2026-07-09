@@ -3,16 +3,16 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Card, Badge, Button, DataTable, type DataTableColumn } from '@/components/ui';
-import { ModulePage, ModuleToolbar } from '@/components/module-page';
-import { Search, MapPin, Package, Download, ArrowLeft } from 'lucide-react';
+import { ModulePage } from '@/components/module-page';
+import { SapValidationBadge, SeriesSapValidationDots } from '@/components/sap/SapValidationBadge';
+import { Search, Download, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { getInventoryDetails, resolveWarehouseStatusLabel } from '@/modules/inventario/client/inventoryQueries';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { resolveUnitSapStatus } from '@/lib/sap/sapValidationStatus';
 
 const EMPTY_ITEMS: any[] = [];
 
-// C1: función pura a nivel de módulo (estable) para que las columnas memoizadas
-// no se recreen en cada render.
 function extractField(notes: string, fieldKey: string) {
   if (!notes) return '';
   const normalizedNotes = notes.replace(/\\n/g, '\n');
@@ -23,8 +23,6 @@ function extractField(notes: string, fieldKey: string) {
 
 export default function InventarioDetallePage() {
   const [searchTerm, setSearchTerm] = useState('');
-  // C5: el input sigue ligado a searchTerm (fluido); el filtrado costoso sobre
-  // la lista completa solo se recomputa con el término debounced.
   const debouncedSearch = useDebouncedValue(searchTerm, 250);
 
   const inventoryQuery = useQuery({
@@ -42,7 +40,7 @@ export default function InventarioDetallePage() {
     const headers = [
       'Fecha / Hora', 'No. Guía', 'Piloto', 'Courier', 'Recibió', 'Estatus',
       'Orden Servicio', 'Ingreso', 'Origen', 'Agencia / Proveedor', 'Tecnología',
-      'Marca', 'Modelo', 'Caja', 'S-1', 'S-2', 'S-3', 'S-4', 'Material', 'Lote'
+      'Marca', 'Modelo', 'Caja', 'Val. SAP', 'S-1', 'S-2', 'S-3', 'S-4', 'Material', 'Valoración'
     ];
 
     const csvContent = [
@@ -57,19 +55,20 @@ export default function InventarioDetallePage() {
           extractField(r.notes, 'Recibido Por') || r.received_by || 'SISTEMA',
           resolveWarehouseStatusLabel(i.current_status),
           i.service_orders?.os_label || 'TC-00012',
-          '1° Ingreso',
+          i.service_orders?.reentry_count ? `${i.service_orders.reentry_count}° Ingreso` : '1° Ingreso',
           r.source === 'cac' ? 'CAC' : 'PX',
           extractField(r.notes, 'Backoffice_Agency') || extractField(r.notes, 'Agencia') || r.carrier || '---',
           i.models?.technologies?.name || extractField(r.notes, 'Backoffice_Tech') || 'N/A',
           i.brands?.name || extractField(r.notes, 'Backoffice_Brand') || 'N/A',
           i.models?.name || extractField(r.notes, 'Backoffice_Model') || 'N/A',
           i.boxes?.box_code || i.boxes?.id || 'SIN CAJA',
+          i.unitSapValidationStatus || 'Pendiente Validación',
           i.s1 || i.serial_number || '',
           i.s2 || '---',
           i.s3 || '---',
           i.s4 || '---',
           i.material || '---',
-          i.valuation || extractField(r.notes, 'Notas') || '---',
+          i.valuation || '---',
         ].map(v => '"' + v + '"').join(',');
       })
     ].join('\n');
@@ -88,28 +87,57 @@ export default function InventarioDetallePage() {
   const groupedItems = React.useMemo(() => {
     const groups: { [key: string]: any } = {};
     const ungrouped: any[] = [];
-    
-    items.forEach(i => {
+
+    items.forEach((i) => {
       const soId = i.service_order_id;
       if (!soId) {
-        ungrouped.push({ ...i, s1: i.serial_number, s2: i.s2, s3: i.s3, s4: i.s4 });
+        const seriesSapStatuses = [i.sap_status || 'Pendiente'];
+        ungrouped.push({
+          ...i,
+          s1: i.serial_number,
+          s2: i.s2,
+          s3: i.s3,
+          s4: i.s4,
+          seriesSapStatuses,
+          unitSapValidationStatus: resolveUnitSapStatus(
+            i.service_orders?.sap_integration_status,
+            seriesSapStatuses
+          ),
+        });
         return;
       }
       if (!groups[soId]) {
-        groups[soId] = { ...i, series_list: [] };
+        groups[soId] = {
+          ...i,
+          series_list: [] as string[],
+          seriesSapStatuses: [] as string[],
+        };
       }
       groups[soId].series_list.push(i.serial_number);
+      groups[soId].seriesSapStatuses.push(i.sap_status || 'Pendiente');
       if (i.material) groups[soId].material = i.material;
       if (i.valuation) groups[soId].valuation = i.valuation;
+      if (i.service_orders?.sap_integration_status) {
+        groups[soId].service_orders = {
+          ...groups[soId].service_orders,
+          ...i.service_orders,
+        };
+      }
     });
 
-    const mergedGroups = Object.values(groups).map(g => {
+    const mergedGroups = Object.values(groups).map((g) => {
+      const seriesSapStatuses = g.seriesSapStatuses as string[];
       return {
         ...g,
         s1: g.series_list[0] || g.serial_number,
         s2: g.series_list[1] || '---',
         s3: g.series_list[2] || '---',
         s4: g.series_list[3] || '---',
+        seriesSapStatuses,
+        unitSapValidationStatus: resolveUnitSapStatus(
+          g.service_orders?.sap_integration_status,
+          seriesSapStatuses
+        ),
       };
     });
 
@@ -126,8 +154,10 @@ export default function InventarioDetallePage() {
         (i.s3 || '').toLowerCase().includes(s) ||
         (i.s4 || '').toLowerCase().includes(s) ||
         (i.service_orders?.os_label || '').toLowerCase().includes(s) ||
+        (i.boxes?.box_code || '').toLowerCase().includes(s) ||
         (i.boxes?.id || '').toLowerCase().includes(s) ||
         (i.material || '').toLowerCase().includes(s) ||
+        (i.valuation || '').toLowerCase().includes(s) ||
         (i.models?.technologies?.name || '').toLowerCase().includes(s) ||
         (i.brands?.name || '').toLowerCase().includes(s) ||
         (i.models?.name || '').toLowerCase().includes(s)
@@ -197,7 +227,10 @@ export default function InventarioDetallePage() {
       id: 'ingreso',
       header: 'Ingreso',
       width: '90px',
-      cell: () => '1° Ingreso',
+      cell: (item: any) =>
+        item.service_orders?.reentry_count
+          ? `${item.service_orders.reentry_count}° Ingreso`
+          : '1° Ingreso',
     },
     {
       id: 'origen',
@@ -248,49 +281,59 @@ export default function InventarioDetallePage() {
       cell: (item: any) => item.boxes?.box_code || item.boxes?.id || 'SIN CAJA',
     },
     {
+      id: 'val_sap',
+      header: 'Val. SAP',
+      width: '140px',
+      cell: (item: any) => (
+        <div className="flex flex-col gap-0.5 items-start">
+          <SapValidationBadge status={item.unitSapValidationStatus || 'Pendiente Validación'} />
+          <SeriesSapValidationDots statuses={item.seriesSapStatuses || []} />
+        </div>
+      ),
+    },
+    {
       id: 's1',
       header: 'S-1',
       width: '120px',
-      cellClassName: 'font-mono font-black text-[#181c3a]',
+      cellClassName: 'font-mono font-medium text-[#181c3a]',
       cell: (item: any) => item.s1 || item.serial_number,
     },
     {
       id: 's2',
       header: 'S-2',
       width: '100px',
-      cellClassName: 'font-mono font-bold text-[#181c3a]',
+      cellClassName: 'font-mono font-medium text-[#181c3a]',
       cell: (item: any) => item.s2 || '---',
     },
     {
       id: 's3',
       header: 'S-3',
       width: '100px',
-      cellClassName: 'font-mono font-bold text-[#181c3a]',
+      cellClassName: 'font-mono font-medium text-[#181c3a]',
       cell: (item: any) => item.s3 || '---',
     },
     {
       id: 's4',
       header: 'S-4',
       width: '100px',
-      cellClassName: 'font-mono font-bold text-[#181c3a]',
+      cellClassName: 'font-mono font-medium text-[#181c3a]',
       cell: (item: any) => item.s4 || '---',
     },
     {
       id: 'material',
       header: 'Material',
-      width: '100px',
+      width: '110px',
       cellClassName: 'font-bold',
       cell: (item: any) => item.material || '---',
     },
     {
-      id: 'lote',
-      header: 'Lote',
+      id: 'valoracion',
+      header: 'Valoración',
       width: '120px',
       cell: (item: any) => item.valuation || '---',
     },
   ], []);
 
-  // C1: KPIs por tecnología memoizados (antes se recomputaban en cada render).
   const techStats = useMemo(() => {
     const technologies = ['ADSL', 'DTH', 'EMTA', 'IPTV', 'ONT', 'STB-HFC', 'WTTH'];
     const techCounts = technologies.reduce((acc, tech) => {
@@ -322,16 +365,16 @@ export default function InventarioDetallePage() {
               <Badge variant="purple">BODEGA</Badge>
             </div>
             <h1 className="text-2xl font-black text-[#181c3a] tracking-tight">Detalle de Inventario</h1>
-            <p className="text-sm text-slate-500 font-medium">Vista a nivel de unidad para todo el inventario en bodega.</p>
+            <p className="text-sm text-slate-500 font-medium">Vista a nivel de equipo TC (OS) con validación SAP, Material y Valoración.</p>
           </div>
         </div>
 
         <div className="flex justify-between items-center bg-white p-4 rounded-xl border-2 border-slate-100 shadow-sm">
           <div className="flex-1 max-w-md relative">
             <Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input 
-              type="text" 
-              placeholder="Buscar por serie, orden de servicio o caja..." 
+            <input
+              type="text"
+              placeholder="Buscar por serie, OS, caja, material..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-[#2ec4f1] outline-none text-sm font-medium"
@@ -344,7 +387,6 @@ export default function InventarioDetallePage() {
           </div>
         </div>
 
-        {/* KPI Cards: Technology Breakdown */}
         {(() => {
           const { technologies, techCounts, uniqueOs } = techStats;
 
@@ -360,7 +402,7 @@ export default function InventarioDetallePage() {
               <Card className="min-w-[140px] p-6 text-center border-2 border-[#2ec4f1]/20 bg-white shadow-sm rounded-[2rem] flex-shrink-0 transition-all">
                 <p className="text-[10px] font-black uppercase text-[#2ec4f1] tracking-widest mb-1">Total Global</p>
                 <h3 className="text-4xl font-black text-[#181c3a] my-3">{filteredItems.length}</h3>
-                <p className="text-[8px] font-bold text-slate-300 uppercase tracking-[0.2em]">Unidades</p>
+                <p className="text-[8px] font-bold text-slate-300 uppercase tracking-[0.2em]">Equipos TC</p>
               </Card>
               <Card className="min-w-[140px] p-6 text-center border-2 border-slate-50 bg-white shadow-sm rounded-[2rem] flex-shrink-0 transition-all">
                 <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Órdenes (OS)</p>
@@ -379,9 +421,9 @@ export default function InventarioDetallePage() {
               columns={inventarioColumns}
               data={filteredItems}
               getRowId={(_item: any, index: number) => index}
-              rowHeight={56}
+              rowHeight={64}
               maxBodyHeight={620}
-              minWidth={2255}
+              minWidth={2680}
               headerClassName="bg-[#181c3a]"
               headerTextClassName="text-white/90"
               emptyMessage="No se encontraron unidades"

@@ -23,7 +23,16 @@ const SyncMatchesSchema = z.object({
     inconsistencias: z.coerce.number().int().nonnegative().optional().default(0),
     timeStr: z.string().max(60).optional().default(''),
   }),
-  matchedSeries: z.array(z.object({ id: z.string().uuid() })).max(100_000).default([]),
+  matchedSeries: z
+    .array(
+      z.object({
+        id: z.string().uuid(),
+        material: z.string().max(120).nullable().optional(),
+        valuation: z.string().max(120).nullable().optional(),
+      })
+    )
+    .max(100_000)
+    .default([]),
   matchedEquipos: z
     .array(
       z.object({

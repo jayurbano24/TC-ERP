@@ -308,6 +308,11 @@ export async function getReceptions(source?: 'cac' | 'px') {
       } catch {
         /* respuesta sin cuerpo JSON */
       }
+      if (res.status === 401 || /no autenticado/i.test(message)) {
+        throw new Error(
+          'Sesión expirada o no autenticado. Recarga la página o vuelve a iniciar sesión.'
+        );
+      }
       throw new Error(message);
     }
 

@@ -60,7 +60,9 @@ async function runSapMatchingPipeline(
 
   setUploadStatus('matching');
 
-  // Series únicas + material + valoración (Lote SAP)
+  // Series únicas + material + valoración SAP
+  // G985: Material = código (col A); Valoración = Status del sistema
+  // (VALORADO ALMA / NOVALORAD ALMA). Lote/Lote de stock es otro campo.
   const serialSet = new Set<string>();
   const materials: Record<string, string> = {};
   const valuations: Record<string, string> = {};
@@ -70,9 +72,13 @@ async function runSapMatchingPipeline(
     serialSet.add(sn);
     const mat = String(row['Material'] || '').trim();
     if (mat && !materials[sn]) materials[sn] = mat.slice(0, 120);
-    // En TC, series.valuation = Lote SAP (misma convención que despacho)
+
+    const statusSistema = String(row['Status del sistema'] || '').trim();
     const lote = String(row['Lote'] || row['Lote de stock'] || '').trim();
-    if (lote && !valuations[sn]) valuations[sn] = lote.slice(0, 120);
+    // Preferir VALORADO/NOVALORAD del status SAP; si no, caer a Lote (despacho legacy)
+    const valoracion =
+      /valorad|novalorad/i.test(statusSistema) ? statusSistema : lote || statusSistema;
+    if (valoracion && !valuations[sn]) valuations[sn] = valoracion.slice(0, 120);
   }
   const serials = Array.from(serialSet);
   if (serials.length === 0) {

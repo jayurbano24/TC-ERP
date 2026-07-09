@@ -274,17 +274,34 @@ export default function InventarioDetallePage() {
     {
       id: 'valoracion',
       header: 'Valoración',
-      width: '130px',
-      cell: (item: any) =>
-        item.valuation ? (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide bg-emerald-50 text-emerald-700 border border-emerald-100">
-            Valorado · {item.valuation}
-          </span>
-        ) : (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide bg-slate-100 text-slate-500 border border-slate-200">
-            No valorado
-          </span>
-        ),
+      width: '150px',
+      cell: (item: any) => {
+        const raw = String(item.valuation || '').trim();
+        if (!raw) {
+          return (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide bg-slate-100 text-slate-500 border border-slate-200">
+              Sin dato SAP
+            </span>
+          );
+        }
+        const isValorado = /valorado/i.test(raw) && !/novalorad|no\s*valorad/i.test(raw);
+        const isNoValorado = /novalorad|no\s*valorad/i.test(raw);
+        if (isValorado) {
+          return (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide bg-emerald-50 text-emerald-700 border border-emerald-100">
+              Valorado
+            </span>
+          );
+        }
+        if (isNoValorado) {
+          return (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide bg-amber-50 text-amber-700 border border-amber-100">
+              No valorado
+            </span>
+          );
+        }
+        return <span className="text-[10px] font-medium text-slate-600">{raw}</span>;
+      },
     },
     {
       id: 'estatus',

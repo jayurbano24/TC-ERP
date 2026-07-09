@@ -181,8 +181,12 @@ export function useBackofficeHistory(
     setHistoryPage(1);
   }, []);
 
-  const fetchExportEntries = useCallback(async (): Promise<HistoryUnitEntry[]> => {
+  const fetchExportEntries = useCallback(async (opts?: { allData?: boolean }): Promise<HistoryUnitEntry[]> => {
     const { page: _p, limit: _l, ...exportParams } = queryParams;
+    if (opts?.allData) {
+      delete (exportParams as { from?: string }).from;
+      delete (exportParams as { to?: string }).to;
+    }
     const qs = buildTrayQueryString(exportParams);
     const res = await apiFetch(`/api/backoffice/cac-history/export?${qs}`, { cache: 'no-store' });
     const payload = await res.json();

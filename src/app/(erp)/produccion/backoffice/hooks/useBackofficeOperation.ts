@@ -320,6 +320,7 @@ export function useBackofficeOperation() {
     handlePrintConduce,
     allReceptions: inbox.allReceptions,
     setAllReceptions: inbox.setAllReceptions,
+    fetchPending: inbox.fetchPending,
     startProcessingReception: inbox.startProcessingReception,
     setSelectedAgencyId,
     ...modals,

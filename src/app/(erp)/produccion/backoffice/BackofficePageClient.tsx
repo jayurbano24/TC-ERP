@@ -50,6 +50,7 @@ export default function BackofficePageClient() {
     handlePrintConduce,
     allReceptions,
     setAllReceptions,
+    fetchPending,
     startProcessingReception,
     setSelectedAgencyId,
     showAgencyModal,
@@ -184,7 +185,7 @@ export default function BackofficePageClient() {
           setDateFilterFrom={setDateFilterFrom}
           setDateFilterTo={setDateFilterTo}
           CAC_AGENCIES={CAC_AGENCIES}
-          fetchHistory={fetchHistory}
+          fetchPending={fetchPending}
           onViewReception={(reception) => void handleViewReception(reception as unknown as Record<string, unknown>)}
           onReclassify={(reception) => {
             startProcessingReception(reception as BackofficeReception);

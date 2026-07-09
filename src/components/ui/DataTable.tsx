@@ -86,8 +86,8 @@ function DataTableComponent<T>({
   className = '',
   rowClassName,
   ariaLabel,
-  headerClassName = 'bg-white border-b border-slate-100',
-  headerTextClassName = 'text-slate-400',
+  headerClassName = 'bg-[var(--surface)] border-b border-[var(--border)]',
+  headerTextClassName = 'text-[var(--muted)]',
 }: DataTableProps<T>) {
   const parentRef = useRef<HTMLDivElement>(null);
   const gridTemplateColumns = columns.map((c) => c.width ?? '1fr').join(' ');
@@ -108,7 +108,7 @@ function DataTableComponent<T>({
 
   const stickyEndClass = (col: DataTableColumn<T>, isHeader = false) =>
     col.sticky === 'end'
-      ? `sticky right-0 z-10 shadow-[-6px_0_10px_-6px_rgba(0,0,0,0.12)] ${isHeader ? '' : 'bg-white group-hover:bg-slate-50'}`
+      ? `sticky right-0 z-10 shadow-[-6px_0_10px_-6px_rgba(0,0,0,0.12)] ${isHeader ? '' : 'bg-[var(--surface)] group-hover:bg-[var(--surface-hover)]'}`
       : '';
 
   const renderCells = (row: T, index: number) =>
@@ -138,7 +138,7 @@ function DataTableComponent<T>({
             <div
               key={col.id}
               role="columnheader"
-              className={`flex items-center ${headerPad} text-[9px] uppercase tracking-wide font-black ${headerTextClassName} ${ALIGN_CLASS[col.align ?? 'left']} ${stickyEndClass(col, true)} ${col.headerClassName ?? ''} min-w-0`}
+              className={`flex items-center ${headerPad} text-[9px] uppercase tracking-wide font-semibold ${headerTextClassName} ${ALIGN_CLASS[col.align ?? 'left']} ${stickyEndClass(col, true)} ${col.headerClassName ?? ''} min-w-0`}
             >
               {col.header}
             </div>
@@ -147,7 +147,7 @@ function DataTableComponent<T>({
 
         {/* Cuerpo */}
         {data.length === 0 ? (
-          <div className="p-6 text-center text-slate-400 text-sm font-bold">{emptyMessage}</div>
+          <div className="p-6 text-center text-[var(--muted)] text-sm font-medium">{emptyMessage}</div>
         ) : (
           <div
             ref={parentRef}
@@ -169,7 +169,7 @@ function DataTableComponent<T>({
                       key={getRowId(row, vItem.index)}
                       role="row"
                       onClick={clickable ? () => onRowClick!(row, vItem.index) : undefined}
-                      className={`grid items-center border-b border-slate-50 ${rowText} font-bold text-[#181c3a] hover:bg-slate-50 group ${clickable ? 'cursor-pointer' : ''} ${rowClassName?.(row, vItem.index) ?? ''}`}
+                      className={`grid items-center border-b border-[var(--border)] ${rowText} font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)] group ${clickable ? 'cursor-pointer' : ''} ${rowClassName?.(row, vItem.index) ?? ''}`}
                       style={{
                         position: 'absolute',
                         top: 0,
@@ -191,7 +191,7 @@ function DataTableComponent<T>({
                   key={getRowId(row, index)}
                   role="row"
                   onClick={clickable ? () => onRowClick!(row, index) : undefined}
-                  className={`grid w-full items-center border-b border-slate-50 ${rowText} font-bold text-[#181c3a] hover:bg-slate-50 group ${clickable ? 'cursor-pointer' : ''} ${rowClassName?.(row, index) ?? ''}`}
+                  className={`grid w-full items-center border-b border-[var(--border)] ${rowText} font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)] group ${clickable ? 'cursor-pointer' : ''} ${rowClassName?.(row, index) ?? ''}`}
                   style={{ gridTemplateColumns, minHeight: rowHeight }}
                 >
                   {renderCells(row, index)}

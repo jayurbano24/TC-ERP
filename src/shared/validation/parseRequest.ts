@@ -18,13 +18,12 @@ export async function parseJsonBody<T>(req: Request, schema: z.ZodType<T>): Prom
 
   const result = schema.safeParse(raw);
   if (!result.success) {
-    throw new ValidationException(
-      'Validación de datos fallida.',
-      result.error.issues.map((issue) => ({
-        path: issue.path.join('.'),
-        message: issue.message,
-      }))
-    );
+    const issues = result.error.issues.slice(0, 8).map((issue) => ({
+      path: issue.path.join('.'),
+      message: issue.message,
+    }));
+    console.warn('[parseJsonBody] validation failed', issues);
+    throw new ValidationException('Validación de datos fallida.', issues);
   }
   return result.data;
 }

@@ -83,5 +83,8 @@ export async function exportHistoryReport(
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Histórico CAC');
-  XLSX.writeFile(wb, `Reporte_CAC_TC_${dateFilterFrom || 'inicio'}_a_${dateFilterTo || 'fin'}.xlsx`);
+  XLSX.writeFile(
+    wb,
+    `Reporte_CAC_TC_${dateFilterFrom || dateFilterTo ? `${dateFilterFrom || 'inicio'}_a_${dateFilterTo || 'fin'}` : 'todos'}.xlsx`
+  );
 }

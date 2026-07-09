@@ -12,56 +12,52 @@ type Props = {
 
 function StatNumber({ value, loading }: { value: number; loading?: boolean }) {
   if (loading) {
-    return <p className="text-5xl font-black text-[var(--muted)] leading-none animate-pulse">—</p>;
+    return <p className="text-base font-semibold text-[var(--muted)] leading-none animate-pulse">—</p>;
   }
   return (
-    <p className="text-5xl font-black text-[var(--foreground)] group-hover:text-[#2ec4f1] leading-none tracking-tighter">
-      {value}
+    <p className="text-base font-semibold text-[var(--foreground)] leading-none tabular-nums">
+      {value.toLocaleString()}
     </p>
   );
 }
 
 const statCardClass =
-  'p-6 border-none shadow-2xl bg-[var(--surface)] text-[var(--foreground)] rounded-[2.5rem] flex flex-col items-center justify-center text-center group hover:bg-[#181c3a] hover:text-white transition-all duration-500 border border-[var(--border)] h-40';
+  'px-2 py-2 border border-[var(--border)] shadow-sm bg-[var(--surface)] text-[var(--foreground)] rounded-xl flex flex-col items-center justify-center text-center gap-0.5 min-w-[4.5rem] shrink-0';
 
 export function HistoryStatsGrid({ stats, loading = false, MASTER_TECNOLOGIAS }: Props) {
   const unknownTechUnits = stats.byTechId['__unknown__'] || 0;
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-9 gap-4 mb-10">
+    <div className="flex flex-nowrap gap-2 mb-4 overflow-x-auto custom-scrollbar pb-1 -mx-1 px-1">
       {MASTER_TECNOLOGIAS.map((tech) => {
         const count = stats.byTechId[tech.id] || 0;
         return (
           <Card key={tech.id} className={statCardClass}>
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[var(--muted)] group-hover:text-white/70 mb-4">
+            <p className="text-[8px] font-medium uppercase tracking-wider text-[var(--muted)] truncate max-w-full px-0.5">
               {tech.nombre}
             </p>
             <StatNumber value={count} loading={loading} />
-            <p className="text-[9px] font-black text-[var(--muted)] group-hover:text-white/60 uppercase mt-4 tracking-widest">
-              Equipos
-            </p>
+            <p className="text-[7px] font-medium text-[var(--muted)] uppercase tracking-wider">Equipos</p>
           </Card>
         );
       })}
 
       {unknownTechUnits > 0 && (
-        <Card className="p-6 border-none shadow-2xl bg-rose-50 dark:bg-rose-950/40 text-rose-900 dark:text-rose-100 rounded-[2.5rem] flex flex-col items-center justify-center text-center group hover:bg-rose-500 hover:text-white transition-all duration-500 border border-rose-100 dark:border-rose-900 h-40">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-rose-700 dark:text-rose-300 group-hover:text-white mb-4">
-            SIN TECNOLOGÍA
+        <Card className="px-2 py-2 border border-rose-200 dark:border-rose-900 shadow-sm bg-rose-50 dark:bg-rose-950/40 text-rose-900 dark:text-rose-100 rounded-xl flex flex-col items-center justify-center text-center gap-0.5 min-w-[4.5rem] shrink-0">
+          <p className="text-[8px] font-medium uppercase tracking-wider text-rose-600 dark:text-rose-300 truncate">
+            Sin Tec.
           </p>
           <StatNumber value={unknownTechUnits} loading={loading} />
-          <p className="text-[9px] font-black text-rose-600 dark:text-rose-400 group-hover:text-white/70 uppercase mt-4 tracking-widest">
-            Revisar Modelos
-          </p>
+          <p className="text-[7px] font-medium text-rose-500 dark:text-rose-400 uppercase tracking-wider">Revisar</p>
         </Card>
       )}
 
-      <Card className="p-6 border-none shadow-2xl bg-[#2ec4f1] rounded-[2.5rem] flex flex-col items-center justify-center text-center text-[#181c3a] h-40">
-        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#181c3a] mb-4">Total Global (OS)</p>
-        <p className="text-6xl font-black text-[#181c3a] leading-none tracking-tighter">
-          {loading ? <span className="text-[#181c3a]/30 animate-pulse">—</span> : stats.total}
+      <Card className="px-3 py-2 border-none shadow-sm bg-[#2ec4f1] rounded-xl flex flex-col items-center justify-center text-center text-[#181c3a] gap-0.5 min-w-[5.5rem] shrink-0">
+        <p className="text-[8px] font-medium uppercase tracking-wider text-[#181c3a]/80">Total OS</p>
+        <p className="text-base font-semibold text-[#181c3a] leading-none tabular-nums">
+          {loading ? <span className="opacity-40 animate-pulse">—</span> : stats.total.toLocaleString()}
         </p>
-        <p className="text-[9px] font-black text-[#181c3a]/80 uppercase mt-4 tracking-widest">Unidades Generadas</p>
+        <p className="text-[7px] font-medium text-[#181c3a]/70 uppercase tracking-wider">Unidades</p>
       </Card>
     </div>
   );

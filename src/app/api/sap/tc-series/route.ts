@@ -1,37 +1,58 @@
-import { NextResponse } from "next/server";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { NextResponse } from 'next/server';
+import { getSupabaseServerClient } from '@/lib/supabase/server';
 
-export async function GET(request: Request) {
+export const dynamic = 'force-dynamic';
+
+const PAGE_SIZE = 1000;
+
+/**
+ * Devuelve TODAS las series TC con service_order_id (paginado).
+ * Antes el default de Supabase (~1000) truncaba el cruce SAP.
+ */
+export async function GET() {
   const supabase = getSupabaseServerClient();
 
   try {
-    // We only need the serial numbers and their equipment IDs (service_order_id)
-    // We will pull the latest ones to perform the match in the browser.
-    // To handle 28k+, we can do a paginated fetch or a single fetch if within limits.
-    // Supabase JS client defaults to 1000 limits unless specified, but we can bypass it by requesting just the required columns.
-    
-    // We get all series to cross-reference in the browser
-    const { data: seriesData, error: seriesError } = await supabase
-      .from('series')
-      .select('id, serial_number, service_order_id')
-      .not('service_order_id', 'is', null);
+    const series: { id: string; serial_number: string; service_order_id: string; serial_normalized?: string | null }[] = [];
+    let from = 0;
+    for (;;) {
+      const to = from + PAGE_SIZE - 1;
+      const { data, error } = await supabase
+        .from('series')
+        .select('id, serial_number, service_order_id, serial_normalized')
+        .not('service_order_id', 'is', null)
+        .range(from, to);
+      if (error) throw error;
+      const batch = data || [];
+      series.push(...batch);
+      if (batch.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
+    }
 
-    if (seriesError) throw seriesError;
-
-    // We get the service_orders (Equipos) to know their main_serial
-    const { data: equiposData, error: equiposError } = await supabase
-      .from('service_orders')
-      .select('id, main_serial');
-
-    if (equiposError) throw equiposError;
+    const equipos: { id: string; main_serial: string | null }[] = [];
+    from = 0;
+    for (;;) {
+      const to = from + PAGE_SIZE - 1;
+      const { data, error } = await supabase
+        .from('service_orders')
+        .select('id, main_serial')
+        .range(from, to);
+      if (error) throw error;
+      const batch = data || [];
+      equipos.push(...batch);
+      if (batch.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
+    }
 
     return NextResponse.json({
       success: true,
-      series: seriesData,
-      equipos: equiposData,
+      series,
+      equipos,
+      meta: { seriesCount: series.length, equiposCount: equipos.length },
     });
-  } catch (error: any) {
-    console.error("Error fetching TC series:", error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('Error fetching TC series:', error);
+    return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }

@@ -1,7 +1,8 @@
 'use client';
 
+import { useEffect, useMemo, useState } from 'react';
 import { Badge, Button, Card, notify, confirmDialog, DataTable, type DataTableColumn } from '@/components/ui';
-import { Box, Eye, RefreshCw, Trash2, X } from 'lucide-react';
+import { Box, Eye, RefreshCw, Search, Trash2, X } from 'lucide-react';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { getAgenciaLabel } from '../backofficeHelpers';
 import type { CatalogAgency } from '../types';
@@ -21,7 +22,7 @@ type Props = {
   setDateFilterFrom: (value: string) => void;
   setDateFilterTo: (value: string) => void;
   CAC_AGENCIES: CatalogAgency[];
-  fetchHistory: (opts?: { silent?: boolean }) => Promise<void>;
+  fetchPending: (opts?: { silent?: boolean }) => Promise<void>;
   onViewReception: (reception: SubBodegaRow['reception']) => void;
   onReclassify: (reception: SubBodegaRow['reception']) => void;
 };
@@ -35,12 +36,39 @@ export function SubBodegaTab({
   setDateFilterFrom,
   setDateFilterTo,
   CAC_AGENCIES,
-  fetchHistory,
+  fetchPending,
   onViewReception,
   onReclassify,
 }: Props) {
   const isAccesorios = activeTab === 'sub_accesorios';
-  const rows = buildSubBodegaRows(allReceptions, activeTab, dateFilterFrom, dateFilterTo);
+  const [search, setSearch] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    setSearch('');
+  }, [activeTab]);
+
+  const allRows = useMemo(
+    () => buildSubBodegaRows(allReceptions, activeTab, dateFilterFrom, dateFilterTo),
+    [allReceptions, activeTab, dateFilterFrom, dateFilterTo]
+  );
+
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return allRows;
+    return allRows.filter((item) => {
+      const agency = getAgenciaLabel(item.reception, CAC_AGENCIES, item.guide).toLowerCase();
+      const notes = (item.reception.notes || '').toLowerCase();
+      const user = (item.processUser || '').toLowerCase();
+      return (
+        item.guide.toLowerCase().includes(q) ||
+        agency.includes(q) ||
+        notes.includes(q) ||
+        user.includes(q)
+      );
+    });
+  }, [allRows, search, CAC_AGENCIES]);
+
   const boxCount = countSubBodegaBoxes(allReceptions, activeTab, dateFilterFrom, dateFilterTo);
 
   const handleArchive = async (item: SubBodegaRow) => {
@@ -69,6 +97,19 @@ export function SubBodegaTab({
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       notify.error('Error al archivar', { description: message });
+    }
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await fetchPending({ silent: true });
+      notify.success('Datos actualizados desde la base de datos');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      notify.error('No se pudieron refrescar los datos', { description: message });
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -175,7 +216,7 @@ export function SubBodegaTab({
 
   return (
     <div className="space-y-8 animate-rise-in">
-      <div className="flex items-center justify-between px-2">
+      <div className="flex flex-col gap-4 px-2 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h2 className="text-xl font-black text-[#181c3a] uppercase tracking-tight">
             {isAccesorios ? 'Inventario de Accesorios' : 'Inventario de Teléfonos / Móviles'}
@@ -184,7 +225,7 @@ export function SubBodegaTab({
             Control de cajas enviadas a sub-bodega desde Backoffice
           </p>
         </div>
-        <div className="flex gap-4 items-center">
+        <div className="flex flex-wrap gap-4 items-center">
           <div className="flex items-center gap-2 bg-white rounded-2xl border-2 border-slate-100 p-1">
             <input
               type="date"
@@ -218,12 +259,10 @@ export function SubBodegaTab({
           <Button
             variant="outline"
             className="rounded-2xl h-12 px-6 font-black text-[10px] uppercase tracking-widest border-2 border-slate-100 text-slate-400 hover:bg-slate-50 flex items-center gap-2"
-            onClick={async () => {
-              await fetchHistory();
-              notify.success('Datos actualizados desde la base de datos');
-            }}
+            disabled={refreshing}
+            onClick={() => void handleRefresh()}
           >
-            <RefreshCw size={14} />
+            <RefreshCw size={14} className={refreshing ? 'animate-spin' : undefined} />
             Refrescar Datos
           </Button>
           <div
@@ -231,9 +270,30 @@ export function SubBodegaTab({
               isAccesorios ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
             }`}
           >
-            {boxCount} Cajas Registradas
+            {search.trim() ? `${rows.length} / ${boxCount}` : boxCount} Cajas Registradas
           </div>
         </div>
+      </div>
+
+      <div className="relative group max-w-xl px-2">
+        <Search className="absolute left-8 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-[#2ec4f1] transition-colors" />
+        <input
+          type="text"
+          placeholder="BUSCAR POR GUÍA, AGENCIA O USUARIO..."
+          className="w-full h-12 pl-12 pr-10 bg-white border-2 border-slate-100 rounded-2xl font-black text-[10px] text-[#181c3a] outline-none focus:border-[#2ec4f1] transition-all uppercase tracking-widest placeholder:text-slate-300"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        {search && (
+          <button
+            type="button"
+            onClick={() => setSearch('')}
+            className="absolute right-6 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+            title="Limpiar búsqueda"
+          >
+            <X size={14} strokeWidth={3} />
+          </button>
+        )}
       </div>
 
       <Card className="p-0 bg-white rounded-[2.5rem] shadow-2xl border-none overflow-hidden">
@@ -247,7 +307,11 @@ export function SubBodegaTab({
           minWidth={980}
           headerClassName={`sticky top-0 z-10 ${isAccesorios ? 'bg-emerald-500' : 'bg-amber-500'}`}
           headerTextClassName="text-white"
-          emptyMessage="No hay cajas registradas en esta sub-bodega"
+          emptyMessage={
+            search.trim()
+              ? 'No hay cajas que coincidan con la búsqueda'
+              : 'No hay cajas registradas en esta sub-bodega'
+          }
         />
       </Card>
     </div>

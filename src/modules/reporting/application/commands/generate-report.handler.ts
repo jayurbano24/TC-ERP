@@ -16,8 +16,17 @@ export class GenerateReportHandler {
       return { success: false, error: `Reporte desconocido: ${params.reportCode}` };
     }
 
-    if (definition.requiresDateRange && !params.filters.from && !params.filters.to) {
-      return { success: false, error: 'Este reporte requiere un rango de fechas (desde y/o hasta).' };
+    if (
+      definition.requiresDateRange &&
+      !params.filters.allData &&
+      !params.filters.from &&
+      !params.filters.to
+    ) {
+      return {
+        success: false,
+        error:
+          'Este reporte requiere un rango de fechas (desde y/o hasta), o marque «Todos los datos».',
+      };
     }
 
     const provider = getReportDataProvider(params.reportCode);
@@ -53,9 +62,11 @@ export class GenerateReportHandler {
       }
 
       const exported = await exporter.export(data.rows, definition.name);
-      const dateSuffix = params.filters.from || params.filters.to
-        ? `_${params.filters.from || 'inicio'}_a_${params.filters.to || 'fin'}`
-        : '';
+      const dateSuffix = params.filters.allData
+        ? '_todos'
+        : params.filters.from || params.filters.to
+          ? `_${params.filters.from || 'inicio'}_a_${params.filters.to || 'fin'}`
+          : '';
       const filename = `${params.reportCode}${dateSuffix}.${exported.extension}`;
 
       await this.runRepo.recordRun({

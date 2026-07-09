@@ -3,6 +3,8 @@ export type ExportFormat = 'XLSX' | 'CSV';
 export type ReportFilterParams = {
   from?: string;
   to?: string;
+  /** When true, skip required date range and export the full dataset. */
+  allData?: boolean;
   search?: string;
   guide?: string;
   pilot?: string;

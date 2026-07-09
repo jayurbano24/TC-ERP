@@ -529,6 +529,41 @@ export async function reserveNextBoxCode(): Promise<{ code?: string; error?: str
   return { code: data as string };
 }
 
+function normalizeBoxCorrelative(code: string): string {
+  return code.trim().toUpperCase();
+}
+
+/**
+ * Reserva un correlativo BOX-XX libre. Reintenta si el código ya está en pantalla
+ * (caché local) o si la secuencia devolvió un número ocupado.
+ */
+export async function reserveNextBoxCodeForInventory(
+  takenCodes: string[] = [],
+  maxAttempts = 20
+): Promise<{ code?: string; error?: string }> {
+  const taken = new Set(
+    takenCodes.map((c) => normalizeBoxCorrelative(c)).filter((c) => /^BOX-[0-9]+$/.test(c))
+  );
+  let lastCollision = '';
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const result = await reserveNextBoxCode();
+    if (result.error || !result.code) return result;
+
+    const code = normalizeBoxCorrelative(result.code);
+    if (!taken.has(code)) {
+      return { code };
+    }
+    lastCollision = code;
+  }
+
+  return {
+    error: lastCollision
+      ? `No hay correlativo libre (${lastCollision} ya existe). Espere un momento e intente de nuevo.`
+      : 'No se pudo reservar correlativo de caja.',
+  };
+}
+
 export async function createBoxWithSeries(boxData: any, seriesNumbers: string[]) {
   invalidateInventoryBoxesCache();
   const supabase = getSupabaseBrowserClient();

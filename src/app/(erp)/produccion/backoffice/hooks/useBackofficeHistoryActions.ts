@@ -10,7 +10,7 @@ import type { HistoryUnitEntry } from '../historyTrayUtils';
 import type { CatalogAgency, CatalogBrand, CatalogModel, CatalogTech } from '../types';
 
 type Params = {
-  fetchExportEntries: () => Promise<HistoryUnitEntry[]>;
+  fetchExportEntries: (opts?: { allData?: boolean }) => Promise<HistoryUnitEntry[]>;
   catalogs: {
     CAC_AGENCIES: CatalogAgency[];
     MASTER_TECNOLOGIAS: CatalogTech[];
@@ -33,17 +33,32 @@ export function useBackofficeHistoryActions({
   fetchHistory,
   currentUserFullName,
 }: Params) {
-  const handleExportReport = useCallback(async () => {
+  const handleExportReport = useCallback(async (opts?: { allData?: boolean }) => {
+    const allData = Boolean(opts?.allData) || (!dateFilterFrom && !dateFilterTo);
     try {
       if (isCentralReportingEnabledClient()) {
         await downloadReportApi('CAC_CLASIFICACION_HISTORICO', {
-          from: dateFilterFrom || undefined,
-          to: dateFilterTo || undefined,
+          ...(allData
+            ? { allData: true }
+            : {
+                from: dateFilterFrom || undefined,
+                to: dateFilterTo || undefined,
+              }),
         });
+        notify.success(
+          allData
+            ? 'Reporte generado con todos los datos.'
+            : 'Reporte generado con el rango de fechas seleccionado.'
+        );
         return;
       }
-      const entries = await fetchExportEntries();
-      await exportHistoryReport(entries, catalogs, dateFilterFrom, dateFilterTo);
+      const entries = await fetchExportEntries({ allData });
+      await exportHistoryReport(
+        entries,
+        catalogs,
+        allData ? '' : dateFilterFrom,
+        allData ? '' : dateFilterTo
+      );
     } catch (err) {
       console.error(err);
       notify.error(err instanceof Error ? err.message : 'Error al exportar el reporte.');

@@ -31,6 +31,7 @@ export function parseReportFilters(body: Record<string, unknown>): ReportFilterP
   return {
     from: str('from'),
     to: str('to'),
+    allData: body.allData === true || body.allData === 'true' || body.allData === 1,
     search: str('search'),
     guide: str('guide'),
     pilot: str('pilot'),

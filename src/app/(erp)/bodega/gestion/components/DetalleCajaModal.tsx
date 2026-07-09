@@ -66,9 +66,9 @@ export const DetalleCajaModal = memo(function DetalleCajaModal({
     { id: 'marca', header: 'Marca', width: '110px', cell: (item) => <span className="text-[10px] font-bold text-slate-700">{marcaMap.get(item.marca) || item.marca || '---'}</span> },
     { id: 'modelo', header: 'Modelo', width: '120px', cell: (item) => <span className="text-[10px] font-bold text-slate-700">{modeloMap.get(item.modelo) || item.modelo || '---'}</span> },
     { id: 's1', header: 'S-1', width: '150px', cell: (item) => (item.s1 || item.sn) ? <span className="inline-block px-2 py-1 bg-slate-50 text-[10px] font-mono font-black text-[#181c3a] rounded-md">{item.s1 || item.sn}</span> : <span className="text-slate-300">---</span> },
-    { id: 's2', header: 'S-2', width: '150px', cell: (item) => item.s2 ? <span className="inline-block px-2 py-1 bg-slate-50 text-[10px] font-mono font-bold text-slate-600 rounded-md">{item.s2}</span> : <span className="text-slate-300">---</span> },
-    { id: 's3', header: 'S-3', width: '150px', cell: (item) => item.s3 ? <span className="inline-block px-2 py-1 bg-slate-50 text-[10px] font-mono font-bold text-slate-600 rounded-md">{item.s3}</span> : <span className="text-slate-300">---</span> },
-    { id: 's4', header: 'S-4', width: '150px', cell: (item) => item.s4 ? <span className="inline-block px-2 py-1 bg-slate-50 text-[10px] font-mono font-bold text-slate-600 rounded-md">{item.s4}</span> : <span className="text-slate-300">---</span> },
+    { id: 's2', header: 'S-2', width: '150px', cell: (item) => item.s2 ? <span className="inline-block px-2 py-1 bg-slate-50 text-[10px] font-mono font-bold text-[#181c3a] rounded-md">{item.s2}</span> : <span className="text-slate-300">---</span> },
+    { id: 's3', header: 'S-3', width: '150px', cell: (item) => item.s3 ? <span className="inline-block px-2 py-1 bg-slate-50 text-[10px] font-mono font-bold text-[#181c3a] rounded-md">{item.s3}</span> : <span className="text-slate-300">---</span> },
+    { id: 's4', header: 'S-4', width: '150px', cell: (item) => item.s4 ? <span className="inline-block px-2 py-1 bg-slate-50 text-[10px] font-mono font-bold text-[#181c3a] rounded-md">{item.s4}</span> : <span className="text-slate-300">---</span> },
     { id: 'material', header: 'Material', width: '100px', cell: (item) => <span className="text-[10px] font-bold text-slate-700">{item.material || '---'}</span> },
     { id: 'lote', header: 'Lote', width: '100px', cell: (item) => <span className="text-[10px] font-bold text-slate-700">{item.lote || '---'}</span> },
     {

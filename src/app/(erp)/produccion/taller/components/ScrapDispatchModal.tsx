@@ -107,8 +107,8 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#181c3a]/60 backdrop-blur-sm p-4">
-      <div className="max-w-4xl w-full bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-rise-in">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-[#181c3a]/60 backdrop-blur-sm p-0 sm:p-4 overflow-y-auto">
+      <div className="max-w-4xl w-full bg-white rounded-t-[1.75rem] sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[92dvh] sm:max-h-[90vh] animate-rise-in my-0 sm:my-4">
 
         {/* ── Header ── */}
         <div className="bg-gradient-to-r from-rose-600 to-rose-400 p-6 flex items-center justify-between shrink-0">

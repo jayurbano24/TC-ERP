@@ -256,8 +256,8 @@ export const DespachoView = memo(function DespachoView({
 
       {/* MODAL CAJA DE SALIDA / BODEGA */}
       {despBoxModalOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-[#181c3a]/40 backdrop-blur-sm p-4 overflow-y-auto">
-          <Card className="max-w-xl w-full shadow-2xl animate-rise-in p-0 overflow-hidden my-8">
+        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-[#181c3a]/40 backdrop-blur-sm p-0 sm:p-4 overflow-y-auto">
+          <Card className="max-w-xl w-full max-h-[92dvh] shadow-2xl animate-rise-in p-0 overflow-hidden my-0 sm:my-4 rounded-t-[1.75rem] sm:rounded-3xl flex flex-col">
             <div className="p-6 bg-indigo-600 text-white flex justify-between items-center">
               <div className="flex items-center gap-3">
                 <Package className="w-5 h-5 text-indigo-200" />

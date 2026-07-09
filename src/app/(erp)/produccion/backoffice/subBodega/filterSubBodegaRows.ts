@@ -32,16 +32,23 @@ function guideCategoryFlags(
     const block = guideBlockMatch[0].toLowerCase();
     return {
       isAccesorio: block.includes('backoffice_category: accesorio'),
-      isTelefono:
-        block.includes('backoffice_category: teléfono') || block.includes('backoffice_category: movil'),
+      isTelefono: notesMatchTelefono(block),
     };
   }
 
   return {
     isAccesorio: notes.includes('backoffice_category: accesorio'),
-    isTelefono:
-      notes.includes('backoffice_category: teléfono') || notes.includes('backoffice_category: movil'),
+    isTelefono: notesMatchTelefono(notes),
   };
+}
+
+/** Notes may store `telefono` (no accent) or `teléfono` / `movil`. */
+function notesMatchTelefono(text: string): boolean {
+  return (
+    text.includes('backoffice_category: telefono') ||
+    text.includes('backoffice_category: teléfono') ||
+    text.includes('backoffice_category: movil')
+  );
 }
 
 function matchesDateRange(
@@ -133,9 +140,9 @@ export function hasSubBodegaInventory(
     if (activeTab === 'sub_telefonos') {
       if (guideCategories.length > 0) return guideCategories.some((c) => c === 'telefono');
       return (
-        notes.includes('backoffice_category: teléfono') ||
-        notes.includes('backoffice_category: movil') ||
+        notesMatchTelefono(notes) ||
         notes.includes('teléfono') ||
+        notes.includes('telefono') ||
         notes.includes('movil')
       );
     }

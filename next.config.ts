@@ -9,6 +9,10 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
+  // Proxy clona el body; default 10MB truncaba /api/sap/match con G985 grandes.
+  experimental: {
+    proxyClientMaxBodySize: '32mb',
+  },
 };
 
 export default nextConfig;

@@ -54,121 +54,159 @@ async function runSapMatchingPipeline(
   format: string,
   logProcess: (msg: string) => void,
   setUploadStatus: (s: UploadStatus) => void,
-  setErrorMsg: (msg: string | null) => void
+  _setErrorMsg: (msg: string | null) => void
 ) {
   logProcess(`Estructura validada (${format.toUpperCase()}). Filas con serie: ${rows.length}`);
-  logProcess('Creando índice en memoria...');
-  const sapMap = new Map<string, SapUploadRow>();
-  rows.forEach((row) => {
-    const sn = row['Número de serie'];
-    if (sn) sapMap.set(sn.trim(), row);
-  });
 
-  setUploadStatus('fetching');
-  logProcess('Descargando series maestras de TC-Multimedia...');
+  setUploadStatus('matching');
 
-  const res = await apiFetch('/api/sap/tc-series');
-  const { success, series, equipos, error } = await res.json();
-
-  if (!success) {
-    throw new Error(error || 'Error al obtener series de TC');
+  // Series únicas + material (payload chico)
+  const serialSet = new Set<string>();
+  const materials: Record<string, string> = {};
+  for (const row of rows) {
+    const sn = String(row['Número de serie'] || '').trim();
+    if (!sn || sn.length > 80) continue;
+    serialSet.add(sn);
+    const mat = String(row['Material'] || '').trim();
+    if (mat && !materials[sn]) materials[sn] = mat.slice(0, 120);
+  }
+  const serials = Array.from(serialSet);
+  if (serials.length === 0) {
+    throw new Error('No se encontraron números de serie válidos en el archivo.');
   }
 
-  logProcess(`Series maestras descargadas: ${series?.length || 0}`);
-  setUploadStatus('matching');
-  logProcess('Iniciando motor de coincidencia en cascada...');
+  logProcess(`Series únicas SAP: ${serials.length} (de ${rows.length} filas)`);
+  logProcess('Cruce paulativo por lotes (solo coincidencias → bajo egress)...');
 
-  const equipoToSeries = new Map<string, string[]>();
-  series.forEach((s: { service_order_id: string; serial_number: string }) => {
-    if (!equipoToSeries.has(s.service_order_id)) {
-      equipoToSeries.set(s.service_order_id, []);
+  const BATCH = 1500;
+  type MatchRow = {
+    id: string;
+    serial_number: string;
+    service_order_id: string;
+    material: string | null;
+  };
+  const allMatches: MatchRow[] = [];
+  let totalQueries = 0;
+  let totalElapsed = 0;
+  const totalBatches = Math.ceil(serials.length / BATCH);
+
+  for (let i = 0; i < serials.length; i += BATCH) {
+    const chunk = serials.slice(i, i + BATCH);
+    const batchMaterials: Record<string, string> = {};
+    for (const sn of chunk) {
+      if (materials[sn]) batchMaterials[sn] = materials[sn];
     }
-    equipoToSeries.get(s.service_order_id)!.push(s.serial_number);
-  });
+    const batchNo = Math.floor(i / BATCH) + 1;
+    logProcess(`Lote ${batchNo}/${totalBatches}: ${chunk.length} series...`);
+
+    const res = await apiFetch('/api/sap/match-batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ serials: chunk, materials: batchMaterials }),
+    });
+    const data = await res.json();
+    if (!data.success) {
+      const issueHint =
+        Array.isArray(data.issues) && data.issues.length > 0
+          ? ` (${data.issues
+              .slice(0, 3)
+              .map((x: { path?: string; message?: string }) => `${x.path || '?'}: ${x.message || ''}`)
+              .join('; ')})`
+          : '';
+      throw new Error((data.error || 'Error en lote de cruce') + issueHint);
+    }
+    allMatches.push(...(data.matches || []));
+    totalQueries += data.stats?.queries || 0;
+    totalElapsed += data.stats?.elapsedMs || 0;
+    logProcess(`  → ${data.stats?.matches || 0} coincidencias (queries: ${data.stats?.queries || 0})`);
+  }
+
+  // Agregar por equipo (solo matches)
+  const seriesByEquipo = new Map<string, MatchRow[]>();
+  const matchedSeriesIds = new Set<string>();
+  for (const m of allMatches) {
+    matchedSeriesIds.add(m.id);
+    if (!seriesByEquipo.has(m.service_order_id)) seriesByEquipo.set(m.service_order_id, []);
+    seriesByEquipo.get(m.service_order_id)!.push(m);
+  }
 
   let validados = 0;
-  let noEncontrados = 0;
   let inconsistencias = 0;
-
+  const matchedEquipos: { id: string; sap_integration_status: string }[] = [];
+  const matchedSeries = Array.from(matchedSeriesIds).map((id) => ({ id }));
   const validationDetails: Record<string, unknown>[] = [];
-  const equiposUpdates: { id: string; sap_integration_status: string }[] = [];
-  const seriesUpdates: { id: string; sap_status: string }[] = [];
 
-  equipos.forEach((eq: { id: string }) => {
-    const eqSeries = equipoToSeries.get(eq.id) || [];
-    let matchCount = 0;
-    const foundMaterials = new Set<string>();
-
-    eqSeries.forEach((sn, idx) => {
-      const sapRow = sapMap.get(sn);
-      const isMatch = !!sapRow;
-      if (isMatch) {
-        matchCount++;
-        foundMaterials.add(sapRow!['Material']);
-        const seriesRow = series.find((s: { serial_number: string }) => s.serial_number === sn);
-        if (seriesRow) {
-          seriesUpdates.push({ id: seriesRow.id, sap_status: 'Validado' });
-        }
-      } else {
-        const seriesRow = series.find((s: { serial_number: string }) => s.serial_number === sn);
-        if (seriesRow) {
-          seriesUpdates.push({ id: seriesRow.id, sap_status: 'Sin Coincidencia' });
-        }
-      }
-
-      validationDetails.push({
-        equipo_id: eq.id,
-        tipo_serie: `S${idx + 1}`,
-        serie: sn,
-        material: sapRow ? sapRow['Material'] : null,
-        descripcion: sapRow ? sapRow['Texto breve de material'] : null,
-        centro: sapRow ? sapRow['Centro'] : null,
-        almacen: sapRow ? sapRow['Almacén'] : null,
-        lote: sapRow ? sapRow['Lote'] : null,
-        estado_sap: sapRow ? sapRow['Status del sistema'] : null,
-        valoracion: sapRow ? sapRow['Lote de stock'] : null,
-        coincidencia: isMatch,
-      });
-    });
-
-    let eqStatus = 'Sin Coincidencia';
-    if (matchCount > 0) {
-      if (foundMaterials.size > 1) {
-        eqStatus = 'Pendiente Revisión';
-        inconsistencias++;
-      } else {
-        eqStatus = 'Validado SAP';
-        validados++;
-      }
+  for (const [equipoId, eqMatches] of seriesByEquipo) {
+    const materialsFound = new Set(
+      eqMatches.map((m) => m.material).filter((x): x is string => Boolean(x))
+    );
+    let status = 'Validado SAP';
+    if (materialsFound.size > 1) {
+      status = 'Pendiente Revisión';
+      inconsistencias++;
     } else {
-      noEncontrados++;
+      validados++;
     }
+    matchedEquipos.push({ id: equipoId, sap_integration_status: status });
 
-    equiposUpdates.push({ id: eq.id, sap_integration_status: eqStatus });
-  });
+    // Detalle de auditoría solo de coincidencias (tope para no inflar el sync)
+    if (validationDetails.length < 5_000) {
+      eqMatches.forEach((m, idx) => {
+        if (validationDetails.length >= 5_000) return;
+        validationDetails.push({
+          equipo_id: equipoId,
+          tipo_serie: `S${idx + 1}`,
+          serie: m.serial_number,
+          material: m.material,
+          coincidencia: true,
+        });
+      });
+    }
+  }
 
-  logProcess(`Coincidencias: ${validados} validados, ${noEncontrados} no encontrados, ${inconsistencias} inconsistentes.`);
+  // noEncontrados se calcula en BD al reset; aquí reportamos equipos con match
+  logProcess(
+    `Resumen: ${matchedSeries.length} series validadas · ${validados} equipos OK · ${inconsistencias} inconsistentes · queries=${totalQueries} · ${totalElapsed}ms`
+  );
+  if (matchedSeries.length > validationDetails.length) {
+    logProcess(
+      `Detalle auditoría: ${validationDetails.length} de ${matchedSeries.length} (tope 5k; estados se aplican a todas).`
+    );
+  }
 
   setUploadStatus('syncing');
-  logProcess('Sincronizando resultados con la base de datos...');
+  logProcess('Sincronizando (solo matches + reset set-based en BD)...');
 
-  const syncRes = await apiFetch('/api/sap/sync', {
+  const syncRes = await apiFetch('/api/sap/sync-matches', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       fileInfo: { name: file.name, hash, totalRows: rows.length, user: 'Usuario Activo' },
-      results: { encontrados: validados, noEncontrados, inconsistencias, timeStr: '1 min' },
+      results: {
+        encontrados: validados,
+        noEncontrados: 0,
+        inconsistencias,
+        timeStr: `${Math.max(1, Math.round(totalElapsed / 1000))} s`,
+      },
+      matchedSeries,
+      matchedEquipos,
       validationDetails,
-      equiposUpdates,
-      seriesUpdates,
+      resetUnmatched: true,
     }),
   });
-
   const syncData = await syncRes.json();
   if (!syncData.success) {
     throw new Error(syncData.error || 'Error al sincronizar');
   }
-  logProcess('Sincronización exitosa.');
+
+  if (syncData.mode === 'legacy') {
+    logProcess('Aviso: sync legacy (aplica migración 098 en Supabase para reset set-based).');
+  } else if (syncData.stats) {
+    logProcess(
+      `BD: ${syncData.stats.seriesMatched} series OK · ${syncData.stats.seriesUnmatched} sin match · ${syncData.stats.equiposMatched} equipos OK · ${syncData.stats.equiposUnmatched} sin match`
+    );
+  }
+  logProcess(`Sincronización exitosa (${syncData.mode || 'ok'}).`);
   setUploadStatus('done');
 }
 
@@ -284,63 +322,75 @@ export default function IntegracionSapPage() {
     }
 
     const { kpis, lastUpload } = dashboardData || { kpis: {}, lastUpload: null };
-    const validadosPct = kpis?.totalTC ? Math.round((kpis.validados / kpis.totalTC) * 100) : 0;
-    const parcialPct = kpis?.totalTC ? Math.round((kpis.inconsistentes / kpis.totalTC) * 100) : 0;
+    const seriesBase = kpis?.totalSeries || 0;
+    const equiposBase = kpis?.totalTC || 0;
+    const seriesValPct = seriesBase ? Math.round(((kpis?.seriesValidadas || 0) / seriesBase) * 100) : 0;
+    const validadosPct = equiposBase ? Math.round((kpis.validados / equiposBase) * 100) : 0;
+    const parcialPct = equiposBase ? Math.round(((kpis?.inconsistentes || 0) / equiposBase) * 100) : 0;
 
     return (
       <div className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
           <Card className="p-5 border-none shadow-sm rounded-3xl bg-white flex flex-col justify-between h-32">
             <div className="flex justify-between items-start">
               <div>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Equipos en TC</p>
-                <h3 className="text-2xl font-black text-[#181c3a]">{kpis?.totalTC?.toLocaleString() || 0}</h3>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Series ETL (cruzables)</p>
+                <h3 className="text-2xl font-black text-[#181c3a]">{(kpis?.totalSeries ?? 0).toLocaleString()}</h3>
               </div>
               <div className="w-10 h-10 rounded-2xl bg-blue-50 flex items-center justify-center">
                 <Database className="w-5 h-5 text-blue-500" />
               </div>
             </div>
+            <p className="text-[10px] font-bold text-slate-400">
+              {(kpis?.totalTC ?? 0).toLocaleString()} equipos/OS · universo G985
+            </p>
           </Card>
-          
+
           <Card className="p-5 border-none shadow-sm rounded-3xl bg-white flex flex-col justify-between h-32">
             <div className="flex justify-between items-start">
               <div>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Validados SAP</p>
-                <h3 className="text-2xl font-black text-emerald-600">{kpis?.validados?.toLocaleString() || 0}</h3>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Series validadas</p>
+                <h3 className="text-2xl font-black text-emerald-600">{(kpis?.seriesValidadas ?? 0).toLocaleString()}</h3>
               </div>
               <div className="w-10 h-10 rounded-2xl bg-emerald-50 flex items-center justify-center">
                 <CheckCircle2 className="w-5 h-5 text-emerald-500" />
               </div>
             </div>
             <div className="w-full bg-slate-100 rounded-full h-1.5 mt-2">
-              <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: `${validadosPct}%` }}></div>
+              <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: `${seriesValPct}%` }} />
             </div>
+            <p className="text-[10px] font-bold text-slate-400 mt-1">
+              {(kpis?.validados ?? 0).toLocaleString()} equipos OK ({validadosPct}%)
+            </p>
           </Card>
 
           <Card className="p-5 border-none shadow-sm rounded-3xl bg-white flex flex-col justify-between h-32">
             <div className="flex justify-between items-start">
               <div>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Pendientes</p>
-                <h3 className="text-2xl font-black text-amber-500">{kpis?.pendientes?.toLocaleString() || 0}</h3>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Equipos pendientes</p>
+                <h3 className="text-2xl font-black text-amber-500">{(kpis?.pendientes ?? 0).toLocaleString()}</h3>
               </div>
               <div className="w-10 h-10 rounded-2xl bg-amber-50 flex items-center justify-center">
                 <Activity className="w-5 h-5 text-amber-500" />
               </div>
             </div>
-            <p className="text-[10px] font-bold text-slate-400">Requieren carga de archivo</p>
+            <p className="text-[10px] font-bold text-slate-400">Sin sync o sin serie ligada</p>
           </Card>
 
           <Card className="p-5 border-none shadow-sm rounded-3xl bg-white flex flex-col justify-between h-32">
             <div className="flex justify-between items-start">
               <div>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Sin Coincidencia</p>
-                <h3 className="text-2xl font-black text-rose-500">{kpis?.sinCoincidencia?.toLocaleString() || 0}</h3>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Sin coincidencia</p>
+                <h3 className="text-2xl font-black text-rose-500">{(kpis?.sinCoincidencia ?? 0).toLocaleString()}</h3>
               </div>
               <div className="w-10 h-10 rounded-2xl bg-rose-50 flex items-center justify-center">
                 <AlertTriangle className="w-5 h-5 text-rose-500" />
               </div>
             </div>
-            <p className="text-[10px] font-bold text-slate-400">{(kpis?.totalTC ? Math.round((kpis.sinCoincidencia / kpis.totalTC) * 100) : 0)}% de error</p>
+            <p className="text-[10px] font-bold text-slate-400">
+              {(kpis?.seriesSinMatch ?? 0).toLocaleString()} series ·{' '}
+              {equiposBase ? Math.round((kpis.sinCoincidencia / equiposBase) * 100) : 0}% equipos
+            </p>
           </Card>
         </div>
 

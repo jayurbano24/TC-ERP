@@ -899,24 +899,25 @@ ${funcNotes || 'Ninguno evaluado'}
                 header: 'OS',
                 width: 'minmax(0,0.7fr)',
                 cell: (item: any) => (
-                  <span className="text-[9px] font-black text-[#181c3a] bg-slate-100 px-1 py-0.5 rounded truncate block">{item.id}</span>
+                  <span className="text-[9px] font-medium text-[var(--foreground)] bg-[var(--surface-hover)] px-1 py-0.5 rounded truncate block">{item.id}</span>
                 ),
               },
               ...Array.from({ length: WORKSHOP_SERIES_SLOTS }, (_, i) => ({
                 id: `s${i + 1}`,
                 header: `S${i + 1}`,
-                width: 'minmax(68px, 0.65fr)',
+                width: 'minmax(90px, 0.85fr)',
+                cellClassName: 'text-[9px] font-medium text-[var(--foreground)] truncate',
                 cell: (item: any) => {
                   const serial = seriesAt(item, i);
                   if (!serial) {
-                    return <span className="text-slate-300 text-[8px]">—</span>;
+                    return <span className="text-[var(--muted)]">—</span>;
                   }
                   return (
                     <button
                       type="button"
                       onClick={() => setShowItemDetail(item)}
                       title={serial}
-                      className="text-[8px] font-mono font-bold text-[#2ec4f1] truncate hover:underline text-left w-full min-w-0 leading-tight"
+                      className="text-[9px] font-medium text-[var(--foreground)] truncate hover:underline text-left w-full min-w-0 leading-tight"
                     >
                       {serial}
                     </button>
@@ -928,7 +929,7 @@ ${funcNotes || 'Ninguno evaluado'}
                     id: 'tecnologia',
                     header: 'Tec.',
                     width: 'minmax(0,0.5fr)',
-                    cellClassName: 'text-[8px] font-bold text-slate-500 uppercase truncate',
+                    cellClassName: 'text-[9px] font-medium text-[var(--foreground)] uppercase truncate',
                     cell: (item: any) => item.tecnologia,
                   } as DataTableColumn<any>]
                 : []),
@@ -936,14 +937,14 @@ ${funcNotes || 'Ninguno evaluado'}
                 id: 'modelo',
                 header: 'Modelo',
                 width: 'minmax(0,0.8fr)',
-                cellClassName: 'text-[9px] font-black text-[#181c3a] uppercase truncate',
+                cellClassName: 'text-[9px] font-medium text-[var(--foreground)] uppercase truncate',
                 cell: (item: any) => `${item.marca} ${item.modelo}`,
               },
               {
                 id: 'caja',
                 header: 'Caja',
                 width: 'minmax(0,0.45fr)',
-                cellClassName: 'text-[9px] font-black text-[#181c3a] uppercase truncate',
+                cellClassName: 'text-[9px] font-medium text-[var(--foreground)] uppercase truncate',
                 cell: (item: any) => item.boxCode,
               },
               {
@@ -952,9 +953,9 @@ ${funcNotes || 'Ninguno evaluado'}
                 width: 'minmax(0,0.65fr)',
                 cell: (item: any) => (
                   <div className="flex flex-col gap-0 min-w-0 leading-tight" title={item.updatedAt}>
-                    <span className="text-[8px] font-bold text-slate-500 truncate">{item.fecha}</span>
+                    <span className="text-[9px] font-medium text-[var(--foreground)] truncate">{item.fecha}</span>
                     {item.hora ? (
-                      <span className="text-[7px] font-bold text-slate-400 truncate">{item.hora}</span>
+                      <span className="text-[9px] font-medium text-[var(--muted)] truncate">{item.hora}</span>
                     ) : null}
                   </div>
                 ),
@@ -965,7 +966,7 @@ ${funcNotes || 'Ninguno evaluado'}
                 width: 'minmax(0,0.7fr)',
                 align: 'center',
                 cell: (item: any) => (
-                  <span className={`text-[7px] font-black px-1 py-px rounded w-fit mx-auto block whitespace-nowrap ${item.ingress_count > 1 ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-500'}`}>
+                  <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded w-fit mx-auto block whitespace-nowrap ${item.ingress_count > 1 ? 'bg-amber-500/15 text-amber-600 dark:text-amber-300' : 'bg-[#2ec4f1]/15 text-[#0ea5c9] dark:text-[#2ec4f1]'}`}>
                     {ingressLabel(item.ingress_count)}
                   </span>
                 ),
@@ -983,7 +984,7 @@ ${funcNotes || 'Ninguno evaluado'}
                       <button
                         type="button"
                         onClick={() => { setReturnModalOpen({ isOpen: true, item }); setReturnTargetStage('in_workshop'); }}
-                        className="h-6 w-6 flex items-center justify-center rounded-md border border-slate-200 text-slate-400 hover:text-amber-500 hover:border-amber-200 hover:bg-amber-50 transition-colors shrink-0"
+                        className="h-6 w-6 flex items-center justify-center rounded-md border border-[var(--border)] text-[var(--muted)] hover:text-amber-500 hover:border-amber-300 hover:bg-amber-500/10 transition-colors shrink-0"
                         title="Regresar a otra etapa"
                         aria-label="Regresar a otra etapa"
                       >
@@ -994,7 +995,7 @@ ${funcNotes || 'Ninguno evaluado'}
                       <button
                         type="button"
                         onClick={() => setHistoryModalOpen({ isOpen: true, item })}
-                        className="h-6 w-6 flex items-center justify-center rounded-md border border-slate-200 text-slate-400 hover:text-blue-500 hover:border-blue-200 hover:bg-blue-50 transition-colors shrink-0"
+                        className="h-6 w-6 flex items-center justify-center rounded-md border border-[var(--border)] text-[var(--muted)] hover:text-blue-500 hover:border-blue-300 hover:bg-blue-500/10 transition-colors shrink-0"
                         title="Ver historial"
                         aria-label="Ver historial"
                       >
@@ -1326,8 +1327,8 @@ ${funcNotes || 'Ninguno evaluado'}
       )}
       {/* Modal de Historial */}
       {historyModalOpen.isOpen && historyModalOpen.item && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#181c3a]/40 backdrop-blur-sm p-4">
-          <Card className="max-w-lg w-full shadow-2xl animate-rise-in p-0 overflow-hidden flex flex-col max-h-[85vh]">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-[#181c3a]/40 backdrop-blur-sm p-0 sm:p-4 overflow-y-auto">
+          <Card className="max-w-lg w-full shadow-2xl animate-rise-in p-0 overflow-hidden flex flex-col max-h-[92dvh] sm:max-h-[85vh] rounded-t-[1.75rem] sm:rounded-3xl my-0 sm:my-4">
             <div className={`px-4 py-3 text-white flex justify-between items-center shrink-0 ${
               activeTab === 'diagnostico' ? 'bg-amber-500' :
               activeTab === 'reparacion' ? 'bg-blue-500' :

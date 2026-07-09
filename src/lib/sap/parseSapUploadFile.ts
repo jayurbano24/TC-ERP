@@ -1,5 +1,6 @@
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
+import { normalizeSerial } from '@/lib/sap/normalizeSerial';
 
 export const SAP_REQUIRED_COLUMNS = [
   'Material',
@@ -42,7 +43,13 @@ function normalizeSapRow(raw: Record<string, unknown>): SapUploadRow {
   for (const [key, val] of Object.entries(raw)) {
     const nk = normalizeSapHeader(key);
     if (!nk || val === null || val === undefined || val === '') continue;
-    out[nk] = String(val).trim();
+    if (nk === 'Número de serie') {
+      const serial = normalizeSerial(val);
+      if (!serial) continue;
+      out[nk] = serial;
+    } else {
+      out[nk] = String(val).trim();
+    }
   }
   return out;
 }
@@ -76,7 +83,7 @@ function parseCsvText(text: string): SapUploadRow[] {
 }
 
 function parseXlsxBuffer(buffer: ArrayBuffer): { rows: SapUploadRow[]; headers: string[] } {
-  const workbook = XLSX.read(buffer, { type: 'array', cellDates: false });
+  const workbook = XLSX.read(buffer, { type: 'array', cellDates: false, cellText: true });
   const sheetName = workbook.SheetNames[0];
   if (!sheetName) throw new Error('El archivo Excel no contiene hojas.');
   const sheet = workbook.Sheets[sheetName];

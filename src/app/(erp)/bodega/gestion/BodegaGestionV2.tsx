@@ -35,7 +35,7 @@ import {
   Truck,
   PackageMinus
 } from 'lucide-react';
-import { getInventoryBoxes, transferBoxesToArea, transferBoxesToAreaInBatches, createBodegaBoxAtomic, reserveNextBoxCode, addSeriesToBox, dispatchBoxFromWarehouse, dispatchSpecificSeries, transferSpecificSeriesToArea, canScanSeriesIntoWarehouse, resolveBoxDisplayStatus, getBoxHistory } from '@/modules/inventario/client/warehouseBoxes';
+import { getInventoryBoxes, transferBoxesToArea, transferBoxesToAreaInBatches, createBodegaBoxAtomic, reserveNextBoxCodeForInventory, addSeriesToBox, dispatchBoxFromWarehouse, dispatchSpecificSeries, transferSpecificSeriesToArea, canScanSeriesIntoWarehouse, resolveBoxDisplayStatus, getBoxHistory } from '@/modules/inventario/client/warehouseBoxes';
 import { DispatchBatchSelector } from '@/modules/outbound-dispatch/components/DispatchBatchSelector';
 import { isHexagonalOutboundDispatchEnabled } from '@/modules/outbound-dispatch';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
@@ -47,6 +47,7 @@ import { TimelineModal } from './components/TimelineModal';
 import { DispatchModal } from './components/DispatchModal';
 import { TransferModal } from './components/TransferModal';
 import { NewBoxModal } from './components/NewBoxModal';
+import { collectTakenBoxCodes } from './collectTakenBoxCodes';
 import { DetalleCajaModal } from './components/DetalleCajaModal';
 import { fetchBoxSeriesUi } from '@/modules/inventario/client/warehouseBoxSeries';
 import { formatWarehouseBoxId } from '@/modules/inventario/client/warehouseBoxDisplay';
@@ -1652,7 +1653,7 @@ export default function BodegaGestionV2({
               if (!newBox.tecnologia || !newBox.marca || !newBox.modelo || !newBox.cantidad || loading) return;
 
               setLoading(true);
-              const reserved = await reserveNextBoxCode();
+              const reserved = await reserveNextBoxCodeForInventory(collectTakenBoxCodes(inventory));
               setLoading(false);
 
               if (reserved.error || !reserved.code) {
@@ -1660,18 +1661,7 @@ export default function BodegaGestionV2({
                 return;
               }
 
-              const correlativoVal = reserved.code.trim().toUpperCase();
-              const existsLocal = inventory.some(
-                (box) =>
-                  box.id.toUpperCase() === correlativoVal ||
-                  (box.box_code && box.box_code.toUpperCase() === correlativoVal)
-              );
-              if (existsLocal) {
-                notify.warning(`El correlativo "${correlativoVal}" ya aparece en pantalla. Recargue e intente de nuevo.`);
-                return;
-              }
-
-              setNewBox((prev) => ({ ...prev, correlativo: correlativoVal }));
+              setNewBox((prev) => ({ ...prev, correlativo: reserved.code.trim().toUpperCase() }));
               setNewBoxStep('scanning');
             }}
           />

@@ -39,7 +39,7 @@ type Props = {
   MASTER_MARCAS: CatalogBrand[];
   MASTER_MODELOS: CatalogModel[];
   canReturnToPending: boolean;
-  onExportReport: () => void;
+  onExportReport: (opts?: { allData?: boolean }) => void;
   onOpenMassTransfer: () => void;
   onSapBlockReturn: (entry: HistoryUnitEntry) => void;
   onReturnToPending: (receptionId: string) => void;
@@ -143,15 +143,15 @@ export function HistoryTab({
             onOpenMassTransfer={onOpenMassTransfer}
           />
 
-          <Card className="p-0 erp-themed-surface rounded-[2.5rem] shadow-2xl border-none overflow-hidden transition-all duration-500">
-            <div className="p-8 border-b border-[var(--border)] space-y-6">
-              <div className="flex flex-col lg:flex-row lg:items-center gap-4">
-                <div className="relative group flex-1 max-w-xl">
-                  <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-5 h-5 text-[var(--muted)] group-focus-within:text-[#2ec4f1] transition-colors" />
+          <Card className="p-0 erp-themed-surface rounded-2xl shadow-lg border border-[var(--border)] overflow-hidden transition-all duration-500">
+            <div className="p-3 sm:p-4 border-b border-[var(--border)] space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <div className="relative group flex-1 min-w-0">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--muted)] group-focus-within:text-[#2ec4f1] transition-colors" />
                   <input
                     type="text"
-                    placeholder="BUSCAR POR SERIE, GUÍA COURIER O DOCUMENTO SAP..."
-                    className="w-full h-14 pl-16 pr-6 bg-[var(--surface-hover)] border-2 border-[var(--border)] rounded-2xl font-black text-[10px] text-[var(--foreground)] outline-none focus:border-[#2ec4f1] focus:bg-[var(--surface)] transition-all uppercase tracking-widest"
+                    placeholder="BUSCAR SERIE, GUÍA O SAP..."
+                    className="w-full h-10 pl-10 pr-3 bg-[var(--surface-hover)] border border-[var(--border)] rounded-xl font-medium text-[10px] text-[var(--foreground)] outline-none focus:border-[#2ec4f1] focus:bg-[var(--surface)] transition-all uppercase tracking-wider"
                     value={historySearch}
                     onChange={(e) => {
                       setHistorySearch(e.target.value);
@@ -162,26 +162,26 @@ export function HistoryTab({
                 <button
                   type="button"
                   onClick={() => setHistoryFiltersOpen((o) => !o)}
-                  className={`flex items-center gap-2 h-14 px-6 rounded-2xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
+                  className={`flex items-center gap-2 h-10 px-4 rounded-xl text-[9px] font-medium uppercase tracking-wider border transition-all shrink-0 ${
                     historyFiltersOpen || hasActiveHistoryTrayFilters(historyFilters)
                       ? 'border-[#181c3a] bg-[#181c3a] text-white'
                       : 'border-[var(--border)] bg-[var(--surface-hover)] text-[var(--muted)] hover:border-[#2ec4f1] hover:text-[var(--foreground)]'
                   }`}
                 >
-                  <Filter size={16} />
-                  Filtros por columna
+                  <Filter size={14} />
+                  Filtros
                   {hasActiveHistoryTrayFilters(historyFilters) && (
-                    <span className="ml-1 px-2 py-0.5 rounded-full bg-[#2ec4f1] text-[#181c3a] text-[8px]">activos</span>
+                    <span className="ml-1 px-1.5 py-0.5 rounded-full bg-[#2ec4f1] text-[#181c3a] text-[8px]">on</span>
                   )}
-                  <ChevronDown size={14} className={`transition-transform ${historyFiltersOpen ? 'rotate-180' : ''}`} />
+                  <ChevronDown size={12} className={`transition-transform ${historyFiltersOpen ? 'rotate-180' : ''}`} />
                 </button>
                 {hasActiveHistoryTrayFilters(historyFilters) && (
                   <button
                     type="button"
                     onClick={clearHistoryFilters}
-                    className="h-14 px-5 rounded-2xl text-[10px] font-black uppercase tracking-widest text-rose-500 border-2 border-rose-100 hover:bg-rose-50 transition-all"
+                    className="h-10 px-3 rounded-xl text-[9px] font-medium uppercase tracking-wider text-rose-500 border border-rose-200 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-all shrink-0"
                   >
-                    Limpiar filtros
+                    Limpiar
                   </button>
                 )}
               </div>

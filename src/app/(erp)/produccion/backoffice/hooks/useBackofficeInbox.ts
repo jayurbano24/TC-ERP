@@ -11,6 +11,38 @@ import type { BackofficeReception, ReceptionStep } from '../types';
 
 const INBOX_QUERY_KEY = ['backoffice-inbox'] as const;
 
+const NON_EQUIPMENT_CATEGORIES = new Set(['accesorio', 'telefono', 'devolucion']);
+
+/**
+ * True when notes look like a failed Equipo classification (Backoffice details
+ * written, but no TC-XXX OS). Accesorio / Teléfono / Devolución never create OS.
+ */
+export function isIncompleteEquipmentIngreso(rec: BackofficeReception): boolean {
+  if (receptionHasTcOs(rec)) return false;
+
+  const guideCategories = (rec.reception_guides || []).map((g) =>
+    (g.category || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  );
+  if (guideCategories.some((c) => NON_EQUIPMENT_CATEGORIES.has(c))) return false;
+
+  const notes = (rec.notes || '').toLowerCase();
+  if (
+    notes.includes('backoffice_category: accesorio') ||
+    notes.includes('backoffice_category: telefono') ||
+    notes.includes('backoffice_category: teléfono') ||
+    notes.includes('backoffice_category: movil') ||
+    notes.includes('backoffice_category: devolucion')
+  ) {
+    return false;
+  }
+
+  return (
+    /clasificaci\u00f3n/i.test(rec.notes || '') ||
+    /--- DETALLES BACKOFFICE ---/i.test(rec.notes || '') ||
+    /Backoffice_Agency:/i.test(rec.notes || '')
+  );
+}
+
 type InboxDeps = {
   setLoading: React.Dispatch<React.SetStateAction<boolean>>;
   setActiveReception: React.Dispatch<React.SetStateAction<BackofficeReception | null>>;
@@ -81,13 +113,9 @@ export function useBackofficeInbox(deps: InboxDeps) {
 
   const startProcessingReception = useCallback(
     (rec: BackofficeReception) => {
-      const notes = rec.notes || '';
-      const hadFailedClassif =
-        !receptionHasTcOs(rec) &&
-        (/clasificaci\u00f3n/i.test(notes) ||
-          /--- DETALLES BACKOFFICE ---/i.test(notes) ||
-          /Backoffice_Agency:/i.test(notes));
-      if (hadFailedClassif) {
+      // Solo Equipo crea OS TC-XXX. Accesorio / Teléfono / Devolución escriben
+      // notas Backoffice sin series — no son "ingreso incompleto".
+      if (isIncompleteEquipmentIngreso(rec)) {
         notify.warning(
           'Complete el flujo de nuevo y confirme el mensaje "X equipo(s) registrado(s)" al finalizar.',
           {

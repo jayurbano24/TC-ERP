@@ -16,7 +16,7 @@ const TasksQuery = z.object({
   tab: z
     .enum(['diagnostico', 'reparacion', 'qc', 'reacondicionado', 'l3', 'scraps', 'listo'])
     .default('diagnostico'),
-  cursor: z.string().uuid().optional(),
+  cursor: z.string().max(64).optional(),
   q: z.string().max(120).optional(),
   limit: z.coerce
     .number()

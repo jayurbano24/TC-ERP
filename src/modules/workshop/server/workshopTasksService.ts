@@ -384,15 +384,121 @@ async function loadWorkshopAuditIds(
     const chunk = seriesIds.slice(i, i + chunkSize);
     const { data: auditRows } = await supabase
       .from('erp_audit_logs')
-      .select('record_id, action')
-      .in('record_id', chunk);
+      .select('record_id')
+      .in('record_id', chunk)
+      .in('action', WORKSHOP_AUDIT_ACTIONS_LIST);
     for (const log of auditRows || []) {
-      if (TALLER_WORKSHOP_AUDIT_ACTIONS.has(String(log.action))) {
-        workshopAuditIds.add(String(log.record_id));
-      }
+      workshopAuditIds.add(String(log.record_id));
     }
   }
   return workshopAuditIds;
+}
+
+/**
+ * Fallback sin RPC 113: escanea bodega reciente (thin) + auditoría filtrada.
+ * No carga el SELECT completo de taller hasta tener OS candidatas.
+ */
+async function fetchListoOsIdsFallback(
+  supabase: SupabaseClient,
+  limit: number
+): Promise<string[]> {
+  const osIds: string[] = [];
+  const seen = new Set<string>();
+  const CHUNK = 300;
+  const MAX_SCAN = 6_000;
+  let offset = 0;
+
+  while (seen.size < limit && offset < MAX_SCAN) {
+    const { data: seriesChunk, error } = await supabase
+      .from('series')
+      .select('id, service_order_id')
+      .eq('current_status', 'in_central_warehouse')
+      .not('service_order_id', 'is', null)
+      .order('updated_at', { ascending: false })
+      .range(offset, offset + CHUNK - 1);
+
+    if (error) {
+      console.error('[workshop/server] listo fallback scan:', error.message);
+      break;
+    }
+    if (!seriesChunk?.length) break;
+
+    const ids = seriesChunk.map((r) => String(r.id));
+    const audited = await loadWorkshopAuditIds(supabase, ids);
+
+    for (const row of seriesChunk) {
+      if (!audited.has(String(row.id))) continue;
+      const osId = String(row.service_order_id);
+      if (seen.has(osId)) continue;
+      seen.add(osId);
+      osIds.push(osId);
+      if (seen.size >= limit) break;
+    }
+
+    offset += CHUNK;
+    if (seriesChunk.length < CHUNK) break;
+  }
+
+  return osIds;
+}
+
+async function queryListoTasksPage(
+  supabase: SupabaseClient,
+  opts: { cursor?: string | null; limit: number }
+): Promise<WorkshopTasksPageResult> {
+  const limit = opts.limit;
+  let osIds: string[] = [];
+  let nextCursor: string | null = null;
+  let usedRpc = false;
+
+  // cursor = ISO timestamptz del sort_ts de la última fila
+  const cursorTs = opts.cursor?.trim() || null;
+
+  const { data: rpcRows, error: rpcError } = await supabase.rpc(
+    'workshop_list_listo_os_page',
+    {
+      p_cursor: cursorTs,
+      p_limit: limit + 1,
+    }
+  );
+
+  if (!rpcError && Array.isArray(rpcRows)) {
+    usedRpc = true;
+    const hasMore = rpcRows.length > limit;
+    const page = hasMore ? rpcRows.slice(0, limit) : rpcRows;
+    osIds = page.map((r: { service_order_id: string }) => String(r.service_order_id));
+    nextCursor = hasMore
+      ? String(page[page.length - 1].sort_ts)
+      : null;
+  } else if (rpcError && !isRpcMissing(rpcError)) {
+    console.warn('[workshop/server] listo RPC failed, fallback:', rpcError.message);
+  }
+
+  if (!usedRpc) {
+    osIds = await fetchListoOsIdsFallback(supabase, limit);
+    nextCursor = null;
+  }
+
+  let seriesRows = await fetchWorkshopSeriesForOsIds(
+    supabase,
+    osIds,
+    'in_central_warehouse'
+  );
+  // Ya filtrados por auditoría en RPC/fallback; no re-escanear todo el stock.
+  seriesRows = await enrichWorkshopServiceOrders(supabase, seriesRows);
+  const items = groupWorkshopSeriesRows(seriesRows);
+
+  const { data: totalOs } = await supabase.rpc('count_workshop_os_all_tabs');
+  const listoTotal =
+    totalOs && typeof totalOs === 'object' && 'listo' in (totalOs as object)
+      ? Number((totalOs as { listo: number }).listo)
+      : items.length;
+
+  return {
+    items,
+    nextCursor,
+    totalOs: Number.isFinite(listoTotal) ? listoTotal : items.length,
+  };
 }
 
 async function attachWorkshopAuditFlags(
@@ -539,11 +645,10 @@ export async function queryWorkshopTasksPage(
   );
 
   if (tab === 'listo') {
-    let rows = await fetchWorkshopSeriesPaginated(supabase, ['in_central_warehouse']);
-    rows = await attachWorkshopAuditFlags(supabase, rows, 'listo');
-    rows = await enrichWorkshopServiceOrders(supabase, rows);
-    const items = groupWorkshopSeriesRows(rows);
-    return { items, nextCursor: null, totalOs: items.length };
+    return queryListoTasksPage(supabase, {
+      cursor: opts.cursor ?? null,
+      limit,
+    });
   }
 
   const status = TAB_TO_STATUS[tab];

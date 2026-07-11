@@ -230,6 +230,75 @@ function workshopGroupKey(row: {
   return `series:${row.id}`;
 }
 
+function serialFingerprint(sns: string[]): string {
+  return [...sns].map((s) => s.toUpperCase()).sort().join('|');
+}
+
+function mergeWorkshopGroup(target: any, source: any) {
+  for (const id of source.all_dbIds || [source.id]) {
+    if (id && !target.all_dbIds.includes(id)) target.all_dbIds.push(id);
+  }
+  for (const sn of source.all_sns || (source.serial_number ? [source.serial_number] : [])) {
+    if (sn && !target.all_sns.includes(sn)) target.all_sns.push(sn);
+  }
+  if (!target.source_box_code && source.source_box_code) {
+    target.source_box_code = source.source_box_code;
+  }
+  if (!target.service_orders?.os_label && source.service_orders?.os_label) {
+    target.service_orders = source.service_orders;
+  }
+  if (!target.service_order_id && source.service_order_id) {
+    target.service_order_id = source.service_order_id;
+  }
+  if (new Date(String(source.updated_at)) > new Date(String(target.updated_at))) {
+    target.updated_at = source.updated_at;
+  }
+}
+
+/** Colapsa grupos duplicados (misma OS o mismo set de series S1–S4). */
+function dedupeWorkshopGroups(groups: any[]): any[] {
+  const out: any[] = [];
+  const byOs = new Map<string, number>();
+  const byLabel = new Map<string, number>();
+  const byFp = new Map<string, number>();
+
+  for (const g of groups) {
+    g.all_dbIds = g.all_dbIds || [g.id];
+    g.all_sns = g.all_sns || (g.serial_number ? [g.serial_number] : []);
+    const osKey = g.service_order_id ? String(g.service_order_id) : '';
+    const labelKey = g.service_orders?.os_label
+      ? String(g.service_orders.os_label).toUpperCase()
+      : '';
+    const fp = serialFingerprint(g.all_sns);
+
+    const existingIdx = (() => {
+      if (osKey && byOs.has(osKey)) return byOs.get(osKey);
+      if (labelKey && byLabel.has(labelKey)) return byLabel.get(labelKey);
+      if (fp && byFp.has(fp)) return byFp.get(fp);
+      return undefined;
+    })();
+
+    if (existingIdx != null) {
+      mergeWorkshopGroup(out[existingIdx], g);
+      continue;
+    }
+
+    const idx = out.length;
+    out.push(g);
+    if (osKey) byOs.set(osKey, idx);
+    if (labelKey) byLabel.set(labelKey, idx);
+    if (fp) byFp.set(fp, idx);
+  }
+
+  for (const g of out) {
+    g.all_sns = [...(g.all_sns || [])].sort(
+      (a: string, b: string) => b.length - a.length || a.localeCompare(b)
+    );
+  }
+
+  return out;
+}
+
 function groupWorkshopSeriesRows(rows: any[]) {
   const groupedMap = new Map<string, any>();
 
@@ -247,22 +316,14 @@ function groupWorkshopSeriesRows(rows: any[]) {
     }
 
     const existing = groupedMap.get(groupKey)!;
-    if (!existing.all_dbIds.includes(row.id)) existing.all_dbIds.push(row.id);
-    if (row.serial_number && !existing.all_sns.includes(row.serial_number)) {
-      existing.all_sns.push(row.serial_number);
-    }
-    if (!existing.source_box_code && row.source_box_code) {
-      existing.source_box_code = row.source_box_code;
-    }
-    if (!existing.service_orders?.os_label && row.service_orders?.os_label) {
-      existing.service_orders = row.service_orders;
-    }
-    if (new Date(String(row.updated_at)) > new Date(String(existing.updated_at))) {
-      existing.updated_at = row.updated_at;
-    }
+    mergeWorkshopGroup(existing, {
+      ...row,
+      all_dbIds: [row.id],
+      all_sns: row.serial_number ? [row.serial_number] : [],
+    });
   }
 
-  return [...groupedMap.values()];
+  return dedupeWorkshopGroups([...groupedMap.values()]);
 }
 
 function isWorkshopReadyInCentral(series: {

@@ -65,6 +65,27 @@ function getJoinedServiceOrder(row: any): { id?: string; sap_integration_status?
   return so;
 }
 
+/** Vacío/null no cuenta: solo hay conflicto si ambos lados tienen valor y difieren. */
+function normMatLot(value: unknown): string | null {
+  const s = String(value ?? '').trim();
+  return s ? s : null;
+}
+
+function materialsConflict(
+  aMat: unknown,
+  aLot: unknown,
+  bMat: unknown,
+  bLot: unknown
+): boolean {
+  const am = normMatLot(aMat);
+  const al = normMatLot(aLot);
+  const bm = normMatLot(bMat);
+  const bl = normMatLot(bLot);
+  if (am && bm && am !== bm) return true;
+  if (al && bl && al !== bl) return true;
+  return false;
+}
+
 async function fetchDespachoData(): Promise<{ history: any[]; dispatches: DispatchItem[] }> {
   try {
     const [history, dispatches] = await Promise.all([
@@ -340,12 +361,15 @@ export default function DespachoPage() {
       return;
     }
 
-    // 2. Validar que el Material y Lote coincidan con el resto de la caja
+    // 2. Validar Material/Lote vs caja solo si ambos lados tienen valor
     if (boxItems.length > 0) {
       const existingMaterial = boxItems[0].material;
       const existingLote = boxItems[0].valuation;
-      if (sData.material !== existingMaterial || sData.valuation !== existingLote) {
-        notify.error('No se pueden mezclar Material/Lote', { description: `Equipo: Material [${sData.material}] Lote [${sData.valuation}] · Caja: Material [${existingMaterial || 'N/A'}] Lote [${existingLote || 'N/A'}].`, duration: 0 });
+      if (materialsConflict(sData.material, sData.valuation, existingMaterial, existingLote)) {
+        notify.error('No se pueden mezclar Material/Lote', {
+          description: `Equipo: Material [${normMatLot(sData.material) || '—'}] Lote [${normMatLot(sData.valuation) || '—'}] · Caja: Material [${normMatLot(existingMaterial) || '—'}] Lote [${normMatLot(existingLote) || '—'}].`,
+          duration: 0,
+        });
         return;
       }
     }
@@ -358,13 +382,18 @@ export default function DespachoPage() {
         .select(SERIES_SIBLING_SELECT)
         .eq('service_order_id', sData.service_order_id);
       if (siblings && siblings.length > 0) {
-        // Validar si alguna serie hermana tiene un material/lote distinto (en caso de que estuvieran cargados)
-        const mismatch = siblings.find(s => s.material && s.valuation && (s.material !== sData.material || s.valuation !== sData.valuation));
+        // Solo inconsistencia si ambos (escaneada y hermana) tienen Material/Lote y difieren
+        const mismatch = siblings.find((s) =>
+          materialsConflict(sData.material, sData.valuation, s.material, s.valuation)
+        );
         if (mismatch) {
-          notify.error('Falla de consistencia', { description: `La serie hermana ${mismatch.serial_number} tiene un Material/Lote distinto al de la serie escaneada.`, duration: 0 });
+          notify.error('Falla de consistencia', {
+            description: `La serie hermana ${mismatch.serial_number} tiene un Material/Lote distinto al de la serie escaneada.`,
+            duration: 0,
+          });
           return;
         }
-        idsToUpdate = siblings.map(s => s.id);
+        idsToUpdate = siblings.map((s) => s.id);
       }
     }
 

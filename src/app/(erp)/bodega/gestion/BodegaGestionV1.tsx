@@ -52,6 +52,7 @@ import { collectTakenBoxCodes } from './collectTakenBoxCodes';
 import { DetalleCajaModal } from './components/DetalleCajaModal';
 import { RECEPTION_TIMELINE_SELECT } from '@/shared/constants/dbProjections';
 import { formatWarehouseBoxId } from '@/modules/inventario/client/warehouseBoxDisplay';
+import { escapeHtml } from '@/shared/validation/strictInput';
 
 export default function BodegaGestionV1() {
   const pathname = usePathname();
@@ -746,8 +747,12 @@ export default function BodegaGestionV1() {
   };
 
   const printBoxLabel = (box: any, type: 'simple' | 'master') => {
-    const brandLabel = brandName(box.marca);
-    const modelLabel = modelName(box.modelo);
+    const brandLabel = escapeHtml(brandName(box.marca));
+    const modelLabel = escapeHtml(modelName(box.modelo));
+    const boxId = escapeHtml(box.id);
+    const tech = escapeHtml(box.tecnologia || '---');
+    const fecha = escapeHtml(box.fechaIngreso || new Date().toLocaleDateString());
+    const cantidad = escapeHtml(box.cantidad);
 
     const printWindow = window.open('', '', 'width=600,height=400');
     if (!printWindow) return;
@@ -781,16 +786,16 @@ export default function BodegaGestionV1() {
         <div class="title" style="display: flex; justify-content: center; margin-bottom: 15px;">
           ${svgLogo}
         </div>
-        <div class="box-id">${box.id}</div>
+        <div class="box-id">${boxId}</div>
         
         <!-- Fallback Barcode using font -->
-        <div class="barcode">*${box.id}*</div>
+        <div class="barcode">*${boxId}*</div>
         
         <div class="details">
           MARCA: ${brandLabel}<br>
           MODELO: ${modelLabel}<br>
-          CANTIDAD: ${box.cantidad} Unidades<br>
-          FECHA: ${box.fechaIngreso || new Date().toLocaleDateString()}
+          CANTIDAD: ${cantidad} Unidades<br>
+          FECHA: ${fecha}
         </div>
       </div>
     `;
@@ -806,13 +811,13 @@ export default function BodegaGestionV1() {
         </div>
         <div style="text-align: center;">
           <div class="box-id" style="font-size: 24px; margin-bottom: 2px;">CAJA MASTER</div>
-          <div class="box-id" style="font-size: 20px; margin-bottom: 2px;">${box.id}</div>
-          <div class="barcode" style="font-size: 40px; margin-bottom: 5px;">*${box.id}*</div>
+          <div class="box-id" style="font-size: 20px; margin-bottom: 2px;">${boxId}</div>
+          <div class="barcode" style="font-size: 40px; margin-bottom: 5px;">*${boxId}*</div>
         </div>
         
         <div class="details" style="font-size: 12px; margin-bottom: 15px; border-bottom: 1px solid #000; padding-bottom: 10px;">
           <strong>MARCA:</strong> ${brandLabel} &nbsp;|&nbsp; <strong>MODELO:</strong> ${modelLabel} <br>
-          <strong>TECNOLOGÍA:</strong> ${box.tecnologia || '---'} &nbsp;|&nbsp; <strong>FECHA:</strong> ${box.fechaIngreso || new Date().toLocaleDateString()}
+          <strong>TECNOLOGÍA:</strong> ${tech} &nbsp;|&nbsp; <strong>FECHA:</strong> ${fecha}
         </div>
         
         <div class="details" style="font-size: 10px; font-family: monospace;">
@@ -832,12 +837,12 @@ export default function BodegaGestionV1() {
               ${(box.series || []).map((s: any, idx: number) => 
                 '<tr style="border-bottom: 1px solid #ccc;">' +
                   '<td style="padding: 4px;">' + (idx + 1) + '</td>' +
-                  '<td style="padding: 4px; font-weight: bold;">' + (s.s1 || s.sn || '---') + '</td>' +
-                  '<td style="padding: 4px;">' + (s.s2 || '---') + '</td>' +
-                  '<td style="padding: 4px;">' + (s.s3 || '---') + '</td>' +
-                  '<td style="padding: 4px;">' + (s.s4 || '---') + '</td>' +
-                  '<td style="padding: 4px;">' + (s.material || '---') + '</td>' +
-                  '<td style="padding: 4px;">' + (s.lote || '---') + '</td>' +
+                  '<td style="padding: 4px; font-weight: bold;">' + escapeHtml(s.s1 || s.sn || '---') + '</td>' +
+                  '<td style="padding: 4px;">' + escapeHtml(s.s2 || '---') + '</td>' +
+                  '<td style="padding: 4px;">' + escapeHtml(s.s3 || '---') + '</td>' +
+                  '<td style="padding: 4px;">' + escapeHtml(s.s4 || '---') + '</td>' +
+                  '<td style="padding: 4px;">' + escapeHtml(s.material || '---') + '</td>' +
+                  '<td style="padding: 4px;">' + escapeHtml(s.lote || '---') + '</td>' +
                 '</tr>'
               ).join('')}
             </tbody>
@@ -849,7 +854,7 @@ export default function BodegaGestionV1() {
     printWindow.document.write(`
       <html>
         <head>
-          <title>Impresión de Etiqueta - ${box.id}</title>
+          <title>Impresión de Etiqueta - ${boxId}</title>
           ${commonStyles}
         </head>
         <body>

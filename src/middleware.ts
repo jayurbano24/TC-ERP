@@ -140,6 +140,29 @@ function getBearerToken(req: NextRequest): string | null {
   return value.trim() || null;
 }
 
+/** Cookies de sesión @supabase/ssr (`sb-<ref>-auth-token` / chunks). */
+function hasSupabaseAuthCookie(req: NextRequest): boolean {
+  return req.cookies.getAll().some(
+    (c) => c.name.startsWith('sb-') && c.name.includes('auth-token')
+  );
+}
+
+/** Evita tormentas de 403: borra JWT inválido/caducado del browser. */
+function clearSupabaseAuthCookies(req: NextRequest, res: NextResponse): void {
+  const secure = process.env.NODE_ENV === 'production';
+  for (const { name } of req.cookies.getAll()) {
+    if (name.startsWith('sb-') && name.includes('auth-token')) {
+      res.cookies.set(name, '', {
+        httpOnly: true,
+        secure,
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 0,
+      });
+    }
+  }
+}
+
 async function isValidSupabaseToken(token: string): Promise<boolean> {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return false;
   try {
@@ -193,12 +216,12 @@ export async function middleware(req: NextRequest) {
   requestHeaders.set(CORRELATION_HEADER, correlationId);
   requestHeaders.set(REQUEST_ID_HEADER, correlationId);
 
-  // Sesión Supabase desde cookies (@supabase/ssr). El cliente escribe las cookies
-  // refrescadas en `response`, que se reconstruye en `setAll`.
+  // Sesión Supabase desde cookies (@supabase/ssr). Solo llamar a Auth si hay
+  // cookie de sesión: sin cookie, getUser() genera 403 ruidosos en Edge/Vercel.
   let response = NextResponse.next({ request: { headers: requestHeaders } });
   let sessionUser: { id: string } | null = null;
 
-  if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+  if (SUPABASE_URL && SUPABASE_ANON_KEY && hasSupabaseAuthCookie(req)) {
     const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       cookies: {
         getAll() {
@@ -215,12 +238,20 @@ export async function middleware(req: NextRequest) {
     });
 
     try {
-      const { data } = await withTimeout(
+      const { data, error } = await withTimeout(
         supabase.auth.getUser(),
         SUPABASE_AUTH_TIMEOUT_MS,
-        { data: { user: null }, error: null },
+        { data: { user: null }, error: { message: 'auth_timeout' } as { message: string } },
       );
-      sessionUser = data.user ? { id: data.user.id } : null;
+      if (data.user) {
+        sessionUser = { id: data.user.id };
+      } else if (error?.message === 'auth_timeout') {
+        // No limpiar cookies por timeout de red / Supabase lento
+        sessionUser = null;
+      } else {
+        // Cookie presente pero JWT inválido/caducado → limpiar para cortar el loop 403
+        clearSupabaseAuthCookies(req, response);
+      }
     } catch {
       sessionUser = null;
     }

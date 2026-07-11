@@ -1,14 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
 import { MAX_DEVICE_LINES, commandResultSchema, parseDeviceSn } from '../_shared';
+import { assertIclockDeviceSecret } from '../deviceAuth';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * Endpoint ADMS ZKTeco para recibir confirmaciones de ejecución de comandos.
- * El dispositivo hace un POST aquí cuando finaliza un comando (exitoso o fallido).
  */
 export async function POST(request: NextRequest) {
+  const secret = assertIclockDeviceSecret(request);
+  if (!secret.ok) {
+    return new NextResponse(secret.body, {
+      status: secret.status,
+      headers: { 'Content-Type': 'text/plain' },
+    });
+  }
+
   const sn = parseDeviceSn(request.nextUrl.searchParams);
   if (!sn) {
     return new NextResponse('OK', { status: 200, headers: { 'Content-Type': 'text/plain' } });

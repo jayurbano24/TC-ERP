@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getSupabaseServerClient } from '@/lib/supabase/server';
 import { normalizeSerial } from '@/lib/sap/normalizeSerial';
+import { requireApiUser } from '@/shared/infrastructure/http/requireApiUser';
+import { resolveReadClient } from '@/shared/infrastructure/http/resolveReadClient';
+import { logOnlyRoleCheck, ROLES_RETURNS_SAP } from '@/shared/authz/roleGuard';
 
 /**
  * SEC-04: el número de serie es input no confiable. Se acota longitud y charset
@@ -17,7 +19,11 @@ const QuerySchema = z.object({
 });
 
 export async function GET(request: Request) {
-  const supabase = getSupabaseServerClient();
+  const auth = await requireApiUser(request);
+  if (auth instanceof NextResponse) return auth;
+  const denied = await logOnlyRoleCheck(request, ROLES_RETURNS_SAP, { module: 'sap', action: 'query' });
+  if (denied) return denied;
+  const { client: supabase } = resolveReadClient(auth.supabase);
   const { searchParams } = new URL(request.url);
 
   const parsed = QuerySchema.safeParse({ sn: searchParams.get('sn') ?? '' });

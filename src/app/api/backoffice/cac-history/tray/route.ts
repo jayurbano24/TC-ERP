@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import type { CacTrayQueryParams } from '@/lib/backoffice/cacTrayTypes';
 import { queryCacTrayPage } from '@/modules/recepcion/server/cacTrayQueries';
 import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
+import { requireApiUser } from '@/shared/infrastructure/http/requireApiUser';
+import { resolveReadClient } from '@/shared/infrastructure/http/resolveReadClient';
+import { ROLES_RECEPCION } from '@/shared/authz/roleGuard';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,13 +32,19 @@ function parseTrayParams(url: URL): CacTrayQueryParams {
 
 export const GET = withErrorHandler(
   async (req: Request) => {
+    const auth = await requireApiUser(req);
+    if (auth instanceof NextResponse) return auth;
+    const { client } = resolveReadClient(auth.supabase);
+
     const url = new URL(req.url);
     const includeSapValidation = url.searchParams.get('includeSap') !== '0';
-    const result = await queryCacTrayPage(parseTrayParams(url), { includeSapValidation });
-    // Sin cache: VAL. SAP / Bodega deben reflejar el sync G985 y el ingreso a Bodega al instante.
+    const result = await queryCacTrayPage(parseTrayParams(url), {
+      includeSapValidation,
+      client,
+    });
     return NextResponse.json(result, {
       headers: { 'Cache-Control': 'private, no-store' },
     });
   },
-  { module: 'backoffice', action: 'cac-history.tray' }
+  { module: 'backoffice', action: 'cac-history.tray', roles: ROLES_RECEPCION }
 );

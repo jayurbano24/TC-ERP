@@ -1,30 +1,19 @@
 'use server';
 
-import { createClient } from '@supabase/supabase-js';
+import { requireServerAdmin, getServiceRoleAdminClient } from '@/shared/authz/requireServerAdmin';
 
 export async function adminChangeUserPassword(userId: string, newPassword: string) {
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const gate = await requireServerAdmin();
+  if (!gate.ok) return { error: gate.error };
 
-  if (!serviceRoleKey || !url) {
-    return { error: 'Las credenciales de administrador (SUPABASE_SERVICE_ROLE_KEY) no están configuradas en el servidor.' };
+  try {
+    const adminAuthClient = getServiceRoleAdminClient();
+    const { error } = await adminAuthClient.auth.admin.updateUserById(userId, {
+      password: newPassword,
+    });
+    if (error) return { error: error.message };
+    return { success: true };
+  } catch (e: unknown) {
+    return { error: e instanceof Error ? e.message : 'Error al cambiar contraseña' };
   }
-
-  const adminAuthClient = createClient(url, serviceRoleKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  });
-
-  const { data, error } = await adminAuthClient.auth.admin.updateUserById(
-    userId,
-    { password: newPassword }
-  );
-
-  if (error) {
-    return { error: error.message };
-  }
-
-  return { success: true };
 }

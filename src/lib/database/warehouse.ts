@@ -983,7 +983,7 @@ export async function getInventoryDetails() {
   const seriesSelect = `
     *,
     boxes (id, box_code, status, rack_location, created_at),
-    service_orders (os_label, sap_integration_status, reentry_count),
+    service_orders (os_label, sap_integration_status),
     receptions (
         guide_number,
         notes,

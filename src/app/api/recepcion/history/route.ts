@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { getSupabaseServerClient } from '@/lib/supabase/server';
 import { requireApiUser } from '@/shared/infrastructure/http/requireApiUser';
+import { resolveReadClient } from '@/shared/infrastructure/http/resolveReadClient';
 import { authorize } from '@/shared/authz/authorize';
 import { AUTHZ_MODULE } from '@/shared/authz/modules';
 
@@ -15,10 +15,7 @@ const RECEPTIONS_SAFETY_LIMIT = 1000;
 
 /**
  * Historial de recepciones (CAC/PX).
- *
- * Se sirve desde el servidor con service role porque la tabla `receptions`
- * tiene RLS (`auth.uid() IS NOT NULL`) y la lectura directa desde el navegador
- * falla cuando no hay sesión Supabase (p. ej. login admin de desarrollo).
+ * ADR-011 2A: con USE_RLS_READS=true usa cliente JWT (RLS); si no, service role.
  */
 export async function GET(req: Request) {
   try {
@@ -28,7 +25,7 @@ export async function GET(req: Request) {
     const denied = await authorize(req, auth.user.id, AUTHZ_MODULE.RECEPCION_GENERAL, 'view');
     if (denied) return denied;
 
-    const supabase = getSupabaseServerClient();
+    const { client: supabase } = resolveReadClient(auth.supabase);
     const { searchParams } = new URL(req.url);
     const sourceParam = searchParams.get('source');
     // Validación de entrada: solo se aceptan los valores conocidos.

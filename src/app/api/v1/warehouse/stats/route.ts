@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireApiUser } from '@/shared/infrastructure/http/requireApiUser';
+import { logOnlyRoleCheck, ROLES_BODEGA_DESPACHO } from '@/shared/authz/roleGuard';
 import { TECHNOLOGY_SELECT } from '@/shared/constants/dbProjections';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -50,6 +51,12 @@ export async function GET(req: NextRequest) {
   if (!supabase) {
     return NextResponse.json({ error: 'SERVER_CLIENT_REQUIRED' }, { status: 500 });
   }
+
+  const roleCheck = await logOnlyRoleCheck(req, ROLES_BODEGA_DESPACHO, {
+    module: 'bodega',
+    action: 'stats',
+  });
+  if (roleCheck) return roleCheck;
 
   const { data: kpiData, error: kpiError } = await supabase.rpc('warehouse_dashboard_kpis');
 

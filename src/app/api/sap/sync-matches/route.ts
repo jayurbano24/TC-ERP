@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
 import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
+import { ROLES_RETURNS_SAP } from '@/shared/authz/roleGuard';
 import { parseJsonBody } from '@/shared/validation/parseRequest';
 
 export const dynamic = 'force-dynamic';
@@ -103,4 +104,4 @@ export const POST = withErrorHandler(async (request: Request) => {
       equiposUnmatched: payload?.equipos_unmatched ?? 0,
     },
   });
-}, { module: 'sap', action: 'sync-matches' });
+}, { module: 'sap', action: 'sync-matches', roles: ROLES_RETURNS_SAP });

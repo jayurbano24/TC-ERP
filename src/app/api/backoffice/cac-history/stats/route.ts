@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import type { CacTrayQueryParams } from '@/lib/backoffice/cacTrayTypes';
 import { queryCacTrayStats } from '@/modules/recepcion/server/cacTrayQueries';
 import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
+import { requireApiUser } from '@/shared/infrastructure/http/requireApiUser';
+import { resolveReadClient } from '@/shared/infrastructure/http/resolveReadClient';
+import { ROLES_RECEPCION } from '@/shared/authz/roleGuard';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,10 +30,13 @@ function parseStatsParams(url: URL): CacTrayQueryParams {
 
 export const GET = withErrorHandler(
   async (req: Request) => {
-    const result = await queryCacTrayStats(parseStatsParams(new URL(req.url)));
+    const auth = await requireApiUser(req);
+    if (auth instanceof NextResponse) return auth;
+    const { client } = resolveReadClient(auth.supabase);
+    const result = await queryCacTrayStats(parseStatsParams(new URL(req.url)), client);
     return NextResponse.json(result, {
       headers: { 'Cache-Control': 'private, max-age=30, stale-while-revalidate=120' },
     });
   },
-  { module: 'backoffice', action: 'cac-history.stats' }
+  { module: 'backoffice', action: 'cac-history.stats', roles: ROLES_RECEPCION }
 );

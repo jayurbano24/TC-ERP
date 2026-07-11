@@ -4,9 +4,9 @@ import { GetDespachosPendientesQuery } from '../../../../modules/despacho/applic
 import { RequestContextBuilder } from '../../../../shared/context/RequestContextBuilder';
 import { FeatureFlagService } from '../../../../shared/feature-flags/FeatureFlagService';
 import { requireApiUser } from '@/shared/infrastructure/http/requireApiUser';
+import { withResolvedReadClient } from '@/shared/infrastructure/http/withResolvedReadClient';
 import { authorize } from '@/shared/authz/authorize';
 import { AUTHZ_MODULE } from '@/shared/authz/modules';
-
 import { container } from '../../../../shared/di/container';
 
 export const dynamic = 'force-dynamic';
@@ -19,33 +19,31 @@ export async function GET(request: Request) {
     const denied = await authorize(request, auth.user.id, AUTHZ_MODULE.DESPACHO, 'view');
     if (denied) return denied;
 
-    const query = container.resolve(GetDespachosPendientesQuery);
-    const featureFlagService = container.resolve(FeatureFlagService);
+    return withResolvedReadClient(auth, async () => {
+      const query = container.resolve(GetDespachosPendientesQuery);
+      const featureFlagService = container.resolve(FeatureFlagService);
 
-    const ctx = new RequestContextBuilder()
-      .withTenant('tenant-1')
-      .withBranch('branch-1')
-      .withUser(auth.user.id)
-      .build();
+      const ctx = new RequestContextBuilder()
+        .withTenant('tenant-1')
+        .withBranch('branch-1')
+        .withUser(auth.user.id)
+        .build();
 
-    const isNewModuleEnabled = await featureFlagService.isEnabled(ctx, 'USE_NEW_DESPACHO_MODULE');
+      const isNewModuleEnabled = await featureFlagService.isEnabled(ctx, 'USE_NEW_DESPACHO_MODULE');
 
-    if (!isNewModuleEnabled) {
-      return NextResponse.json(
-        { error: 'El nuevo módulo de Despacho no está activo' },
-        { status: 403 }
-      );
-    }
+      if (!isNewModuleEnabled) {
+        return NextResponse.json(
+          { error: 'El nuevo módulo de Despacho no está activo' },
+          { status: 403 }
+        );
+      }
 
-    const data = await query.execute(ctx);
-    
-    return NextResponse.json({ success: true, data }, { status: 200 });
-
-  } catch (error: any) {
+      const data = await query.execute(ctx);
+      return NextResponse.json({ success: true, data }, { status: 200 });
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Error interno del servidor';
     console.error('Error en API Despacho Pendientes:', error);
-    return NextResponse.json(
-      { error: error.message || 'Error interno del servidor' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

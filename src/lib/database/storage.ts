@@ -6,9 +6,9 @@ export async function uploadAvatar(userId: string, file: File): Promise<{ url?: 
 
   try {
     const fileExt = file.name.split('.').pop();
-    // Unique name to avoid caching issues on replace
-    const fileName = `${userId}-${Math.random().toString(36).substring(2, 15)}.${fileExt}`;
-    const filePath = `${fileName}`;
+    // Carpeta = auth.uid() (políticas storage 102: solo escritura en {uid}/…)
+    const fileName = `${Math.random().toString(36).substring(2, 15)}.${fileExt}`;
+    const filePath = `${userId}/${fileName}`;
 
     // Upload image to 'avatars' bucket
     const { error: uploadError } = await supabase.storage

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { withErrorHandler } from "@/shared/infrastructure/http/apiHandler";
+import { ROLES_RETURNS_SAP } from "@/shared/authz/roleGuard";
 import { parseJsonBody } from "@/shared/validation/parseRequest";
 
 export const dynamic = "force-dynamic";
@@ -55,4 +56,4 @@ export const POST = withErrorHandler(async (request: Request) => {
 
   const sessionId = (data as { session_id?: string } | null)?.session_id ?? null;
   return NextResponse.json({ success: true, sessionId });
-}, { module: "sap", action: "sync" });
+}, { module: "sap", action: "sync", roles: ROLES_RETURNS_SAP });

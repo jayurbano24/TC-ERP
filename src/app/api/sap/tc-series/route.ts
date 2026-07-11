@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
-import { getSupabaseServerClient } from '@/lib/supabase/server';
+import { requireApiUser } from '@/shared/infrastructure/http/requireApiUser';
+import { resolveReadClient } from '@/shared/infrastructure/http/resolveReadClient';
+import { logOnlyRoleCheck, ROLES_RETURNS_SAP } from '@/shared/authz/roleGuard';
 
 export const dynamic = 'force-dynamic';
 
@@ -7,10 +9,14 @@ const PAGE_SIZE = 1000;
 
 /**
  * Devuelve TODAS las series TC con service_order_id (paginado).
- * Antes el default de Supabase (~1000) truncaba el cruce SAP.
+ * ADR-011 2A: USE_RLS_READS=true → cliente JWT.
  */
-export async function GET() {
-  const supabase = getSupabaseServerClient();
+export async function GET(request: Request) {
+  const auth = await requireApiUser(request);
+  if (auth instanceof NextResponse) return auth;
+  const denied = await logOnlyRoleCheck(request, ROLES_RETURNS_SAP, { module: 'sap', action: 'tc-series' });
+  if (denied) return denied;
+  const { client: supabase } = resolveReadClient(auth.supabase);
 
   try {
     const series: { id: string; serial_number: string; service_order_id: string; serial_normalized?: string | null }[] = [];

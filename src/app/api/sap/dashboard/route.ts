@@ -1,9 +1,15 @@
 import { NextResponse } from "next/server";
 import { COUNT_HEAD, SAP_UPLOAD_SELECT } from '@/shared/constants/dbProjections';
-import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { requireApiUser } from "@/shared/infrastructure/http/requireApiUser";
+import { resolveReadClient } from "@/shared/infrastructure/http/resolveReadClient";
+import { logOnlyRoleCheck, ROLES_RETURNS_SAP } from "@/shared/authz/roleGuard";
 
-export async function GET(_request: Request) {
-  const supabase = getSupabaseServerClient();
+export async function GET(request: Request) {
+  const auth = await requireApiUser(request);
+  if (auth instanceof NextResponse) return auth;
+  const denied = await logOnlyRoleCheck(request, ROLES_RETURNS_SAP, { module: "sap", action: "dashboard" });
+  if (denied) return denied;
+  const { client: supabase } = resolveReadClient(auth.supabase);
 
   try {
     // Universo ETL: series ligadas a OS (lo que el G985 puede cruzar)

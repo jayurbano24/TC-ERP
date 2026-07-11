@@ -2,6 +2,7 @@ import { ZK_COMMAND_SELECT } from '@/shared/constants/dbProjections';
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
 import { parseDeviceSn } from '../_shared';
+import { assertIclockDeviceSecret } from '../deviceAuth';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,9 +11,16 @@ const textOk = (body = 'OK') =>
 
 /**
  * Endpoint de ADMS para recibir peticiones (Polling) del reloj ZKTeco.
- * El dispositivo consulta aquí periódicamente para saber si el servidor le tiene alguna orden.
  */
 export async function GET(request: NextRequest) {
+  const secret = assertIclockDeviceSecret(request);
+  if (!secret.ok) {
+    return new NextResponse(secret.body, {
+      status: secret.status,
+      headers: { 'Content-Type': 'text/plain' },
+    });
+  }
+
   const sn = parseDeviceSn(request.nextUrl.searchParams);
   if (!sn) {
     return textOk();

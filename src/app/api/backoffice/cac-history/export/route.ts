@@ -3,6 +3,9 @@ import type { CacTrayQueryParams } from '@/lib/backoffice/cacTrayTypes';
 import { trayRowsToHistoryEntries } from '@/lib/backoffice/trayRowAdapter';
 import { queryCacTrayAllFiltered } from '@/modules/recepcion/server/cacTrayQueries';
 import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
+import { requireApiUser } from '@/shared/infrastructure/http/requireApiUser';
+import { resolveReadClient } from '@/shared/infrastructure/http/resolveReadClient';
+import { ROLES_RECEPCION } from '@/shared/authz/roleGuard';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,12 +31,15 @@ function parseExportParams(url: URL): CacTrayQueryParams {
 
 export const GET = withErrorHandler(
   async (req: Request) => {
-    const rows = await queryCacTrayAllFiltered(parseExportParams(new URL(req.url)));
+    const auth = await requireApiUser(req);
+    if (auth instanceof NextResponse) return auth;
+    const { client } = resolveReadClient(auth.supabase);
+    const rows = await queryCacTrayAllFiltered(parseExportParams(new URL(req.url)), 10000, client);
     return NextResponse.json({
       entries: trayRowsToHistoryEntries(rows),
       count: rows.length,
       truncated: rows.length >= 10000,
     });
   },
-  { module: 'backoffice', action: 'cac-history.export' }
+  { module: 'backoffice', action: 'cac-history.export', roles: ROLES_RECEPCION }
 );

@@ -9,9 +9,14 @@ import { enrichCacTrayRowsWithSapValidation } from '@/lib/backoffice/enrichCacTr
 import { getSupabaseServerClient } from '@/lib/supabase/server';
 import { sanitizeOrFilterValue } from '@/lib/database/postgrestSafe';
 import { CAC_TRAY_UNIT_SELECT, COUNT_HEAD } from '@/shared/constants/dbProjections';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 200;
+
+function resolveClient(client?: SupabaseClient): SupabaseClient {
+  return client ?? getSupabaseServerClient();
+}
 
 function applyTrayFilters(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -71,13 +76,15 @@ function applyTrayFilters(
 type TrayPageOptions = {
   /** Si false, omite joins SAP (más rápido en primera pintura). */
   includeSapValidation?: boolean;
+  /** Cliente RLS (USE_RLS_READS); default service role. */
+  client?: SupabaseClient;
 };
 
 export async function queryCacTrayPage(
   params: CacTrayQueryParams,
   options?: TrayPageOptions
 ): Promise<CacTrayPageResponse> {
-  const supabase = getSupabaseServerClient();
+  const supabase = resolveClient(options?.client);
   const limit = Math.min(Math.max(params.limit || DEFAULT_LIMIT, 1), MAX_LIMIT);
   const page = Math.max(params.page || 1, 1);
   const offset = (page - 1) * limit;
@@ -126,8 +133,11 @@ export async function queryCacTrayPage(
   };
 }
 
-export async function queryCacTrayStats(params: CacTrayQueryParams): Promise<CacTrayStatsResponse> {
-  const supabase = getSupabaseServerClient();
+export async function queryCacTrayStats(
+  params: CacTrayQueryParams,
+  client?: SupabaseClient
+): Promise<CacTrayStatsResponse> {
+  const supabase = resolveClient(client);
 
   const { data: techRows, error: techError } = await supabase.from('technologies').select('id');
   if (techError) throw new Error(techError.message);
@@ -176,9 +186,10 @@ export async function queryCacTrayStats(params: CacTrayQueryParams): Promise<Cac
 /** Para exportación: hasta maxRows filas con los mismos filtros. */
 export async function queryCacTrayAllFiltered(
   params: CacTrayQueryParams,
-  maxRows = 10000
+  maxRows = 10000,
+  client?: SupabaseClient
 ): Promise<CacTrayUnitRow[]> {
-  const supabase = getSupabaseServerClient();
+  const supabase = resolveClient(client);
 
   let query = supabase
     .from('cac_tray_units')
@@ -197,9 +208,10 @@ export async function queryCacTrayAllFiltered(
 export async function queryTransferEligibleSeries(
   techId: string,
   brandId: string,
-  modelId: string
+  modelId: string,
+  client?: SupabaseClient
 ): Promise<TransferEligibleItem[]> {
-  const supabase = getSupabaseServerClient();
+  const supabase = resolveClient(client);
 
   const { data, error } = await supabase
     .from('cac_tray_units')

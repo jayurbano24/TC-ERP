@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireApiUser } from '@/shared/infrastructure/http/requireApiUser';
+import { withResolvedReadClient } from '@/shared/infrastructure/http/withResolvedReadClient';
 import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
 import { ROLES_PRODUCCION } from '@/shared/authz/roleGuard';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
@@ -10,14 +11,16 @@ export const GET = withErrorHandler(
     const auth = await requireApiUser(req);
     if (auth instanceof NextResponse) return auth;
 
-    const supabase = getSupabaseServerClient();
-    const pipeline = await readPipelineFromKpi(supabase);
+    return withResolvedReadClient(auth, async () => {
+      const supabase = getSupabaseServerClient();
+      const pipeline = await readPipelineFromKpi(supabase);
 
-    if (!pipeline) {
-      return NextResponse.json({ source: 'empty', pipeline: null }, { status: 200 });
-    }
+      if (!pipeline) {
+        return NextResponse.json({ source: 'empty', pipeline: null }, { status: 200 });
+      }
 
-    return NextResponse.json({ source: 'kpi_projection', pipeline });
+      return NextResponse.json({ source: 'kpi_projection', pipeline });
+    });
   },
   { module: 'dashboard', action: 'pipeline', roles: ROLES_PRODUCCION }
 );

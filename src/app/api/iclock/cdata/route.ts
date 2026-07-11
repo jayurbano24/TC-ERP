@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
 import { ZKTecoSyncService } from '@/modules/rrhh/application/services/ZKTecoSyncService';
 import { MAX_DEVICE_LINES, attLogRecordSchema, parseDeviceSn } from '../_shared';
+import { assertIclockDeviceSecret } from '../deviceAuth';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,6 +15,14 @@ const textOk = (body = 'OK') =>
   new NextResponse(body, { status: 200, headers: { 'Content-Type': 'text/plain' } });
 
 export async function GET(request: NextRequest) {
+  const secret = assertIclockDeviceSecret(request);
+  if (!secret.ok) {
+    return new NextResponse(secret.body, {
+      status: secret.status,
+      headers: { 'Content-Type': 'text/plain' },
+    });
+  }
+
   const sn = parseDeviceSn(request.nextUrl.searchParams);
   if (!sn) {
     return textOk();
@@ -45,6 +54,14 @@ Encrypt=0`;
 }
 
 export async function POST(request: NextRequest) {
+  const secret = assertIclockDeviceSecret(request);
+  if (!secret.ok) {
+    return new NextResponse(secret.body, {
+      status: secret.status,
+      headers: { 'Content-Type': 'text/plain' },
+    });
+  }
+
   const searchParams = request.nextUrl.searchParams;
   const sn = parseDeviceSn(searchParams);
   const table = searchParams.get('table'); // usualmente 'ATTLOG' para asistencias

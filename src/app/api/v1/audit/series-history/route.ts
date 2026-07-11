@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireApiUser } from '@/shared/infrastructure/http/requireApiUser';
+import { resolveReadClient } from '@/shared/infrastructure/http/resolveReadClient';
 import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
 import { querySeriesHistory } from '@/shared/infrastructure/audit/seriesHistoryServer';
 import { estimateJsonBytes, logEgress } from '@/shared/infrastructure/http/egressLog';
 import { getCorrelationIdFromHeaders } from '@/shared/infrastructure/http/correlationId';
-import { getSupabaseServerClient } from '@/lib/supabase/server';
+import { ROLES_TALLER } from '@/shared/authz/roleGuard';
 
 const HistoryQuery = z.object({
   ids: z
@@ -39,7 +40,7 @@ export const GET = withErrorHandler(
       );
     }
 
-    const admin = getSupabaseServerClient();
+    const { client: admin } = resolveReadClient(auth.supabase);
     const items = await querySeriesHistory(admin, parsed.data.ids);
     const responseBody = { items };
 
@@ -56,5 +57,5 @@ export const GET = withErrorHandler(
 
     return NextResponse.json(responseBody);
   },
-  { module: 'audit', action: 'series_history' }
+  { module: 'audit', action: 'series_history', roles: ROLES_TALLER }
 );

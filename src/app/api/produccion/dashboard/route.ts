@@ -4,9 +4,9 @@ import { GetProduccionDashboardQuery } from '../../../../modules/produccion/appl
 import { RequestContextBuilder } from '../../../../shared/context/RequestContextBuilder';
 import { FeatureFlagService } from '../../../../shared/feature-flags/FeatureFlagService';
 import { requireApiUser } from '@/shared/infrastructure/http/requireApiUser';
+import { withResolvedReadClient } from '@/shared/infrastructure/http/withResolvedReadClient';
 import { authorize } from '@/shared/authz/authorize';
 import { AUTHZ_MODULE } from '@/shared/authz/modules';
-
 import { QueryBus } from '../../../../modules/recepcion/application/cqrs/QueryBus';
 import { container } from '../../../../shared/di/container';
 
@@ -20,33 +20,31 @@ export async function GET(request: Request) {
     const denied = await authorize(request, auth.user.id, AUTHZ_MODULE.DASHBOARD, 'view');
     if (denied) return denied;
 
-    const queryBus = container.resolve(QueryBus);
-    const featureFlagService = container.resolve(FeatureFlagService);
+    return withResolvedReadClient(auth, async () => {
+      const queryBus = container.resolve(QueryBus);
+      const featureFlagService = container.resolve(FeatureFlagService);
 
-    const ctx = new RequestContextBuilder()
-      .withTenant('tenant-1')
-      .withBranch('branch-1')
-      .withUser(auth.user.id)
-      .build();
+      const ctx = new RequestContextBuilder()
+        .withTenant('tenant-1')
+        .withBranch('branch-1')
+        .withUser(auth.user.id)
+        .build();
 
-    const isNewDashboardEnabled = await featureFlagService.isEnabled(ctx, 'USE_NEW_PROD_DASHBOARD');
+      const isNewDashboardEnabled = await featureFlagService.isEnabled(ctx, 'USE_NEW_PROD_DASHBOARD');
 
-    if (!isNewDashboardEnabled) {
-      return NextResponse.json(
-        { error: 'El nuevo dashboard de producción no está activo' },
-        { status: 403 }
-      );
-    }
+      if (!isNewDashboardEnabled) {
+        return NextResponse.json(
+          { error: 'El nuevo dashboard de producción no está activo' },
+          { status: 403 }
+        );
+      }
 
-    const data = await queryBus.execute(new GetProduccionDashboardQuery(), ctx);
-    
-    return NextResponse.json({ success: true, data }, { status: 200 });
-
-  } catch (error: any) {
+      const data = await queryBus.execute(new GetProduccionDashboardQuery(), ctx);
+      return NextResponse.json({ success: true, data }, { status: 200 });
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Error interno del servidor';
     console.error('Error en API Produccion Dashboard:', error);
-    return NextResponse.json(
-      { error: error.message || 'Error interno del servidor' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

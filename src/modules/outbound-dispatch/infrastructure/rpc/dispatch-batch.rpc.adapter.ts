@@ -1,4 +1,4 @@
-import { getSupabaseServerClient } from '@/lib/supabase/server';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import type { IDispatchBatchGateway } from '../../domain/ports/dispatch-batch.gateway.port';
 import type {
   CloseDispatchBatchParams,
@@ -21,10 +21,18 @@ function mapRow(row: Record<string, unknown>): DispatchBatchSummary {
   };
 }
 
+function requireBrowserClient() {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) {
+    throw new Error('Supabase no configurado');
+  }
+  return supabase;
+}
+
 export class DispatchBatchRpcAdapter implements IDispatchBatchGateway {
   async openBatch(params: OpenDispatchBatchParams): Promise<OpenDispatchBatchResult> {
     try {
-      const supabase = getSupabaseServerClient();
+      const supabase = requireBrowserClient();
       const { data, error } = await supabase.rpc('dispatch_batch_open_tx', {
         p_destination: params.destination || null,
         p_guide_outbound: params.guideOutbound || null,
@@ -54,7 +62,7 @@ export class DispatchBatchRpcAdapter implements IDispatchBatchGateway {
 
   async closeBatch(params: CloseDispatchBatchParams): Promise<CloseDispatchBatchResult> {
     try {
-      const supabase = getSupabaseServerClient();
+      const supabase = requireBrowserClient();
       const { data, error } = await supabase.rpc('dispatch_batch_close_tx', {
         p_batch_id: params.batchId,
         p_operator_id: params.operatorId || null,
@@ -77,7 +85,7 @@ export class DispatchBatchRpcAdapter implements IDispatchBatchGateway {
 
   async listOpenBatches(): Promise<ListOpenDispatchBatchesResult> {
     try {
-      const supabase = getSupabaseServerClient();
+      const supabase = requireBrowserClient();
       const { data, error } = await supabase
         .from('dispatch_batches')
         .select('id, batch_number, status, destination, guide_outbound, opened_by_name, created_at')

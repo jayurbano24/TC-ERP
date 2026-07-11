@@ -1,12 +1,12 @@
-'use server';
-
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseUserServerClient } from '@/lib/supabase/server-user';
 import { loadUserAuthz } from '@/shared/authz/permissions';
 
 /**
  * Exige sesión + GERENTE GENERAL (app_is_admin vía loadUserAuthz).
  * ADR-011 2C: las admin actions no deben confiar solo en UI.
+ * Nota: sin 'use server' aquí — los callers (`"use server"` en users.ts / admin.ts)
+ * son las Server Actions; exportar helpers sync desde un 'use server' rompe el build.
  */
 export async function requireServerAdmin(): Promise<
   { ok: true; userId: string } | { ok: false; error: string }
@@ -27,7 +27,7 @@ export async function requireServerAdmin(): Promise<
   return { ok: true, userId: data.user.id };
 }
 
-export function getServiceRoleAdminClient() {
+export function getServiceRoleAdminClient(): SupabaseClient {
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   if (!serviceRoleKey || !url) {

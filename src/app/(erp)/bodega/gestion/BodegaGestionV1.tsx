@@ -52,7 +52,16 @@ import { collectTakenBoxCodes } from './collectTakenBoxCodes';
 import { DetalleCajaModal } from './components/DetalleCajaModal';
 import { RECEPTION_TIMELINE_SELECT } from '@/shared/constants/dbProjections';
 import { formatWarehouseBoxId } from '@/modules/inventario/client/warehouseBoxDisplay';
-import { escapeHtml } from '@/shared/validation/strictInput';
+
+/** Escapa texto para HTML de impresión (print window). */
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 export default function BodegaGestionV1() {
   const pathname = usePathname();

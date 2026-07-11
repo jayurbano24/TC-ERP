@@ -1,14 +1,22 @@
-import { getSupabaseServerClient } from '@/lib/supabase/server';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import type { IAccessoryDispatchGateway } from '../../domain/ports/accessory-dispatch.gateway.port';
 import type {
   DispatchAccessoryOutParams,
   DispatchAccessoryOutResult,
 } from '../../domain/types/accessory-dispatch.types';
 
+function requireBrowserClient() {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) {
+    throw new Error('Supabase no configurado');
+  }
+  return supabase;
+}
+
 export class AccessoryDispatchRpcAdapter implements IAccessoryDispatchGateway {
   async dispatchOut(params: DispatchAccessoryOutParams): Promise<DispatchAccessoryOutResult> {
     try {
-      const supabase = getSupabaseServerClient();
+      const supabase = requireBrowserClient();
       const { data, error } = await supabase.rpc('accessory_dispatch_out_tx', {
         p_accessory_id: params.accessoryId,
         p_condition: params.condition,

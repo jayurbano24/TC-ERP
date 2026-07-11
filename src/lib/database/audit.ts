@@ -3,7 +3,7 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { apiFetch } from "@/lib/http/apiFetch";
 import { fetchSeriesHistoryViaApi } from '@/lib/api/seriesHistory';
 import { fetchProfileDisplayNames } from '@/lib/api/profileDisplayNames';
-import { deduplicateSeriesHistory } from '@/shared/infrastructure/audit/seriesHistoryServer';
+import { deduplicateSeriesHistory } from '@/shared/infrastructure/audit/seriesHistoryDedup';
 
 export type AuditSeverity = 'INFO' | 'WARNING' | 'CRITICAL';
 

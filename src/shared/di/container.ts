@@ -2,10 +2,11 @@ import 'reflect-metadata';
 import { container } from 'tsyringe';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
+import { getRequestScopedClient } from '@/lib/supabase/server-request-scope';
 
-// ─── Supabase Client (factory → ALS request scope o service role) ─────────────
+// ─── Supabase Client (ALS request scope o service role) ───────────────────────
 container.register('SupabaseClient', {
-  useFactory: (): SupabaseClient => getSupabaseServerClient(),
+  useFactory: (): SupabaseClient => getRequestScopedClient() ?? getSupabaseServerClient(),
 });
 
 // ─── Core Infrastructure ──────────────────────────────────────────────────────

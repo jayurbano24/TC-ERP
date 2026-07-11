@@ -335,11 +335,13 @@ export default function DespachoPage() {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
     
+    const sn = scanSN.trim();
     const { data: sData } = await supabase
       .from('series')
       .select(`${SERIES_BOX_SELECT}, service_orders(sap_integration_status)`)
-      .eq('serial_number', scanSN)
-      .single();
+      .ilike('serial_number', sn)
+      .limit(1)
+      .maybeSingle();
     if (!sData) {
       notify.warning('Serie no encontrada.'); return;
     }
@@ -375,6 +377,8 @@ export default function DespachoPage() {
     }
 
     // 3. Traer las series hermanas (S1, S2, S3, S4)
+    // No validamos Material/Lote entre hermanas: SAP a veces llena solo algunas
+    // series; el pistoleo no debe bloquearse por eso. La mezcla se controla vs caja (#2).
     let idsToUpdate = [sData.id];
     if (sData.service_order_id) {
       const { data: siblings } = await supabase
@@ -382,17 +386,6 @@ export default function DespachoPage() {
         .select(SERIES_SIBLING_SELECT)
         .eq('service_order_id', sData.service_order_id);
       if (siblings && siblings.length > 0) {
-        // Solo inconsistencia si ambos (escaneada y hermana) tienen Material/Lote y difieren
-        const mismatch = siblings.find((s) =>
-          materialsConflict(sData.material, sData.valuation, s.material, s.valuation)
-        );
-        if (mismatch) {
-          notify.error('Falla de consistencia', {
-            description: `La serie hermana ${mismatch.serial_number} tiene un Material/Lote distinto al de la serie escaneada.`,
-            duration: 0,
-          });
-          return;
-        }
         idsToUpdate = siblings.map((s) => s.id);
       }
     }

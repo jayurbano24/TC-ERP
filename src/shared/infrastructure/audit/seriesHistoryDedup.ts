@@ -15,6 +15,15 @@ const WORKSHOP_BATCH_ACTIONS = new Set([
   'CONTROL DE CALIDAD COMPLETADO',
 ]);
 
+/**
+ * Acciones de recepción/bodega escritas por cada serie del equipo (s1–s4).
+ * En historial de equipo deben verse una sola vez (momento del pistoleo / ingreso).
+ */
+const WAREHOUSE_COLLAPSE_ACTIONS = new Set([
+  'INGRESO BODEGA',
+  'RECEPCIÓN CAC',
+]);
+
 /** Ventana para colapsar lotes masivos (varios POST o series con timestamps distintos). */
 const BATCH_DEDUPE_WINDOW_MS = 45 * 60 * 1000;
 
@@ -43,8 +52,25 @@ function workshopCoreKey(entry: SeriesHistoryEntry): string {
   ].join('|');
 }
 
+function warehouseCoreKey(entry: SeriesHistoryEntry): string {
+  const p = (entry.payload || {}) as Record<string, unknown>;
+  return [
+    entry.action,
+    String(p.box ?? '').toLowerCase(),
+    String(p.source ?? '').toLowerCase(),
+    String(p.status ?? '').toLowerCase(),
+    operatorKey(entry),
+  ].join('|');
+}
+
+function collapseCoreKey(entry: SeriesHistoryEntry): string | null {
+  if (WORKSHOP_BATCH_ACTIONS.has(entry.action)) return workshopCoreKey(entry);
+  if (WAREHOUSE_COLLAPSE_ACTIONS.has(entry.action)) return warehouseCoreKey(entry);
+  return null;
+}
+
 /**
- * Colapsa entradas duplicadas de operaciones masivas (una fila de auditoría por serie).
+ * Colapsa entradas duplicadas de operaciones masivas / multi-serie.
  * Asume `entries` ordenadas por fecha descendente.
  * Seguro para Client Components (sin imports server).
  */
@@ -55,17 +81,16 @@ export function deduplicateSeriesHistory(
   const out: SeriesHistoryEntry[] = [];
 
   for (const entry of entries) {
-    if (!WORKSHOP_BATCH_ACTIONS.has(entry.action)) {
+    const core = collapseCoreKey(entry);
+    if (!core) {
       out.push(entry);
       continue;
     }
 
     const ts = new Date(entry.changed_at).getTime();
-    const core = workshopCoreKey(entry);
-
     const isBatchDuplicate = out.some((kept) => {
-      if (!WORKSHOP_BATCH_ACTIONS.has(kept.action)) return false;
-      if (workshopCoreKey(kept) !== core) return false;
+      const keptCore = collapseCoreKey(kept);
+      if (!keptCore || keptCore !== core) return false;
       const keptTs = new Date(kept.changed_at).getTime();
       return Math.abs(keptTs - ts) <= BATCH_DEDUPE_WINDOW_MS;
     });
@@ -75,11 +100,19 @@ export function deduplicateSeriesHistory(
 
   if (!options?.multiSeries) return out;
 
+  // Vista equipo (varias series): una entrada por etapa de taller / ingreso bodega.
   const seenStage = new Set<string>();
   return out.filter((entry) => {
-    if (!WORKSHOP_BATCH_ACTIONS.has(entry.action)) return true;
-    if (seenStage.has(entry.action)) return false;
-    seenStage.add(entry.action);
+    const collapse =
+      WORKSHOP_BATCH_ACTIONS.has(entry.action) || WAREHOUSE_COLLAPSE_ACTIONS.has(entry.action);
+    if (!collapse) return true;
+    // INGRESO BODEGA: una por caja; taller: una por action
+    const p = (entry.payload || {}) as Record<string, unknown>;
+    const stageKey = WAREHOUSE_COLLAPSE_ACTIONS.has(entry.action)
+      ? `${entry.action}|${String(p.box ?? '').toLowerCase()}|${String(p.source ?? '').toLowerCase()}`
+      : entry.action;
+    if (seenStage.has(stageKey)) return false;
+    seenStage.add(stageKey);
     return true;
   });
 }

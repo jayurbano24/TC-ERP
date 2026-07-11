@@ -546,12 +546,20 @@ export async function createServiceOrders(
         brand_id: unit.brand_id
       }));
 
-      const { data: upsertedSeries } = await supabase.from('series').upsert(seriesToUpsert, { onConflict: 'serial_number' }).select('id');
-      
+      const { data: upsertedSeries } = await supabase
+        .from('series')
+        .upsert(seriesToUpsert, { onConflict: 'serial_number' })
+        .select('id, serial_number');
+
       if (upsertedSeries) {
+        // Un solo audit por equipo (main_serial), no por cada serie asociada.
         const { logAudit } = await import('@/lib/database/audit');
         for (const s of upsertedSeries) {
-          await logAudit('series', s.id, 'RECEPCIÓN CAC', { status: 'RECEPCIONADO_BODEGA_GENERAL', source: 'cac' });
+          if (s.serial_number !== unit.main_serial) continue;
+          await logAudit('series', s.id, 'RECEPCIÓN CAC', {
+            status: 'RECEPCIONADO_BODEGA_GENERAL',
+            source: 'cac',
+          });
         }
       }
 
@@ -818,8 +826,13 @@ export async function createPxReceptionWithBoxes(
       }
       
       if (upsertedSeries) {
+        // Un solo registro de auditoría por equipo (serie principal), no por s2/s3/s4.
+        const mainSerials = new Set(
+          equipments.map((eq: { sn?: string }) => eq.sn).filter(Boolean) as string[]
+        );
         const { logAudit } = await import('@/lib/database/audit');
         for (const s of upsertedSeries) {
+          if (!mainSerials.has(s.serial_number)) continue;
           await logAudit('series', s.id, 'INGRESO BODEGA', {
             status: 'in_central_warehouse',
             source: 'px',

@@ -13,6 +13,21 @@ const SERIES_IN_BOX_SELECT =
 const SIBLING_SELECT =
   'id, serial_number, service_order_id, material, valuation, created_at';
 
+function coalesceMaterialLote(
+  rows: Array<{ material?: string | null; valuation?: string | null }>
+): { material: string; valuation: string } {
+  let material = '';
+  let valuation = '';
+  for (const s of rows) {
+    const m = String(s.material ?? '').trim();
+    const v = String(s.valuation ?? '').trim();
+    if (!material && m) material = m;
+    if (!valuation && v) valuation = v;
+    if (material && valuation) break;
+  }
+  return { material, valuation };
+}
+
 type RouteContext = { params: Promise<{ boxId: string }> };
 
 export const GET = withErrorHandler(
@@ -77,12 +92,14 @@ export const GET = withErrorHandler(
       if (osId) {
         processedOs.add(osId);
         const sibs = siblingsByOs.get(osId) ?? [item];
-        const withMaterial = sibs.find((s) => s.material && s.valuation) ?? sibs[0] ?? item;
-        const mainSn = withMaterial.serial_number;
-        const ordered = [
-          withMaterial,
-          ...sibs.filter((s) => s.serial_number !== mainSn),
-        ];
+        const { material, valuation } = coalesceMaterialLote(sibs);
+        // Preferir como S1 la serie que tenga Material o Lote (datos SAP)
+        const withMat =
+          sibs.find((s) => String(s.material ?? '').trim() || String(s.valuation ?? '').trim()) ??
+          sibs[0] ??
+          item;
+        const mainSn = withMat.serial_number;
+        const ordered = [withMat, ...sibs.filter((s) => s.serial_number !== mainSn)];
 
         enriched.push({
           ...item,
@@ -91,8 +108,8 @@ export const GET = withErrorHandler(
           s2: ordered[1]?.serial_number ?? '',
           s3: ordered[2]?.serial_number ?? '',
           s4: ordered[3]?.serial_number ?? '',
-          material: withMaterial.material ?? '',
-          valuation: withMaterial.valuation ?? '',
+          material,
+          valuation,
         });
       } else {
         enriched.push({

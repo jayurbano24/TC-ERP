@@ -86,6 +86,22 @@ function materialsConflict(
   return false;
 }
 
+/** Toma Material y Lote de cualquier serie hermana (SAP a menudo llena solo una). */
+function coalesceMaterialLote(
+  rows: Array<{ material?: string | null; valuation?: string | null }>
+): { material: string; valuation: string } {
+  let material = '';
+  let valuation = '';
+  for (const s of rows) {
+    const m = String(s.material ?? '').trim();
+    const v = String(s.valuation ?? '').trim();
+    if (!material && m) material = m;
+    if (!valuation && v) valuation = v;
+    if (material && valuation) break;
+  }
+  return { material, valuation };
+}
+
 async function fetchDespachoData(): Promise<{ history: any[]; dispatches: DispatchItem[] }> {
   try {
     const [history, dispatches] = await Promise.all([
@@ -286,11 +302,17 @@ export default function DespachoPage() {
           processedOsIds.add(serviceOrder.id);
 
           const siblings = siblingsData.filter((s) => s.service_order_id === serviceOrder.id);
-          const siblingWithMaterial = siblings.find(s => s.material && s.valuation) || siblings[0] || item;
+          const { material, valuation } = coalesceMaterialLote([item, ...siblings]);
+          const siblingWithMaterial =
+            siblings.find(
+              (s) => String(s.material ?? '').trim() || String(s.valuation ?? '').trim()
+            ) ||
+            siblings[0] ||
+            item;
 
-          // Asegurar que la serie principal (la de SAP) aparezca como S-1
+          // Asegurar que la serie con datos SAP aparezca como S-1
           const mainSn = siblingWithMaterial.serial_number;
-          const otherSiblings = siblings.filter(s => s.serial_number !== mainSn);
+          const otherSiblings = siblings.filter((s) => s.serial_number !== mainSn);
           const orderedSiblings = [siblingWithMaterial, ...otherSiblings];
 
           enrichedData.push({
@@ -300,8 +322,8 @@ export default function DespachoPage() {
             s2: orderedSiblings[1]?.serial_number || '',
             s3: orderedSiblings[2]?.serial_number || '',
             s4: orderedSiblings[3]?.serial_number || '',
-            material: siblingWithMaterial.material || '',
-            valuation: siblingWithMaterial.valuation || ''
+            material,
+            valuation,
           });
         } else {
           enrichedData.push({

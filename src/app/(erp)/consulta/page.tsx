@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Search, Loader2, Package, MapPin, Calendar, Clock, User, Activity, AlertCircle, CheckCircle, XCircle, Eraser } from "lucide-react";
+import { Search, Loader2, Package, MapPin, Calendar, Clock, User, Activity, AlertCircle, CheckCircle, XCircle, Eraser, History, BookOpen } from "lucide-react";
 import { searchSeriesDetailed } from "@/modules/traceability/client/series";
 import {
   fetchCacTrayContext,
@@ -11,6 +11,21 @@ import {
   type TraceabilityEvent,
 } from "@/modules/traceability/client/traceability";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { formatIngresoLabel } from "@/modules/recepcion/client/receptions";
+
+type IngresoCycle = {
+  id: string;
+  os_label: string | null;
+  main_serial: string | null;
+  reentry_count: number;
+  status: string | null;
+  created_at: string | null;
+  closed_at: string | null;
+  reception_source: string | null;
+  reception_guide: string | null;
+  sap_document: string | null;
+  serials: string[];
+};
 
 export default function ConsultaPage() {
   const [filters, setFilters] = useState({ os: "", imei: "", cliente: "", ticket: "", tracking: "", box: "" });
@@ -18,7 +33,192 @@ export default function ConsultaPage() {
   const [seriesData, setSeriesData] = useState<any>(null);
   const [siblingSeries, setSiblingSeries] = useState<any[]>([]);
   const [history, setHistory] = useState<TraceabilityEvent[]>([]);
+  const [ingresoHistory, setIngresoHistory] = useState<IngresoCycle[]>([]);
+  const [detailTab, setDetailTab] = useState<'bitacora' | 'ingresos'>('bitacora');
+  const [bitacoraIngresoId, setBitacoraIngresoId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const loadIngresoHistory = async (
+    supabase: NonNullable<ReturnType<typeof getSupabaseBrowserClient>>,
+    serials: string[],
+    currentOsId?: string | null
+  ): Promise<IngresoCycle[]> => {
+    const cleaned = [...new Set(serials.map((s) => String(s || '').trim()).filter(Boolean))];
+    if (!cleaned.length) return [];
+
+    const osIds = new Set<string>();
+    if (currentOsId) osIds.add(currentOsId);
+
+    const { data: bySeries } = await supabase
+      .from('series')
+      .select('id, service_order_id, serial_number')
+      .in('serial_number', cleaned);
+    const seriesIds: string[] = [];
+    for (const row of bySeries || []) {
+      if (row.service_order_id) osIds.add(row.service_order_id);
+      if (row.id) seriesIds.push(row.id);
+    }
+
+    const { data: byMain } = await supabase
+      .from('service_orders')
+      .select('id')
+      .in('main_serial', cleaned);
+    for (const row of byMain || []) {
+      if (row.id) osIds.add(row.id);
+    }
+
+    if (osIds.size === 0) {
+      for (const sn of cleaned.slice(0, 4)) {
+        const { data } = await supabase
+          .from('service_orders')
+          .select('id')
+          .ilike('main_serial', sn)
+          .limit(20);
+        for (const row of data || []) if (row.id) osIds.add(row.id);
+      }
+    }
+
+    const idList = [...osIds];
+    if (!idList.length) return [];
+
+    const { data: osRows } = await supabase
+      .from('service_orders')
+      .select(
+        `
+        id,
+        os_label,
+        main_serial,
+        reentry_count,
+        status,
+        created_at,
+        closed_at,
+        reception_id,
+        receptions:reception_id (
+          source,
+          guide_number,
+          sap_document
+        )
+      `
+      )
+      .in('id', idList)
+      .order('created_at', { ascending: true });
+
+    const { data: linkedSeries } = await supabase
+      .from('series')
+      .select('service_order_id, serial_number, created_at')
+      .in('service_order_id', idList)
+      .order('created_at', { ascending: true });
+
+    const serialsByOs = new Map<string, string[]>();
+    for (const s of linkedSeries || []) {
+      const key = String(s.service_order_id);
+      if (!serialsByOs.has(key)) serialsByOs.set(key, []);
+      const list = serialsByOs.get(key)!;
+      const sn = String(s.serial_number || '').trim();
+      if (sn && !list.includes(sn)) list.push(sn);
+    }
+
+    // Fallbacks de cierre por ciclo (dispatch / auditoría en ventana del ingreso)
+    let dispatchEvents: { at: string }[] = [];
+    if (seriesIds.length) {
+      const { data: diRows } = await supabase
+        .from('dispatch_items')
+        .select('series_id, dispatches:dispatch_id(dispatched_at)')
+        .in('series_id', seriesIds);
+      for (const row of diRows || []) {
+        const d = Array.isArray((row as any).dispatches)
+          ? (row as any).dispatches[0]
+          : (row as any).dispatches;
+        if (d?.dispatched_at) dispatchEvents.push({ at: String(d.dispatched_at) });
+      }
+    }
+
+    let auditEvents: { at: string }[] = [];
+    if (seriesIds.length) {
+      const { data: audits } = await supabase
+        .from('erp_audit_logs')
+        .select('created_at')
+        .in('record_id', seriesIds.map(String))
+        .eq('action', 'DESPACHADO')
+        .order('created_at', { ascending: true });
+      for (const a of audits || []) {
+        if (a.created_at) auditEvents.push({ at: String(a.created_at) });
+      }
+    }
+
+    const cycles = (osRows || []).map((os: any, idx: number, arr: any[]) => {
+      const rec = Array.isArray(os.receptions) ? os.receptions[0] : os.receptions;
+      const linked = serialsByOs.get(String(os.id)) || [];
+      const serialsForRow =
+        linked.length > 0
+          ? linked
+          : [os.main_serial].filter(Boolean);
+
+      const from = os.created_at ? new Date(os.created_at).getTime() : 0;
+      const nextAt = arr[idx + 1]?.created_at
+        ? new Date(arr[idx + 1].created_at).getTime()
+        : Number.POSITIVE_INFINITY;
+
+      const inWindow = (iso: string) => {
+        const t = new Date(iso).getTime();
+        return t >= from && t < nextAt;
+      };
+
+      let closedAt: string | null = os.closed_at || null;
+      if (!closedAt) {
+        const candidates = [
+          ...dispatchEvents.map((e) => e.at),
+          ...auditEvents.map((e) => e.at),
+        ]
+          .filter(inWindow)
+          .sort();
+        closedAt = candidates[0] || null;
+      }
+
+      return {
+        id: os.id,
+        os_label: os.os_label || null,
+        main_serial: os.main_serial || null,
+        reentry_count: Number(os.reentry_count) || 1,
+        status: os.status || null,
+        created_at: os.created_at || null,
+        closed_at: closedAt,
+        reception_source: rec?.source || null,
+        reception_guide: rec?.guide_number || null,
+        sap_document: rec?.sap_document || null,
+        serials: serialsForRow as string[],
+      } satisfies IngresoCycle;
+    });
+
+    return cycles;
+  };
+
+  const openBitacoraForIngreso = (cycle: IngresoCycle) => {
+    setBitacoraIngresoId(cycle.id);
+    setDetailTab('bitacora');
+  };
+
+  const filteredHistory = (() => {
+    if (!bitacoraIngresoId) return history;
+    const cycle = ingresoHistory.find((c) => c.id === bitacoraIngresoId);
+    if (!cycle?.created_at) return history;
+    const from = new Date(cycle.created_at).getTime();
+    const cycleIdx = ingresoHistory.findIndex((c) => c.id === bitacoraIngresoId);
+    const next = ingresoHistory[cycleIdx + 1];
+    const to = cycle.closed_at
+      ? new Date(cycle.closed_at).getTime() + 60_000
+      : next?.created_at
+        ? new Date(next.created_at).getTime()
+        : Date.now();
+    return history.filter((ev) => {
+      const t = new Date(ev.changed_at).getTime();
+      return t >= from && t <= to;
+    });
+  })();
+
+  const bitacoraCycle = bitacoraIngresoId
+    ? ingresoHistory.find((c) => c.id === bitacoraIngresoId)
+    : null;
 
   const handleSearch = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -29,6 +229,9 @@ export default function ConsultaPage() {
     setSeriesData(null);
     setSiblingSeries([]);
     setHistory([]);
+    setIngresoHistory([]);
+    setBitacoraIngresoId(null);
+    setDetailTab('bitacora');
 
     try {
       const results = await searchSeriesDetailed({
@@ -73,6 +276,24 @@ export default function ConsultaPage() {
       }
       setSiblingSeries(siblings);
 
+      // Si hay hermanas despachadas / en caja, preferir ese estatus OS (evita
+      // mostrar QC al buscar MAC S2 cuando S1 ya salió).
+      const statusPriority = [
+        'dispatched',
+        'ready_to_dispatch',
+        'in_validation',
+        'in_qc',
+        'in_workshop',
+        'in_control_warehouse',
+        'in_central_warehouse',
+      ];
+      const preferredSibling =
+        [...siblings].sort((a, b) => {
+          const ia = statusPriority.indexOf(a.current_status);
+          const ib = statusPriority.indexOf(b.current_status);
+          return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+        })[0] || exactMatch;
+
       if (exactMatch.id) {
         const reception =
           exactMatch.receptions || exactMatch.service_orders?.receptions || null;
@@ -106,14 +327,40 @@ export default function ConsultaPage() {
           serviceOrderId: exactMatch.service_order_id,
           receptionId,
           sapTransferId,
-          boxId: exactMatch.current_box_id,
+          boxId: preferredSibling.current_box_id || exactMatch.current_box_id,
           guideNumbers,
           receptionNotes: reception?.notes || null,
           equipmentSerials,
         });
         setHistory(hist);
+
+        const supabase = getSupabaseBrowserClient();
+        if (supabase) {
+          const knownSerials = [
+            ...equipmentSerials,
+            exactMatch.serial_number,
+            exactMatch.service_orders?.main_serial,
+          ].filter(Boolean) as string[];
+          const ingresos = await loadIngresoHistory(
+            supabase,
+            knownSerials,
+            exactMatch.service_order_id
+          );
+          // Si un ciclo viejo quedó sin series vinculadas, adjuntar las del equipo actual
+          const withSerials = ingresos.map((cycle) => ({
+            ...cycle,
+            serials:
+              cycle.serials.length > 0
+                ? cycle.serials
+                : siblings.map((s) => s.serial_number).filter(Boolean),
+          }));
+          setIngresoHistory(withSerials);
+        }
+
         setSeriesData({
           ...exactMatch,
+          current_status: preferredSibling.current_status ?? exactMatch.current_status,
+          current_box_id: preferredSibling.current_box_id ?? exactMatch.current_box_id,
           receptions: reception,
           _trayCtx: trayCtx,
         });
@@ -150,6 +397,8 @@ export default function ConsultaPage() {
       case 'SCRAP': 
       case 'scrap': return 'bg-red-900/30 text-red-500 border-red-500/30';
       case 'KITTEO': return 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20';
+      case 'dispatched':
+      case 'DESPACHADO':
       case 'DESPACHADO_BODEGA':
       case 'DESPACHADO_TALLER': return 'bg-slate-500/10 text-slate-400 border-slate-500/20';
       default: return 'bg-gray-800 text-gray-300 border-gray-700';
@@ -552,57 +801,224 @@ export default function ConsultaPage() {
             </div>
           </div>
 
-          {/* Bitácora (Columna Derecha) */}
+          {/* Bitácora / Historial Ingresos */}
           <div className="lg:col-span-3">
             <div className="bg-[#0f172a] rounded-2xl border border-slate-800 shadow-xl overflow-hidden h-full flex flex-col">
-              <div className="p-4 bg-slate-900/50 border-b border-slate-800 font-bold text-slate-300 flex items-center gap-2 text-sm uppercase">
-                <MapPin className="h-4 w-4 text-emerald-500" />
-                BITÁCORA ESTADO OS
+              <div className="p-2 bg-slate-900/50 border-b border-slate-800 flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setDetailTab('bitacora')}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold uppercase tracking-wide transition-colors ${
+                    detailTab === 'bitacora'
+                      ? 'bg-slate-800 text-emerald-400'
+                      : 'text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  <MapPin className="h-4 w-4" />
+                  Bitácora Estado OS
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDetailTab('ingresos')}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold uppercase tracking-wide transition-colors ${
+                    detailTab === 'ingresos'
+                      ? 'bg-slate-800 text-amber-400'
+                      : 'text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  <History className="h-4 w-4" />
+                  Historial de Ingresos
+                  {ingresoHistory.length > 0 && (
+                    <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300">
+                      {ingresoHistory.length}
+                    </span>
+                  )}
+                </button>
               </div>
               
               <div className="flex-1 overflow-auto p-4">
-                {history.length === 0 ? (
+                {detailTab === 'bitacora' ? (
+                  <>
+                    {bitacoraCycle && (
+                      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+                        <div className="text-xs text-amber-200">
+                          <span className="font-black uppercase tracking-widest">
+                            Bitácora · {formatIngresoLabel(bitacoraCycle.reentry_count)}
+                          </span>
+                          <span className="mx-2 text-amber-500/60">·</span>
+                          <span className="font-mono font-bold text-blue-300">
+                            {bitacoraCycle.os_label || 'OS'}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setBitacoraIngresoId(null)}
+                          className="text-[10px] font-black uppercase tracking-widest text-amber-300 hover:text-white"
+                        >
+                          Ver toda la bitácora
+                        </button>
+                      </div>
+                    )}
+                  {filteredHistory.length === 0 ? (
+                    <div className="text-center py-12">
+                      <Activity className="h-12 w-12 text-slate-600 mx-auto mb-4" />
+                      <p className="text-slate-400 text-lg">
+                        {bitacoraCycle
+                          ? 'No hay eventos en la bitácora para este ingreso.'
+                          : 'No hay historial de movimientos registrado para este equipo.'}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="border border-slate-700 rounded-xl overflow-hidden">
+                      <table className="w-full text-left text-sm text-slate-300">
+                        <thead className="bg-[#1e293b] text-xs uppercase font-bold text-slate-400 border-b border-slate-700">
+                          <tr>
+                            <th className="px-4 py-3">Fecha / Hora</th>
+                            <th className="px-4 py-3">Estado</th>
+                            <th className="px-4 py-3">Técnico</th>
+                            <th className="px-4 py-3">Módulo / Origen</th>
+                            <th className="px-4 py-3 w-full">Comentario</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/50 bg-slate-900/20">
+                          {filteredHistory.map((event) => (
+                              <tr key={event.id} className="hover:bg-slate-800/50 transition-colors">
+                                <td className="px-4 py-3 text-xs whitespace-nowrap">
+                                  <div>{formatDate(event.changed_at)}</div>
+                                  <div className="text-slate-500">{formatTime(event.changed_at)}</div>
+                                </td>
+                                <td className="px-4 py-3 whitespace-nowrap">
+                                    <span className={`px-2 py-1 rounded text-[10px] font-bold tracking-wider ${getStatusColor(event.status)}`}>
+                                      {getStatusLabel(event.status)}
+                                    </span>
+                                </td>
+                                <td className="px-4 py-3 font-medium whitespace-nowrap">
+                                  {event.actorName === 'SISTEMA' ? 'Enviado por sistema' : event.actorName}
+                                </td>
+                                <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">
+                                  {event.module}
+                                </td>
+                                <td className="px-4 py-3 text-xs text-slate-400 whitespace-normal min-w-[250px]">
+                                  {event.comment}
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  </>
+                ) : ingresoHistory.length === 0 ? (
                   <div className="text-center py-12">
-                    <Activity className="h-12 w-12 text-slate-600 mx-auto mb-4" />
-                    <p className="text-slate-400 text-lg">No hay historial de movimientos registrado para este equipo.</p>
+                    <History className="h-12 w-12 text-slate-600 mx-auto mb-4" />
+                    <p className="text-slate-400 text-lg">No hay ciclos de ingreso registrados para estas series.</p>
                   </div>
                 ) : (
-                  <div className="border border-slate-700 rounded-xl overflow-hidden">
-                    <table className="w-full text-left text-sm text-slate-300">
-                      <thead className="bg-[#1e293b] text-xs uppercase font-bold text-slate-400 border-b border-slate-700">
-                        <tr>
-                          <th className="px-4 py-3">Fecha / Hora</th>
-                          <th className="px-4 py-3">Estado</th>
-                          <th className="px-4 py-3">Técnico</th>
-                          <th className="px-4 py-3">Módulo / Origen</th>
-                          <th className="px-4 py-3 w-full">Comentario</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-800/50 bg-slate-900/20">
-                        {history.map((event) => (
-                            <tr key={event.id} className="hover:bg-slate-800/50 transition-colors">
+                  <div className="space-y-4">
+                    <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">
+                      Series del equipo consultado
+                    </p>
+                    <div className="flex flex-wrap gap-2 mb-2">
+                      {(siblingSeries.length ? siblingSeries : [seriesData]).map((s: any, i: number) => (
+                        <span
+                          key={`${s.serial_number || i}`}
+                          className="font-mono text-[11px] font-bold px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 border border-slate-700"
+                        >
+                          S{i + 1}: {s.serial_number || '—'}
+                        </span>
+                      ))}
+                    </div>
+
+                    <div className="border border-slate-700 rounded-xl overflow-hidden">
+                      <table className="w-full text-left text-sm text-slate-300">
+                        <thead className="bg-[#1e293b] text-xs uppercase font-bold text-slate-400 border-b border-slate-700">
+                          <tr>
+                            <th className="px-4 py-3">Ingreso</th>
+                            <th className="px-4 py-3">Fecha ingreso</th>
+                            <th className="px-4 py-3">Fecha cierre</th>
+                            <th className="px-4 py-3">O.S.</th>
+                            <th className="px-4 py-3">Origen</th>
+                            <th className="px-4 py-3">Estado OS</th>
+                            <th className="px-4 py-3">Series</th>
+                            <th className="px-4 py-3">Guía / SAP</th>
+                            <th className="px-4 py-3 text-right">Acción</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/50 bg-slate-900/20">
+                          {ingresoHistory.map((cycle) => (
+                            <tr key={cycle.id} className="hover:bg-slate-800/50 transition-colors align-top">
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                <span
+                                  className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-full border ${
+                                    cycle.reentry_count > 1
+                                      ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                                      : 'bg-slate-800 text-slate-400 border-slate-700'
+                                  }`}
+                                >
+                                  {formatIngresoLabel(cycle.reentry_count)}
+                                </span>
+                              </td>
                               <td className="px-4 py-3 text-xs whitespace-nowrap">
-                                <div>{formatDate(event.changed_at)}</div>
-                                <div className="text-slate-500">{formatTime(event.changed_at)}</div>
+                                <div>{formatDate(cycle.created_at || '')}</div>
+                                <div className="text-slate-500">{formatTime(cycle.created_at || '')}</div>
+                              </td>
+                              <td className="px-4 py-3 text-xs whitespace-nowrap">
+                                {cycle.closed_at ? (
+                                  <>
+                                    <div>{formatDate(cycle.closed_at)}</div>
+                                    <div className="text-slate-500">{formatTime(cycle.closed_at)}</div>
+                                  </>
+                                ) : (
+                                  <span className="text-amber-400/80 text-[10px] font-bold uppercase tracking-widest">
+                                    Abierto
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 font-mono font-bold text-blue-400 whitespace-nowrap">
+                                {cycle.os_label || '—'}
+                              </td>
+                              <td className="px-4 py-3 text-xs uppercase font-bold text-slate-300 whitespace-nowrap">
+                                {cycle.reception_source || '—'}
                               </td>
                               <td className="px-4 py-3 whitespace-nowrap">
-                                  <span className={`px-2 py-1 rounded text-[10px] font-bold tracking-wider ${getStatusColor(event.status)}`}>
-                                    {getStatusLabel(event.status)}
-                                  </span>
+                                <span className={`px-2 py-1 rounded text-[10px] font-bold tracking-wider ${getStatusColor(cycle.status || '')}`}>
+                                  {(cycle.status || '—').replace(/_/g, ' ')}
+                                </span>
                               </td>
-                              <td className="px-4 py-3 font-medium whitespace-nowrap">
-                                {event.actorName === 'SISTEMA' ? 'Enviado por sistema' : event.actorName}
+                              <td className="px-4 py-3">
+                                <div className="flex flex-col gap-1 min-w-[160px]">
+                                  {cycle.serials.length === 0 ? (
+                                    <span className="text-slate-500 text-xs">{cycle.main_serial || '—'}</span>
+                                  ) : (
+                                    cycle.serials.map((sn, i) => (
+                                      <span key={`${cycle.id}-${sn}`} className="font-mono text-[11px] text-slate-200">
+                                        <span className="text-slate-500 mr-1">S{i + 1}</span>
+                                        {sn}
+                                      </span>
+                                    ))
+                                  )}
+                                </div>
                               </td>
                               <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">
-                                {event.module}
+                                <div>{cycle.reception_guide || '—'}</div>
+                                <div className="text-slate-500">{cycle.sap_document || ''}</div>
                               </td>
-                              <td className="px-4 py-3 text-xs text-slate-400 whitespace-normal min-w-[250px]">
-                                {event.comment}
+                              <td className="px-4 py-3 text-right whitespace-nowrap">
+                                <button
+                                  type="button"
+                                  onClick={() => openBitacoraForIngreso(cycle)}
+                                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-emerald-400 hover:bg-emerald-500/20 transition-colors"
+                                  title="Ver bitácora de este ingreso"
+                                >
+                                  <BookOpen className="h-3.5 w-3.5" />
+                                  Bitácora
+                                </button>
                               </td>
                             </tr>
                           ))}
-                      </tbody>
-                    </table>
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 )}
               </div>

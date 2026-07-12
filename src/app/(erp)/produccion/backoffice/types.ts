@@ -6,6 +6,8 @@ export type GuideItem = {
   cantidad: number;
   scannedCount: number;
   series: string[][];
+  /** Paralelo a series[]: N° de ingreso previsto por unidad (1, 2, …) */
+  unitReentryCounts?: number[];
   seriesPerUnit: number;
   sapGroupId: string;
   sapMaterialNumber?: string;

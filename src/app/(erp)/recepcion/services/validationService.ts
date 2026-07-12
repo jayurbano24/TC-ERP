@@ -17,12 +17,11 @@ export const validationService = {
     );
 
     const seriesStatus = String(existingSeries.current_status || '').toLowerCase();
-    const activeInInventory = [
-      'recepcionado_bodega_general',
-      'in_central_warehouse',
-      'clasificada',
-      'received',
-    ].includes(seriesStatus);
+    const exitedSeries = ['dispatched', 'returned'].includes(seriesStatus);
+
+    if (exitedSeries || inactiveReception) {
+      return { blocked: false, info: '' };
+    }
 
     const latestOS = await receptionRepository.getLatestServiceOrder(
       existingSeries.id,
@@ -31,32 +30,28 @@ export const validationService = {
 
     const exitedStatuses = ['DESPACHADO', 'ENTREGADO', 'SALIDA', 'DEVUELTO'];
     const currentStatus = (latestOS?.status || '').toUpperCase();
-
-    if (
-      !inactiveReception &&
-      activeInInventory &&
-      (!latestOS || !exitedStatuses.some((s) => currentStatus.includes(s)))
-    ) {
-      const recGuide = reception?.guide_number || 'N/A';
-      const recSap = reception?.sap_document || '---';
-      const recDate = reception?.created_at
-        ? new Date(reception.created_at).toLocaleDateString()
-        : '';
-      const osLabel = latestOS?.os_label || 'SIN OS';
-
-      return {
-        blocked: true,
-        info:
-          `🚫 SERIE EN PROCESO ACTIVO\n\nLa serie "${serial}" ya está registrada:\n` +
-          `• Recepción: ${recGuide} (${recDate})\n` +
-          `• Pedido SAP: ${recSap}\n` +
-          `• Orden de Servicio: ${osLabel}\n` +
-          `• Estado serie: ${existingSeries.current_status || 'DESCONOCIDO'}\n\n` +
-          `No puede ingresar nuevamente hasta eliminar la recepción duplicada o despachar/devolver el equipo.`,
-      };
+    if (exitedStatuses.some((s) => currentStatus.includes(s))) {
+      return { blocked: false, info: '' };
     }
 
-    return { blocked: false, info: '' };
+    // Cualquier serie existente no salida = proceso activo (bodega, taller, QC, etc.)
+    const recGuide = reception?.guide_number || 'N/A';
+    const recSap = reception?.sap_document || '---';
+    const recDate = reception?.created_at
+      ? new Date(reception.created_at).toLocaleDateString()
+      : '';
+    const osLabel = latestOS?.os_label || 'SIN OS';
+
+    return {
+      blocked: true,
+      info:
+        `🚫 SERIE EN PROCESO ACTIVO\n\nLa serie "${serial}" ya está registrada:\n` +
+        `• Recepción: ${recGuide} (${recDate})\n` +
+        `• Pedido SAP: ${recSap}\n` +
+        `• Orden de Servicio: ${osLabel}\n` +
+        `• Estado serie: ${existingSeries.current_status || 'DESCONOCIDO'}\n\n` +
+        `No puede ingresar nuevamente hasta eliminar la recepción duplicada o despachar/devolver el equipo.`,
+    };
   },
 
   validateCACGuide: (scannedItems: string[], expectedCount: number) => {

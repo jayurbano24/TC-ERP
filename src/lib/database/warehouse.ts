@@ -824,7 +824,8 @@ export async function dispatchBoxFromWarehouse(
   boxId: string,
   destination: string,
   notes?: string,
-  dispatchBatchId?: string
+  dispatchBatchId?: string,
+  guideNumber?: string
 ) {
   invalidateInventoryBoxesCache();
   const supabase = getSupabaseBrowserClient();
@@ -832,21 +833,18 @@ export async function dispatchBoxFromWarehouse(
 
   const { operatorId, userName } = await resolveWarehouseOperator(supabase);
 
+  const guide = (guideNumber?.trim() || destination || '').trim();
   const { error } = await supabase.rpc('warehouse_salida_tx', {
     p_box_id: boxId,
     p_destination: destination,
-    p_guide_number: destination, // mapped to destination/guide
+    p_guide_number: guide,
     p_operator_id: operatorId,
     p_operator_name: userName,
-    p_idempotency_key: warehouseBoxIdempotencyKey(boxId, "salida", destination),
+    p_idempotency_key: warehouseBoxIdempotencyKey(boxId, "salida", `${guide}|${destination}`),
     p_dispatch_batch_id: dispatchBatchId || null,
   });
 
   if (error) return { error: error.message };
-
-  // Note: RPC currently only handles box and series state + movement log.
-  // The insertion to `dispatches` and `dispatch_items` is omitted in the basic RPC provided. 
-  // It should be part of the RPC but for now we consider it successful.
 
   return { success: true };
 }

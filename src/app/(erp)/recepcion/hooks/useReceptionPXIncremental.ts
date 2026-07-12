@@ -9,6 +9,10 @@ import { getPxBoxesDefault } from '@/shared/constants/batchLimits';
 import { canCreateNewPxBox, validatePxIncrementalFinalizeReadiness } from '../utils/pxBoxUtils';
 import { notify, confirmDialog, promptDialog } from '@/components/ui';
 import {
+  previewEquipmentReentry,
+  formatIngresoLabel,
+} from '@/modules/recepcion/client/receptions';
+import {
   acquireBoxLockApi,
   appendPxCaptureLotsApi,
   closePxBoxApi,
@@ -608,10 +612,36 @@ export function useReceptionPXIncremental({
         }, 2500);
       };
 
+      const attachReentryPreview = async (equipmentId: string) => {
+        try {
+          const serials = [
+            scanPayload.mainSerial,
+            scanPayload.serialS2,
+            scanPayload.serialS3,
+            scanPayload.serialS4,
+          ].filter(Boolean) as string[];
+          const count = await previewEquipmentReentry(serials);
+          if (count <= 1) return;
+          const patched = scannedSeriesRef.current.map((s) =>
+            s.equipmentId === equipmentId || s.equipmentId === pendingId
+              ? { ...s, reentryCount: count }
+              : s
+          );
+          scannedSeriesRef.current = patched;
+          startTransition(() => pxState.setScannedSeries(patched));
+          notify.info(`${formatIngresoLabel(count)} detectado (PX)`, {
+            description: `La serie ${serials[0]} ya estuvo en el sistema y vuelve a ingresar.`,
+          });
+        } catch {
+          /* preview opcional */
+        }
+      };
+
       const submitScan = async (retryOnLock = false): Promise<boolean> => {
         try {
           const result = await scanPxEquipmentApi(scanPayload);
           reconcileOptimisticScan(result);
+          void attachReentryPreview(result.equipmentId);
           return true;
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : 'Error al guardar escaneo en servidor';

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { Card, Badge, Button, notify, confirmDialog, DataTable, type DataTableColumn } from '@/components/ui';
@@ -15,9 +15,8 @@ import {
   Boxes, 
   QrCode, 
   ClipboardList, 
-  CheckCircle2, 
+  CheckCircle2,
   FileText,
-  Navigation,
   ArrowRight,
   Search,
   Plus,
@@ -25,16 +24,24 @@ import {
   Trash2,
   ArrowLeft,
   Pencil,
-  Upload
+  Upload,
+  Printer,
+  FileSpreadsheet,
 } from 'lucide-react';
 
 import { fetchDespachoBoxItems } from '@/lib/api/despachoBoxItems';
 import {
   fetchDespachoBoxesViaApi,
   fetchDespachoHistoryViaApi,
+  fetchDespachoHistoryReprint,
   fetchDespachoPendientesViaApi,
+  enrichOutboundFilledCounts,
+  allocateOutboundCode,
 } from '@/lib/api/despachoReads';
 import { fetchReferenceCatalogsViaApi } from '@/lib/api/referenceCatalogs';
+import { DespachoSalidaModal } from './DespachoSalidaModal';
+import { printOutboundLabel, printOutboundLabels } from './printOutboundLabel';
+import { printOutboundDetalle } from './printOutboundDetalle';
 
 const SERIES_BOX_SELECT =
   'id, serial_number, service_order_id, current_status, current_box_id, brand_id, model_id, material, valuation, updated_at, created_at';
@@ -42,19 +49,59 @@ const SERIES_SIBLING_SELECT =
   'id, serial_number, service_order_id, material, valuation, created_at';
 
 const BOX_DESPACHO_SELECT =
-  'id, box_code, brand_id, model_id, capacity, status, created_at';
+  'id, box_code, brand_id, model_id, capacity, status, material, valuation, created_at';
 
 type DispatchItem = {
   id: string;
   dbId?: string;
   brand_id?: string;
   model_id?: string;
+  material?: string;
+  valuation?: string;
+  filled_count?: number;
+  valorado_count?: number;
+  novalorado_count?: number;
+  series_preview?: string[];
   destino: string;
-  tipo: 'Masivo' | 'Individual' | 'Master Box';
+  tipo: 'Masivo' | 'Individual' | 'Outbound';
   unidades: number;
   estatus: 'Pendiente' | 'En Ruta' | 'Entregado';
   fecha?: string;
 };
+
+function looksLikeSapSn(sn: string): boolean {
+  return /^\d{12,}$/.test(sn.trim());
+}
+
+function looksLikeMac(sn: string): boolean {
+  const s = sn.trim();
+  return /^[0-9A-Fa-f]{12}$/.test(s) && /[A-Fa-f]/.test(s);
+}
+
+/** Prioriza serie SAP (SN numérico) sobre MAC/CAS para columna S1. */
+function pickSapPrimary(
+  sibs: Array<{ serial_number?: string; material?: string | null; valuation?: string | null }>,
+  mainSerial?: string | null
+) {
+  if (!sibs.length) return null;
+  const norm = (s: string) => s.trim().toUpperCase();
+  const main = mainSerial?.trim() || '';
+  if (main && looksLikeSapSn(main)) {
+    const hit = sibs.find((s) => norm(String(s.serial_number || '')) === norm(main));
+    if (hit) return hit;
+  }
+  const score = (s: (typeof sibs)[number]) => {
+    const sn = String(s.serial_number || '');
+    let n = 0;
+    if (looksLikeSapSn(sn)) n += 100;
+    if (looksLikeMac(sn)) n -= 50;
+    if (main && norm(sn) === norm(main)) n += 15;
+    if (String(s.material ?? '').trim()) n += 30;
+    if (String(s.valuation ?? '').trim()) n += 10;
+    return n;
+  };
+  return [...sibs].sort((a, b) => score(b) - score(a))[0]!;
+}
 
 const EMPTY_LIST: any[] = [];
 
@@ -65,12 +112,13 @@ function getJoinedServiceOrder(row: any): { id?: string; sap_integration_status?
   return so;
 }
 
-/** Vacío/null no cuenta: solo hay conflicto si ambos lados tienen valor y difieren. */
+/** Vacío/null no cuenta como valor. Comparación case-insensitive. */
 function normMatLot(value: unknown): string | null {
   const s = String(value ?? '').trim();
-  return s ? s : null;
+  return s ? s.toUpperCase() : null;
 }
 
+/** Conflicto si ambos lados tienen valor y difieren. */
 function materialsConflict(
   aMat: unknown,
   aLot: unknown,
@@ -84,6 +132,53 @@ function materialsConflict(
   if (am && bm && am !== bm) return true;
   if (al && bl && al !== bl) return true;
   return false;
+}
+
+/**
+ * La serie debe pertenecer al Material/Valoración de la caja cuando la caja
+ * (o el contenido ya pistoleado) ya tiene esos valores definidos.
+ * Vacío en la serie ≠ coincide: no se permite meter otro / sin dato SAP.
+ */
+function seriesMatchesBoxMaterialValuation(
+  seriesMat: unknown,
+  seriesVal: unknown,
+  boxMat: unknown,
+  boxVal: unknown
+): { ok: true } | { ok: false; reason: string } {
+  const sm = normMatLot(seriesMat);
+  const sv = normMatLot(seriesVal);
+  const bm = normMatLot(boxMat);
+  const bv = normMatLot(boxVal);
+
+  if (bm) {
+    if (!sm) {
+      return {
+        ok: false,
+        reason: `La serie no tiene Material SAP. La caja exige Material [${bm}].`,
+      };
+    }
+    if (sm !== bm) {
+      return {
+        ok: false,
+        reason: `Material distinto. Serie [${sm}] · Caja [${bm}].`,
+      };
+    }
+  }
+  if (bv) {
+    if (!sv) {
+      return {
+        ok: false,
+        reason: `La serie no tiene Valoración SAP. La caja exige Valoración [${bv}].`,
+      };
+    }
+    if (sv !== bv) {
+      return {
+        ok: false,
+        reason: `Valoración distinta. Serie [${sv}] · Caja [${bv}].`,
+      };
+    }
+  }
+  return { ok: true };
 }
 
 /** Toma Material y Lote de cualquier serie hermana (SAP a menudo llena solo una). */
@@ -123,11 +218,11 @@ async function fetchDespachoData(): Promise<{ history: any[]; dispatches: Dispat
       guide_number, 
       dispatch_type, 
       notes, 
-      created_at, 
+      dispatched_at, 
       dispatched_by,
       dispatch_items(count)
     `)
-    .order('created_at', { ascending: false });
+    .order('dispatched_at', { ascending: false });
 
   let dispatches: DispatchItem[] = [];
   const { data: recData } = await supabase.from('receptions').select('id').eq('guide_number', 'MANUAL_BOXES_DESPACHO').single();
@@ -136,6 +231,8 @@ async function fetchDespachoData(): Promise<{ history: any[]; dispatches: Dispat
       .from('boxes')
       .select(BOX_DESPACHO_SELECT)
       .eq('reception_id', recData.id)
+      .eq('status', 'open')
+      .neq('rack_location', 'ELIMINADO')
       .order('created_at', { ascending: false });
     if (boxes && boxes.length > 0) {
       dispatches = boxes.map((b: any) => ({
@@ -143,16 +240,26 @@ async function fetchDespachoData(): Promise<{ history: any[]; dispatches: Dispat
         dbId: b.id,
         brand_id: b.brand_id,
         model_id: b.model_id,
+        material: b.material ?? '',
+        valuation: b.valuation ?? '',
+        filled_count: 0,
+        valorado_count: 0,
+        novalorado_count: 0,
+        series_preview: [],
         destino: 'Pendiente de asignar',
-        tipo: 'Master Box',
+        tipo: 'Outbound',
         unidades: b.capacity || 0,
         estatus: b.status === 'open' ? ('Pendiente' as const) : ('En Ruta' as const),
         fecha: new Date(b.created_at).toLocaleDateString(),
       }));
+      dispatches = await enrichOutboundFilledCounts(dispatches as any);
     }
   }
 
-  return { history: hist ?? [], dispatches };
+  return { history: (hist ?? []).map((row: any) => ({
+    ...row,
+    created_at: row.dispatched_at ?? row.created_at,
+  })), dispatches };
 }
 
 export default function DespachoPage() {
@@ -162,6 +269,8 @@ export default function DespachoPage() {
   const despachoQuery = useQuery({
     queryKey: ['despacho-data', 'v1'],
     queryFn: fetchDespachoData,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
   });
   const dispatchHistory = despachoQuery.data?.history ?? EMPTY_LIST;
 
@@ -177,6 +286,8 @@ export default function DespachoPage() {
   const [boxModel, setBoxModel] = useState('');
   const [boxTech, setBoxTech] = useState('');
   const [boxQty, setBoxQty] = useState<number | ''>('');
+  const [boxMaterial, setBoxMaterial] = useState('');
+  const [boxValuation, setBoxValuation] = useState('');
   
   const catalogsQuery = useQuery({
     queryKey: ['despacho-catalogs', 'v1'],
@@ -260,9 +371,66 @@ export default function DespachoPage() {
   const dispatches = despachoQuery.data?.dispatches ?? (EMPTY_LIST as DispatchItem[]);
 
   const [selectedBox, setSelectedBox] = useState<DispatchItem | null>(null);
+  const [selectedBoxIds, setSelectedBoxIds] = useState<Set<string>>(new Set());
+  const [showSalidaModal, setShowSalidaModal] = useState(false);
   const [boxItems, setBoxItems] = useState<any[]>([]);
   const [scanSN, setScanSN] = useState('');
   const [scanCAS, setScanCAS] = useState('');
+
+  const toggleSelectBox = (disp: DispatchItem, checked: boolean) => {
+    if (!disp.dbId) return;
+    setSelectedBoxIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(disp.dbId!);
+      else next.delete(disp.dbId!);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = (checked: boolean) => {
+    if (!checked) {
+      setSelectedBoxIds(new Set());
+      return;
+    }
+    setSelectedBoxIds(new Set(dispatches.filter((d) => d.dbId).map((d) => d.dbId!)));
+  };
+
+  const selectedBoxes = dispatches.filter((d) => d.dbId && selectedBoxIds.has(d.dbId));
+
+  const salidaBoxes = useMemo(
+    () =>
+      selectedBoxes.map((b) => {
+        const brandName = dbBrands.find((x) => x.id === b.brand_id)?.name || '—';
+        const model = dbModels.find((m) => m.id === b.model_id);
+        const modelName = model?.name || '—';
+        const techName = dbTechs.find((t) => t.id === model?.technology_id)?.name || '—';
+        return {
+          id: b.id,
+          dbId: b.dbId!,
+          material: b.material,
+          valuation: b.valuation,
+          brandName,
+          modelName,
+          techName,
+          filled_count: b.filled_count,
+          valorado_count: b.valorado_count,
+          novalorado_count: b.novalorado_count,
+          unidades: b.unidades,
+          series_preview: b.series_preview,
+        };
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dispatches, dbBrands, dbModels, dbTechs, [...selectedBoxIds].sort().join('|')]
+  );
+
+  const openSalidaForSelection = () => {
+    if (selectedBoxes.length === 0) {
+      notify.warning('Seleccione al menos una caja.');
+      return;
+    }
+    void refreshDispatches();
+    setShowSalidaModal(true);
+  };
 
   const loadBoxItems = async (boxDbId: string) => {
     try {
@@ -283,13 +451,20 @@ export default function DespachoPage() {
     if (data && data.length > 0) {
       const osIds = data.map((d) => getJoinedServiceOrder(d)?.id).filter(Boolean) as string[];
       let siblingsData: any[] = [];
+      const mainByOs = new Map<string, string>();
       if (osIds.length > 0) {
-        const { data: siblings } = await supabase
-          .from('series')
-          .select(SERIES_SIBLING_SELECT)
-          .in('service_order_id', osIds)
-          .order('created_at', { ascending: true });
+        const [{ data: siblings }, { data: osRows }] = await Promise.all([
+          supabase
+            .from('series')
+            .select(SERIES_SIBLING_SELECT)
+            .in('service_order_id', osIds)
+            .order('created_at', { ascending: true }),
+          supabase.from('service_orders').select('id, main_serial').in('id', osIds),
+        ]);
         if (siblings) siblingsData = siblings;
+        for (const os of osRows ?? []) {
+          if (os.main_serial) mainByOs.set(String(os.id), String(os.main_serial));
+        }
       }
       
       const enrichedData: any[] = [];
@@ -302,18 +477,12 @@ export default function DespachoPage() {
           processedOsIds.add(serviceOrder.id);
 
           const siblings = siblingsData.filter((s) => s.service_order_id === serviceOrder.id);
+          const sibs = siblings.length > 0 ? siblings : [item];
           const { material, valuation } = coalesceMaterialLote([item, ...siblings]);
-          const siblingWithMaterial =
-            siblings.find(
-              (s) => String(s.material ?? '').trim() || String(s.valuation ?? '').trim()
-            ) ||
-            siblings[0] ||
-            item;
-
-          // Asegurar que la serie con datos SAP aparezca como S-1
-          const mainSn = siblingWithMaterial.serial_number;
-          const otherSiblings = siblings.filter((s) => s.serial_number !== mainSn);
-          const orderedSiblings = [siblingWithMaterial, ...otherSiblings];
+          const primary = pickSapPrimary(sibs, mainByOs.get(serviceOrder.id)) || sibs[0];
+          const mainSn = primary.serial_number;
+          const otherSiblings = sibs.filter((s) => s.serial_number !== mainSn);
+          const orderedSiblings = [primary, ...otherSiblings];
 
           enrichedData.push({
             ...item,
@@ -331,7 +500,9 @@ export default function DespachoPage() {
             s1: item.serial_number,
             s2: '',
             s3: '',
-            s4: ''
+            s4: '',
+            material: item.material ?? '',
+            valuation: item.valuation ?? '',
           });
         }
       });
@@ -385,31 +556,47 @@ export default function DespachoPage() {
       return;
     }
 
-    // 2. Validar Material/Lote vs caja solo si ambos lados tienen valor
-    if (boxItems.length > 0) {
-      const existingMaterial = boxItems[0].material;
-      const existingLote = boxItems[0].valuation;
-      if (materialsConflict(sData.material, sData.valuation, existingMaterial, existingLote)) {
-        notify.error('No se pueden mezclar Material/Lote', {
-          description: `Equipo: Material [${normMatLot(sData.material) || '—'}] Lote [${normMatLot(sData.valuation) || '—'}] · Caja: Material [${normMatLot(existingMaterial) || '—'}] Lote [${normMatLot(existingLote) || '—'}].`,
-          duration: 0,
-        });
-        return;
-      }
-    }
-
-    // 3. Traer las series hermanas (S1, S2, S3, S4)
-    // No validamos Material/Lote entre hermanas: SAP a veces llena solo algunas
-    // series; el pistoleo no debe bloquearse por eso. La mezcla se controla vs caja (#2).
+    // 2. Hermanas + Material/Valoración coalescidos (SAP a veces llena solo una)
+    let siblings: any[] = [];
     let idsToUpdate = [sData.id];
     if (sData.service_order_id) {
-      const { data: siblings } = await supabase
+      const { data: sibRows } = await supabase
         .from('series')
         .select(SERIES_SIBLING_SELECT)
         .eq('service_order_id', sData.service_order_id);
-      if (siblings && siblings.length > 0) {
-        idsToUpdate = siblings.map((s) => s.id);
+      if (sibRows && sibRows.length > 0) {
+        siblings = sibRows;
+        idsToUpdate = sibRows.map((s) => s.id);
       }
+    }
+    const { material: eqMaterial, valuation: eqValuation } = coalesceMaterialLote([
+      sData,
+      ...siblings,
+    ]);
+
+    // 3. Debe coincidir con Material/Valoración de la caja (declarado o ya pistoleado)
+    const boxMatRef = selectedBox.material || (boxItems[0]?.material ?? '');
+    const boxLotRef = selectedBox.valuation || (boxItems[0]?.valuation ?? '');
+    const match = seriesMatchesBoxMaterialValuation(
+      eqMaterial,
+      eqValuation,
+      boxMatRef,
+      boxLotRef
+    );
+    if (!match.ok) {
+      notify.error('Material/Valoración no permitido', {
+        description: match.reason,
+        duration: 0,
+      });
+      return;
+    }
+    // Refuerzo vs ítems ya en caja (por si la caja no tenía declarado y el contenido sí)
+    if (boxItems.length > 0 && materialsConflict(eqMaterial, eqValuation, boxItems[0].material, boxItems[0].valuation)) {
+      notify.error('No se pueden mezclar Material/Valoración', {
+        description: `Equipo: Material [${normMatLot(eqMaterial) || '—'}] Valoración [${normMatLot(eqValuation) || '—'}] · En caja: Material [${normMatLot(boxItems[0].material) || '—'}] Valoración [${normMatLot(boxItems[0].valuation) || '—'}].`,
+        duration: 0,
+      });
+      return;
     }
 
     if (boxItems.length >= selectedBox.unidades) {
@@ -422,7 +609,8 @@ export default function DespachoPage() {
     } else {
       setScanSN('');
       setScanCAS('');
-      loadBoxItems(selectedBox.dbId);
+      await loadBoxItems(selectedBox.dbId);
+      void refreshDispatches();
     }
   };
 
@@ -441,7 +629,8 @@ export default function DespachoPage() {
 
     const { error } = await supabase.from('series').update({ current_box_id: null }).in('id', idsToRemove);
     if (!error) {
-      loadBoxItems(selectedBox.dbId);
+      await loadBoxItems(selectedBox.dbId);
+      void refreshDispatches();
     }
   };
 
@@ -452,7 +641,6 @@ export default function DespachoPage() {
     if (!supabase) return;
 
     try {
-      // Find the dummy reception for despacho
       let receptionId;
       const { data: recData } = await supabase.from('receptions').select('id').eq('guide_number', 'MANUAL_BOXES_DESPACHO').single();
       if (recData) {
@@ -462,68 +650,70 @@ export default function DespachoPage() {
         return;
       }
 
-      // Generate consecutive unrepeatable box code
-      const { data: existingBoxes } = await supabase
-        .from('boxes')
-        .select('box_code')
-        .like('box_code', 'MB-%');
-        
-      let nextNum = 1;
-      if (existingBoxes && existingBoxes.length > 0) {
-        existingBoxes.forEach(box => {
-          const match = (box.box_code || '').match(/^MB-(\d+)$/i);
-          if (match) {
-            const num = parseInt(match[1], 10);
-            if (num >= nextNum) nextNum = num + 1;
-          }
-        });
-      }
-      
-      const boxCode = `MB-${nextNum.toString().padStart(6, '0')}`;
-      
       if (editBoxId) {
         const { error } = await supabase.from('boxes').update({
           brand_id: boxBrand,
           model_id: boxModel,
-          capacity: Number(boxQty)
+          capacity: Number(boxQty),
+          material: boxMaterial.trim() || null,
+          valuation: boxValuation.trim() || null,
         }).eq('id', editBoxId);
 
         if (error) {
           console.error(error);
-          notify.error('Error al actualizar la caja', { description: error.message });
+          notify.error('Error al actualizar Outbound', { description: error.message });
         } else {
-          notify.success('Caja actualizada con éxito.');
+          notify.success('Outbound actualizado.');
           setShowCreateBoxModal(false);
           setBoxBrand(''); setBoxModel(''); setBoxTech(''); setBoxQty('');
+          setBoxMaterial(''); setBoxValuation('');
           setEditBoxId(null);
           await refreshDispatches();
         }
-      } else {
+        return;
+      }
+
+      // Número Outbound único e irrepetible (RPC next_outbound_code → OB-000001…)
+      let lastError: string | null = null;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        let boxCode: string;
+        try {
+          boxCode = await allocateOutboundCode();
+        } catch (e: any) {
+          lastError = e?.message || 'No se pudo generar código Outbound';
+          break;
+        }
         const { error } = await supabase.from('boxes').insert({
           reception_id: receptionId,
           box_code: boxCode,
           brand_id: boxBrand,
           model_id: boxModel,
           capacity: Number(boxQty),
+          material: boxMaterial.trim() || null,
+          valuation: boxValuation.trim() || null,
           status: 'open',
-          rack_location: 'DESPACHO'
+          rack_location: 'OUTBOUND',
         });
 
-        if (error) {
-          console.error(error);
-          notify.error('Error al crear la caja', { description: error.message });
-        } else {
-          notify.success(`Caja ${boxCode} creada con éxito.`);
+        if (!error) {
+          notify.success(`Outbound ${boxCode} creado.`);
           setShowCreateBoxModal(false);
           setBoxBrand(''); setBoxModel(''); setBoxTech(''); setBoxQty('');
+          setBoxMaterial(''); setBoxValuation('');
           await refreshDispatches();
+          return;
+        }
+
+        lastError = error.message;
+        if (!/duplicate|unique|box_code/i.test(error.message)) {
+          break;
         }
       }
 
-
+      notify.error('Error al crear Outbound', { description: lastError || 'Código no disponible' });
     } catch (e) {
       console.error(e);
-      notify.error('Error inesperado al guardar la caja.');
+      notify.error('Error inesperado al guardar Outbound.');
     }
   };
 
@@ -533,12 +723,16 @@ export default function DespachoPage() {
     setBoxBrand(disp.brand_id || '');
     setBoxModel(disp.model_id || '');
     setBoxQty(disp.unidades);
+    setBoxMaterial(disp.material || '');
+    setBoxValuation(disp.valuation || '');
+    const model = dbModels.find((m) => m.id === disp.model_id);
+    setBoxTech(model?.technology_id || '');
     setShowCreateBoxModal(true);
   };
 
   const handleDeleteBox = async (disp: DispatchItem) => {
     if (!disp.dbId) return;
-    if (!(await confirmDialog({ title: 'Eliminar caja', message: `¿Eliminar la caja ${disp.id}? Todos los equipos dentro volverán a estar libres.`, tone: 'error', confirmText: 'Eliminar' }))) return;
+    if (!(await confirmDialog({ title: 'Eliminar Outbound', message: `¿Eliminar ${disp.id}? Los equipos dentro quedarán libres.`, tone: 'error', confirmText: 'Eliminar' }))) return;
     
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
@@ -565,117 +759,171 @@ export default function DespachoPage() {
     setScanInput('');
   };
 
-  const printBoxLabel = () => {
+  const printBoxLabel = async () => {
     if (!selectedBox) return;
     const brandName = dbBrands.find(b => b.id === selectedBox.brand_id)?.name || 'N/A';
     const model = dbModels.find(m => m.id === selectedBox.model_id);
     const modelName = model?.name || 'N/A';
     const techName = dbTechs.find(t => t.id === model?.technology_id)?.name || 'N/A';
+    await printOutboundLabel({
+      outboundCode: selectedBox.id,
+      brandName,
+      modelName,
+      techName,
+      capacity: Number(selectedBox.unidades) || boxItems.length,
+      boxMaterial: selectedBox.material,
+      boxValuation: selectedBox.valuation,
+      items: boxItems,
+      onEmpty: () => notify.warning('No hay equipos en el Outbound para imprimir.'),
+      onBarcodeError: () => notify.error('No se pudo generar la etiqueta de impresión.'),
+    });
+  };
 
-    const printWindow = window.open('', '', 'width=600,height=400');
-    if (!printWindow) return;
+  const handleReprintHistory = async (hist: any) => {
+    try {
+      const data = await fetchDespachoHistoryReprint(hist.id);
+      if (!data.items?.length) {
+        notify.warning('Este conduce no tiene series para reimprimir.');
+        return;
+      }
+      const boxCode = data.box?.box_code || hist.box_code || '—';
+      const brandId = data.box?.brand_id || hist.brand_id;
+      const modelId = data.box?.model_id || hist.model_id;
+      const brandName = dbBrands.find((b) => b.id === brandId)?.name || 'N/A';
+      const model = dbModels.find((m) => m.id === modelId);
+      const modelName = model?.name || 'N/A';
+      const techName = dbTechs.find((t) => t.id === model?.technology_id)?.name || 'N/A';
+      const fechaSalida = new Date(
+        data.dispatch.dispatched_at || hist.dispatched_at || hist.created_at || Date.now()
+      ).toLocaleString('es-PA', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
 
-    const commonStyles = `
-      <style>
-        body { font-family: 'Inter', sans-serif; margin: 0; padding: 20px; text-align: center; color: #181c3a; }
-        .label-container { padding: 20px; display: inline-block; min-width: 350px; margin: 0 auto; }
-        .title { font-size: 14px; font-weight: 900; letter-spacing: 2px; margin-bottom: 15px; color: #64748b; text-transform: uppercase; }
-        .box-id { font-size: 32px; font-weight: 900; margin-bottom: 10px; font-family: monospace; }
-        .details { font-size: 16px; font-weight: bold; margin-bottom: 20px; line-height: 1.5; }
-        .barcode { font-family: 'Libre Barcode 39', monospace; font-size: 50px; margin-bottom: 5px; font-weight: normal; }
-        @media print {
-          .page-break { page-break-before: always; }
-          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      await printOutboundDetalle(
+        [
+          {
+            outboundCode: boxCode,
+            brandName,
+            modelName,
+            techName,
+            cantidad: data.equipos_count || data.items.length,
+            material: data.box?.material || hist.material || '',
+            valuation: data.box?.valuation || hist.valuation || '',
+          },
+        ],
+        {
+          fechaSalida,
+          numeroSalida: data.dispatch.guide_number || hist.guide_number || undefined,
+          trasladoSap: data.dispatch.traslado_sap || undefined,
+          notaEntrega: data.dispatch.nota_entrega || undefined,
+          destino: data.dispatch.destino || undefined,
+          origen: 'Tech Corps Guatemala S.A.',
         }
-      </style>
-      <link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+39&display=swap" rel="stylesheet">
-    `;
+      );
 
-    const masterLabelHtml = `
-      <div class="label-container" style="text-align: left; margin-top: 20px;">
-        
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px;">
-          <div style="text-align: left;">
-            <div class="box-id" style="font-size: 20px;">${selectedBox.id}</div>
-            <div class="barcode" style="font-size: 40px; margin-bottom: 10px;">*${selectedBox.id}*</div>
-          </div>
-          <div>
-            <svg viewBox="0 0 565 280" xmlns="http://www.w3.org/2000/svg" style="height: 30px; width: auto;">
-              <rect width="565" height="280" fill="#ffffff"/>
-              <g fill="#2e3165"><rect x="8" y="9" width="232" height="60"/><rect x="92" y="9" width="65" height="271"/></g>
-              <g fill="#2e3165"><circle cx="425" cy="140" r="140"/><circle cx="425" cy="140" r="85" fill="#ffffff"/><rect x="500" y="100" width="80" height="60" fill="#ffffff"/><circle cx="425" cy="140" r="35" fill="#2e3165"/></g>
-            </svg>
-          </div>
-        </div>
-        
-        <div class="details" style="font-size: 12px; margin-bottom: 15px; border-bottom: 1px solid #000; padding-bottom: 10px;">
-          <strong>MARCA:</strong> ${brandName} &nbsp;|&nbsp; <strong>MODELO:</strong> ${modelName} <br>
-          <strong>TECNOLOGÍA:</strong> ${techName}
-        </div>
-        
-        <div class="details" style="font-size: 10px; font-family: monospace;">
-          <table style="width: 100%; border-collapse: collapse; text-align: left;">
-            <thead>
-              <tr style="border-bottom: 2px solid #000;">
-                <th style="padding: 6px 10px;">#</th>
-                <th style="padding: 6px 10px;">S-1 / SN</th>
-                <th style="padding: 6px 10px;">S-2</th>
-                <th style="padding: 6px 10px;">S-3</th>
-                <th style="padding: 6px 10px;">S-4</th>
-                <th style="padding: 6px 10px;">Material</th>
-                <th style="padding: 6px 10px;">Lote</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${boxItems.map((s: any, idx: number) => 
-                '<tr style="border-bottom: 1px solid #ccc;">' +
-                  '<td style="padding: 6px 10px;">' + (idx + 1) + '</td>' +
-                  '<td style="padding: 6px 10px; font-weight: bold;">' + (s.s1 || s.serial_number || '---') + '</td>' +
-                  '<td style="padding: 6px 10px;">' + (s.s2 || '---') + '</td>' +
-                  '<td style="padding: 6px 10px;">' + (s.s3 || '---') + '</td>' +
-                  '<td style="padding: 6px 10px;">' + (s.s4 || '---') + '</td>' +
-                  '<td style="padding: 6px 10px;">' + (s.material || '---') + '</td>' +
-                  '<td style="padding: 6px 10px;">' + (s.valuation || '---') + '</td>' +
-                '</tr>'
-              ).join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    `;
+      await printOutboundLabels(
+        [
+          {
+            outboundCode: boxCode,
+            brandName,
+            modelName,
+            techName,
+            capacity: data.box?.capacity || data.items.length,
+            boxMaterial: data.box?.material || hist.material || '',
+            boxValuation: data.box?.valuation || hist.valuation || '',
+            items: data.items,
+          },
+        ],
+        {
+          onEmpty: () => notify.warning('No hay series para imprimir en este conduce.'),
+          onBarcodeError: () => notify.error('No se pudo generar la etiqueta de series.'),
+        }
+      );
+    } catch (e: any) {
+      notify.error('No se pudo reimprimir', {
+        description: e?.message || 'Error al cargar el conduce.',
+      });
+    }
+  };
 
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>Impresión de Etiqueta - ${selectedBox.id}</title>
-          ${commonStyles}
-        </head>
-        <body>
-          ${masterLabelHtml}
-          <script>
-            window.onload = function() {
-              setTimeout(function() {
-                window.print();
-                window.close();
-              }, 500);
-            };
-          </script>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
+  const handleExportHistoryExcel = async (hist: any) => {
+    try {
+      const data = await fetchDespachoHistoryReprint(hist.id);
+      if (!data.items?.length) {
+        notify.warning('Este conduce no tiene series para exportar.');
+        return;
+      }
+      const boxCode = data.box?.box_code || hist.box_code || '';
+      const brandId = data.box?.brand_id || hist.brand_id;
+      const modelId = data.box?.model_id || hist.model_id;
+      const brandName = dbBrands.find((b) => b.id === brandId)?.name || '';
+      const model = dbModels.find((m) => m.id === modelId);
+      const modelName = model?.name || '';
+      const techName = dbTechs.find((t) => t.id === model?.technology_id)?.name || '';
+      const ns = data.dispatch.guide_number || hist.guide_number || '';
+      const fecha = data.dispatch.dispatched_at || hist.dispatched_at || hist.created_at || '';
+
+      const rows = data.items.map((it, idx) => ({
+        'Nº Conduce': ns,
+        Outbound: boxCode,
+        Destino: data.dispatch.destino || hist.notes || '',
+        'Traslado SAP': data.dispatch.traslado_sap || '',
+        'Nota Entrega': data.dispatch.nota_entrega || '',
+        'Fecha salida': fecha ? new Date(fecha).toLocaleString('es-PA') : '',
+        Usuario: hist.dispatched_by_name || '',
+        Marca: brandName,
+        Modelo: modelName,
+        Tecnología: techName,
+        Material: it.material || data.box?.material || '',
+        Valoración: it.valuation || data.box?.valuation || '',
+        '#': idx + 1,
+        S1: it.s1 || it.serial_number || '',
+        S2: it.s2 || '',
+        S3: it.s3 || '',
+        S4: it.s4 || '',
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Series');
+      const safeNs = String(ns || 'salida').replace(/[^\w.-]+/g, '_');
+      XLSX.writeFile(wb, `Conduce_${safeNs}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      notify.success(`Excel generado: ${rows.length} equipo(s)`);
+    } catch (e: any) {
+      notify.error('No se pudo exportar a Excel', {
+        description: e?.message || 'Error al cargar el conduce.',
+      });
+    }
+  };
+
+  const formatDispatchType = (t?: string) => {
+    if (!t) return '—';
+    if (t === 'single_box') return 'Caja';
+    if (t === 'partial') return 'Parcial';
+    return String(t).replace(/_/g, ' ');
   };
 
   if (selectedBox) {
     const progress = (boxItems.length / selectedBox.unidades) * 100;
     return (
       <ModulePage
-        title={'Llenado de Caja: ' + selectedBox.id}
-        subtitle="Escanee los equipos para agregarlos a la caja."
+        title={'Llenado Outbound: ' + selectedBox.id}
+        subtitle="Escanee los equipos para agregarlos al Outbound."
         category="Despacho"
         actions={
-          <Button variant="outline" onClick={() => setSelectedBox(null)} leftIcon={<ArrowLeft className="w-4 h-4" />}>
-            Volver a Cajas
+          <Button
+            variant="outline"
+            onClick={() => {
+              setSelectedBox(null);
+              void refreshDispatches();
+            }}
+            leftIcon={<ArrowLeft className="w-4 h-4" />}
+          >
+            Volver a Outbound
           </Button>
         }
       >
@@ -706,8 +954,12 @@ export default function DespachoPage() {
             </Card>
 
             <Card className="p-6">
-              <h3 className="text-sm text-slate-500 font-medium mb-4">Detalle de la Caja</h3>
+              <h3 className="text-sm text-slate-500 font-medium mb-4">Detalle Outbound</h3>
               <div className="space-y-2 mb-4 text-slate-700">
+                <div className="flex justify-between items-center">
+                  <span className="font-bold text-xs uppercase text-slate-400">N° Outbound</span>
+                  <span className="font-black text-sm font-mono text-[#181c3a]">{selectedBox.id}</span>
+                </div>
                 <div className="flex justify-between">
                   <span className="font-bold text-xs uppercase text-slate-400">Marca</span>
                   <span className="font-medium text-sm">{dbBrands.find(b => b.id === selectedBox.brand_id)?.name || 'N/A'}</span>
@@ -724,6 +976,14 @@ export default function DespachoPage() {
                   <span className="font-bold text-xs uppercase text-slate-400">QTY (Max)</span>
                   <span className="font-medium text-sm">{selectedBox.unidades}</span>
                 </div>
+                <div className="flex justify-between">
+                  <span className="font-bold text-xs uppercase text-slate-400">Material</span>
+                  <span className="font-medium text-sm font-mono">{selectedBox.material || boxItems[0]?.material || '—'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="font-bold text-xs uppercase text-slate-400">Valoración</span>
+                  <span className="font-medium text-sm font-mono">{selectedBox.valuation || boxItems[0]?.valuation || '—'}</span>
+                </div>
               </div>
               <Button onClick={printBoxLabel} className="w-full mt-4" variant="outline">
                 <FileText className="w-4 h-4 mr-2" /> PDF Imprimir Etiqueta
@@ -731,24 +991,45 @@ export default function DespachoPage() {
             </Card>
 
             <Card className="p-6">
-              <h3 className="text-sm text-slate-500 font-medium mb-4">Progreso de la Caja</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm text-slate-500 font-medium">Progreso Outbound</h3>
+                {boxItems.length >= selectedBox.unidades && selectedBox.unidades > 0 ? (
+                  <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-100 px-2 py-1 rounded-full">
+                    <CheckCircle2 className="w-3 h-3" />
+                    Completada
+                  </span>
+                ) : (
+                  <span className="text-[9px] font-black uppercase tracking-wide text-amber-700 bg-amber-50 border border-amber-100 px-2 py-1 rounded-full">
+                    En llenado
+                  </span>
+                )}
+              </div>
               <div className="flex items-end gap-2 mb-3">
                 <span className="text-3xl font-black text-[#181c3a]">{boxItems.length}</span>
                 <span className="text-sm text-slate-400 font-medium pb-1">/ {selectedBox.unidades} equipos</span>
               </div>
               <div className="h-4 w-full bg-slate-100 rounded-full overflow-hidden">
                 <div 
-                  className="h-full bg-[#181c3a] transition-all duration-500 ease-out"
-                  style={{ width: `${progress}%` }}
+                  className={`h-full transition-all duration-500 ease-out ${
+                    boxItems.length >= selectedBox.unidades && selectedBox.unidades > 0
+                      ? 'bg-emerald-600'
+                      : 'bg-[#181c3a]'
+                  }`}
+                  style={{ width: `${Math.min(progress, 100)}%` }}
                 />
               </div>
+              {boxItems.length >= selectedBox.unidades && selectedBox.unidades > 0 && (
+                <p className="mt-3 text-xs font-bold text-emerald-700">
+                  Ya se completó el Outbound. Listo para despacho.
+                </p>
+              )}
             </Card>
           </div>
 
           <div className="lg:col-span-2">
             <Card className="p-0 overflow-hidden h-[600px] flex flex-col">
               <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-                <h3 className="font-bold text-slate-800">Contenido de la Caja</h3>
+                <h3 className="font-bold text-slate-800">Contenido Outbound</h3>
               </div>
               <div className="flex-1 overflow-y-auto overflow-x-auto custom-scrollbar">
                 <table className="w-full text-left">
@@ -760,7 +1041,7 @@ export default function DespachoPage() {
                       <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">S3</th>
                       <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">S4</th>
                       <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Material</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Lote</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Valoración</th>
                       <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Acciones</th>
                     </tr>
                   </thead>
@@ -786,7 +1067,7 @@ export default function DespachoPage() {
                     {boxItems.length === 0 && (
                       <tr>
                         <td colSpan={8} className="py-12 text-center text-slate-400 text-sm">
-                          La caja está vacía. Escanee equipos para llenarla.
+                          Outbound vacío. Escanee equipos para llenarlo.
                         </td>
                       </tr>
                     )}
@@ -800,64 +1081,146 @@ export default function DespachoPage() {
     );
   }
 
+  const allSelected = dispatches.length > 0 && selectedBoxIds.size === dispatches.filter((d) => d.dbId).length;
+  const someSelected = selectedBoxIds.size > 0 && !allSelected;
+
   const dispatchColumns: DataTableColumn<any>[] = [
     {
-      id: 'id',
-      header: 'ID Manifiesto',
-      width: 'minmax(200px,1.5fr)',
+      id: 'select',
+      header: (
+        <input
+          type="checkbox"
+          checked={allSelected}
+          ref={(el) => {
+            if (el) el.indeterminate = someSelected;
+          }}
+          onChange={(e) => toggleSelectAll(e.target.checked)}
+          onClick={(e) => e.stopPropagation()}
+          className="w-4 h-4 accent-[#181c3a]"
+          title="Seleccionar todos"
+        />
+      ),
+      width: '44px',
       cell: (disp: DispatchItem) => (
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400 group-hover:bg-[#181c3a] group-hover:text-white transition-colors">
-            <FileText className="w-4 h-4" />
-          </div>
-          <span className="text-sm font-black text-[#181c3a] font-mono">{disp.id}</span>
-        </div>
+        <input
+          type="checkbox"
+          checked={!!disp.dbId && selectedBoxIds.has(disp.dbId)}
+          onChange={(e) => {
+            e.stopPropagation();
+            toggleSelectBox(disp, e.target.checked);
+          }}
+          onClick={(e) => e.stopPropagation()}
+          className="w-4 h-4 accent-[#181c3a]"
+        />
+      ),
+    },
+    {
+      id: 'outbound',
+      header: 'Outbound',
+      width: 'minmax(130px,1fr)',
+      cell: (disp: DispatchItem) => (
+        <span className="text-sm font-black text-[#181c3a] font-mono tracking-tight">{disp.id}</span>
       ),
     },
     {
       id: 'fecha',
       header: 'Fecha',
-      width: '130px',
-      cell: (disp: DispatchItem) => <span className="text-xs font-bold text-slate-500">{disp.fecha}</span>,
-    },
-    {
-      id: 'destino',
-      header: 'Destino',
-      width: 'minmax(160px,1fr)',
+      width: '110px',
       cell: (disp: DispatchItem) => (
-        <div className="flex items-center gap-2">
-          <Navigation className="w-3 h-3 text-[#2ec4f1]" />
-          <span className="text-xs font-bold text-slate-700">{disp.destino}</span>
-        </div>
+        <span className="text-xs font-bold text-slate-500">{disp.fecha || '—'}</span>
       ),
     },
     {
-      id: 'tipo',
-      header: 'Tipo',
-      width: '130px',
-      cell: (disp: DispatchItem) => <Badge variant="blue">{disp.tipo}</Badge>,
+      id: 'material',
+      header: 'Material',
+      width: '110px',
+      cell: (disp: DispatchItem) => (
+        <span className="text-xs font-mono font-bold text-slate-800">{disp.material || '—'}</span>
+      ),
     },
     {
-      id: 'unidades',
-      header: 'Unidades',
-      width: '110px',
-      cell: (disp: DispatchItem) => <span className="text-sm font-bold text-slate-700">{disp.unidades}</span>,
+      id: 'valuation',
+      header: 'Valoración',
+      width: '130px',
+      cell: (disp: DispatchItem) => {
+        const raw = String(disp.valuation || '').trim();
+        const isNoVal = /novalorad|no\s*valorad/i.test(raw);
+        const isVal = /valorado/i.test(raw) && !isNoVal;
+        if (isVal) {
+          return (
+            <span className="text-[10px] font-black uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-full">
+              Valorado
+            </span>
+          );
+        }
+        if (isNoVal || raw) {
+          // Si hay lote tipo NOVALORADO, o cualquier valoración no-valorada
+          if (isNoVal) {
+            return (
+              <span className="text-[10px] font-black uppercase tracking-wide text-amber-700 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full">
+                No valorado
+              </span>
+            );
+          }
+        }
+        // Fallback por conteos de equipos si no hay texto en caja
+        const valN = disp.valorado_count ?? 0;
+        const noValN = disp.novalorado_count ?? 0;
+        if (valN > 0 && noValN === 0) {
+          return (
+            <span className="text-[10px] font-black uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-full">
+              Valorado
+            </span>
+          );
+        }
+        if (noValN > 0 && valN === 0) {
+          return (
+            <span className="text-[10px] font-black uppercase tracking-wide text-amber-700 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full">
+              No valorado
+            </span>
+          );
+        }
+        return <span className="text-xs text-slate-400">—</span>;
+      },
+    },
+    {
+      id: 'equipos',
+      header: 'Equipos',
+      width: '100px',
+      cell: (disp: DispatchItem) => (
+        <span className="text-sm font-black text-slate-800">
+          {disp.filled_count ?? 0}
+          <span className="text-slate-400 font-bold text-xs"> / {disp.unidades}</span>
+        </span>
+      ),
     },
     {
       id: 'estatus',
       header: 'Estatus',
-      width: '150px',
-      cell: (disp: DispatchItem) => (
-        <div className="flex items-center gap-2">
-          <div className={`w-1.5 h-1.5 rounded-full ${disp.estatus === 'Entregado' ? 'bg-emerald-500' : disp.estatus === 'En Ruta' ? 'bg-[#2ec4f1]' : 'bg-amber-400'}`} />
-          <span className="text-[10px] font-black uppercase tracking-tight text-slate-600">{disp.estatus}</span>
-        </div>
-      ),
+      width: '120px',
+      cell: (disp: DispatchItem) => {
+        const filled = disp.filled_count ?? 0;
+        const complete = disp.unidades > 0 && filled >= disp.unidades;
+        if (complete) {
+          return (
+            <div className="flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+              <span className="text-[10px] font-black uppercase tracking-tight text-emerald-700">Completada</span>
+            </div>
+          );
+        }
+        return (
+          <div className="flex items-center gap-2">
+            <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+            <span className="text-[10px] font-black uppercase tracking-tight text-slate-600">Pendiente</span>
+          </div>
+        );
+      },
     },
     {
       id: 'acciones',
       header: 'Acciones',
-      width: '170px',
+      width: '140px',
       align: 'right',
       cell: (disp: DispatchItem) => (
         <div className="flex items-center justify-end gap-2">
@@ -877,7 +1240,7 @@ export default function DespachoPage() {
           </div>
           <div
             className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-200 text-slate-700 hover:bg-slate-300 cursor-pointer transition-colors"
-            title="Entrar"
+            title="Llenar Outbound"
           >
             <ArrowRight className="w-4 h-4" />
           </div>
@@ -888,41 +1251,96 @@ export default function DespachoPage() {
 
   const dispatchHistoryColumns: DataTableColumn<any>[] = [
     {
-      id: 'guia',
-      header: 'Guía / Destino',
-      width: 'minmax(200px,1.5fr)',
+      id: 'conduce',
+      header: 'Nº Conduce',
+      width: 'minmax(160px,1.2fr)',
       cell: (hist: any) => (
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600">
             <Truck className="w-4 h-4" />
           </div>
-          <span className="text-sm font-black text-[#181c3a] font-mono">{hist.guide_number}</span>
+          <span className="text-sm font-black text-[#181c3a] font-mono">
+            {hist.guide_number || '—'}
+          </span>
         </div>
       ),
     },
     {
+      id: 'destino',
+      header: 'Destino / Detalle',
+      width: 'minmax(220px,1.8fr)',
+      cell: (hist: any) => (
+        <span className="text-xs font-bold text-slate-600 line-clamp-2">
+          {hist.notes || '—'}
+        </span>
+      ),
+    },
+    {
       id: 'fecha',
-      header: 'Fecha',
+      header: 'Fecha salida',
       width: '180px',
-      cell: (hist: any) => <span className="text-xs font-bold text-slate-500">{new Date(hist.created_at).toLocaleString()}</span>,
+      cell: (hist: any) => (
+        <span className="text-xs font-bold text-slate-500">
+          {new Date(hist.dispatched_at || hist.created_at).toLocaleString()}
+        </span>
+      ),
     },
     {
       id: 'tipo',
       header: 'Tipo',
-      width: '130px',
-      cell: (hist: any) => <Badge variant="blue">{hist.dispatch_type}</Badge>,
+      width: '110px',
+      cell: (hist: any) => <Badge variant="blue">{formatDispatchType(hist.dispatch_type)}</Badge>,
     },
     {
       id: 'items',
-      header: 'Items / Cajas',
-      width: '130px',
-      cell: (hist: any) => <span className="text-sm font-bold text-slate-700">{hist.dispatch_items?.[0]?.count || 0}</span>,
+      header: 'Equipos',
+      width: '90px',
+      cell: (hist: any) => (
+        <span className="text-sm font-bold text-slate-700">
+          {hist.equipos_count ?? hist.dispatch_items?.[0]?.count ?? 0}
+        </span>
+      ),
     },
     {
       id: 'usuario',
       header: 'Usuario',
       width: 'minmax(140px,1fr)',
-      cell: (hist: any) => <span className="text-xs font-bold text-slate-500">{hist.dispatched_by || 'Sistema'}</span>,
+      cell: (hist: any) => (
+        <span className="text-xs font-bold text-slate-500">
+          {hist.dispatched_by_name || hist.dispatched_by || 'Sistema'}
+        </span>
+      ),
+    },
+    {
+      id: 'acciones',
+      header: 'Acciones',
+      width: '120px',
+      cell: (hist: any) => (
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              void handleReprintHistory(hist);
+            }}
+            className="w-8 h-8 flex items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors"
+            title="Reimprimir conduce y series"
+          >
+            <Printer className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              void handleExportHistoryExcel(hist);
+            }}
+            className="w-8 h-8 flex items-center justify-center rounded-lg bg-sky-50 text-sky-700 hover:bg-sky-100 transition-colors"
+            title="Exportar series a Excel"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+          </button>
+        </div>
+      ),
     },
   ];
 
@@ -936,11 +1354,26 @@ export default function DespachoPage() {
           <Button variant="outline" onClick={() => setShowUploadSAPModal(true)} leftIcon={<Upload className="w-4 h-4" />}>
             Cargar Excel SAP
           </Button>
-          <Button variant="outline" onClick={() => setShowCreateBoxModal(true)} leftIcon={<Plus className="w-4 h-4" />}>
-            Crear Caja
+          <Button variant="outline" onClick={() => {
+            setEditBoxId(null);
+            setBoxBrand(''); setBoxModel(''); setBoxTech(''); setBoxQty('');
+            setBoxMaterial(''); setBoxValuation('');
+            setShowCreateBoxModal(true);
+          }} leftIcon={<Plus className="w-4 h-4" />}>
+            Crear Outbound
           </Button>
-          <Button variant="primary" onClick={() => setShowDispatchForm(!showDispatchForm)} leftIcon={<Truck className="w-4 h-4" />}>
-            {showDispatchForm ? 'Cancelar Despacho' : 'Nuevo Despacho'}
+          <Button variant="primary" onClick={() => {
+            if (selectedBoxIds.size > 0) {
+              openSalidaForSelection();
+              return;
+            }
+            setShowDispatchForm(!showDispatchForm);
+          }} leftIcon={<Truck className="w-4 h-4" />}>
+            {selectedBoxIds.size > 0
+              ? `Despachar (${selectedBoxIds.size})`
+              : showDispatchForm
+                ? 'Cancelar Despacho'
+                : 'Nuevo Despacho'}
           </Button>
         </div>
       }
@@ -951,7 +1384,7 @@ export default function DespachoPage() {
             onClick={() => setActiveTab('operacion')}
             className={`px-6 py-2.5 text-sm font-bold rounded-lg transition-colors ${activeTab === 'operacion' ? 'bg-white text-[#181c3a] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
-            Gestión de Cajas & Despachos
+            Gestión de Outbound
           </button>
           <button 
             onClick={() => setActiveTab('historial')}
@@ -1060,7 +1493,7 @@ export default function DespachoPage() {
               <div className="p-6 border-b border-slate-700/50 flex items-center justify-between">
                 <h2 className="text-xl font-bold text-white flex items-center gap-2">
                   <Package className="w-5 h-5 text-[#2ec4f1]" />
-                  Crear Caja
+                  {editBoxId ? 'Editar Outbound' : 'Crear Outbound'}
                 </h2>
                 <button 
                   onClick={() => setShowCreateBoxModal(false)}
@@ -1118,15 +1551,42 @@ export default function DespachoPage() {
                       onChange={e => setBoxQty(Number(e.target.value))}
                     />
                   </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-500 uppercase">Material</label>
+                    <input
+                      type="text"
+                      placeholder="Ej: 4010589"
+                      className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-500 font-mono"
+                      value={boxMaterial}
+                      onChange={e => setBoxMaterial(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-500 uppercase">Valoración</label>
+                    <input
+                      type="text"
+                      placeholder="Ej: NOVALORADO"
+                      className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-500 font-mono"
+                      value={boxValuation}
+                      onChange={e => setBoxValuation(e.target.value)}
+                    />
+                  </div>
                 </div>
               </div>
 
               <div className="p-6 bg-slate-100 border-t border-slate-200 flex justify-end gap-3">
-                <Button variant="outline" onClick={() => setShowCreateBoxModal(false)}>
+                <Button variant="outline" onClick={() => {
+                  setShowCreateBoxModal(false);
+                  setEditBoxId(null);
+                  setBoxBrand(''); setBoxModel(''); setBoxTech(''); setBoxQty('');
+                  setBoxMaterial(''); setBoxValuation('');
+                }}>
                   Cancelar
                 </Button>
                 <Button variant="primary" onClick={handleCreateBox} disabled={!boxBrand || !boxModel || !boxQty || !boxTech}>
-                  Crear Caja
+                  {editBoxId ? 'Guardar Outbound' : 'Crear Outbound'}
                 </Button>
               </div>
             </Card>
@@ -1227,10 +1687,27 @@ export default function DespachoPage() {
         )}
 
         <section className="space-y-6">
-          <ModuleToolbar 
-            onSearch={(v) => console.log(v)}
-            addLabel="Nuevo Despacho"
-          />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <ModuleToolbar 
+              onSearch={(v) => console.log(v)}
+              addLabel="Nuevo Despacho"
+            />
+            {selectedBoxIds.size > 0 && (
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-bold text-slate-500">
+                  {selectedBoxIds.size} Outbound · {selectedBoxes.reduce((n, b) => n + (b.filled_count ?? 0), 0)} equipos
+                </span>
+                <Button
+                  variant="primary"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                  leftIcon={<Truck className="w-4 h-4" />}
+                  onClick={openSalidaForSelection}
+                >
+                  Despachar seleccionados
+                </Button>
+              </div>
+            )}
+          </div>
 
           <Card padding="none" className="overflow-hidden">
             <DataTable
@@ -1238,12 +1715,14 @@ export default function DespachoPage() {
               data={dispatches}
               getRowId={(disp: DispatchItem) => disp.id}
               onRowClick={(disp: DispatchItem) => handleSelectBox(disp)}
-              rowClassName={() => 'group cursor-pointer'}
+              rowClassName={(disp: DispatchItem) =>
+                `group cursor-pointer ${disp.dbId && selectedBoxIds.has(disp.dbId) ? 'bg-sky-50/80' : ''}`
+              }
               rowHeight={64}
               maxBodyHeight={560}
-              minWidth={1000}
+              minWidth={1100}
               headerClassName="bg-slate-50"
-              emptyMessage="No hay manifiestos de despacho."
+              emptyMessage="No hay Outbound registrados."
             />
           </Card>
         </section>
@@ -1265,6 +1744,18 @@ export default function DespachoPage() {
           </div>
         )}
       </div>
+
+      {showSalidaModal && salidaBoxes.length > 0 && (
+        <DespachoSalidaModal
+          boxes={salidaBoxes}
+          onClose={() => setShowSalidaModal(false)}
+          onDone={() => {
+            setShowSalidaModal(false);
+            setSelectedBoxIds(new Set());
+            refreshDispatches();
+          }}
+        />
+      )}
     </ModulePage>
   );
 }

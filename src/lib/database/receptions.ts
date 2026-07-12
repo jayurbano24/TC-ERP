@@ -210,6 +210,14 @@ const PX_BLOCKED_SERIES_STATUSES = new Set([
   'in_central_warehouse',
   'clasificada',
   'received',
+  'in_workshop',
+  'in_qc',
+  'in_validation',
+  'ready_to_dispatch',
+  'in_control_warehouse',
+  'in_refurbish',
+  'in_repair',
+  'in_l3',
 ]);
 
 const PX_INACTIVE_RECEPTION_STATUSES = new Set([
@@ -218,6 +226,71 @@ const PX_INACTIVE_RECEPTION_STATUSES = new Set([
   'ARCHIVADO',
   'DEVUELTO',
 ]);
+
+/** Próximo reentry_count por cualquier serie del equipo (S1–S4). */
+export async function nextReentryCountForSerials(
+  supabase: NonNullable<ReturnType<typeof getSupabaseBrowserClient>>,
+  serials: string[]
+): Promise<number> {
+  const cleaned = [
+    ...new Set(serials.map((s) => String(s || '').trim()).filter(Boolean)),
+  ];
+  if (!cleaned.length) return 1;
+
+  try {
+    const { data, error } = await supabase.rpc('next_equipment_reentry_count', {
+      p_serials: cleaned,
+    });
+    if (!error && typeof data === 'number' && data >= 1) return data;
+  } catch {
+    /* fallback abajo */
+  }
+
+  const upper = cleaned.map((s) => s.toUpperCase());
+  const osIds = new Set<string>();
+
+  const { data: byMain } = await supabase
+    .from('service_orders')
+    .select('id, main_serial')
+    .in('main_serial', cleaned);
+  for (const row of byMain || []) if (row.id) osIds.add(row.id);
+
+  const { data: bySeries } = await supabase
+    .from('series')
+    .select('service_order_id, serial_number')
+    .in('serial_number', cleaned);
+  for (const row of bySeries || []) {
+    if (row.service_order_id) osIds.add(row.service_order_id);
+  }
+
+  // ilike fallback por si casing difiere
+  if (osIds.size === 0) {
+    for (const sn of upper) {
+      const { data } = await supabase
+        .from('series')
+        .select('service_order_id')
+        .ilike('serial_number', sn)
+        .limit(5);
+      for (const row of data || []) {
+        if (row.service_order_id) osIds.add(row.service_order_id);
+      }
+    }
+  }
+
+  return osIds.size + 1;
+}
+
+/** Preview de ingreso (1°, 2°, …) para UI PX/CAC al escanear. */
+export async function previewEquipmentReentry(serials: string[]): Promise<number> {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return 1;
+  return nextReentryCountForSerials(supabase, serials);
+}
+
+export function formatIngresoLabel(reentryCount: number | null | undefined): string {
+  const n = Number(reentryCount) || 1;
+  return `${Math.max(1, n)}° Ingreso`;
+}
 
 function collectPxEquipmentSerials(
   scannedSeries: Array<{ sn: string; s2?: string; s3?: string; s4?: string }>
@@ -464,8 +537,10 @@ export async function fixMissingOS(receptionId: string, unit: { main_serial: str
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: "Supabase not configured" };
 
-  const { count } = await supabase.from('service_orders').select(COUNT_HEAD, { count: 'exact', head: true }).eq('main_serial', unit.main_serial);
-  const reentryCount = (count || 0) + 1;
+  const reentryCount = await nextReentryCountForSerials(supabase, [
+    unit.main_serial,
+    ...(unit.all_series || []),
+  ]);
 
   const { data: osData, error: osError } = await supabase.from('service_orders').insert([{
     reception_id: receptionId,
@@ -505,13 +580,11 @@ export async function createServiceOrders(
   const results = [];
   
   for (const unit of units) {
-    // 1. Verificar cuántas veces ha ingresado esta serie (re-entry)
-    const { count, error: countError } = await supabase
-      .from('service_orders')
-      .select(COUNT_HEAD, { count: 'exact', head: true })
-      .eq('main_serial', unit.main_serial);
-
-    const reentryCount = (count || 0) + 1;
+    // 1. Verificar cuántas veces ha ingresado esta serie (re-entry por S1–S4)
+    const reentryCount = await nextReentryCountForSerials(supabase, [
+      unit.main_serial,
+      ...(unit.all_series || []),
+    ]);
 
     // 2. Crear la Orden de Servicio (OS)
     const { data: osData, error: osError } = await supabase
@@ -764,11 +837,12 @@ export async function createPxReceptionWithBoxes(
     const equipments = seriesByBox[b.id] || [];
     if (equipments.length === 0) continue;
 
-    // Batch fetch reentry counts
-    const countPromises = equipments.map((eq: any) =>
-      supabase.from('service_orders').select(COUNT_HEAD, { count: 'exact', head: true }).eq('main_serial', eq.sn)
+    // Batch fetch reentry counts (por cualquier serie S1–S4 del equipo)
+    const countResults = await Promise.all(
+      equipments.map((eq: any) =>
+        nextReentryCountForSerials(supabase, [eq.sn, eq.s2, eq.s3, eq.s4].filter(Boolean))
+      )
     );
-    const countResults = await Promise.all(countPromises);
 
     // Cada equipo = 1 OS. El campo os_label es autogenerado por PostgreSQL.
     const osToInsert = equipments.map((eq: any, i: number) => ({
@@ -776,7 +850,7 @@ export async function createPxReceptionWithBoxes(
       model_id: b.model_id,
       brand_id: b.brand_id,
       main_serial: eq.sn,
-      reentry_count: (countResults[i]?.count || 0) + 1,
+      reentry_count: countResults[i] || 1,
       status: 'INGRESADO'
     }));
 

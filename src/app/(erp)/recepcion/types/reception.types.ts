@@ -36,6 +36,9 @@ export interface PxScannedSeries {
   s3?: string;
   s4?: string;
   material?: string;
+  equipmentId?: string;
+  /** 1 = primer ingreso; ≥2 = reingreso detectado al escanear */
+  reentryCount?: number;
 }
 
 export interface SystemConfig {

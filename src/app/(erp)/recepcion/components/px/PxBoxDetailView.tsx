@@ -384,13 +384,14 @@ export const PxBoxDetailView = (props: any) => {
                                 <th className="px-6 py-4">S-4</th>
                               </>
                             )}
+                            <th className="px-6 py-4">Ingreso</th>
                             <th className="px-6 py-4 text-right">Acción</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
                           {boxScannedSeries.length === 0 && (
                             <tr>
-                              <td colSpan={showMulti ? 5 : 2} className="px-6 py-20 text-center">
+                              <td colSpan={showMulti ? 6 : 3} className="px-6 py-20 text-center">
                                 <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
                                   <Scan className="w-8 h-8 text-slate-300" />
                                 </div>
@@ -416,6 +417,17 @@ export const PxBoxDetailView = (props: any) => {
                                   <td className="px-6 py-4 font-mono text-slate-500">{s.s4 || '-'}</td>
                                 </>
                               )}
+                              <td className="px-6 py-4">
+                                {Number(s.reentryCount) > 1 ? (
+                                  <span className="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                                    {s.reentryCount}° Ingreso
+                                  </span>
+                                ) : (
+                                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
+                                    1° Ingreso
+                                  </span>
+                                )}
+                              </td>
                               <td className="px-6 py-4 text-right">
                                 {!isBoxClosed && (
                                 <div className="flex justify-end gap-1">

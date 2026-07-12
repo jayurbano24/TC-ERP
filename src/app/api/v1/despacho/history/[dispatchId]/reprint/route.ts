@@ -7,11 +7,8 @@ import { assertBatchLimit } from '@/shared/infrastructure/http/batchLimit';
 import { estimateJsonBytes, logEgress } from '@/shared/infrastructure/http/egressLog';
 import { getCorrelationIdFromHeaders } from '@/shared/infrastructure/http/correlationId';
 
-const SERIES_IN_BOX_SELECT =
-  'id, serial_number, service_order_id, current_status, brand_id, model_id, material, valuation, updated_at, created_at';
-
 const SIBLING_SELECT =
-  'id, serial_number, service_order_id, material, valuation, created_at';
+  'id, serial_number, service_order_id, material, valuation, brand_id, model_id, created_at';
 
 type Sib = {
   id: string;
@@ -19,6 +16,8 @@ type Sib = {
   service_order_id?: string | null;
   material?: string | null;
   valuation?: string | null;
+  brand_id?: string | null;
+  model_id?: string | null;
 };
 
 function coalesceMaterialLote(
@@ -45,12 +44,10 @@ function looksLikeMac(sn: string): boolean {
   return /^[0-9A-Fa-f]{12}$/.test(s) && /[A-Fa-f]/.test(s);
 }
 
-/** Prioriza serie SAP (SN numérico largo). No usa main_serial si es MAC. */
 function pickSapPrimary(sibs: Sib[], mainSerial?: string | null): Sib {
   if (!sibs.length) throw new Error('no siblings');
   const norm = (s: string) => s.trim().toUpperCase();
   const main = mainSerial?.trim() || '';
-  // main_serial de OS solo si parece serie SAP (dígitos), no MAC/CAS
   if (main && looksLikeSapSn(main)) {
     const hit = sibs.find((s) => norm(String(s.serial_number || '')) === norm(main));
     if (hit) return hit;
@@ -68,13 +65,13 @@ function pickSapPrimary(sibs: Sib[], mainSerial?: string | null): Sib {
   return [...sibs].sort((a, b) => score(b) - score(a))[0]!;
 }
 
-type RouteContext = { params: Promise<{ boxId: string }> };
+type RouteContext = { params: Promise<{ dispatchId: string }> };
 
 export const GET = withErrorHandler(
   async (req: Request, context: RouteContext) => {
     const started = Date.now();
     const correlationId = getCorrelationIdFromHeaders(req.headers);
-    const route = '/api/v1/despacho/boxes/[boxId]/items';
+    const route = '/api/v1/despacho/history/[dispatchId]/reprint';
 
     const auth = await requireApiUser(req);
     if (auth instanceof NextResponse) return auth;
@@ -83,23 +80,63 @@ export const GET = withErrorHandler(
       return NextResponse.json({ error: 'SERVER_CLIENT_REQUIRED' }, { status: 500 });
     }
 
-    const { boxId } = await context.params;
-    if (!z.string().uuid().safeParse(boxId).success) {
-      return NextResponse.json({ error: 'VALIDATION_ERROR', detail: 'boxId UUID inválido' }, { status: 400 });
+    const { dispatchId } = await context.params;
+    if (!z.string().uuid().safeParse(dispatchId).success) {
+      return NextResponse.json({ error: 'VALIDATION_ERROR', detail: 'dispatchId UUID inválido' }, { status: 400 });
     }
 
-    const { data: inBox, error: boxError } = await supabase
-      .from('series')
-      .select(SERIES_IN_BOX_SELECT)
-      .eq('current_box_id', boxId)
-      .order('updated_at', { ascending: false });
+    const { data: dispatch, error: dErr } = await supabase
+      .from('dispatches')
+      .select(
+        `
+        id,
+        guide_number,
+        notes,
+        dispatched_at,
+        box_id,
+        boxes:box_id (
+          id,
+          box_code,
+          brand_id,
+          model_id,
+          material,
+          valuation,
+          capacity
+        ),
+        dispatch_items (
+          series_id,
+          series:series_id (
+            id,
+            serial_number,
+            service_order_id,
+            material,
+            valuation,
+            brand_id,
+            model_id,
+            created_at
+          )
+        )
+      `
+      )
+      .eq('id', dispatchId)
+      .maybeSingle();
 
-    if (boxError) {
-      return NextResponse.json({ error: 'QUERY_FAILED', detail: boxError.message }, { status: 500 });
+    if (dErr) {
+      return NextResponse.json({ error: 'QUERY_FAILED', detail: dErr.message }, { status: 500 });
+    }
+    if (!dispatch) {
+      return NextResponse.json({ error: 'NOT_FOUND' }, { status: 404 });
     }
 
-    const rows = inBox ?? [];
-    const osIds = [...new Set(rows.map((r) => r.service_order_id).filter(Boolean))] as string[];
+    const box = Array.isArray((dispatch as any).boxes)
+      ? (dispatch as any).boxes[0]
+      : (dispatch as any).boxes;
+
+    const itemSeries = ((dispatch as any).dispatch_items ?? [])
+      .map((di: any) => di.series)
+      .filter(Boolean) as Sib[];
+
+    const osIds = [...new Set(itemSeries.map((s) => s.service_order_id).filter(Boolean))] as string[];
     assertBatchLimit(osIds, 80, 'service_order_id');
 
     let siblings: Sib[] = [];
@@ -133,45 +170,68 @@ export const GET = withErrorHandler(
     const enriched: Array<Record<string, unknown>> = [];
     const processedOs = new Set<string>();
 
-    for (const item of rows) {
+    for (const item of itemSeries) {
       const osId = item.service_order_id ? String(item.service_order_id) : null;
       if (osId && processedOs.has(osId)) continue;
 
-      if (osId) {
-        processedOs.add(osId);
-        const sibs = siblingsByOs.get(osId) ?? [item as Sib];
-        const { material, valuation } = coalesceMaterialLote(sibs);
-        const primary = pickSapPrimary(sibs, mainByOs.get(osId));
-        const ordered = [primary, ...sibs.filter((s) => s.serial_number !== primary.serial_number)];
+      let sibs: Sib[] = osId ? siblingsByOs.get(osId) ?? [item] : [item];
+      if (!sibs.length) sibs = [item];
 
-        enriched.push({
-          ...item,
-          id: ordered[0]?.id ?? item.id,
-          s1: ordered[0]?.serial_number ?? item.serial_number,
-          s2: ordered[1]?.serial_number ?? '',
-          s3: ordered[2]?.serial_number ?? '',
-          s4: ordered[3]?.serial_number ?? '',
-          material,
-          valuation,
-        });
-      } else {
-        enriched.push({
-          ...item,
-          s1: item.serial_number,
-          s2: '',
-          s3: '',
-          s4: '',
-          material: item.material ?? '',
-          valuation: item.valuation ?? '',
-        });
-      }
+      const primary = pickSapPrimary(sibs, osId ? mainByOs.get(osId) : null);
+      const ordered = [primary, ...sibs.filter((s) => s.id !== primary.id)];
+      const { material, valuation } = coalesceMaterialLote(ordered);
+
+      enriched.push({
+        id: primary.id,
+        serial_number: primary.serial_number,
+        s1: ordered[0]?.serial_number ?? '',
+        s2: ordered[1]?.serial_number ?? '',
+        s3: ordered[2]?.serial_number ?? '',
+        s4: ordered[3]?.serial_number ?? '',
+        material,
+        valuation,
+        brand_id: primary.brand_id ?? item.brand_id,
+        model_id: primary.model_id ?? item.model_id,
+        service_order_id: osId,
+      });
+
+      if (osId) processedOs.add(osId);
     }
 
-    const responseBody = { items: enriched };
+    const notes = String(dispatch.notes || '');
+    const sapMatch = notes.match(/SAP:\s*([^·]+)/i);
+    const neMatch = notes.match(/NE:\s*([^·]+)/i);
+    const destino = notes.split('·')[0]?.trim() || notes.trim() || null;
+
+    const responseBody = {
+      dispatch: {
+        id: dispatch.id,
+        guide_number: dispatch.guide_number,
+        notes: dispatch.notes,
+        dispatched_at: dispatch.dispatched_at,
+        traslado_sap: sapMatch?.[1]?.trim() || null,
+        nota_entrega: neMatch?.[1]?.trim() || null,
+        destino,
+      },
+      box: box
+        ? {
+            id: box.id,
+            box_code: box.box_code,
+            brand_id: box.brand_id,
+            model_id: box.model_id,
+            material: box.material,
+            valuation: box.valuation,
+            capacity: box.capacity,
+          }
+        : null,
+      items: enriched,
+      equipos_count: enriched.length,
+    };
+
     logEgress({
       route,
       module: 'despacho',
-      action: 'box_items',
+      action: 'history_reprint',
       correlationId,
       rowCount: enriched.length,
       bytesEstimate: estimateJsonBytes(responseBody),
@@ -181,5 +241,5 @@ export const GET = withErrorHandler(
 
     return NextResponse.json(responseBody);
   },
-  { module: 'despacho', action: 'box_items', roles: ROLES_BODEGA_DESPACHO }
+  { module: 'despacho', action: 'history_reprint', roles: ROLES_BODEGA_DESPACHO }
 );

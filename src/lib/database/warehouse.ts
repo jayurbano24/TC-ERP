@@ -127,6 +127,15 @@ export function resolveWarehouseStatusLabel(status: string | null | undefined): 
   }
 }
 
+/** Cajas operativas de Gestión de Bodega (excluye taller, scrap, despacho, eliminado). */
+export function isBodegaOperationalRack(rack: string | null | undefined): boolean {
+  const r = String(rack || '').trim().toUpperCase();
+  if (!r) return true;
+  if (r === 'ELIMINADO' || r === 'DESPACHO' || r === 'SCRAP') return false;
+  if (r.startsWith('TALLER')) return false;
+  return true;
+}
+
 const WAREHOUSE_READY_RECEPTION_STATUSES = new Set([
   'CLASIFICADA',
   'PROCESADO',
@@ -197,6 +206,40 @@ function formatSupabaseError(error: {
 
 type WarehouseOperator = { operatorId: string | null; userName: string };
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Nunca enviar "" a columnas/params UUID (error 22P02).
+ * `warehouse_movements.performed_by` es uuid → profiles(id).
+ * También acepta valores no-string (evita String(null) → "null").
+ */
+export function asUuidOrNull(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
+  const v = String(value).trim();
+  if (!v || v === 'null' || v === 'undefined' || v === '""') return null;
+  if (!UUID_RE.test(v)) return null;
+  return v;
+}
+
+/** Params RPC: omite claves UUID vacías (PostgREST no recibe ""). */
+export function withUuidParams<T extends Record<string, unknown>>(
+  params: T,
+  uuidKeys: (keyof T)[]
+): T {
+  const out = { ...params };
+  for (const key of uuidKeys) {
+    const normalized = asUuidOrNull(out[key] as unknown);
+    if (normalized == null) {
+      (out as Record<string, unknown>)[key as string] = null;
+    } else {
+      (out as Record<string, unknown>)[key as string] = normalized;
+    }
+  }
+  return out;
+}
+
 /**
  * `warehouse_movements.performed_by` referencia `profiles(id)`.
  * Si el auth uid no tiene fila en profiles, enviar el uuid rompe la FK (400).
@@ -224,7 +267,7 @@ async function resolveWarehouseOperator(
 
   if (profile?.id) {
     return {
-      operatorId: profile.id,
+      operatorId: asUuidOrNull(profile.id),
       userName: profile.full_name?.trim() || fallbackName,
     };
   }
@@ -461,7 +504,8 @@ export async function getInventoryBoxes(options?: { force?: boolean }) {
     }))
     .filter((box: Record<string, any>) => {
       const rack = String(box.rack_location || '').toUpperCase();
-      if (rack === 'ELIMINADO' || rack === 'DESPACHO') return false;
+      if (rack === 'ELIMINADO' || rack === 'DESPACHO' || rack === 'SCRAP') return false;
+      if (rack.startsWith('TALLER')) return false;
       // Inventario operativo = cajas con al menos una serie en bodega
       return (box.series as any[])?.length > 0;
     })
@@ -475,10 +519,150 @@ export async function getInventoryBoxes(options?: { force?: boolean }) {
   return payload;
 }
 
-export function resolveBoxDisplayStatus(seriesCount: number, capacity: number): 'Vacía' | 'Parcial' | 'Full' {
-  if (seriesCount <= 0) return 'Vacía';
-  if (capacity > 0 && seriesCount >= capacity) return 'Full';
+/** Estatus visual alineado al KPI: cuenta equipos OS vs capacidad (no filas S1–S4). */
+export function resolveBoxDisplayStatus(equiposCount: number, capacity: number): 'Vacía' | 'Parcial' | 'Full' {
+  const cap = capacity > 0 ? capacity : 1;
+  if (equiposCount <= 0) return 'Vacía';
+  if (equiposCount >= cap) return 'Full';
   return 'Parcial';
+}
+
+/** Pistoleo incremental: crea TMP en EN_PROCESO o agrega series a la sesión. */
+export async function startOrAppendBodegaScan(input: {
+  boxId?: string | null;
+  receptionId: string;
+  brandId: string;
+  modelId: string;
+  capacity: number;
+  serialNumbers: string[];
+}): Promise<{
+  data?: { box_id: string; box_code: string; series_linked: number; equipos_count?: number };
+  error?: string;
+}> {
+  invalidateInventoryBoxesCache();
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return { error: 'Supabase not configured' };
+
+  const uniqueSeries = [...new Set((input.serialNumbers || []).map((s) => s?.trim().toUpperCase()).filter(Boolean))];
+  if (uniqueSeries.length === 0) {
+    return { error: 'Debe escanear al menos una serie.' };
+  }
+
+  const { data, error } = await supabase.rpc('bodega_start_or_append_scan_tx', {
+    p_box_id: input.boxId || null,
+    p_reception_id: input.receptionId,
+    p_brand_id: input.brandId,
+    p_model_id: input.modelId,
+    p_capacity: input.capacity,
+    p_serial_numbers: uniqueSeries,
+    p_rack_location: 'EN_PROCESO',
+  });
+
+  if (error) return { error: error.message };
+  const row = data as { box_id: string; box_code: string; series_linked: number; equipos_count?: number };
+  return { data: row };
+}
+
+/** Asigna BOX-{n} oficial y saca la caja de EN_PROCESO. */
+export async function finalizeBodegaScan(input: {
+  boxId: string;
+  rackLocation?: string;
+}): Promise<{ data?: { box_id: string; box_code: string; series_linked: number }; error?: string }> {
+  invalidateInventoryBoxesCache();
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return { error: 'Supabase not configured' };
+
+  const { data, error } = await supabase.rpc('bodega_finalize_scan_tx', {
+    p_box_id: input.boxId,
+    p_rack_location: input.rackLocation || 'P-01',
+  });
+
+  if (error) return { error: error.message };
+  return { data: data as { box_id: string; box_code: string; series_linked: number } };
+}
+
+/** Cancela pistoleo TMP: desvincula series y marca ELIMINADO. */
+export async function cancelBodegaScan(boxId: string): Promise<{ error?: string }> {
+  invalidateInventoryBoxesCache();
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return { error: 'Supabase not configured' };
+
+  const { error } = await supabase.rpc('bodega_cancel_scan_tx', { p_box_id: boxId });
+  if (error) return { error: error.message };
+  return {};
+}
+
+export async function listInProgressBodegaBoxes(limit = 50): Promise<{
+  data?: Array<{
+    box_id: string;
+    label: string;
+    rack: string;
+    series_count: number;
+    equipos_count: number;
+    capacity: number;
+    brand_id?: string;
+    model_id?: string;
+    sample_brand_id?: string;
+    sample_model_id?: string;
+  }>;
+  error?: string;
+}> {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return { error: 'Supabase not configured' };
+
+  const { data, error } = await supabase.rpc('warehouse_list_in_progress_boxes', {
+    p_limit: limit,
+  });
+  if (error) return { error: error.message };
+  return { data: (data || []) as any };
+}
+
+export async function requestBoxDeletion(input: {
+  boxId: string;
+  reason: string;
+  observations?: string;
+}): Promise<{ data?: { request_id: string; box_code?: string; message?: string }; error?: string }> {
+  invalidateInventoryBoxesCache();
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return { error: 'Supabase not configured' };
+
+  const { data, error } = await supabase.rpc('bodega_request_box_deletion_tx', {
+    p_box_id: input.boxId,
+    p_reason: input.reason,
+    p_observations: input.observations || null,
+  });
+  if (error) return { error: error.message.replace(/^[^:]+:\s*/i, '') };
+  return { data: data as { request_id: string; box_code?: string; message?: string } };
+}
+
+export async function reviewBoxDeletion(input: {
+  requestId: string;
+  decision: 'approve' | 'reject';
+  reviewNotes?: string;
+}): Promise<{ data?: { status: string; box_id: string }; error?: string }> {
+  invalidateInventoryBoxesCache();
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return { error: 'Supabase not configured' };
+
+  const { data, error } = await supabase.rpc('bodega_review_box_deletion_tx', {
+    p_request_id: input.requestId,
+    p_decision: input.decision,
+    p_review_notes: input.reviewNotes || null,
+  });
+  if (error) return { error: error.message.replace(/^[^:]+:\s*/i, '') };
+  return { data: data as { status: string; box_id: string } };
+}
+
+export async function listBoxDeletionRequests(status: string = 'pending', limit = 50) {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return { error: 'Supabase not configured', data: [] as any[] };
+
+  const { data, error } = await supabase.rpc('bodega_list_box_deletion_requests', {
+    p_status: status,
+    p_limit: limit,
+  });
+  if (error) return { error: error.message, data: [] as any[] };
+  return { data: (data || []) as any[] };
 }
 
 export async function createBodegaBoxAtomic(input: {
@@ -675,13 +859,19 @@ export async function transferBoxesToArea(boxIds: string[], targetArea: string, 
   for (const boxId of boxIds) {
     if (isWorkshop) {
       const idempotencyKey = warehouseBoxIdempotencyKey(boxId, "dispersion", "taller");
-      const { data, error } = await supabase.rpc('warehouse_dispersion_tx', {
-        p_box_id: boxId,
-        p_target_module: 'taller',
-        p_operator_id: operatorId,
-        p_operator_name: userName,
-        p_idempotency_key: idempotencyKey
-      });
+      const { data, error } = await supabase.rpc(
+        'warehouse_dispersion_tx',
+        withUuidParams(
+          {
+            p_box_id: boxId,
+            p_target_module: 'taller',
+            p_operator_id: operatorId,
+            p_operator_name: userName,
+            p_idempotency_key: idempotencyKey,
+          },
+          ['p_box_id', 'p_operator_id', 'p_idempotency_key']
+        )
+      );
       if (!error) successCount++;
       else if (String(error.message || '').includes('ALREADY_DISPERSED')) {
         successCount++;
@@ -694,7 +884,7 @@ export async function transferBoxesToArea(boxIds: string[], targetArea: string, 
       const { error } = await supabase.rpc('warehouse_traslado_tx', {
         p_box_id: boxId,
         p_target_location: rackLocation,
-        p_operator_id: operatorId,
+        p_operator_id: asUuidOrNull(operatorId),
         p_operator_name: userName,
         p_idempotency_key: idempotencyKey
       });
@@ -796,7 +986,7 @@ export async function openDispatchBatch(destination?: string, guideOutbound?: st
   const { data, error } = await supabase.rpc('dispatch_batch_open_tx', {
     p_destination: destination || null,
     p_guide_outbound: guideOutbound || null,
-    p_operator_id: operatorId,
+    p_operator_id: asUuidOrNull(operatorId),
     p_operator_name: userName,
     p_notes: notes || null,
   });
@@ -813,7 +1003,7 @@ export async function closeDispatchBatch(batchId: string) {
 
   const { data, error } = await supabase.rpc('dispatch_batch_close_tx', {
     p_batch_id: batchId,
-    p_operator_id: operatorId,
+    p_operator_id: asUuidOrNull(operatorId),
     p_operator_name: userName,
   });
 
@@ -839,10 +1029,10 @@ export async function dispatchBoxFromWarehouse(
     p_box_id: boxId,
     p_destination: destination,
     p_guide_number: guide,
-    p_operator_id: operatorId,
+    p_operator_id: asUuidOrNull(operatorId),
     p_operator_name: userName,
     p_idempotency_key: warehouseBoxIdempotencyKey(boxId, "salida", `${guide}|${destination}`),
-    p_dispatch_batch_id: dispatchBatchId || null,
+    p_dispatch_batch_id: asUuidOrNull(dispatchBatchId),
   });
 
   if (error) return { error: error.message };
@@ -872,7 +1062,7 @@ export async function transferSpecificSeriesToArea(boxId: string, seriesNumbers:
     p_serial_numbers: uniqueSeries,
     p_target_location: targetLocation,
     p_target_status: nextStatus,
-    p_operator_id: operatorId,
+    p_operator_id: asUuidOrNull(operatorId),
     p_operator_name: userName,
     p_idempotency_key: warehouseBoxIdempotencyKey(
       boxId,
@@ -928,7 +1118,7 @@ export async function dispatchSpecificSeries(
     p_serial_numbers: uniqueSeries,
     p_destination: destination || '',
     p_guide_number: destination || '',
-    p_operator_id: operatorId,
+    p_operator_id: asUuidOrNull(operatorId),
     p_operator_name: userName,
     p_notes: notes || null,
     p_idempotency_key: warehouseBoxIdempotencyKey(
@@ -936,7 +1126,7 @@ export async function dispatchSpecificSeries(
       'salida',
       `${destination}:${uniqueSeries.sort().join(',')}`
     ),
-    p_dispatch_batch_id: dispatchBatchId || null,
+    p_dispatch_batch_id: asUuidOrNull(dispatchBatchId),
   });
 
   if (error) return { error: error.message };

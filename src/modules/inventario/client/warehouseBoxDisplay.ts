@@ -5,11 +5,41 @@ export function isStandardWarehouseBoxCode(code: string | null | undefined): boo
   return !!code && STANDARD_BOX_CODE.test(code.trim());
 }
 
-/** Alias visual: BOX-45 → TCW-BOX-45 (mismo código en BD; solo presentación). */
+/** Alias visual: BOX-45 → TCW-BOX-045 (mismo código en BD; solo presentación). */
 export function toTcwBoxDisplayLabel(boxCode: string): string {
   const m = boxCode.trim().match(/^BOX-(\d+)$/i);
   if (m) return `TCW-BOX-${m[1].padStart(3, '0')}`;
   return boxCode;
+}
+
+/**
+ * Variantes de búsqueda para Consulta: la UI muestra TCW-BOX-045 pero en BD
+ * suele guardarse BOX-45 / BOX-045.
+ */
+export function expandBoxCodeSearchVariants(input: string): string[] {
+  const raw = String(input || '').trim().toUpperCase();
+  if (!raw) return [];
+
+  const out = new Set<string>([raw]);
+  if (raw.startsWith('TCW-')) out.add(raw.slice(4));
+
+  const m =
+    raw.match(/^TCW-(BOX|MB)-0*(\d+)$/i) ||
+    raw.match(/^(BOX|MB)-0*(\d+)$/i);
+
+  if (m) {
+    const kind = m[1].toUpperCase();
+    const n = String(parseInt(m[2], 10));
+    if (n && n !== 'NaN') {
+      out.add(`${kind}-${n}`);
+      out.add(`${kind}-${n.padStart(3, '0')}`);
+      out.add(`${kind}-${n.padStart(4, '0')}`);
+      out.add(`TCW-${kind}-${n}`);
+      out.add(`TCW-${kind}-${n.padStart(3, '0')}`);
+    }
+  }
+
+  return [...out].filter(Boolean);
 }
 
 /**

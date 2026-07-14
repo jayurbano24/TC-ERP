@@ -79,7 +79,11 @@ export const TimelineModal = memo(function TimelineModal({
                       if (event.series_count != null) content += ` | Series: ${event.series_count}`;
                     }
 
-                    const operator = event.user_name || event.operator_name || 'Sistema';
+                    const operator =
+                      event.performed_by_name ||
+                      event.user_name ||
+                      event.operator_name ||
+                      'Sistema';
 
                     const isLast = idx === boxHistoryData.length - 1;
                     return (

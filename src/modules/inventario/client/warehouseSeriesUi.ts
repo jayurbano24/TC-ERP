@@ -62,6 +62,7 @@ export function groupSeriesToUiRows(rawSeries: any[]): any[] {
         main.receptions?.received_by ||
         'SISTEMA',
       estatus: main.receptions?.status || 'N/A',
+      current_status: main.current_status || '',
       ordenServicio: main.service_orders?.os_label || 'S/OS',
       ingreso: `${reentryCount}° Ingreso`,
       sap_status: main.service_orders?.sap_integration_status || main.sap_status || 'Pendiente Validación',

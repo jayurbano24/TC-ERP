@@ -1,4 +1,5 @@
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { asUuidOrNull } from '@/lib/database/warehouse';
 import type { IAccessoryDispatchGateway } from '../../domain/ports/accessory-dispatch.gateway.port';
 import type {
   DispatchAccessoryOutParams,
@@ -23,9 +24,9 @@ export class AccessoryDispatchRpcAdapter implements IAccessoryDispatchGateway {
         p_quantity: params.quantity,
         p_destination: params.destination,
         p_notes: params.notes || null,
-        p_dispatch_batch_id: params.dispatchBatchId || null,
-        p_operator_id: params.operatorId || null,
-        p_box_id: params.boxId || null,
+        p_dispatch_batch_id: asUuidOrNull(params.dispatchBatchId),
+        p_operator_id: asUuidOrNull(params.operatorId),
+        p_box_id: asUuidOrNull(params.boxId),
       });
 
       if (error) return { success: false, error: error.message };

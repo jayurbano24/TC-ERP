@@ -26,6 +26,7 @@ export const erpModules: ErpModule[] = [
   { id: 10, categoria: 'Bodega', nombre: "Despacho Final", descripcion: "Masivo, individual y Master Box.", ruta: "/despacho" },
 
   { id: 17, categoria: 'Gestión', nombre: "Portal de Reportes", descripcion: "Catálogo unificado de exportaciones Excel/CSV.", ruta: "/reportes" },
+  { id: 18, categoria: 'Gestión', nombre: "Autorizaciones", descripcion: "Bandeja del Gerente General para acciones pre-autorizadas.", ruta: "/autorizaciones" },
   { id: 11, categoria: 'Gestión', nombre: "Dashboard & BI", descripcion: "Productividad, KPIs y proyección de capacidad.", ruta: "/gestion/bi" },
   { id: 12, categoria: 'Gestión', nombre: "Costos & Rentabilidad", descripcion: "Costeo por equipo, técnico y proyecto.", ruta: "/gestion/costos" },
   { id: 13, categoria: 'Gestión', nombre: "Alertas & SLA", descripcion: "Monitoreo de tiempos y alertas preventivas.", ruta: "/gestion/alertas" },
@@ -73,6 +74,7 @@ export const navigationGroups = [
   {
     title: "Gestión & BI",
     items: [
+      { label: "Autorizaciones", href: "/autorizaciones", descripcion: "Aprobaciones Gerente", icon: "ShieldCheck", permissionKey: "Autorizaciones" },
       { label: "Reportes", href: "/reportes", descripcion: "Exportaciones centralizadas", icon: "FileSpreadsheet", permissionKey: "Reportes" },
       { label: "Recursos Humanos", href: "/rrhh", descripcion: "Asistencia y Planilla", icon: "Users" },
       { label: "Productividad", href: "/gestion/bi", descripcion: "Métricas y KPIs", icon: "TrendingUp" },

@@ -35,12 +35,14 @@ import {
   Truck,
   PackageMinus
 } from 'lucide-react';
-import { getInventoryBoxes, transferBoxesToArea, transferBoxesToAreaInBatches, createBodegaBoxAtomic, addSeriesToBox, dispatchBoxFromWarehouse, dispatchSpecificSeries, transferSpecificSeriesToArea, canScanSeriesIntoWarehouse, resolveBoxDisplayStatus, getBoxHistory } from '@/modules/inventario/client/warehouseBoxes';
+import { getInventoryBoxes, transferBoxesToArea, transferBoxesToAreaInBatches, startOrAppendBodegaScan, finalizeBodegaScan, listInProgressBodegaBoxes, requestBoxDeletion, addSeriesToBox, dispatchBoxFromWarehouse, dispatchSpecificSeries, transferSpecificSeriesToArea, canScanSeriesIntoWarehouse, resolveBoxDisplayStatus, getBoxHistory } from '@/modules/inventario/client/warehouseBoxes';
+import { isBodegaOperationalRack } from '@/lib/database/warehouse';
 import { DispatchBatchSelector } from '@/modules/outbound-dispatch/components/DispatchBatchSelector';
 import { isHexagonalOutboundDispatchEnabled } from '@/modules/outbound-dispatch';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useReferenceCatalogs } from '@/hooks/useReferenceCatalogs';
+import { useAuthz } from '@/components/authz/AuthzProvider';
 import { PrintBoxModal } from './components/PrintBoxModal';
 import { RackModal } from './components/RackModal';
 import { TimelineModal } from './components/TimelineModal';
@@ -48,6 +50,8 @@ import { DispatchModal } from './components/DispatchModal';
 import { TransferModal } from './components/TransferModal';
 import { NewBoxModal } from './components/NewBoxModal';
 import { DetalleCajaModal } from './components/DetalleCajaModal';
+import { DeleteBoxAuthorizationModal } from './components/DeleteBoxAuthorizationModal';
+import { BoxDeletionApprovalsPanel } from './components/BoxDeletionApprovalsPanel';
 import { fetchBoxSeriesUi } from '@/modules/inventario/client/warehouseBoxSeries';
 import { formatWarehouseBoxId } from '@/modules/inventario/client/warehouseBoxDisplay';
 import { RECEPTION_TIMELINE_SELECT } from '@/shared/constants/dbProjections';
@@ -64,6 +68,7 @@ export default function BodegaGestionV2({
 }) {
   const pathname = usePathname();
   const queryClient = useQueryClient();
+  const { isAdmin } = useAuthz();
   const {
     technologies: catTecnologias,
     brands: catMarcas,
@@ -76,6 +81,8 @@ export default function BodegaGestionV2({
     isReady: catalogsReady,
   } = useReferenceCatalogs();
   const boxSeriesCache = useRef(new Map<string, any[]>());
+  const inventoryListRef = useRef<HTMLDivElement | null>(null);
+  const autoOpenedPartialRef = useRef(false);
   const [searchTerm, setSearchTerm] = useState('');
   // C5: filtrado de inventario sobre término debounced (input fluido).
   const debouncedSearch = useDebouncedValue(searchTerm, 250);
@@ -83,7 +90,13 @@ export default function BodegaGestionV2({
   const [selectedBox, setSelectedBox] = useState<any | null>(null);
   const [loadingBoxDetail, setLoadingBoxDetail] = useState(false);
   const [loading, setLoading] = useState(false);
-  const { 
+  // Advanced Filters State (antes del query para poder filtrar en servidor)
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [filterTech, setFilterTech] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const fillStatusParam =
+    filterStatus === 'Partial' ? 'partial' : filterStatus === 'Full' ? 'full' : undefined;
+  const {
     data: boxesData, 
     fetchNextPage, 
     hasNextPage, 
@@ -91,16 +104,13 @@ export default function BodegaGestionV2({
     isLoading: isBoxesLoading,
     refetch 
   } = useInfiniteQuery({
-    queryKey: ['warehouse-boxes', debouncedSearch],
+    queryKey: ['warehouse-boxes', debouncedSearch, fillStatusParam ?? 'all'],
     queryFn: async ({ pageParam }) => {
       const url = new URL('/api/v1/warehouse/boxes', window.location.origin);
       if (pageParam) url.searchParams.set('cursor', pageParam as string);
       url.searchParams.set('limit', '30');
       if (debouncedSearch) url.searchParams.set('search', debouncedSearch);
-
-      const supabase = getSupabaseBrowserClient();
-      const { data: { session } } = await supabase?.auth.getSession() || { data: { session: null } };
-      const token = session?.access_token;
+      if (fillStatusParam) url.searchParams.set('fillStatus', fillStatusParam);
 
       const res = await fetch(url.toString(), {
         credentials: 'same-origin'
@@ -147,14 +157,17 @@ export default function BodegaGestionV2({
       setSelectedBox({ ...item, series: [] });
       setLoadingBoxDetail(true);
       try {
-        let capacity = item.cantidad || item.capacity || item.unitCount || 0;
+        const capacity = Number(item.cantidad || item.capacity || 0);
         const series = await ensureBoxSeriesLoaded(item);
+        const equipos = series.length
+          ? new Set(series.map((s: any) => s.service_orders?.id || s.ordenServicio || s.sn || s.serial_number)).size
+          : Number(item.unitCount || 0);
         setSelectedBox({
           ...item,
-          cantidad: capacity || series.length || item.unitCount || 1,
+          cantidad: capacity > 0 ? capacity : Math.max(equipos, 1),
           series,
-          unitCount: series.length || item.unitCount || 0,
-          status: resolveBoxDisplayStatus(series.length, capacity || series.length || 1),
+          unitCount: equipos,
+          status: resolveBoxDisplayStatus(equipos, capacity),
         });
       } catch (err) {
         console.error(err);
@@ -212,7 +225,7 @@ export default function BodegaGestionV2({
   );
 
   const inventory = useMemo(() => {
-    return (boxesData?.pages || []).flatMap(p => p.items || []).map((b: any) => {
+    const rows = (boxesData?.pages || []).flatMap(p => p.items || []).map((b: any) => {
        const boxCode = b.label || '';
        const boxIdFmt = formatWarehouseBoxId(boxCode, b.box_id);
        const tecnologiaId = b.technology_id ?? (b.sample_model_id ? techIdByModelId.get(b.sample_model_id) : undefined);
@@ -231,14 +244,40 @@ export default function BodegaGestionV2({
          marcaLabel: b.brand_name || brandName(b.sample_brand_id),
          modeloLabel: b.model_name || modelName(b.sample_model_id),
          cantidad: b.capacity || 0,
-         unitCount: b.series_count || 0,
-         status: resolveBoxDisplayStatus(b.series_count || 0, b.capacity || b.series_count || 1),
+         unitCount: Number(b.equipos_count ?? b.series_count ?? 0),
+         seriesRows: Number(b.series_count || 0),
+         status: (() => {
+           const rack = String(b.rack || '').toUpperCase();
+           const code = String(b.label || b.box_code || '');
+           if (rack === 'EN_PROCESO' || code.toUpperCase().startsWith('TMP-')) return 'Parcial';
+           if (String(b.deletion_status || '') === 'pending_approval') return 'Pendiente Aprobación';
+           return resolveBoxDisplayStatus(
+             Number(b.equipos_count ?? b.series_count ?? 0),
+             Number(b.capacity || 0)
+           );
+         })(),
+         deletionStatus: b.deletion_status || null,
+         usuarioIngreso: b.ingreso_user_name || 'Sin registro',
          series: [] as any[],
-         fechaIngreso: new Date(b.created_at || Date.now()).toLocaleString(),
+         createdAt: b.created_at || null,
+         fechaIngreso: new Date(b.created_at || Date.now()).toLocaleString('es-GT', {
+           day: '2-digit',
+           month: '2-digit',
+           year: 'numeric',
+           hour: '2-digit',
+           minute: '2-digit',
+         }),
          tecnologiaId,
          tecnologia: b.tech_name || techNameForModel(b.sample_model_id),
-         usuarioIngreso: 'Admin User'
        };
+    });
+
+    // Fecha Ingreso: más reciente → más lejana
+    return rows.sort((a, b) => {
+      const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      if (tb !== ta) return tb - ta;
+      return String(b.realDbId || '').localeCompare(String(a.realDbId || ''));
     });
   }, [boxesData, techIdByModelId, techNameForModel, brandName, modelName]);
   const [showTimeline, setShowTimeline] = useState<any>(null);
@@ -263,11 +302,6 @@ export default function BodegaGestionV2({
   const [selectedDispatchBatchNumber, setSelectedDispatchBatchNumber] = useState<string | null>(null);
   const useOutboundDispatchHex = isHexagonalOutboundDispatchEnabled();
 
-  // Advanced Filters State
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-  const [filterTech, setFilterTech] = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
-
   // Selección múltiple de cajas (para ubicación masiva)
   const [selectedBoxIds, setSelectedBoxIds] = useState<string[]>([]);
   const [showBulkRackModal, setShowBulkRackModal] = useState(false);
@@ -278,8 +312,12 @@ export default function BodegaGestionV2({
 
   const filteredInventory = useMemo(() => {
     return inventory.filter((item) => {
+      // Cajas ya en Taller/Scrap no pertenecen a Gestión de Bodega
+      if (!isBodegaOperationalRack(item.rack)) return false;
+
       if (filterTech && item.tecnologiaId !== filterTech) return false;
 
+      // fillStatus ya filtra en servidor; el filtro cliente es respaldo (migración 129 pendiente)
       const isFull = item.status === 'Full';
       if (filterStatus === 'Full' && !isFull) return false;
       if (filterStatus === 'Partial' && item.status !== 'Parcial') return false;
@@ -300,6 +338,73 @@ export default function BodegaGestionV2({
       );
     });
   }, [inventory, filterTech, filterStatus, debouncedSearch, brandName, modelName]);
+
+  const resumeInProgressBoxes = useCallback(async () => {
+    setFilterTech('');
+    setSearchTerm('');
+    setShowAdvancedFilters(true);
+
+    const pending = await listInProgressBodegaBoxes(20);
+    if (pending.error) {
+      // Migración 130 pendiente → fallback a filtro parcial
+      autoOpenedPartialRef.current = false;
+      setFilterStatus('Partial');
+      notify.warning('Aplique la migración 130', {
+        description: 'Para reanudar pistoleos guardados en servidor ejecute 130_bodega_scan_session_persist.sql',
+      });
+      requestAnimationFrame(() => {
+        inventoryListRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+      return;
+    }
+
+    const rows = pending.data || [];
+    if (rows.length === 0) {
+      autoOpenedPartialRef.current = false;
+      setFilterStatus('Partial');
+      notify.info('Sin pistoleos pendientes en servidor', {
+        description: 'No hay cajas EN_PROCESO. Si el corte fue antes del primer escaneo, no hay nada que recuperar.',
+      });
+      requestAnimationFrame(() => {
+        inventoryListRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+      return;
+    }
+
+    // Reanudar la más reciente
+    const draft = rows[0];
+    const techId = draft.model_id
+      ? techIdByModelId.get(draft.model_id)
+      : draft.sample_model_id
+        ? techIdByModelId.get(draft.sample_model_id)
+        : '';
+
+    setNewBox({
+      correlativo: draft.label || '',
+      rack: 'P-01',
+      marca: draft.brand_id || draft.sample_brand_id || '',
+      modelo: draft.model_id || draft.sample_model_id || '',
+      tecnologia: techId || '',
+      cantidad: Number(draft.capacity || 0),
+    });
+    setDraftBoxId(draft.box_id);
+    setDraftBoxCode(draft.label || '');
+
+    try {
+      const seriesUi = await fetchBoxSeriesUi(draft.box_id);
+      setTempSerials(seriesUi || []);
+    } catch {
+      setTempSerials([]);
+    }
+
+    setNewBoxStep('scanning');
+    setShowNewBoxModal(true);
+    setFilterStatus('Partial');
+    autoOpenedPartialRef.current = true;
+    notify.success('Pistoleo reanudado', {
+      description: `${draft.label}: ${draft.equipos_count || 0}/${draft.capacity || '?'} equipos en servidor`,
+    });
+  }, [techIdByModelId]);
 
   const { data: statsData } = useQuery({
     queryKey: ['warehouse-stats'],
@@ -326,6 +431,42 @@ export default function BodegaGestionV2({
   });
 
   const warehouseTotals = statsData?.totals ?? null;
+
+  useEffect(() => {
+    if (filterStatus !== 'Partial') {
+      autoOpenedPartialRef.current = false;
+      return;
+    }
+    if (autoOpenedPartialRef.current || isBoxesLoading || showNewBoxModal) return;
+    if (filteredInventory.length === 1) {
+      const item = filteredInventory[0];
+      const rack = String(item.rack || '').toUpperCase();
+      const code = String(item.box_code || item.id || '');
+      const isDraft = rack === 'EN_PROCESO' || code.toUpperCase().startsWith('TMP-');
+      autoOpenedPartialRef.current = true;
+      if (isDraft) {
+        // Reanudar pistoleo TMP en el modal de ingreso (no solo detalle)
+        void resumeInProgressBoxes();
+      } else {
+        void openBoxDetail(item);
+        notify.info('Caja en proceso', {
+          description: `Reanudando ${item.displayId || item.id}`,
+        });
+      }
+    } else if (filteredInventory.length === 0) {
+      const kpiPartial = warehouseTotals?.cajas_parciales ?? 0;
+      if (kpiPartial > 0) {
+        notify.info('Use «Cajas en Proceso» de nuevo', {
+          description: 'Si hay pistoleo TMP en servidor, asegúrese de haber aplicado la migración 130.',
+        });
+      } else {
+        notify.info('Sin cajas en proceso', {
+          description: 'No hay pistoleos pendientes ni cajas parciales.',
+        });
+      }
+      autoOpenedPartialRef.current = true;
+    }
+  }, [filterStatus, filteredInventory, isBoxesLoading, openBoxDetail, warehouseTotals?.cajas_parciales, showNewBoxModal, resumeInProgressBoxes]);
 
   const techStats = useMemo((): { value: string; label: string; boxes: number; units: number }[] => {
     return (statsData?.stats || []).map((s) => ({
@@ -556,6 +697,15 @@ export default function BodegaGestionV2({
   const [newBoxStep, setNewBoxStep] = useState<'form' | 'scanning'>('form');
   const [isSavingNewBox, setIsSavingNewBox] = useState(false);
   const [tempSerials, setTempSerials] = useState<any[]>([]);
+  /** Caja TMP en BD mientras se pistolea (persiste corte de luz). */
+  const [draftBoxId, setDraftBoxId] = useState<string | null>(null);
+  const [draftBoxCode, setDraftBoxCode] = useState<string>('');
+  const [deleteAuthTarget, setDeleteAuthTarget] = useState<{
+    boxId: string;
+    realDbId: string;
+    label: string;
+  } | null>(null);
+  const [deleteAuthSubmitting, setDeleteAuthSubmitting] = useState(false);
 
   // Mass Transfer State
   const [showTransferModal, setShowTransferModal] = useState(false);
@@ -564,6 +714,16 @@ export default function BodegaGestionV2({
   const [transferScanInput, setTransferScanInput] = useState('');
   const [destinationArea, setDestinationArea] = useState('Bodega Central');
   const [transferExecuting, setTransferExecuting] = useState(false);
+
+  const resetNewBoxSession = useCallback(() => {
+    setShowNewBoxModal(false);
+    setNewBoxStep('form');
+    setTempSerials([]);
+    setNewBoxLastScannedInfo(null);
+    setDraftBoxId(null);
+    setDraftBoxCode('');
+    setNewBox({ correlativo: '', rack: '', marca: '', modelo: '', tecnologia: '', cantidad: 0 });
+  }, []);
 
   const handleAddBox = async () => {
     if (isSavingNewBox) return;
@@ -576,37 +736,28 @@ export default function BodegaGestionV2({
         return;
       }
 
-      if (!tempSerials[0]?.reception_id) {
-        notify.warning('Serie sin recepción de origen', { description: 'Verifique clasificación en Backoffice.' });
+      if (!draftBoxId) {
+        notify.warning('No hay sesión de pistoleo en servidor', {
+          description: 'Escanee al menos una serie (queda guardada en EN_PROCESO) y luego finalice.',
+        });
         return;
       }
 
-      const seriesNumbers = tempSerials.flatMap((s) => (s.allSeries && s.allSeries.length > 0) ? s.allSeries : [s.sn]);
-      const result = await createBodegaBoxAtomic({
-        receptionId: tempSerials[0].reception_id,
-        brandId: newBox.marca,
-        modelId: newBox.modelo,
-        capacity: newBox.cantidad,
+      const result = await finalizeBodegaScan({
+        boxId: draftBoxId,
         rackLocation: newBox.rack || 'P-01',
-        serialNumbers: seriesNumbers,
-        // Correlativo solo al persistir (create_bodega_box_tx → next_box_code)
-        boxCode: null,
       });
 
       if (result.error) {
-        notify.error('Error al guardar la caja', { description: result.error });
+        notify.error('Error al finalizar la caja', { description: result.error });
         return;
       }
 
       notify.success(`Caja ${result.data?.box_code || ''} creada`, {
-        description: `${result.data?.series_linked ?? seriesNumbers.length} serie(s) vinculadas.`,
+        description: `${result.data?.series_linked ?? tempSerials.length} equipo(s) en almacén.`,
       });
       await fetchBoxes(true);
-      setShowNewBoxModal(false);
-      setNewBoxStep('form');
-      setTempSerials([]);
-      setNewBoxLastScannedInfo(null);
-      setNewBox({ correlativo: '', rack: '', marca: '', modelo: '', tecnologia: '', cantidad: 0 });
+      resetNewBoxSession();
     } finally {
       setIsSavingNewBox(false);
       setLoading(false);
@@ -746,6 +897,31 @@ export default function BodegaGestionV2({
       fechaRecepcion: new Date(mainSeries.created_at).toLocaleDateString(),
       timestamp: new Date().toLocaleTimeString()
     };
+
+    if (!info.reception_id) {
+      notify.warning('Serie sin recepción de origen', { description: 'Verifique clasificación en Backoffice.' });
+      return;
+    }
+
+    const persist = await startOrAppendBodegaScan({
+      boxId: draftBoxId,
+      receptionId: info.reception_id,
+      brandId: newBox.marca,
+      modelId: newBox.modelo,
+      capacity: newBox.cantidad,
+      serialNumbers: siblingSeries.length > 0 ? siblingSeries : [mainSeries.serial_number],
+    });
+
+    if (persist.error) {
+      notify.error('No se pudo guardar el escaneo en servidor', { description: persist.error });
+      return;
+    }
+
+    if (persist.data?.box_id) {
+      setDraftBoxId(persist.data.box_id);
+      setDraftBoxCode(persist.data.box_code || '');
+      setNewBox((prev) => ({ ...prev, correlativo: persist.data?.box_code || prev.correlativo }));
+    }
 
     setTempSerials([info, ...tempSerials]);
     setNewBoxLastScannedInfo(info);
@@ -994,14 +1170,15 @@ export default function BodegaGestionV2({
       return;
     }
 
+    const updatedSeries = [info, ...selectedBox.series];
+    const equipos = new Set(
+      updatedSeries.map((s: any) => s.service_orders?.id || s.ordenServicio || s.sn || s.serial_number)
+    ).size;
     const updatedBox = {
       ...selectedBox,
-      series: [info, ...selectedBox.series],
-      unitCount: (selectedBox.series?.length || 0) + 1,
-      status: resolveBoxDisplayStatus(
-        (selectedBox.series?.length || 0) + 1,
-        selectedBox.cantidad || selectedBox.unitCount || 1
-      ),
+      series: updatedSeries,
+      unitCount: equipos,
+      status: resolveBoxDisplayStatus(equipos, Number(selectedBox.cantidad || 0)),
     };
     setSelectedBox(updatedBox);
     setLastScannedInfo(info);
@@ -1013,36 +1190,40 @@ export default function BodegaGestionV2({
   };
 
   const handleDeleteBox = async (boxId: string, realDbId: string) => {
-    if (!(await confirmDialog({ title: 'Eliminar caja', message: '¿Eliminar esta caja y TODO su contenido (series y órdenes de servicio asociadas)? Esta acción no se puede deshacer.', tone: 'error', confirmText: 'Eliminar' }))) return;
+    const item = inventory.find((b) => b.realDbId === realDbId || b.id === boxId);
+    if (item?.deletionStatus === 'pending_approval' || item?.status === 'Pendiente Aprobación') {
+      notify.warning('Ya hay una solicitud pendiente', {
+        description: 'Espere la autorización del Gerente General.',
+      });
+      return;
+    }
+    setDeleteAuthTarget({
+      boxId,
+      realDbId,
+      label: String(item?.displayId || item?.box_code || boxId),
+    });
+  };
 
+  const submitDeleteAuthorization = async (reason: string, observations: string) => {
+    if (!deleteAuthTarget) return;
+    setDeleteAuthSubmitting(true);
     try {
-      const supabase = getSupabaseBrowserClient();
-      if (!supabase) return;
-      
-      const { data: seriesInBox } = await supabase.from('series').select('id, service_order_id, current_reception_id').eq('current_box_id', realDbId);
-      
-      if (seriesInBox && seriesInBox.length > 0) {
-        const osIds = Array.from(new Set(seriesInBox.map((s: any) => s.service_order_id).filter(Boolean)));
-        const receptionIds = Array.from(new Set(seriesInBox.map((s: any) => s.current_reception_id).filter(Boolean)));
-        const seriesIds = seriesInBox.map((s: any) => s.id);
-        
-        await supabase.from('series').delete().in('id', seriesIds);
-        
-        if (osIds.length > 0) {
-          await supabase.from('service_orders').delete().in('id', osIds);
-        }
-
-        if (receptionIds.length > 0) {
-          await supabase.from('receptions').update({ status: 'ELIMINADO POR BODEGA' }).in('id', receptionIds);
-        }
+      const res = await requestBoxDeletion({
+        boxId: deleteAuthTarget.realDbId,
+        reason,
+        observations,
+      });
+      if (res.error) {
+        notify.error('No se pudo solicitar la autorización', { description: res.error });
+        return;
       }
-      
-      await supabase.from('boxes').update({ rack_location: 'ELIMINADO' }).eq('id', realDbId);
-      boxSeriesCache.current.delete(realDbId);
+      notify.success('Solicitud enviada al Gerente General', {
+        description: res.data?.message || `Caja ${deleteAuthTarget.label} quedó pendiente de aprobación.`,
+      });
+      setDeleteAuthTarget(null);
       await refreshWarehouseLists();
-    } catch (err) {
-      console.error("Error al eliminar caja:", err);
-      notify.error("Error al intentar eliminar la caja y sus series.");
+    } finally {
+      setDeleteAuthSubmitting(false);
     }
   };
 
@@ -1157,7 +1338,7 @@ export default function BodegaGestionV2({
   const inventoryColumns: DataTableColumn<any>[] = [
     {
       id: 'select',
-      width: '44px',
+      width: '40px',
       header: (
         <input
           type="checkbox"
@@ -1188,22 +1369,22 @@ export default function BodegaGestionV2({
     {
       id: 'id',
       header: 'ID Caja',
-      width: '160px',
+      width: '130px',
       cell: (item) => (
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center gap-1.5 min-w-0 w-full">
           <span
-            className="text-sm font-black text-[#181c3a] font-mono truncate max-w-[140px]"
+            className="text-[11px] font-black text-[#181c3a] font-mono truncate"
             title={item.isLegacyBoxCode ? item.displayIdFull : item.displayId}
           >
             {item.displayId}
           </span>
           {item.isLegacyBoxCode && (
-            <span className="shrink-0 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest bg-amber-100 text-amber-800 border border-amber-200">
+            <span className="shrink-0 px-1 py-0.5 rounded text-[7px] font-black uppercase tracking-widest bg-amber-100 text-amber-800 border border-amber-200">
               LEGACY
             </span>
           )}
           {item.fuente && (
-            <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest ${item.fuente === 'CAC' ? 'bg-[#181c3a] text-white' : 'bg-[#2ec4f1] text-[#181c3a]'}`}>
+            <span className={`shrink-0 px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-widest ${item.fuente === 'CAC' ? 'bg-[#181c3a] text-white' : 'bg-[#2ec4f1] text-[#181c3a]'}`}>
               {item.fuente}
             </span>
           )}
@@ -1213,31 +1394,46 @@ export default function BodegaGestionV2({
     {
       id: 'fechaIngreso',
       header: 'Fecha Ingreso',
-      width: '120px',
+      width: '128px',
       cellClassName: 'text-[10px] font-bold text-slate-700',
-      cell: (item) => item.fechaIngreso,
+      cell: (item) => (
+        <span className="whitespace-nowrap truncate" title={item.fechaIngreso}>
+          {item.fechaIngreso}
+        </span>
+      ),
     },
     {
       id: 'tecnologia',
       header: 'Tecnología',
-      width: '110px',
+      width: '72px',
       cellClassName: 'text-[10px] font-bold text-cyan-800',
-      cell: (item) => item.tecnologia || '---',
+      cell: (item) => (
+        <span className="whitespace-nowrap truncate" title={item.tecnologia || '---'}>
+          {item.tecnologia || '---'}
+        </span>
+      ),
     },
     {
       id: 'usuario',
       header: 'Usuario Ingreso',
-      width: '120px',
+      width: '140px',
       cellClassName: 'text-[10px] font-bold text-slate-700',
-      cell: (item) => (item.usuarioIngreso || 'SISTEMA').split('@')[0],
+      cell: (item) => {
+        const name = (item.usuarioIngreso || 'Sin registro').split('@')[0];
+        return (
+          <span className="block truncate whitespace-nowrap" title={name}>
+            {name}
+          </span>
+        );
+      },
     },
     {
       id: 'ubicacion',
-      header: 'Ubicación / Área',
-      width: '180px',
+      header: 'Ubicación',
+      width: '168px',
       cell: (item) => (
         <div
-          className="flex flex-col group/loc cursor-pointer w-fit"
+          className="flex items-center gap-1.5 group/loc cursor-pointer min-w-0 w-full"
           onClick={(e) => {
             e.stopPropagation();
             const r = item.rack || '';
@@ -1256,62 +1452,61 @@ export default function BodegaGestionV2({
             setRackPosicion(rp);
             setShowRackModal(item);
           }}
-          title="Cambiar Ubicación de la Caja"
+          title={`Cambiar ubicación · ${item.area || 'Bodega Central'}`}
         >
-          <div className="flex items-center gap-2 mb-1">
-            <MapPin className="w-3.5 h-3.5 text-[#2ec4f1] group-hover/loc:text-amber-500 transition-colors" />
-            {(() => {
-              const r = item.rack || '';
-              if (r === 'SIN RACK' || !r) {
-                return <span className="text-xs font-bold text-slate-600">Sin Asignar</span>;
-              }
-              const parts = r.split(' - ').map((p: string) => p.replace('RACK-', '').replace('NIVEL-', '').replace('POSICION-', ''));
-              return (
-                <div className="flex gap-1">
-                  {parts.map((p: string, idx: number) => (
-                    <span key={idx} className="px-1.5 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-black rounded-md border border-slate-200">
-                      {p}
-                    </span>
-                  ))}
-                </div>
-              );
-            })()}
-            <Pencil className="w-3 h-3 text-slate-300 opacity-0 group-hover/loc:opacity-100 transition-opacity" />
-          </div>
-          <span className="text-[9px] font-black uppercase text-slate-600 mt-0.5">
-            {item.area || 'Sin Área'}
-          </span>
+          <MapPin className="w-3.5 h-3.5 shrink-0 text-[#2ec4f1] group-hover/loc:text-amber-500 transition-colors" />
+          {(() => {
+            const r = item.rack || '';
+            if (r === 'SIN RACK' || !r) {
+              return <span className="text-[10px] font-bold text-slate-600 truncate">Sin Asignar</span>;
+            }
+            const parts = r.split(' - ').map((p: string) => p.replace('RACK-', '').replace('NIVEL-', '').replace('POSICION-', ''));
+            return (
+              <div className="flex items-center gap-1 min-w-0 overflow-hidden">
+                {parts.map((p: string, idx: number) => (
+                  <span
+                    key={idx}
+                    className="shrink-0 max-w-[88px] truncate px-1.5 py-0.5 bg-slate-100 text-slate-700 text-[9px] font-black rounded-md border border-slate-200"
+                    title={p}
+                  >
+                    {p}
+                  </span>
+                ))}
+              </div>
+            );
+          })()}
+          <Pencil className="w-3 h-3 shrink-0 text-slate-300 opacity-0 group-hover/loc:opacity-100 transition-opacity" />
         </div>
       ),
     },
     {
       id: 'marcaModelo',
       header: 'Marca / Modelo',
-      width: '140px',
-      cell: (item) => (
-        <div className="flex flex-col">
-          <span className="text-xs font-bold text-slate-700">
-            {item.marcaLabel || brandName(item.marca)}
+      width: '160px',
+      cell: (item) => {
+        const marca = item.marcaLabel || brandName(item.marca) || '';
+        const modelo = item.modeloLabel || modelName(item.modelo) || '';
+        const label = [marca, modelo].filter(Boolean).join(' ') || '---';
+        return (
+          <span className="block truncate whitespace-nowrap text-[11px] font-bold text-slate-700" title={label}>
+            {label}
           </span>
-          <span className="text-[10px] font-medium text-slate-600">
-            {item.modeloLabel || modelName(item.modelo)}
-          </span>
-        </div>
-      ),
+        );
+      },
     },
     {
       id: 'cantidad',
       header: 'Cantidad',
-      width: '140px',
+      width: '110px',
       cell: (item) => (
-        <div className="flex items-center gap-2">
-          <div className="w-16 h-2 bg-slate-100 rounded-full overflow-hidden">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <div className="w-12 h-1.5 shrink-0 bg-slate-100 rounded-full overflow-hidden">
             <div
               className={`h-full ${item.status === 'Full' ? 'bg-[#2ec4f1]' : 'bg-amber-400'}`}
               style={{ width: `${Math.min(((item.unitCount || item.series?.length || 0) / Math.max(item.cantidad || 1, 1)) * 100, 100)}%` }}
             />
           </div>
-          <span className="text-xs font-bold text-slate-700">
+          <span className="text-[10px] font-bold text-slate-700 whitespace-nowrap">
             {item.unitCount ?? item.series?.length ?? 0}
             {item.cantidad ? ` / ${item.cantidad}` : ''}
           </span>
@@ -1321,19 +1516,34 @@ export default function BodegaGestionV2({
     {
       id: 'estatus',
       header: 'Estatus',
-      width: '110px',
+      width: '88px',
       cell: (item) => (
-        <Badge variant={item.status === 'Full' ? 'green' : item.status === 'Parcial' ? 'yellow' : 'default'}>{item.status}</Badge>
+        <Badge
+          variant={
+            item.status === 'Full'
+              ? 'green'
+              : item.status === 'Parcial'
+                ? 'yellow'
+                : item.status === 'Pendiente Aprobación'
+                  ? 'default'
+                  : 'default'
+          }
+        >
+          {item.status}
+        </Badge>
       ),
     },
     {
       id: 'acciones',
       header: 'Acciones',
-      width: '210px',
+      width: 'minmax(152px, 1fr)',
       align: 'right',
+      sticky: 'end',
+      headerClassName: 'justify-end pr-3',
+      cellClassName: 'justify-end pr-3 pl-1',
       cell: (item) => (
-        <div className="flex items-center justify-end gap-4 transition-opacity">
-          <button className="text-slate-400 hover:text-[#2ec4f1] transition-all hover:scale-110" title="Ver Eventos" onClick={async (e) => {
+        <div className="ml-auto flex w-full items-center justify-end gap-1.5 transition-opacity">
+          <button className="p-1 text-slate-400 hover:text-[#2ec4f1] transition-all hover:scale-110" title="Ver Eventos" onClick={async (e) => {
             e.stopPropagation();
             try {
               const series = item.series?.length
@@ -1355,40 +1565,49 @@ export default function BodegaGestionV2({
               notify.error('No se pudo cargar el historial de la caja');
             }
           }}>
-            <History size={22} strokeWidth={2} />
+            <History size={18} strokeWidth={2} />
           </button>
 
-          <button className="text-slate-400 hover:text-slate-700 transition-all hover:scale-110" title="Imprimir Etiqueta" onClick={(e) => {
+          <button className="p-1 text-slate-400 hover:text-slate-700 transition-all hover:scale-110" title="Imprimir Etiqueta" onClick={(e) => {
             e.stopPropagation();
             setShowPrintModal(item);
           }}>
-            <Printer size={22} strokeWidth={2} />
+            <Printer size={18} strokeWidth={2} />
           </button>
 
-          <button className="text-slate-400 hover:text-emerald-500 transition-all hover:scale-110" title="Despachar de Inventario" onClick={(e) => {
+          <button className="p-1 text-slate-400 hover:text-emerald-500 transition-all hover:scale-110" title="Despachar de Inventario" onClick={(e) => {
             e.stopPropagation();
             void openDispatchFlow(item, 'all');
           }}>
-            <Truck size={22} strokeWidth={2} />
+            <Truck size={18} strokeWidth={2} />
           </button>
 
-          <button className="text-slate-400 hover:text-amber-500 transition-all hover:scale-110" title="Transferir a Otra Bodega" onClick={(e) => {
+          <button className="p-1 text-slate-400 hover:text-amber-500 transition-all hover:scale-110" title="Transferir a Otra Bodega" onClick={(e) => {
             e.stopPropagation();
             setSelectedBoxesForTransfer([item.id]);
             setShowTransferModal(true);
           }}>
-            <ArrowLeftRight size={22} strokeWidth={2} />
+            <ArrowLeftRight size={18} strokeWidth={2} />
           </button>
 
           <button
-            className="text-slate-400 hover:text-rose-500 transition-all hover:scale-110"
-            title="Eliminar Caja"
+            className={
+              item.deletionStatus === 'pending_approval' || item.status === 'Pendiente Aprobación'
+                ? 'p-1 text-amber-500 cursor-not-allowed opacity-80'
+                : 'p-1 text-slate-400 hover:text-rose-500 transition-all hover:scale-110'
+            }
+            title={
+              item.deletionStatus === 'pending_approval' || item.status === 'Pendiente Aprobación'
+                ? 'Pendiente de autorización del Gerente General'
+                : 'Solicitar eliminación (requiere autorización)'
+            }
+            disabled={item.deletionStatus === 'pending_approval' || item.status === 'Pendiente Aprobación'}
             onClick={(e) => {
               e.stopPropagation();
               handleDeleteBox(item.id, item.realDbId);
             }}
           >
-            <Trash2 size={22} strokeWidth={2} />
+            <Trash2 size={18} strokeWidth={2} />
           </button>
         </div>
       ),
@@ -1421,6 +1640,11 @@ export default function BodegaGestionV2({
             variant="primary" 
             leftIcon={<Box className="w-4 h-4" />}
             onClick={() => {
+              setDraftBoxId(null);
+              setDraftBoxCode('');
+              setTempSerials([]);
+              setNewBoxStep('form');
+              setNewBox({ correlativo: '', rack: '', marca: '', modelo: '', tecnologia: '', cantidad: 0 });
               setShowNewBoxModal(true);
               setNewBoxLastScannedInfo(null);
             }}
@@ -1431,6 +1655,7 @@ export default function BodegaGestionV2({
       }
     >
       <div className="space-y-8">
+        <BoxDeletionApprovalsPanel enabled={isAdmin} />
         {useOutboundDispatchHex && (
           <DispatchBatchSelector
             selectedBatchId={selectedDispatchBatchId}
@@ -1486,7 +1711,22 @@ export default function BodegaGestionV2({
               </div>
             </div>
           </Card>
-          <Card className="border-l-4 border-l-amber-500" padding="md">
+          <Card
+            className={`border-l-4 border-l-amber-500 cursor-pointer transition-all hover:shadow-md hover:border-amber-400 ${
+              filterStatus === 'Partial' ? 'ring-2 ring-amber-300 bg-amber-50/40' : ''
+            }`}
+            padding="md"
+            role="button"
+            tabIndex={0}
+            onClick={resumeInProgressBoxes}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                resumeInProgressBoxes();
+              }
+            }}
+            title="Clic para ver / reanudar cajas pendientes"
+          >
             <div className="flex items-center gap-4">
               <div className="bg-amber-50 p-3 rounded-2xl">
                 <TrendingUp className="w-6 h-6 text-amber-500" />
@@ -1494,8 +1734,13 @@ export default function BodegaGestionV2({
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">Cajas en Proceso</p>
                 <h3 className="text-2xl font-black text-[#181c3a]">
-                  {(warehouseTotals?.cajas_parciales ?? inventory.filter((b) => b.status === 'Parcial').length).toLocaleString()}
+                  {(warehouseTotals?.cajas_parciales ??
+                    inventory.filter(
+                      (b) => isBodegaOperationalRack(b.rack) && b.status === 'Parcial'
+                    ).length
+                  ).toLocaleString()}
                 </h3>
+                <p className="text-[9px] font-bold text-amber-600 mt-0.5">Clic para reanudar pistoleo</p>
               </div>
             </div>
           </Card>
@@ -1551,11 +1796,16 @@ export default function BodegaGestionV2({
         )}
 
         {/* Inventory List */}
-        <div className="space-y-6">
+        <div className="space-y-6" ref={inventoryListRef}>
           <ModuleToolbar 
             onSearch={(val) => setSearchTerm(val)}
             onExport={handleExportReport}
             onAdd={() => {
+              setDraftBoxId(null);
+              setDraftBoxCode('');
+              setTempSerials([]);
+              setNewBoxStep('form');
+              setNewBox({ correlativo: '', rack: '', marca: '', modelo: '', tecnologia: '', cantidad: 0 });
               setShowNewBoxModal(true);
               setNewBoxLastScannedInfo(null);
             }}
@@ -1583,6 +1833,15 @@ export default function BodegaGestionV2({
                     <option value="Full">Cajas Completas</option>
                     <option value="Partial">Cajas en Proceso</option>
                   </select>
+                  {filterStatus && (
+                    <button
+                      type="button"
+                      onClick={() => setFilterStatus('')}
+                      className="h-10 px-3 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-[#181c3a]"
+                    >
+                      Limpiar estatus
+                    </button>
+                  )}
                 </div>
               )
             }
@@ -1624,9 +1883,10 @@ export default function BodegaGestionV2({
               data={filteredInventory}
               getRowId={(item) => item.id}
               onRowClick={(item) => void openBoxDetail(item)}
-              rowHeight={72}
+              rowHeight={44}
+              compact
               maxBodyHeight={720}
-              minWidth={1334}
+              minWidth={1100}
               headerClassName="bg-[#181c3a] border-b border-[#181c3a]"
               headerTextClassName="text-white/80"
               emptyMessage="No hay cajas en inventario"
@@ -1640,6 +1900,15 @@ export default function BodegaGestionV2({
             )}
           </Card>
         </div>
+
+        {deleteAuthTarget && (
+          <DeleteBoxAuthorizationModal
+            boxLabel={deleteAuthTarget.label}
+            submitting={deleteAuthSubmitting}
+            onCancel={() => setDeleteAuthTarget(null)}
+            onSubmit={submitDeleteAuthorization}
+          />
+        )}
 
         {/* Modal Nueva Caja */}
         {showNewBoxModal && (
@@ -1659,13 +1928,22 @@ export default function BodegaGestionV2({
             isSavingNewBox={isSavingNewBox}
             onScanSubmit={handleScanForNewBox}
             onAddBox={handleAddBox}
-            onClose={() => {
+            onClose={async () => {
               setShowNewBoxModal(false);
               setNewBoxLastScannedInfo(null);
+              if (draftBoxId && tempSerials.length > 0) {
+                notify.info('Pistoleo queda en servidor', {
+                  description: `${draftBoxCode || 'TMP'} guardado en EN_PROCESO. Reanude desde «Cajas en Proceso».`,
+                });
+                await queryClient.invalidateQueries({ queryKey: ['warehouse-stats'] });
+                await refetch();
+              } else if (!draftBoxId) {
+                resetNewBoxSession();
+              }
             }}
             onNext={() => {
               if (!newBox.tecnologia || !newBox.marca || !newBox.modelo || !newBox.cantidad || loading) return;
-              setNewBox((prev) => ({ ...prev, correlativo: '' }));
+              setNewBox((prev) => ({ ...prev, correlativo: draftBoxCode || '' }));
               setNewBoxStep('scanning');
             }}
           />
@@ -1701,11 +1979,14 @@ export default function BodegaGestionV2({
                 }
 
                 const updatedSeries = selectedBox.series.filter((s: any) => s.sn !== (item.sn || item.s1));
+                const equipos = new Set(
+                  updatedSeries.map((s: any) => s.service_orders?.id || s.ordenServicio || s.sn || s.serial_number)
+                ).size;
                 const updatedBox = {
                   ...selectedBox,
                   series: updatedSeries,
-                  unitCount: updatedSeries.length,
-                  status: resolveBoxDisplayStatus(updatedSeries.length, selectedBox.cantidad),
+                  unitCount: equipos,
+                  status: resolveBoxDisplayStatus(equipos, Number(selectedBox.cantidad || 0)),
                 };
 
                 if (updatedSeries.length === 0) {

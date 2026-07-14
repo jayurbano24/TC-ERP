@@ -1,4 +1,5 @@
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { asUuidOrNull } from '@/lib/database/warehouse';
 import type { IDispatchBatchGateway } from '../../domain/ports/dispatch-batch.gateway.port';
 import type {
   CloseDispatchBatchParams,
@@ -36,7 +37,7 @@ export class DispatchBatchRpcAdapter implements IDispatchBatchGateway {
       const { data, error } = await supabase.rpc('dispatch_batch_open_tx', {
         p_destination: params.destination || null,
         p_guide_outbound: params.guideOutbound || null,
-        p_operator_id: params.operatorId || null,
+        p_operator_id: asUuidOrNull(params.operatorId),
         p_operator_name: params.operatorName || 'Operador',
         p_notes: params.notes || null,
       });
@@ -65,7 +66,7 @@ export class DispatchBatchRpcAdapter implements IDispatchBatchGateway {
       const supabase = requireBrowserClient();
       const { data, error } = await supabase.rpc('dispatch_batch_close_tx', {
         p_batch_id: params.batchId,
-        p_operator_id: params.operatorId || null,
+        p_operator_id: asUuidOrNull(params.operatorId),
         p_operator_name: params.operatorName || 'Operador',
       });
 

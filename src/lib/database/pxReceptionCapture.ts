@@ -1,4 +1,5 @@
 import { getSupabaseServerClient } from '@/lib/supabase/server';
+import { asUuidOrNull } from '@/lib/database/warehouse';
 import {
   type PxBoxSnapshot,
   type PxEquipmentRow,
@@ -245,7 +246,7 @@ export async function joinOrStartPxReception(input: PxStartInput): Promise<
     p_notes: buildPxNotes(input.guideData, input.operatorName, input.guideData.totalCajasEsperadas || 0),
     p_expected_units_sap: resolvePxBoxLimit(input.guideData.totalCajasEsperadas),
     p_preferred_guide: input.preferredGuideNumber || input.guideData.guia || null,
-    p_operator_id: input.operatorId || null,
+    p_operator_id: asUuidOrNull(input.operatorId),
     p_operator_name: input.operatorName,
   });
 
@@ -793,7 +794,7 @@ export async function voidPxEquipment(input: {
     p_reception_id: input.receptionId,
     p_box_id: input.boxId,
     p_equipment_id: input.equipmentId || null,
-    p_operator_id: input.operatorId || null,
+    p_operator_id: asUuidOrNull(input.operatorId),
     p_operator_name: input.operatorName || 'OPERADOR',
     p_main_serial: input.mainSerial?.trim().toUpperCase() || null,
   });
@@ -840,7 +841,7 @@ export async function deletePxCaptureBox(input: {
     p_reception_id: input.receptionId,
     p_box_id: input.boxId,
     p_expected_version: input.expectedVersion,
-    p_operator_id: input.operatorId || null,
+    p_operator_id: asUuidOrNull(input.operatorId),
     p_operator_name: input.operatorName || 'OPERADOR',
   });
 
@@ -868,7 +869,7 @@ export async function acquireBoxLock(input: {
   const supabase = getSupabaseServerClient();
   const { data, error } = await supabase.rpc('acquire_box_lock_tx', {
     p_box_id: input.boxId,
-    p_operator_id: input.operatorId || null,
+    p_operator_id: asUuidOrNull(input.operatorId),
     p_operator_name: input.operatorName || 'OPERADOR',
   });
   if (error) return { success: false as const, error: mapRpcCaptureError(error.message) };
@@ -883,7 +884,7 @@ export async function releaseBoxLock(input: {
   const supabase = getSupabaseServerClient();
   const { data, error } = await supabase.rpc('release_box_lock_tx', {
     p_box_id: input.boxId,
-    p_operator_id: input.operatorId || null,
+    p_operator_id: asUuidOrNull(input.operatorId),
     p_reason: input.reason || 'manual_release',
   });
   if (error) return { success: false as const, error: mapRpcCaptureError(error.message) };
@@ -904,7 +905,7 @@ export async function adjustPxBoxQuantity(input: {
     p_new_declared_quantity: input.newDeclaredQuantity,
     p_reason: input.reason,
     p_expected_version: input.expectedVersion,
-    p_operator_id: input.operatorId || null,
+    p_operator_id: asUuidOrNull(input.operatorId),
     p_operator_name: input.operatorName || 'OPERADOR',
   });
   if (error) return { success: false as const, error: mapRpcCaptureError(error.message) };
@@ -923,7 +924,7 @@ export async function closePxBox(input: {
     p_box_id: input.boxId,
     p_expected_version: input.expectedVersion,
     p_partial_reason: input.partialReason || null,
-    p_operator_id: input.operatorId || null,
+    p_operator_id: asUuidOrNull(input.operatorId),
     p_operator_name: input.operatorName || 'OPERADOR',
   });
   if (error) return { success: false as const, error: mapRpcCaptureError(error.message) };
@@ -938,7 +939,7 @@ export async function promotePxBox(input: {
   const supabase = getSupabaseServerClient();
   const { data, error } = await supabase.rpc('promote_px_box_tx', {
     p_box_id: input.boxId,
-    p_operator_id: input.operatorId || null,
+    p_operator_id: asUuidOrNull(input.operatorId),
     p_operator_name: input.operatorName || 'OPERADOR',
   });
   if (error) return { success: false as const, error: mapRpcCaptureError(error.message) };
@@ -957,7 +958,7 @@ export async function reopenPxBox(input: {
     p_box_id: input.boxId,
     p_expected_version: input.expectedVersion,
     p_reason: input.reason || null,
-    p_operator_id: input.operatorId || null,
+    p_operator_id: asUuidOrNull(input.operatorId),
     p_operator_name: input.operatorName || 'OPERADOR',
   });
   if (error) return { success: false as const, error: mapRpcCaptureError(error.message) };
@@ -1047,7 +1048,7 @@ async function callPxFinalizeRpc(
     p_reception_id: args[0],
     p_expected_version: args[1],
     p_variance_reason: args[2],
-    p_operator_id: args[3],
+    p_operator_id: asUuidOrNull(args[3] as string | null | undefined),
     p_operator_name: args[4],
     p_batch_size: args[5],
   });

@@ -35,6 +35,10 @@ export function canViewNavItem(item: NavigationItem, authz: NavAuthz | null): bo
   if (authz.isAdmin) return true;
 
   const key = item.permissionKey ?? item.label;
+
+  // Solo Gerente General (isAdmin). Otros roles no ven el módulo.
+  if (key === 'Autorizaciones') return false;
+
   const aliases = MODULE_ALIASES[key] ?? [key];
 
   if (aliases.some((name) => authz.canView(name))) return true;

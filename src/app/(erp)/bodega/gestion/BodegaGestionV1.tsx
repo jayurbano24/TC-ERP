@@ -520,7 +520,8 @@ export default function BodegaGestionV1() {
     })
       .filter((box: any) => {
         const rack = String(box.rack || '').toUpperCase();
-        if (rack === 'DESPACHO' || rack === 'ELIMINADO') return false;
+        if (rack === 'DESPACHO' || rack === 'ELIMINADO' || rack === 'SCRAP') return false;
+        if (rack.startsWith('TALLER')) return false;
         return box.unitCount > 0;
       })
       .sort((a: any, b: any) => {
@@ -1500,7 +1501,28 @@ export default function BodegaGestionV1() {
               </div>
             </div>
           </Card>
-          <Card className="border-l-4 border-l-amber-500" padding="md">
+          <Card
+            className={`border-l-4 border-l-amber-500 cursor-pointer transition-all hover:shadow-md hover:border-amber-400 ${
+              filterStatus === 'Partial' ? 'ring-2 ring-amber-300 bg-amber-50/40' : ''
+            }`}
+            padding="md"
+            role="button"
+            tabIndex={0}
+            onClick={() => {
+              setFilterStatus('Partial');
+              setShowAdvancedFilters(true);
+              setSearchTerm('');
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setFilterStatus('Partial');
+                setShowAdvancedFilters(true);
+                setSearchTerm('');
+              }
+            }}
+            title="Clic para ver cajas pendientes"
+          >
             <div className="flex items-center gap-4">
               <div className="bg-amber-50 p-3 rounded-2xl">
                 <TrendingUp className="w-6 h-6 text-amber-500" />
@@ -1510,6 +1532,7 @@ export default function BodegaGestionV1() {
                 <h3 className="text-2xl font-black text-[#181c3a]">
                   {inventory.filter(b => b.status === 'Parcial').length}
                 </h3>
+                <p className="text-[9px] font-bold text-amber-600 mt-0.5">Clic para reanudar</p>
               </div>
             </div>
           </Card>

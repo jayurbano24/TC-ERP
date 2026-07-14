@@ -76,10 +76,10 @@ export const NewBoxModal = memo(function NewBoxModal({
                 className="w-full bg-slate-100 p-3 rounded-xl border border-slate-200 font-bold text-sm outline-none text-slate-500 cursor-not-allowed"
                 value={newBox.correlativo}
                 disabled
-                placeholder="Se asigna al finalizar la caja"
+                placeholder="TMP al primer escaneo · BOX al finalizar"
               />
               <p className="text-[10px] text-slate-400 font-medium">
-                El correlativo BOX se genera al guardar, no al avanzar al pistoleo.
+                Cada serie se guarda en el servidor al pistolear. Si se va la luz, reanude desde «Cajas en Proceso».
               </p>
             </div>
 
@@ -167,7 +167,11 @@ export const NewBoxModal = memo(function NewBoxModal({
                   <div className="flex justify-between items-end mb-4">
                     <div>
                       <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 leading-none">Progreso de la Caja</span>
-                      <p className="text-[10px] font-bold text-slate-400 mt-1">Correlativo: se asigna al finalizar</p>
+                      <p className="text-[10px] font-bold text-slate-400 mt-1">
+                        {newBox.correlativo
+                          ? `Sesión: ${newBox.correlativo} (guardada en servidor)`
+                          : 'Se crea TMP al primer escaneo · BOX al finalizar'}
+                      </p>
                       <h4 className="text-lg font-black text-[#181c3a]">
                         {catMarcas.find(b => b.id === newBox.marca)?.name || newBox.marca || '—'}{' '}
                         {catModelos.find(m => m.id === newBox.modelo)?.name || newBox.modelo || '—'}

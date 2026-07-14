@@ -3,20 +3,35 @@ import { z } from 'zod';
 import { requireApiUser } from '@/shared/infrastructure/http/requireApiUser';
 import { logOnlyRoleCheck, ROLES_BODEGA_DESPACHO } from '@/shared/authz/roleGuard';
 import { enrichWarehouseBoxItems } from '@/shared/infrastructure/warehouse/enrichWarehouseBoxItems';
+import { isBodegaOperationalRack } from '@/lib/database/warehouse';
 
 const ListBoxesQuery = z.object({
   cursor: z.string().uuid().optional(),
   limit: z.coerce.number().int().min(1).max(200).default(100),
   search: z.string().trim().max(100).optional(),
+  fillStatus: z.enum(['partial', 'full', 'all']).optional(),
 });
+
+function isMissingRpcError(error: { message?: string; code?: string } | null): boolean {
+  if (!error) return false;
+  return (
+    error.code === 'PGRST202' ||
+    error.code === '42883' ||
+    !!error.message?.includes('warehouse_list_boxes_page') ||
+    !!error.message?.includes('warehouse_list_partial_boxes') ||
+    !!error.message?.includes('Could not find the function')
+  );
+}
+
+function onlyBodegaRows<T extends { rack?: string | null }>(rows: T[]): T[] {
+  return rows.filter((row) => isBodegaOperationalRack(row.rack));
+}
 
 export async function GET(req: NextRequest) {
   const auth = await requireApiUser(req);
   if (auth instanceof NextResponse) return auth;
-  const { user, supabase } = auth;
+  const { supabase } = auth;
 
-  // Si se accedió vía Bearer sin RLS en `supabase`, retornamos 500 por seguridad,
-  // ya que este endpoint requiere que la vista respete RLS del usuario actual.
   if (!supabase) {
     return NextResponse.json(
       { error: 'SERVER_CLIENT_REQUIRED' },
@@ -32,21 +47,65 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'VALIDATION_ERROR', issues: parsed.error.flatten() }, { status: 422 });
   }
 
-  const { cursor, limit, search } = parsed.data;
+  const { cursor, limit, search, fillStatus } = parsed.data;
+  const fillParam = !fillStatus || fillStatus === 'all' ? null : fillStatus;
 
-  const { data, error } = await supabase.rpc('warehouse_list_boxes_page', {
+  // Camino dedicado: tarjeta "Cajas en Proceso" (TMP / EN_PROCESO)
+  if (fillParam === 'partial' && !cursor && !search) {
+    const inProgress = await supabase.rpc('warehouse_list_in_progress_boxes', {
+      p_limit: limit + 1,
+    });
+    if (!inProgress.error && (inProgress.data?.length ?? 0) > 0) {
+      const rows = onlyBodegaRows(inProgress.data ?? []);
+      const hasMore = rows.length > limit;
+      const items = hasMore ? rows.slice(0, -1) : rows;
+      const enriched = await enrichWarehouseBoxItems(supabase, items);
+      return NextResponse.json({
+        items: enriched,
+        nextCursor: hasMore ? enriched[enriched.length - 1]?.box_id : null,
+      });
+    }
+
+    const partialRpc = await supabase.rpc('warehouse_list_partial_boxes', {
+      p_limit: limit + 1,
+    });
+    if (!partialRpc.error) {
+      const rows = onlyBodegaRows(partialRpc.data ?? []);
+      const hasMore = rows.length > limit;
+      const items = hasMore ? rows.slice(0, -1) : rows;
+      const enriched = await enrichWarehouseBoxItems(supabase, items);
+      return NextResponse.json({
+        items: enriched,
+        nextCursor: hasMore ? enriched[enriched.length - 1]?.box_id : null,
+      });
+    }
+    if (!isMissingRpcError(partialRpc.error) && !isMissingRpcError(inProgress.error)) {
+      console.error('Error in GET /api/v1/warehouse/boxes (partial):', partialRpc.error || inProgress.error);
+      return NextResponse.json({
+        error: 'QUERY_FAILED: ' + (partialRpc.error || inProgress.error)?.message,
+      }, { status: 500 });
+    }
+  }
+
+  let { data, error } = await supabase.rpc('warehouse_list_boxes_page', {
     p_cursor: cursor ?? null,
     p_limit: limit + 1,
     p_search: search ?? null,
+    p_fill_status: fillParam,
   });
 
-  if (
-    error &&
-    (error.message?.includes('warehouse_list_boxes_page') ||
-      error.code === '42883' ||
-      error.code === 'PGRST202')
-  ) {
-    // Fallback si la migración 069 no está aplicada aún
+  // Compat: overload 4 args aún no aplicada → firma de 3 args
+  if (error && isMissingRpcError(error)) {
+    const legacy = await supabase.rpc('warehouse_list_boxes_page', {
+      p_cursor: cursor ?? null,
+      p_limit: limit + 1,
+      p_search: search ?? null,
+    });
+    data = legacy.data;
+    error = legacy.error;
+  }
+
+  if (error && isMissingRpcError(error)) {
     let q = supabase
       .from('warehouse_box_summary')
       .select('box_id, rack, label, series_count, sample_status, sample_brand_id, sample_model_id, sample_service_order_id, last_movement_at')
@@ -61,12 +120,14 @@ export async function GET(req: NextRequest) {
       console.error('Error in GET /api/v1/warehouse/boxes:', fallback.error);
       return NextResponse.json({ error: 'QUERY_FAILED: ' + fallback.error.message }, { status: 500 });
     }
-    const hasMoreFb = (fallback.data?.length ?? 0) > limit;
-    const itemsFb = hasMoreFb ? fallback.data!.slice(0, -1) : fallback.data ?? [];
+    const rowsFb = onlyBodegaRows(fallback.data ?? []);
+    const hasMoreFb = rowsFb.length > limit;
+    const itemsFb = hasMoreFb ? rowsFb.slice(0, -1) : rowsFb;
     const enrichedFb = await enrichWarehouseBoxItems(supabase, itemsFb);
     return NextResponse.json({
       items: enrichedFb,
       nextCursor: hasMoreFb ? enrichedFb[enrichedFb.length - 1]?.box_id : null,
+      migrationHint: fillParam === 'partial' ? '129_warehouse_list_boxes_fill_status' : undefined,
     });
   }
 
@@ -75,7 +136,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'QUERY_FAILED: ' + error.message }, { status: 500 });
   }
 
-  const rows = data ?? [];
+  const rows = onlyBodegaRows(data ?? []);
   const hasMore = rows.length > limit;
   const items = hasMore ? rows.slice(0, -1) : rows;
   const enriched = await enrichWarehouseBoxItems(supabase, items);

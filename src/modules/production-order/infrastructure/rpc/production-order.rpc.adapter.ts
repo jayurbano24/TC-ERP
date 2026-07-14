@@ -1,5 +1,6 @@
 import { COUNT_HEAD, PRODUCTION_ORDER_SELECT } from '@/shared/constants/dbProjections';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
+import { asUuidOrNull } from '@/lib/database/warehouse';
 import type { IProductionOrderGateway } from '../../domain/ports/production-order.gateway.port';
 import type {
   ApproveProductionOrderResult,
@@ -34,7 +35,7 @@ export class ProductionOrderRpcAdapter implements IProductionOrderGateway {
         p_model_id: params.modelId || null,
         p_target_quantity: params.targetQuantity ?? 1,
         p_notes: params.notes || null,
-        p_operator_id: params.operatorId || null,
+        p_operator_id: asUuidOrNull(params.operatorId),
         p_operator_name: params.operatorName || 'Operador',
       });
 

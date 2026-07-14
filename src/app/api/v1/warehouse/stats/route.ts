@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireApiUser } from '@/shared/infrastructure/http/requireApiUser';
 import { logOnlyRoleCheck, ROLES_BODEGA_DESPACHO } from '@/shared/authz/roleGuard';
 import { TECHNOLOGY_SELECT } from '@/shared/constants/dbProjections';
+import { isBodegaOperationalRack } from '@/lib/database/warehouse';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 type TechStatRow = {
@@ -17,6 +18,49 @@ type DashboardTotals = {
   cajas_completas: number;
   cajas_parciales: number;
 };
+
+type PartialBoxRow = {
+  box_id?: string;
+  rack?: string | null;
+  label?: string | null;
+  equipos_count?: number | null;
+  capacity?: number | null;
+};
+
+/** Parciales reales de bodega (excluye racks TALLER y SCRAP). Respaldo si KPI SQL aún cuenta taller. */
+async function resolveBodegaPartialBoxes(supabase: SupabaseClient): Promise<{
+  count: number;
+  excluded: Array<{ label: string; rack: string }>;
+}> {
+  const [inProgress, partial] = await Promise.all([
+    supabase.rpc('warehouse_list_in_progress_boxes', { p_limit: 200 }),
+    supabase.rpc('warehouse_list_partial_boxes', { p_limit: 200 }),
+  ]);
+
+  const pick = (rows: PartialBoxRow[] | null | undefined) => {
+    const list = rows ?? [];
+    const kept = list.filter((r) => isBodegaOperationalRack(r.rack));
+    const excluded = list
+      .filter((r) => !isBodegaOperationalRack(r.rack))
+      .map((r) => ({
+        label: String(r.label || r.box_id || '?'),
+        rack: String(r.rack || ''),
+      }));
+    return { kept, excluded };
+  };
+
+  if (!inProgress.error && (inProgress.data?.length ?? 0) > 0) {
+    const { kept, excluded } = pick(inProgress.data as PartialBoxRow[]);
+    return { count: kept.length, excluded };
+  }
+
+  if (!partial.error) {
+    const { kept, excluded } = pick(partial.data as PartialBoxRow[]);
+    return { count: kept.length, excluded };
+  }
+
+  return { count: -1, excluded: [] };
+}
 
 async function attachTechNames(
   supabase: SupabaseClient,
@@ -59,6 +103,7 @@ export async function GET(req: NextRequest) {
   if (roleCheck) return roleCheck;
 
   const { data: kpiData, error: kpiError } = await supabase.rpc('warehouse_dashboard_kpis');
+  const partialResolved = await resolveBodegaPartialBoxes(supabase);
 
   if (!kpiError && kpiData) {
     const payload = kpiData as {
@@ -79,14 +124,25 @@ export async function GET(req: NextRequest) {
       .sort((a, b) => b.total_units - a.total_units);
 
     const stats = await attachTechNames(supabase, statsArray);
+    const rawParciales = Number(payload.totals?.cajas_parciales || 0);
+    const cajas_parciales =
+      partialResolved.count >= 0 ? partialResolved.count : rawParciales;
+    const ghostParciales = Math.max(0, rawParciales - cajas_parciales);
     const totals: DashboardTotals = {
-      total_boxes: Number(payload.totals?.total_boxes || 0),
+      total_boxes: Math.max(0, Number(payload.totals?.total_boxes || 0) - ghostParciales),
       total_equipos: Number(payload.totals?.total_equipos || 0),
       cajas_completas: Number(payload.totals?.cajas_completas || 0),
-      cajas_parciales: Number(payload.totals?.cajas_parciales || 0),
+      cajas_parciales,
     };
 
-    return NextResponse.json({ stats, totals, unit: 'equipos' });
+    return NextResponse.json({
+      stats,
+      totals,
+      unit: 'equipos',
+      ...(partialResolved.excluded.length > 0
+        ? { excluded_from_bodega: partialResolved.excluded }
+        : {}),
+    });
   }
 
   const { data: rpcData, error: rpcError } = await supabase.rpc('warehouse_stats_by_technology');
@@ -112,7 +168,7 @@ export async function GET(req: NextRequest) {
     total_boxes: stats.reduce((sum, s) => sum + s.total_boxes, 0),
     total_equipos: stats.reduce((sum, s) => sum + s.total_units, 0),
     cajas_completas: 0,
-    cajas_parciales: 0,
+    cajas_parciales: partialResolved.count >= 0 ? partialResolved.count : 0,
   };
 
   return NextResponse.json({

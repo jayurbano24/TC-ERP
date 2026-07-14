@@ -58,7 +58,26 @@ export const DetalleCajaModal = memo(function DetalleCajaModal({
     { id: 'piloto', header: 'Piloto', width: '110px', cell: (item) => <span className="text-[10px] font-medium text-slate-600">{item.piloto || '---'}</span> },
     { id: 'courier', header: 'Courier', width: '100px', cell: (item) => <span className="text-[10px] font-medium text-slate-400">{item.origen || '---'}</span> },
     { id: 'recibio', header: 'Recibió', width: '120px', cell: (item) => <span className="text-[10px] font-medium text-slate-600">{item.recibio || 'Admin'}</span> },
-    { id: 'estatus', header: 'Estatus', width: '160px', cell: () => <span className="text-[9px] font-black tracking-widest bg-[#181c3a] text-white px-2 py-1 rounded-full">BODEGA PRINCIPAL</span> },
+    { id: 'estatus', header: 'Estatus', width: '160px', cell: (item) => {
+      const raw = String(item.current_status || item.estatusSerie || '').toLowerCase();
+      const label =
+        raw === 'in_workshop' || raw.includes('diagn')
+          ? 'TALLER'
+          : raw === 'in_repair' || raw.includes('repair')
+            ? 'REPARACIÓN'
+            : raw === 'in_qc' || raw.includes('qc')
+              ? 'CONTROL CALIDAD'
+              : raw === 'ready_to_dispatch' || raw.includes('ready')
+                ? 'LISTO'
+                : raw === 'in_control_warehouse'
+                  ? 'BODEGA CONTROL'
+                  : 'BODEGA PRINCIPAL';
+      return (
+        <span className="text-[9px] font-black tracking-widest bg-[#181c3a] text-white px-2 py-1 rounded-full">
+          {label}
+        </span>
+      );
+    } },
     { id: 'os', header: 'Orden Servicio', width: '120px', cell: (item) => <span className="text-[10px] font-black text-[#2ec4f1]">{item.ordenServicio || '---'}</span> },
     { id: 'ingreso', header: 'Ingreso', width: '110px', cell: (item) => <span className="text-[9px] font-black bg-blue-50 text-blue-600 px-2 py-1 rounded-full">{item.ingreso || '1° Ingreso'}</span> },
     { id: 'agencia', header: 'Agencia CAC', width: '150px', cell: (item) => <span className="text-[10px] font-bold text-slate-700">{item.agenciaCAC || '---'}</span> },

@@ -46,4 +46,10 @@ describe('canViewNavItem (solo UX)', () => {
   it('oculta cuando no hay permiso ni fallback', () => {
     expect(canViewNavItem(nav({ label: 'Taller' }), authz(['Bodega']))).toBe(false);
   });
+
+  it('Autorizaciones solo para Gerente General (isAdmin)', () => {
+    const item = nav({ label: 'Autorizaciones', permissionKey: 'Autorizaciones' });
+    expect(canViewNavItem(item, authz([], true))).toBe(true);
+    expect(canViewNavItem(item, authz(['Bodega', 'Reportes']))).toBe(false);
+  });
 });

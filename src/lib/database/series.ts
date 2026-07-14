@@ -1,6 +1,7 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { logAdvancedAudit } from "@/lib/database/audit";
 import { sanitizeOrFilterValue } from "@/lib/database/postgrestSafe";
+import { expandBoxCodeSearchVariants } from "@/modules/inventario/client/warehouseBoxDisplay";
 
 /**
  * Tope de seguridad para consultas de series sin paginación server-side.
@@ -103,13 +104,55 @@ export async function searchSeriesDetailed(filters: { os?: string, imei?: string
     }
 
     // Caja: boxes.box_code -> series.current_box_id.
+    // UI muestra TCW-BOX-045; BD guarda BOX-45 / BOX-045.
     if (filters.box) {
-      const v = sanitizeOrFilterValue(filters.box);
+      const variants = expandBoxCodeSearchVariants(filters.box)
+        .map((t) => sanitizeOrFilterValue(t))
+        .filter(Boolean);
       let set = new Set<string>();
-      if (v) {
-        const { data: boxes } = await supabase
-          .from('boxes').select('id').ilike('box_code', `%${v}%`).limit(CANDIDATE_LIMIT);
-        set = await seriesIdsByForeign('current_box_id', (boxes || []).map((b: any) => b.id));
+      if (variants.length > 0) {
+        const { data: exactBoxes, error: exactErr } = await supabase
+          .from('boxes')
+          .select('id')
+          .in('box_code', variants)
+          .limit(CANDIDATE_LIMIT);
+        if (exactErr) throw exactErr;
+
+        let boxIds = (exactBoxes || []).map((b: { id: string }) => b.id);
+
+        if (boxIds.length === 0) {
+          // Fallback parcial (códigos legacy / texto libre)
+          const orExpr = variants
+            .slice(0, 8)
+            .map((t) => `box_code.ilike.%${t}%`)
+            .join(',');
+          const { data: fuzzyBoxes, error: fuzzyErr } = await supabase
+            .from('boxes')
+            .select('id')
+            .or(orExpr)
+            .limit(CANDIDATE_LIMIT);
+          if (fuzzyErr) throw fuzzyErr;
+          boxIds = (fuzzyBoxes || []).map((b: { id: string }) => b.id);
+        }
+
+        // Series actualmente en la caja
+        set = await seriesIdsByForeign('current_box_id', boxIds);
+
+        // Si ya no están vinculadas (p. ej. despachadas), buscar por movimientos
+        if (set.size === 0 && boxIds.length > 0) {
+          const { data: movs } = await supabase
+            .from('warehouse_movements')
+            .select('series_ids')
+            .in('box_id', boxIds)
+            .order('created_at', { ascending: false })
+            .limit(40);
+          const fromMov = new Set<string>();
+          for (const mov of movs || []) {
+            const ids = (mov as { series_ids?: string[] | null }).series_ids || [];
+            for (const id of ids) if (id) fromMov.add(id);
+          }
+          if (fromMov.size > 0) set = fromMov;
+        }
       }
       idSets.push(set);
     }

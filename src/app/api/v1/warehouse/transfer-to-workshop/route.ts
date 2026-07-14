@@ -7,7 +7,7 @@ import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
 import { assertUuidArray } from '@/shared/infrastructure/http/batchLimit';
 import { estimateJsonBytes, logEgress } from '@/shared/infrastructure/http/egressLog';
 import { getCorrelationIdFromHeaders } from '@/shared/infrastructure/http/correlationId';
-import { warehouseBoxIdempotencyKey } from '@/lib/database/warehouse';
+import { warehouseBoxIdempotencyKey, asUuidOrNull } from '@/lib/database/warehouse';
 
 const TransferBody = z.object({
   boxIds: z
@@ -55,7 +55,7 @@ export const POST = withErrorHandler(
       .eq('id', user.id)
       .maybeSingle();
 
-    const operatorId = profile?.id ?? user.id;
+    const operatorId = asUuidOrNull(profile?.id);
     const operatorName = profile?.full_name ?? user.email ?? 'Operador';
 
     const results: Array<{

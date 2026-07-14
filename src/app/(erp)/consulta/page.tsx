@@ -627,7 +627,7 @@ export default function ConsultaPage() {
                 value={filters.box}
                 onChange={(e) => setFilters(prev => ({ ...prev, box: e.target.value.toUpperCase() }))}
                 className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
-                placeholder="Ej. BX-001"
+                placeholder="Ej. TCW-BOX-045 o BOX-45"
               />
             </div>
           </div>

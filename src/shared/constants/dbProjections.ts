@@ -38,7 +38,8 @@ export const RECEPTION_DETAIL_SELECT =
 export const RECEPTION_TIMELINE_SELECT =
   'id, guide_number, status, carrier, created_at, service_orders(id, os_label, main_serial, model_id, brand_id, series(serial_number))';
 
-export const ACCESSORY_SELECT = 'id, name, characteristics, comments, sku, qty_new, qty_recovered';
+export const ACCESSORY_SELECT =
+  'id, name, sku, characteristics, comments, qty_new, qty_recovered, created_at, updated_at';
 export const ACCESSORY_BOX_SELECT =
   'id, recovery_order, accessory_id, quantity, status, location, created_by, created_at, updated_at';
 export const ACCESSORY_BOX_LIST_SELECT =

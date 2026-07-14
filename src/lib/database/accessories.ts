@@ -16,7 +16,7 @@ export async function getAccessories() {
     .order('name');
     
   if (error) {
-    console.error('Error fetching accessories:', error);
+    console.error('Error fetching accessories:', error.message || error.code || error);
     return [];
   }
   return data;
@@ -26,10 +26,17 @@ export async function createAccessory(name: string, characteristics?: string, co
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: 'Supabase no configurado' };
 
+  const payload: Record<string, string | null> = {
+    name: name.trim(),
+    sku: sku?.trim() || null,
+    characteristics: characteristics?.trim() || null,
+    comments: comments?.trim() || null,
+  };
+
   const { data, error } = await supabase
     .from('accessories')
-    .insert([{ name, characteristics, comments, sku }])
-    .select()
+    .insert([payload])
+    .select(ACCESSORY_SELECT)
     .single();
 
   if (error) return { error: error.message };

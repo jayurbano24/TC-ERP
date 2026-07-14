@@ -1,11 +1,14 @@
 import type { WorkshopTabId } from '@/lib/database/workshop';
 import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
 import { apiFetch } from '@/lib/http/apiFetch';
+import { parseWorkshopSearchTokens } from '@/modules/workshop/shared/workshopSearch';
 
 export type WorkshopTasksPage = {
   items: any[];
   nextCursor: string | null;
   totalOs: number | null;
+  searchTruncated?: boolean;
+  searchTotal?: number;
 };
 
 export async function fetchWorkshopTasksViaApi(tab: WorkshopTabId): Promise<any[]> {
@@ -23,7 +26,17 @@ export async function fetchWorkshopTasksPageViaApi(
     limit: String(BATCH_LIMITS.WORKSHOP_QUEUE_PAGE_OS),
   });
   if (cursor) params.set('cursor', cursor);
-  if (search?.trim()) params.set('q', search.trim());
+
+  let searchTruncated = false;
+  let searchTotal = 0;
+  if (search?.trim()) {
+    const parsed = parseWorkshopSearchTokens(search);
+    searchTruncated = parsed.truncated;
+    searchTotal = parsed.total;
+    if (parsed.tokens.length > 0) {
+      params.set('q', parsed.tokens.join('\n'));
+    }
+  }
 
   const res = await apiFetch(`/api/v1/workshop/tasks?${params}`, { credentials: 'include' });
   const data = await res.json();
@@ -34,6 +47,8 @@ export async function fetchWorkshopTasksPageViaApi(
     items: (data.items ?? []) as any[],
     nextCursor: data.nextCursor ?? null,
     totalOs: data.totalOs ?? null,
+    searchTruncated,
+    searchTotal,
   };
 }
 

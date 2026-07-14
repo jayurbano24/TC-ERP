@@ -4,6 +4,10 @@ import {
   CAT_DIAGNOSTIC_SELECT,
 } from '@/shared/constants/dbProjections';
 import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
+import {
+  parseWorkshopSearchTokens,
+  sanitizeWorkshopSearchToken,
+} from '@/modules/workshop/shared/workshopSearch';
 
 export type WorkshopTabId =
   | 'diagnostico'
@@ -103,18 +107,34 @@ export type WorkshopLocateResult = {
 };
 
 function sanitizeWorkshopSearch(raw: string): string {
-  return raw.replace(/[%,()*]/g, '').trim();
+  return sanitizeWorkshopSearchToken(raw);
 }
 
-/** Busca serie/OS dentro de una pestaña — usa el estatus real de la serie consultada. */
+function postgrestInList(tokens: string[]): string {
+  return tokens.map((t) => `"${t.replace(/"/g, '')}"`).join(',');
+}
+
+/** Busca serie/OS dentro de una pestaña — 1 token (OS/serie) o hasta 25 series pegadas. */
 async function searchWorkshopSeriesInTab(
   supabase: SupabaseClient,
   tab: WorkshopTabId,
   rawQuery: string
 ): Promise<any[]> {
-  const query = sanitizeWorkshopSearch(rawQuery);
-  if (!query) return [];
+  const { tokens } = parseWorkshopSearchTokens(rawQuery);
+  if (tokens.length === 0) return [];
 
+  if (tokens.length === 1) {
+    return searchWorkshopSeriesSingleInTab(supabase, tab, tokens[0]);
+  }
+
+  return searchWorkshopSeriesMultiInTab(supabase, tab, tokens);
+}
+
+async function searchWorkshopSeriesSingleInTab(
+  supabase: SupabaseClient,
+  tab: WorkshopTabId,
+  query: string
+): Promise<any[]> {
   const located = await locateWorkshopEquipment(supabase, query);
   if (!located.found || !located.status || !located.serviceOrderId) return [];
 
@@ -127,6 +147,41 @@ async function searchWorkshopSeriesInTab(
     [located.serviceOrderId],
     located.status
   );
+  if (tab === 'listo') {
+    rows = await attachWorkshopAuditFlags(supabase, rows, 'listo');
+  }
+  rows = await enrichWorkshopServiceOrders(supabase, rows);
+  if (tab === 'diagnostico') {
+    rows = await enrichWorkshopSourceBoxCodes(supabase, rows);
+  }
+  return groupWorkshopSeriesRows(rows);
+}
+
+async function searchWorkshopSeriesMultiInTab(
+  supabase: SupabaseClient,
+  tab: WorkshopTabId,
+  tokens: string[]
+): Promise<any[]> {
+  const status =
+    tab === 'listo' ? 'in_central_warehouse' : TAB_TO_STATUS[tab as Exclude<WorkshopTabId, 'listo'>];
+  const inList = postgrestInList(tokens);
+
+  const { data, error } = await supabase
+    .from('series')
+    .select(WORKSHOP_SERIES_SELECT)
+    .eq('current_status', status)
+    .or(
+      `serial_number.in.(${inList}),s2.in.(${inList}),s3.in.(${inList}),s4.in.(${inList})`
+    )
+    .order('updated_at', { ascending: false })
+    .limit(BATCH_LIMITS.WORKSHOP_SEARCH_MAX_SERIALS * 4);
+
+  if (error) {
+    console.error('[workshop/server] multi-serial search:', error.message);
+    throw error;
+  }
+
+  let rows = data ?? [];
   if (tab === 'listo') {
     rows = await attachWorkshopAuditFlags(supabase, rows, 'listo');
   }

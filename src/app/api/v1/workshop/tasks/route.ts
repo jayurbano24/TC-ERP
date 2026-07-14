@@ -11,13 +11,14 @@ import { estimateJsonBytes, logEgress } from '@/shared/infrastructure/http/egres
 import { getCorrelationIdFromHeaders } from '@/shared/infrastructure/http/correlationId';
 import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
 import { getWorkshopReadClient } from '@/shared/infrastructure/workshop/workshopReadClient';
+import { WORKSHOP_SEARCH_Q_MAX_CHARS } from '@/modules/workshop/shared/workshopSearch';
 
 const TasksQuery = z.object({
   tab: z
     .enum(['diagnostico', 'reparacion', 'qc', 'reacondicionado', 'l3', 'scraps', 'listo'])
     .default('diagnostico'),
   cursor: z.string().max(64).optional(),
-  q: z.string().max(120).optional(),
+  q: z.string().max(WORKSHOP_SEARCH_Q_MAX_CHARS).optional(),
   limit: z.coerce
     .number()
     .int()

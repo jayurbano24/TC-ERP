@@ -10,6 +10,8 @@ export const BATCH_LIMITS = {
   WORKSHOP_OPERATE_SERIES_BATCH: 40,
   /** Equipos por página al listar cola Taller (1 equipo = 1 OS en cola). */
   WORKSHOP_QUEUE_PAGE_OS: 50,
+  /** Series máximas al pegar en el buscador de cola Taller. */
+  WORKSHOP_SEARCH_MAX_SERIALS: 25,
   /** IDs en cláusula PostgREST in.() */
   UUID_IN_CLAUSE: 80,
   /** Equipos por operación PX (finalize lote RPC — no limita captura scan a scan). */

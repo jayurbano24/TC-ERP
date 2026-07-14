@@ -6,6 +6,8 @@ import { Card, Button, Badge, notify, confirmDialog, DataTable, type DataTableCo
 import { Wrench, Stethoscope, Search, Filter, Box, Plus, Activity, AlertCircle, ArrowRight, CheckCircle2, XCircle, Clock, ChevronLeft, ChevronRight, ChevronDown, User, CheckSquare, ServerCrash, RefreshCw, Zap, Trash2, Loader2, RotateCcw, History, ClipboardList, Package, Send, ScanLine, X, BarChart3, Layers, Edit2, Eye, Printer, Download } from 'lucide-react';
 import { type WorkshopTabId } from '@/modules/workshop/client/workshop';
 import { fetchWorkshopTasksPageViaApi, locateWorkshopEquipmentViaApi, type WorkshopLocateResult } from '@/lib/api/workshopTasks';
+import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
+import { parseWorkshopSearchTokens } from '@/modules/workshop/shared/workshopSearch';
 import {
   operateWorkshopInBatches,
   countSeriesInSelection,
@@ -16,7 +18,6 @@ import {
 import {
   returnWorkshopInBatches,
 } from '@/lib/api/workshopReturn';
-import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
 import { exportWorkshopTabToExcel } from '@/lib/api/workshopExport';
 import {
   validateWorkshopPrerequisitesViaApi,
@@ -522,6 +523,16 @@ export default function TallerPage() {
     try {
       const workshopTab = activeTab as WorkshopTabId;
       const cursor = append ? tasksCursor : null;
+      const rawSearch = append ? '' : search;
+      const parsedSearch = rawSearch ? parseWorkshopSearchTokens(rawSearch) : null;
+
+      if (!append && parsedSearch?.truncated) {
+        notify.warning(
+          `Solo se buscan las primeras ${BATCH_LIMITS.WORKSHOP_SEARCH_MAX_SERIALS} series`,
+          { description: `Pegaste ${parsedSearch.total}; el resto se omite.` }
+        );
+      }
+
       const page = await fetchWorkshopTasksPageViaApi(
         workshopTab,
         cursor,
@@ -534,9 +545,12 @@ export default function TallerPage() {
       setTasksHasMore(Boolean(page.nextCursor) && !search);
       setTasksTotalOs(page.totalOs);
 
-      if (!append && search && adapted.length === 0) {
+      // Hint de otra pestaña solo con 1 serie (pegado masivo no aplica)
+      const singleToken =
+        parsedSearch && parsedSearch.tokens.length === 1 ? parsedSearch.tokens[0] : null;
+      if (!append && singleToken && adapted.length === 0) {
         try {
-          const loc = await locateWorkshopEquipmentViaApi(search);
+          const loc = await locateWorkshopEquipmentViaApi(singleToken);
           setLocateHint(
             loc.found && loc.tab && loc.tab !== workshopTab ? loc : null
           );
@@ -548,7 +562,9 @@ export default function TallerPage() {
       }
     } catch (err) {
       console.error('Error loading workshop tasks:', err);
-      notify.error('No se pudo cargar la cola de taller');
+      notify.error('No se pudo cargar la cola de taller', {
+        description: err instanceof Error ? err.message : undefined,
+      });
       if (!append) {
         setTasks([]);
         setLocateHint(null);
@@ -1059,7 +1075,7 @@ ${funcNotes || 'Ninguno evaluado'}
                     <div className="relative flex-1 min-w-0">
                       <Search className="absolute left-4 top-4 text-slate-400 w-4 h-4 pointer-events-none" />
                       <textarea
-                        placeholder="BUSCAR (ACEPTA VARIAS SERIES)..."
+                        placeholder={`BUSCAR SERIE U OS… (pegar hasta ${BATCH_LIMITS.WORKSHOP_SEARCH_MAX_SERIALS} series)`}
                         value={searchTerm}
                         onChange={(e) => {
                           setSearchTerm(e.target.value);

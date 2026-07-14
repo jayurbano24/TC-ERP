@@ -35,7 +35,7 @@ import {
   Truck,
   PackageMinus
 } from 'lucide-react';
-import { getInventoryBoxes, transferBoxesToArea, transferBoxesToAreaInBatches, createBodegaBoxAtomic, reserveNextBoxCodeForInventory, addSeriesToBox, dispatchBoxFromWarehouse, dispatchSpecificSeries, transferSpecificSeriesToArea, canScanSeriesIntoWarehouse, resolveBoxDisplayStatus, getBoxHistory } from '@/modules/inventario/client/warehouseBoxes';
+import { getInventoryBoxes, transferBoxesToArea, transferBoxesToAreaInBatches, createBodegaBoxAtomic, addSeriesToBox, dispatchBoxFromWarehouse, dispatchSpecificSeries, transferSpecificSeriesToArea, canScanSeriesIntoWarehouse, resolveBoxDisplayStatus, getBoxHistory } from '@/modules/inventario/client/warehouseBoxes';
 import { DispatchBatchSelector } from '@/modules/outbound-dispatch/components/DispatchBatchSelector';
 import { isHexagonalOutboundDispatchEnabled } from '@/modules/outbound-dispatch';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
@@ -47,7 +47,6 @@ import { TimelineModal } from './components/TimelineModal';
 import { DispatchModal } from './components/DispatchModal';
 import { TransferModal } from './components/TransferModal';
 import { NewBoxModal } from './components/NewBoxModal';
-import { collectTakenBoxCodes } from './collectTakenBoxCodes';
 import { DetalleCajaModal } from './components/DetalleCajaModal';
 import { fetchBoxSeriesUi } from '@/modules/inventario/client/warehouseBoxSeries';
 import { formatWarehouseBoxId } from '@/modules/inventario/client/warehouseBoxDisplay';
@@ -590,7 +589,8 @@ export default function BodegaGestionV2({
         capacity: newBox.cantidad,
         rackLocation: newBox.rack || 'P-01',
         serialNumbers: seriesNumbers,
-        boxCode: newBox.correlativo?.match(/^BOX-[0-9]+$/i) ? newBox.correlativo : null,
+        // Correlativo solo al persistir (create_bodega_box_tx → next_box_code)
+        boxCode: null,
       });
 
       if (result.error) {
@@ -598,6 +598,9 @@ export default function BodegaGestionV2({
         return;
       }
 
+      notify.success(`Caja ${result.data?.box_code || ''} creada`, {
+        description: `${result.data?.series_linked ?? seriesNumbers.length} serie(s) vinculadas.`,
+      });
       await fetchBoxes(true);
       setShowNewBoxModal(false);
       setNewBoxStep('form');
@@ -1660,19 +1663,9 @@ export default function BodegaGestionV2({
               setShowNewBoxModal(false);
               setNewBoxLastScannedInfo(null);
             }}
-            onNext={async () => {
+            onNext={() => {
               if (!newBox.tecnologia || !newBox.marca || !newBox.modelo || !newBox.cantidad || loading) return;
-
-              setLoading(true);
-              const reserved = await reserveNextBoxCodeForInventory(collectTakenBoxCodes(inventory));
-              setLoading(false);
-
-              if (reserved.error || !reserved.code) {
-                notify.error('No se pudo reservar el correlativo de caja', { description: reserved.error || undefined });
-                return;
-              }
-
-              setNewBox((prev) => ({ ...prev, correlativo: reserved.code.trim().toUpperCase() }));
+              setNewBox((prev) => ({ ...prev, correlativo: '' }));
               setNewBoxStep('scanning');
             }}
           />

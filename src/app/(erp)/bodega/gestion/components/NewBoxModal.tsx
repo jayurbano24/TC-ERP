@@ -57,10 +57,8 @@ export const NewBoxModal = memo(function NewBoxModal({
           <div className="flex items-center gap-3">
             <Box className="w-6 h-6 text-[#2ec4f1]" />
             <h3 className="text-xl font-bold flex items-center gap-3">
-              {newBoxStep === 'scanning' && newBox.correlativo
-                ? newBox.correlativo
-                : 'Ingresar Almacén TC Caja'}
-              {newBoxStep === 'scanning' && newBox.correlativo && (
+              {newBoxStep === 'scanning' ? 'Cargar series' : 'Ingresar Almacén TC Caja'}
+              {newBoxStep === 'scanning' && (
                 <Badge variant="outline" className="bg-white/10 text-white border-white/20 text-[10px] tracking-widest">EN PROCESO</Badge>
               )}
             </h3>
@@ -70,7 +68,7 @@ export const NewBoxModal = memo(function NewBoxModal({
 
         {newBoxStep === 'form' ? (
           <div className="p-8 space-y-6">
-            {/* Número de correlativo de la caja (Auto-generado y No Editable) */}
+            {/* Correlativo: se asigna en BD solo al finalizar (evita quemar BOX al cancelar) */}
             <div className="space-y-2">
               <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Número de correlativo de la caja (Auto-generado)</label>
               <input
@@ -78,8 +76,11 @@ export const NewBoxModal = memo(function NewBoxModal({
                 className="w-full bg-slate-100 p-3 rounded-xl border border-slate-200 font-bold text-sm outline-none text-slate-500 cursor-not-allowed"
                 value={newBox.correlativo}
                 disabled
-                placeholder="Se asigna al pulsar «Siguiente»"
+                placeholder="Se asigna al finalizar la caja"
               />
+              <p className="text-[10px] text-slate-400 font-medium">
+                El correlativo BOX se genera al guardar, no al avanzar al pistoleo.
+              </p>
             </div>
 
             <div className="grid grid-cols-2 gap-6">
@@ -166,6 +167,7 @@ export const NewBoxModal = memo(function NewBoxModal({
                   <div className="flex justify-between items-end mb-4">
                     <div>
                       <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 leading-none">Progreso de la Caja</span>
+                      <p className="text-[10px] font-bold text-slate-400 mt-1">Correlativo: se asigna al finalizar</p>
                       <h4 className="text-lg font-black text-[#181c3a]">
                         {catMarcas.find(b => b.id === newBox.marca)?.name || newBox.marca || '—'}{' '}
                         {catModelos.find(m => m.id === newBox.modelo)?.name || newBox.modelo || '—'}

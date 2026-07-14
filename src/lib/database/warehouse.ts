@@ -534,12 +534,13 @@ function normalizeBoxCorrelative(code: string): string {
 }
 
 /**
- * Reserva un correlativo BOX-XX libre. Reintenta si el código ya está en pantalla
- * (caché local) o si la secuencia devolvió un número ocupado.
+ * Reserva correlativo BOX vía `next_box_code` (secuencia global compartida
+ * bodega/PX/warehouse). Los códigos son irrepetibles en BD; el set `takenCodes`
+ * solo evita colisión con filas aún no refrescadas en pantalla.
  */
 export async function reserveNextBoxCodeForInventory(
   takenCodes: string[] = [],
-  maxAttempts = 20
+  maxAttempts = 5
 ): Promise<{ code?: string; error?: string }> {
   const taken = new Set(
     takenCodes.map((c) => normalizeBoxCorrelative(c)).filter((c) => /^BOX-[0-9]+$/.test(c))

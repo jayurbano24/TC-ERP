@@ -4,7 +4,7 @@ import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
 import { BusinessException } from '@/shared/errors/Exceptions';
 import {
   loadCompletedWorkshopActionsBySeries,
-  validateSeriesPrerequisites,
+  validateEquipmentPrerequisites,
 } from '@/modules/workshop/server/workshopStagePrerequisites';
 
 export function resolveWorkshopNextStatus(result: string): string {
@@ -18,12 +18,67 @@ export function resolveWorkshopNextStatus(result: string): string {
   return 'in_workshop';
 }
 
+/** Estados de pipeline de taller: un equipo (OS) no se parte entre etapas. */
+const WORKSHOP_PIPELINE_STATUSES = [
+  'in_workshop',
+  'in_qc',
+  'in_validation',
+  'ready_to_dispatch',
+  'in_control_warehouse',
+  'irreparable',
+  'in_central_warehouse',
+] as const;
+
 function chunkIds(ids: string[], size = BATCH_LIMITS.UUID_IN_CLAUSE): string[][] {
   const chunks: string[][] = [];
   for (let i = 0; i < ids.length; i += size) {
     chunks.push(ids.slice(i, i + size));
   }
   return chunks;
+}
+
+/**
+ * Expande series sueltas a TODAS las series del mismo service_order
+ * que siguen en pipeline de taller (unidad indivisible).
+ */
+export async function expandSeriesIdsToEquipmentSiblings(
+  supabase: SupabaseClient,
+  seriesIds: string[]
+): Promise<string[]> {
+  const unique = [...new Set(seriesIds.filter(Boolean))];
+  if (unique.length === 0) return [];
+
+  const osIds = new Set<string>();
+  const orphanIds: string[] = [];
+
+  for (const chunk of chunkIds(unique)) {
+    const { data, error } = await supabase
+      .from('series')
+      .select('id, service_order_id')
+      .in('id', chunk);
+    if (error) throw new Error(error.message);
+    for (const row of data || []) {
+      if (row.service_order_id) osIds.add(String(row.service_order_id));
+      else orphanIds.push(String(row.id));
+    }
+  }
+
+  const expanded = new Set<string>(orphanIds);
+  const osList = [...osIds];
+  for (let i = 0; i < osList.length; i += BATCH_LIMITS.UUID_IN_CLAUSE) {
+    const chunk = osList.slice(i, i + BATCH_LIMITS.UUID_IN_CLAUSE);
+    const { data, error } = await supabase
+      .from('series')
+      .select('id')
+      .in('service_order_id', chunk)
+      .in('current_status', [...WORKSHOP_PIPELINE_STATUSES]);
+    if (error) throw new Error(error.message);
+    for (const row of data || []) {
+      expanded.add(String(row.id));
+    }
+  }
+
+  return [...expanded];
 }
 
 export type WorkshopOperateParams = {
@@ -48,8 +103,33 @@ export async function operateWorkshopSeriesBatch(
   if (seriesIds.length === 0) return { processed: 0 };
 
   const admin = getSupabaseServerClient();
-  const completedBySeries = await loadCompletedWorkshopActionsBySeries(admin, seriesIds);
-  const prerequisiteCheck = validateSeriesPrerequisites(seriesIds, completedBySeries, actionName);
+
+  // Unidad completa: todas las series hermanas de la(s) OS en pipeline
+  const targetSeriesIds = await expandSeriesIdsToEquipmentSiblings(admin, seriesIds);
+
+  const seriesToOs = new Map<string, string | null>();
+  const seriesStatus = new Map<string, string>();
+  for (const chunk of chunkIds(targetSeriesIds)) {
+    const { data, error } = await admin
+      .from('series')
+      .select('id, service_order_id, current_status')
+      .in('id', chunk);
+    if (error) throw new Error(error.message);
+    for (const row of data || []) {
+      const id = String(row.id);
+      seriesToOs.set(id, row.service_order_id ? String(row.service_order_id) : null);
+      seriesStatus.set(id, String(row.current_status || ''));
+    }
+  }
+
+  const completedBySeries = await loadCompletedWorkshopActionsBySeries(admin, targetSeriesIds);
+  const prerequisiteCheck = validateEquipmentPrerequisites(
+    targetSeriesIds,
+    seriesToOs,
+    completedBySeries,
+    actionName,
+    seriesStatus
+  );
   if (!prerequisiteCheck.ok) {
     throw new BusinessException(prerequisiteCheck.message);
   }
@@ -68,11 +148,14 @@ export async function operateWorkshopSeriesBatch(
     diagnostics: actionName === 'DIAGNÓSTICO INICIAL COMPLETADO' ? selectedDiagnostics : undefined,
     repairs: actionName === 'REPARACIÓN COMPLETADA' ? selectedDiagnostics : undefined,
     items: selectedDiagnostics,
+    equipment_complete: true,
+    requested_series: seriesIds.length,
+    expanded_series: targetSeriesIds.length,
   };
 
   let processed = 0;
 
-  for (const chunk of chunkIds(seriesIds)) {
+  for (const chunk of chunkIds(targetSeriesIds)) {
     const { error: updateError } = await supabase
       .from('series')
       .update(updateData)

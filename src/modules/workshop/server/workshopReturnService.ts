@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
 import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
+import { expandSeriesIdsToEquipmentSiblings } from '@/modules/workshop/server/workshopOperateService';
 
 const DIAG_ACTION = 'DIAGNÓSTICO INICIAL COMPLETADO';
 
@@ -123,9 +124,10 @@ export async function returnWorkshopSeriesBatch(
   if (seriesIds.length === 0) return { processed: 0 };
 
   const admin = getSupabaseServerClient();
+  const targetSeriesIds = await expandSeriesIdsToEquipmentSiblings(admin, seriesIds);
   let processed = 0;
 
-  for (const chunk of chunkIds(seriesIds, BATCH_LIMITS.WORKSHOP_OPERATE_SERIES_BATCH)) {
+  for (const chunk of chunkIds(targetSeriesIds, BATCH_LIMITS.WORKSHOP_OPERATE_SERIES_BATCH)) {
     const { error: updateError } = await supabase
       .from('series')
       .update({ current_status: targetStatus })
@@ -145,6 +147,9 @@ export async function returnWorkshopSeriesBatch(
         status: targetStatus,
         reason,
         operator_name: operatorName,
+        equipment_complete: true,
+        requested_series: seriesIds.length,
+        expanded_series: targetSeriesIds.length,
       },
       user_agent: 'api/v1/workshop/return-batch',
     }));

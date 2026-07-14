@@ -168,12 +168,11 @@ async function searchWorkshopSeriesMultiInTab(
 
   const { data, error } = await supabase
     .from('series')
-    .select(WORKSHOP_SERIES_SELECT)
+    .select('id, service_order_id, serial_number, current_status')
     .eq('current_status', status)
     .or(
       `serial_number.in.(${inList}),s2.in.(${inList}),s3.in.(${inList}),s4.in.(${inList})`
     )
-    .order('updated_at', { ascending: false })
     .limit(BATCH_LIMITS.WORKSHOP_SEARCH_MAX_SERIALS * 4);
 
   if (error) {
@@ -181,7 +180,30 @@ async function searchWorkshopSeriesMultiInTab(
     throw error;
   }
 
-  let rows = data ?? [];
+  const osIds = [
+    ...new Set(
+      (data || [])
+        .map((r) => r.service_order_id as string | null)
+        .filter((id): id is string => Boolean(id))
+    ),
+  ];
+
+  // Unidad completa: cargar TODAS las series de cada OS en esta etapa
+  let rows = await fetchWorkshopSeriesForOsIds(supabase, osIds, status);
+
+  // Series huérfanas (sin OS) que matchearon el token
+  const orphanIds = (data || [])
+    .filter((r) => !r.service_order_id)
+    .map((r) => String(r.id));
+  if (orphanIds.length > 0) {
+    const { data: orphans } = await supabase
+      .from('series')
+      .select(WORKSHOP_SERIES_SELECT)
+      .in('id', orphanIds)
+      .eq('current_status', status);
+    if (orphans?.length) rows = [...rows, ...orphans];
+  }
+
   if (tab === 'listo') {
     rows = await attachWorkshopAuditFlags(supabase, rows, 'listo');
   }

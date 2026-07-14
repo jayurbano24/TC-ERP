@@ -92,6 +92,90 @@ export function validateSeriesPrerequisites(
   return { ok: true, message: '' };
 }
 
+/**
+ * Prerrequisitos a nivel equipo (OS): basta que UNA serie hermana tenga la
+ * etapa previa auditada (históricamente a veces solo se auditó S1).
+ * Si el equipo ya está avanzado en pipeline sin bitácora DIAG (legado), se tolera.
+ */
+export function validateEquipmentPrerequisites(
+  seriesIds: string[],
+  seriesToOs: Map<string, string | null>,
+  completedBySeries: Map<string, Set<string>>,
+  actionName: string,
+  seriesStatus?: Map<string, string>
+): WorkshopPrerequisiteResult {
+  const { requireAll, requireAny } = getPrerequisitesForAction(actionName);
+  if (requireAll.length === 0 && requireAny.length === 0) {
+    return { ok: true, message: '' };
+  }
+
+  const byOs = new Map<string, string[]>();
+  const orphans: string[] = [];
+  for (const id of seriesIds) {
+    const osId = seriesToOs.get(id);
+    if (osId) {
+      const list = byOs.get(osId) ?? [];
+      list.push(id);
+      byOs.set(osId, list);
+    } else {
+      orphans.push(id);
+    }
+  }
+
+  const pipelinePastDiag = new Set([
+    'in_qc',
+    'in_validation',
+    'ready_to_dispatch',
+    'in_control_warehouse',
+    'irreparable',
+    'in_central_warehouse',
+  ]);
+
+  const checkGroup = (groupIds: string[]): WorkshopPrerequisiteResult => {
+    const union = new Set<string>();
+    for (const id of groupIds) {
+      for (const action of completedBySeries.get(id) ?? []) {
+        union.add(action);
+      }
+    }
+    const alreadyPastDiag = groupIds.some((id) =>
+      pipelinePastDiag.has(String(seriesStatus?.get(id) || ''))
+    );
+
+    for (const required of requireAll) {
+      if (union.has(required)) continue;
+      if (required === WORKSHOP_STAGE_ACTIONS.DIAG && alreadyPastDiag) continue;
+      return {
+        ok: false,
+        message: `El equipo no tiene ${labelForAction(required)} completado. No puede avanzar a la siguiente etapa.`,
+        seriesId: groupIds[0],
+        missingLabel: labelForAction(required),
+      };
+    }
+    if (requireAny.length > 0 && !requireAny.some((a) => union.has(a))) {
+      const labels = requireAny.map(labelForAction).join(' o ');
+      return {
+        ok: false,
+        message: `El equipo debe tener ${labels} completado antes de continuar.`,
+        seriesId: groupIds[0],
+        missingLabel: labels,
+      };
+    }
+    return { ok: true, message: '' };
+  };
+
+  for (const [, groupIds] of byOs) {
+    const result = checkGroup(groupIds);
+    if (!result.ok) return result;
+  }
+  for (const orphanId of orphans) {
+    const result = checkGroup([orphanId]);
+    if (!result.ok) return result;
+  }
+
+  return { ok: true, message: '' };
+}
+
 function chunkIds(ids: string[], size = BATCH_LIMITS.UUID_IN_CLAUSE): string[][] {
   const chunks: string[][] = [];
   for (let i = 0; i < ids.length; i += size) {

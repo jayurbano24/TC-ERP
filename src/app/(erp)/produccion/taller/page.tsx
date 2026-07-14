@@ -685,7 +685,7 @@ ${funcNotes || 'Ninguno evaluado'}
         equipmentCount,
       });
 
-      await operateWorkshopInBatches(
+      const processedSeries = await operateWorkshopInBatches(
         {
           seriesIds,
           equipmentCount,
@@ -697,15 +697,15 @@ ${funcNotes || 'Ninguno evaluado'}
         (p) =>
           setOperateProgress({
             processedSeries: p.processedSeries,
-            totalSeries: p.totalSeries,
+            totalSeries: Math.max(p.totalSeries, p.processedSeries),
             equipmentCount: p.equipmentCount,
           })
       );
 
       notify.success(
         Array.isArray(selectedForOperation)
-          ? `${equipmentCount} equipo${equipmentCount !== 1 ? 's' : ''} trasladados (${seriesIds.length} series).`
-          : `Equipo trasladado (${seriesIds.length} serie${seriesIds.length !== 1 ? 's' : ''}).`
+          ? `${equipmentCount} equipo${equipmentCount !== 1 ? 's' : ''} trasladados (${processedSeries} series).`
+          : `Equipo trasladado completo (${processedSeries} serie${processedSeries !== 1 ? 's' : ''}).`
       );
       setSelectedForOperation(null);
       setSelectedRows([]);

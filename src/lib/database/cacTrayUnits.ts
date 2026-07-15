@@ -183,26 +183,39 @@ export async function queryCacTrayStats(
   };
 }
 
-/** Para exportación: hasta maxRows filas con los mismos filtros. */
+/** PostgREST/Supabase suele capar en 1000 aunque pidas `.limit(10000)`. */
+const EXPORT_PAGE_SIZE = 1000;
+
+/** Para exportación: pagina con `.range()` hasta maxRows con los mismos filtros. */
 export async function queryCacTrayAllFiltered(
   params: CacTrayQueryParams,
   maxRows = 10000,
   client?: SupabaseClient
 ): Promise<CacTrayUnitRow[]> {
   const supabase = resolveClient(client);
+  const pageSize = Math.min(EXPORT_PAGE_SIZE, Math.max(1, maxRows));
+  const all: CacTrayUnitRow[] = [];
 
-  let query = supabase
-    .from('cac_tray_units')
-    .select(CAC_TRAY_UNIT_SELECT)
-    .order('classified_at', { ascending: false })
-    .order('os_number', { ascending: false })
-    .limit(maxRows);
+  for (let offset = 0; offset < maxRows; offset += pageSize) {
+    const end = Math.min(offset + pageSize - 1, maxRows - 1);
+    let query = supabase
+      .from('cac_tray_units')
+      .select(CAC_TRAY_UNIT_SELECT)
+      .order('classified_at', { ascending: false })
+      .order('os_number', { ascending: false })
+      .range(offset, end);
 
-  query = applyTrayFilters(query, params);
+    query = applyTrayFilters(query, params);
 
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
-  return enrichCacTrayRowsWithSapValidation((data || []) as CacTrayUnitRow[]);
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+
+    const chunk = (data || []) as CacTrayUnitRow[];
+    all.push(...chunk);
+    if (chunk.length < pageSize) break;
+  }
+
+  return enrichCacTrayRowsWithSapValidation(all);
 }
 
 export async function queryTransferEligibleSeries(

@@ -63,8 +63,11 @@ export const COMPANY_SHIFT_SELECT = 'id, name, start_time, end_time';
 export const ERP_USER_SECURITY_SELECT =
   'user_id, force_pwd_change, require_2fa, failed_attempts, locked_until, allowed_ips, updated_at';
 
+/** Versiones de políticas RRHH (UI configuración + historial). */
 export const HR_POLICY_VERSION_SELECT =
-  'id, version, is_active, settings, created_at, created_by, change_summary';
+  'id, version, is_active, settings, created_at, created_by, created_by_name';
+/** Solo settings — kiosko / lecturas ligeras. */
+export const HR_POLICY_SETTINGS_SELECT = 'settings';
 export const HR_PAYROLL_CLOSURE_SELECT =
   'id, periodo, fecha_proceso, estado, total_empleados, total_salarios, total_liquido, total_igss_laboral, total_isr_retenido, total_igss_patronal, total_irtra, total_intecap, costo_total_patronal, costo_total_planilla, created_at';
 
@@ -89,17 +92,20 @@ export const PRODUCTION_ORDER_SELECT =
 export const SERVICE_ORDER_OPS_STATE_SELECT =
   'service_order_id, state_code, state_label, source_channel, series_status, tray_active, tray_excluded, updated_at';
 
-export const SAP_UPLOAD_SELECT = 'id, filename, fecha, uploaded_by, row_count';
+export const SAP_UPLOAD_SELECT =
+  'id, archivo, hash_sha256, fecha, usuario, registros, encontrados, no_encontrados, inconsistencias, tiempo_proceso, estado';
 
 export const ZK_RAW_LOG_SELECT = 'id, user_pin, check_time, processed';
 export const ZK_COMMAND_SELECT = 'id, command_str, device_sn, status, created_at';
 export const OUTBOX_EVENT_SELECT = 'id, payload, attempts, created_at, status, next_retry';
 
 export const EMPLOYEE_BIOMETRIC_EMBEDDING_SELECT =
-  'id, codigo_empleado, nombre_completo, face_embedding';
+  'id, employee_id, embedding, pose, quality, model, active';
 export const EMPLOYEE_REGISTER_LIST_SELECT = 'id, codigo_empleado, nombre_completo';
 export const EMPLOYEE_KIOSK_VERIFY_SELECT =
-  'id, codigo_empleado, nombre_completo, face_embedding, shift_id, company_shifts(id, name, weekly_schedule, ventana_desayuno_inicio, ventana_desayuno_fin, ventana_almuerzo_inicio, ventana_almuerzo_fin)';
+  'id, codigo_empleado, nombre_completo, shift_id, company_shifts(id, name, weekly_schedule, ventana_desayuno_inicio, ventana_desayuno_fin, ventana_almuerzo_inicio, ventana_almuerzo_fin)';
+export const EMPLOYEE_FACE_EMBEDDING_SELECT =
+  'id, employee_id, embedding, pose, quality, brightness, sharpness, contrast, face_size, tilt, model, created_at, active';
 export const COMPANY_SHIFT_KIOSK_SELECT =
   'id, name, weekly_schedule, ventana_desayuno_inicio, ventana_desayuno_fin, ventana_almuerzo_inicio, ventana_almuerzo_fin';
 export const RRHH_ASISTENCIA_SELECT =

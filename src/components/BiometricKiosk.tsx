@@ -1,19 +1,26 @@
 "use client";
 
-import { useEffect, useRef, useState, useMemo } from 'react';
-import * as faceapi from 'face-api.js';
-import { Camera, CheckCircle2, AlertCircle, Loader2, LogIn, Coffee, Utensils, LogOut, ShieldAlert, Clock, User, Info } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Camera, CheckCircle2, AlertCircle, Loader2, LogIn, Coffee, Utensils, LogOut, ShieldAlert, User, Info, ScanFace, Hash, ArrowLeft } from 'lucide-react';
 import {
   COMPANY_SHIFT_KIOSK_SELECT,
-  EMPLOYEE_BIOMETRIC_EMBEDDING_SELECT,
   EMPLOYEE_KIOSK_VERIFY_SELECT,
   EMPLOYEE_REGISTER_LIST_SELECT,
-  HR_POLICY_VERSION_SELECT,
+  HR_POLICY_SETTINGS_SELECT,
   TIME_LOG_KIOSK_SELECT,
 } from '@/shared/constants/dbProjections';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { notify } from '@/components/ui';
-import { useAttendanceState, AllowedAction } from '@/hooks/useAttendanceState';
+import { useAttendanceState, AllowedAction, isWithinPermissionWindow } from '@/hooks/useAttendanceState';
+import {
+  ENROLLMENT_POSES,
+  POSE_INSTRUCTIONS,
+  RECOGNITION_CONFIG,
+  faceEmbeddingRepository,
+  getInsightFaceService,
+  getKioskBiometricPin,
+  type EnrollmentCapture,
+} from '@/lib/face-recognition';
 
 const getShortName = (fullName: string) => {
   if (!fullName) return '';
@@ -37,8 +44,7 @@ export function BiometricKiosk() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isModelLoaded, setIsModelLoaded] = useState(false);
-  const [loadingMsg, setLoadingMsg] = useState('Cargando modelos neuronales...');
-  const [faceData, setFaceData] = useState<any[]>([]);
+  const [loadingMsg, setLoadingMsg] = useState('Cargando motor InsightFace...');
   const [policies, setPolicies] = useState<any>(null);
   
   const [matchStatus, setMatchStatus] = useState<'idle' | 'success' | 'error' | 'verifying'>('idle');
@@ -55,18 +61,18 @@ export function BiometricKiosk() {
   const [specialMode, setSpecialMode] = useState(false);
   const [specialDirection, setSpecialDirection] = useState('INGRESO');
 
-  // New Biometric 2-Step Validation State
+  /** menu = elegir método; face = 1:N; code = teclado + verificación 1:1 */
+  const [entryMode, setEntryMode] = useState<'menu' | 'face' | 'code'>('menu');
   const [employeeInput, setEmployeeInput] = useState('');
   const [employeeToVerify, setEmployeeToVerify] = useState<any>(null);
-  const [consecutiveMatches, setConsecutiveMatches] = useState(0);
-  const [livenessBuffer, setLivenessBuffer] = useState<any[]>([]);
-
   const [isRegistering, setIsRegistering] = useState(false);
   const [registerStep, setRegisterStep] = useState<'pin' | 'select' | 'capture'>('pin');
   const [pinCode, setPinCode] = useState('');
   const [registerEmployees, setRegisterEmployees] = useState<any[]>([]);
   const [selectedRegisterEmp, setSelectedRegisterEmp] = useState<any>(null);
   const [registerStatusMsg, setRegisterStatusMsg] = useState('');
+  const [enrollmentCaptures, setEnrollmentCaptures] = useState<EnrollmentCapture[]>([]);
+  const [enrollmentPoseIndex, setEnrollmentPoseIndex] = useState(0);
 
   const { currentState, allowedActions, calculatePunches } = useAttendanceState({
     logs: pendingActionSelect?.logs || [],
@@ -78,12 +84,12 @@ export function BiometricKiosk() {
     isRegistering,
     registerStep,
     selectedRegisterEmp,
-    faceData,
     pendingActionSelect,
     pendingJustification,
     employeeToVerify,
-    consecutiveMatches,
-    livenessBuffer
+    entryMode,
+    enrollmentCaptures,
+    enrollmentPoseIndex,
   });
 
   useEffect(() => {
@@ -91,14 +97,14 @@ export function BiometricKiosk() {
       isRegistering,
       registerStep,
       selectedRegisterEmp,
-      faceData,
       pendingActionSelect,
       pendingJustification,
       employeeToVerify,
-      consecutiveMatches,
-      livenessBuffer
+      entryMode,
+      enrollmentCaptures,
+      enrollmentPoseIndex,
     };
-  }, [isRegistering, registerStep, selectedRegisterEmp, faceData, pendingActionSelect, pendingJustification, employeeToVerify, consecutiveMatches, livenessBuffer]);
+  }, [isRegistering, registerStep, selectedRegisterEmp, pendingActionSelect, pendingJustification, employeeToVerify, entryMode, enrollmentCaptures, enrollmentPoseIndex]);
 
   useEffect(() => {
     loadModels();
@@ -117,33 +123,30 @@ export function BiometricKiosk() {
   const fetchPolicies = async () => {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
-    const { data } = await supabase.from('hr_policies_versions').select(HR_POLICY_VERSION_SELECT).eq('is_active', true).order('version', { ascending: false }).limit(1).single();
-    if (data && data.settings) setPolicies(data.settings);
+    const { data, error } = await supabase
+      .from('hr_policies_versions')
+      .select(HR_POLICY_SETTINGS_SELECT)
+      .eq('is_active', true)
+      .order('version', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) {
+      console.error('[BiometricKiosk] hr_policies_versions:', error.message || error);
+      return;
+    }
+    if (data?.settings) setPolicies(data.settings);
   };
 
   const loadModels = async () => {
     try {
-      setLoadingMsg('Cargando motor biométrico...');
-      const MODEL_URL = '/models';
-      await Promise.all([
-        faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
-        faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-        faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
-      ]);
-      setLoadingMsg('Conectando a base de datos...');
-      await fetchEmployeeEmbeddings();
+      setLoadingMsg('Cargando InsightFace (ArcFace)...');
+      await getInsightFaceService().initialize();
+      setLoadingMsg('Motor biométrico listo');
       setIsModelLoaded(true);
     } catch (err) {
       console.error(err);
-      setLoadingMsg('Error cargando modelos.');
+      setLoadingMsg('Error cargando modelos InsightFace. Ejecute npm run download:insightface');
     }
-  };
-
-  const fetchEmployeeEmbeddings = async () => {
-    const supabase = getSupabaseBrowserClient();
-    if (!supabase) return;
-    const { data } = await supabase.from('employees').select(EMPLOYEE_BIOMETRIC_EMBEDDING_SELECT).not('face_embedding', 'is', null);
-    if (data) setFaceData(data);
   };
 
   const fetchEmployeesForRegistration = async () => {
@@ -151,6 +154,43 @@ export function BiometricKiosk() {
     if (!supabase) return;
     const { data } = await supabase.from('employees').select(EMPLOYEE_REGISTER_LIST_SELECT).order('nombre_completo');
     if (data) setRegisterEmployees(data);
+  };
+
+  const startFacePunch = () => {
+    setEntryMode('face');
+    setEmployeeToVerify(null);
+    setEmployeeInput('');
+    setMatchStatus('idle');
+    setStatusMessage('');
+    setFaceStatus('searching');
+    startVideo();
+  };
+
+  const backToMenu = () => {
+    stopVideo();
+    setEntryMode('menu');
+    setEmployeeToVerify(null);
+    setEmployeeInput('');
+    setMatchStatus('idle');
+    setStatusMessage('');
+    setFaceStatus('searching');
+    setSpecialMode(false);
+    cooldownRef.current = false;
+  };
+
+  const fetchEmployeeById = async (employeeId: string) => {
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase) return null;
+    const { data: emp, error } = await supabase
+      .from('employees')
+      .select(EMPLOYEE_KIOSK_VERIFY_SELECT)
+      .eq('id', employeeId)
+      .single();
+    if (error || !emp) {
+      console.error('Error fetching employee by id:', error);
+      return null;
+    }
+    return emp;
   };
 
   const handleVerifyCode = async () => {
@@ -183,12 +223,14 @@ export function BiometricKiosk() {
       return;
     }
 
-    if (!emp.face_embedding) {
-      showError('Empleado no tiene rostro registrado');
+    const hasBio = await faceEmbeddingRepository.countActiveForEmployee(emp.id);
+    if (!hasBio) {
+      showError('Empleado sin biometría InsightFace. Debe re-enrolarse.');
       return;
     }
 
     setEmployeeToVerify(emp);
+    setEntryMode('face');
     setMatchStatus('idle');
     setStatusMessage('');
     startVideo();
@@ -196,9 +238,10 @@ export function BiometricKiosk() {
 
   const startVideo = () => {
     setIsCameraActive(true);
-    setConsecutiveMatches(0);
-    setLivenessBuffer([]);
-    navigator.mediaDevices.getUserMedia({ video: true })
+    navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false,
+    })
       .then((stream) => { if (videoRef.current) videoRef.current.srcObject = stream; })
       .catch((err) => console.error('Error webcam', err));
   };
@@ -216,83 +259,101 @@ export function BiometricKiosk() {
     if (!isCameraActive || !isModelLoaded) return;
     if (intervalRef.current) clearInterval(intervalRef.current);
 
+    const faceService = getInsightFaceService();
+    let busy = false;
+
     intervalRef.current = setInterval(async () => {
       const refs = stateRefs.current;
-      if (cooldownRef.current || refs.pendingActionSelect || refs.pendingJustification) return;
+      if (busy || cooldownRef.current || refs.pendingActionSelect || refs.pendingJustification) return;
+      if (!videoRef.current || videoRef.current.readyState < 4) return;
 
-      if (videoRef.current && videoRef.current.readyState === 4) {
-        try {
-          const detections = await faceapi.detectSingleFace(videoRef.current).withFaceLandmarks().withFaceDescriptor();
+      busy = true;
+      try {
+        if (refs.isRegistering && refs.registerStep === 'capture' && refs.selectedRegisterEmp) {
+          const pose = ENROLLMENT_POSES[refs.enrollmentPoseIndex] ?? 'FRONT';
+          const instruction = POSE_INSTRUCTIONS[pose] || pose;
+          setFaceStatus('capturing');
+          setRegisterStatusMsg(
+            `${instruction} (${refs.enrollmentCaptures.length + 1}/${RECOGNITION_CONFIG.MIN_ENROLLMENT_COUNT}–${RECOGNITION_CONFIG.MAX_ENROLLMENT_COUNT})`,
+          );
 
-          if (!detections) {
-            setFaceStatus('searching');
+          const capture = await faceService.captureForEnrollment(videoRef.current, pose);
+          if ('error' in capture) {
+            setFaceStatus('adjusting');
+            setRegisterStatusMsg(capture.error);
+            return;
           }
 
-          if (detections) {
-            if (detections.detection.score < 0.85) {
-              setFaceStatus('adjusting');
-            } else {
-              setFaceStatus('ready');
-            }
-            if (refs.isRegistering && refs.registerStep === 'capture' && refs.selectedRegisterEmp) {
-               const newBuffer = [...refs.livenessBuffer, Array.from(detections.descriptor)];
-               if (newBuffer.length < 3) {
-                 setLivenessBuffer(newBuffer);
-                 setRegisterStatusMsg(`Capturando... ${newBuffer.length}/3`);
-                 return;
-               }
-               
-               cooldownRef.current = true;
-               setRegisterStatusMsg('Verificando Liveness y guardando datos...');
-               
-               const dist = faceapi.euclideanDistance(new Float32Array(newBuffer[0]), new Float32Array(newBuffer[2]));
-               if (dist < 0.01) { // Liveness check (too static)
-                 setRegisterStatusMsg('Liveness Fallido: Rostro demasiado estático (Posible Foto)');
-                 setTimeout(() => { setLivenessBuffer([]); cooldownRef.current = false; }, 3000);
-                 return;
-               }
+          cooldownRef.current = true;
+          const nextCaptures = [...refs.enrollmentCaptures, capture];
+          setEnrollmentCaptures(nextCaptures);
+          const nextPose = Math.min(refs.enrollmentPoseIndex + 1, ENROLLMENT_POSES.length - 1);
+          setEnrollmentPoseIndex(nextPose);
 
-               const supabase = getSupabaseBrowserClient();
-               if (supabase) {
-                 await supabase.from('employees').update({ face_embedding: newBuffer }).eq('id', refs.selectedRegisterEmp.id);
-                 setRegisterStatusMsg('¡Datos faciales registrados correctamente!');
-                 await fetchEmployeeEmbeddings();
-                 setTimeout(() => {
-                   setIsRegistering(false); setRegisterStep('pin'); setSelectedRegisterEmp(null); stopVideo(); cooldownRef.current = false; setLivenessBuffer([]);
-                 }, 3000);
-               }
-               return;
-            }
-
-            if (refs.isRegistering || !refs.employeeToVerify) return;
-            
-            const emp = refs.employeeToVerify;
-            let embeddingsToTest = [];
-            if (Array.isArray(emp.face_embedding[0])) {
-               embeddingsToTest = emp.face_embedding;
-            } else {
-               embeddingsToTest = [emp.face_embedding];
-            }
-
-            let bestDistance = 1.0;
-            for (const emb of embeddingsToTest) {
-               const dist = faceapi.euclideanDistance(detections.descriptor, new Float32Array(emb));
-               if (dist < bestDistance) bestDistance = dist;
-            }
-
-            if (bestDistance <= 0.42) {
-               // Aprobación instantánea con 1 solo frame exitoso (sin liveness) para máxima velocidad
-               setFaceStatus('ready');
-               prepareActionSelect(emp);
-            } else if (detections.detection.score >= 0.85) {
-               setFaceStatus('unknown');
-               setStatusMessage(`Rostro no coincide con empleado ${emp.codigo_empleado || emp.id.substring(0,6)}`);
-               setLivenessBuffer([]);
-            } 
+          if (nextCaptures.length >= RECOGNITION_CONFIG.MIN_ENROLLMENT_COUNT) {
+            setRegisterStatusMsg('Guardando embeddings...');
+            const ok = await faceService.saveEnrollment(refs.selectedRegisterEmp.id, nextCaptures);
+            setRegisterStatusMsg(ok ? '¡Biometría registrada (InsightFace)!' : 'Error guardando embeddings');
+            setTimeout(() => {
+              setIsRegistering(false);
+              setRegisterStep('pin');
+              setSelectedRegisterEmp(null);
+              setEnrollmentCaptures([]);
+              setEnrollmentPoseIndex(0);
+              stopVideo();
+              cooldownRef.current = false;
+            }, 2500);
+          } else {
+            setTimeout(() => { cooldownRef.current = false; }, 900);
           }
-        } catch (err) { console.error('Error face detection', err); }
+          return;
+        }
+
+        if (refs.isRegistering) return;
+
+        // 1:1 (código + rostro) o 1:N (solo rostro)
+        const useOneToOne = Boolean(refs.employeeToVerify);
+        if (!useOneToOne && refs.entryMode !== 'face') return;
+
+        const { analysis, match } = useOneToOne
+          ? await faceService.verifyEmployee(videoRef.current, refs.employeeToVerify.id)
+          : await faceService.identifyEmployee(videoRef.current);
+
+        if (!analysis.embedding) {
+          if (analysis.rejectReason?.includes('No se detectó')) setFaceStatus('searching');
+          else if (analysis.rejectReason?.includes('más de una')) setFaceStatus('unknown');
+          else setFaceStatus('adjusting');
+          if (analysis.rejectReason) setStatusMessage(analysis.rejectReason);
+          return;
+        }
+
+        if (match?.matched) {
+          setFaceStatus('ready');
+          if (useOneToOne) {
+            prepareActionSelect(refs.employeeToVerify);
+          } else if (match.employeeId) {
+            const emp = await fetchEmployeeById(match.employeeId);
+            if (!emp) {
+              setFaceStatus('unknown');
+              setStatusMessage('Empleado reconocido pero no encontrado en RRHH');
+              return;
+            }
+            prepareActionSelect(emp);
+          }
+        } else {
+          setFaceStatus('unknown');
+          setStatusMessage(
+            useOneToOne
+              ? `Rostro no coincide (${match?.confidence ?? 0}% · dist ${match?.distance?.toFixed(3) ?? '—'})`
+              : `Rostro no reconocido (${match?.confidence ?? 0}% · dist ${match?.distance?.toFixed(3) ?? '—'})`,
+          );
+        }
+      } catch (err) {
+        console.error('Error face detection', err);
+      } finally {
+        busy = false;
       }
-    }, 250);
+    }, RECOGNITION_CONFIG.FRAME_INTERVAL_MS);
 
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, [isCameraActive, isModelLoaded]);
@@ -321,6 +382,11 @@ export function BiometricKiosk() {
       setStatusMessage('');
       
       if (specialMode) {
+        if (!policies?.permitir_marcaje_especial || !isWithinPermissionWindow(policies)) {
+          setSpecialMode(false);
+          showError('Marcaje especial fuera del horario de permisos.');
+          return;
+        }
         setPendingJustification({
           action: 'MARCAJE_ESPECIAL',
           data: { employee, shift, logs },
@@ -336,6 +402,30 @@ export function BiometricKiosk() {
     }
   };
 
+  /** Marcaje especial desde la pantalla de acciones (tras reconocer al empleado). */
+  const openSpecialMarcajeFromActions = () => {
+    if (!pendingActionSelect) return;
+    if (!policies?.permitir_marcaje_especial || !isWithinPermissionWindow(policies)) {
+      showError('Marcaje especial fuera del horario de permisos.');
+      return;
+    }
+    const { employee, shift, logs } = pendingActionSelect;
+    setPendingActionSelect(null);
+    setSpecialMode(false);
+    setPendingJustification({
+      action: 'MARCAJE_ESPECIAL',
+      data: { employee, shift, logs },
+      options: policies?.justificaciones_marcaje_especial || [
+        'Reingreso a Laborar',
+        'Trabajo Extraordinario',
+        'Capacitación',
+        'Emergencia',
+        'Comisión Externa',
+        'Otros',
+      ],
+    });
+  };
+
   const handleActionSelect = (action: AllowedAction) => {
     const { employee, shift, logs } = pendingActionSelect;
     
@@ -348,6 +438,7 @@ export function BiometricKiosk() {
 
     const punchData = {
       employee,
+      shift,
       action,
       ...calculatePunches(action)
     };
@@ -355,17 +446,19 @@ export function BiometricKiosk() {
     setPendingActionSelect(null);
     stopVideo();
 
+    const pedirJustifReceso = policies?.regla_solicitar_justificacion_receso !== false;
+
     if (action === 'INGRESO' && (punchData.tardanza_segundos > 0 || punchData.minRetraso > 0)) {
       setPendingJustification({ action, data: punchData, options: policies?.justificaciones_llegada_tarde || ["Tráfico", "Transporte público", "Cita médica", "Emergencia familiar", "Otros"] });
       return;
     }
-    if (action === 'REGRESO_REFACCION' || action === 'DESAYUNO_FIN') {
+    if (pedirJustifReceso && (action === 'REGRESO_REFACCION' || action === 'DESAYUNO_FIN')) {
       if (punchData.exceso_desayuno_segundos > 0 || punchData.minExcesoBreak > 0) {
         setPendingJustification({ action, data: punchData, options: policies?.justificaciones_exceso_desayuno || ["Atención a cliente", "Reunión", "Demora en servicio", "Problema operativo", "Otros"] });
         return;
       }
     }
-    if (action === 'REGRESO_ALMUERZO' || action === 'ALMUERZO_FIN') {
+    if (pedirJustifReceso && (action === 'REGRESO_ALMUERZO' || action === 'ALMUERZO_FIN')) {
       if (punchData.exceso_almuerzo_segundos > 0 || punchData.minExcesoAlm > 0) {
         setPendingJustification({ action, data: punchData, options: policies?.justificaciones_exceso_almuerzo || ["Atención a cliente", "Reunión", "Demora en servicio", "Problema operativo", "Otros"] });
         return;
@@ -386,9 +479,15 @@ export function BiometricKiosk() {
       return;
     }
     const finalReason = selectedReason === 'Otros' ? otherReason : selectedReason;
-    const action = pendingJustification.action === 'MARCAJE_ESPECIAL' ? specialDirection : pendingJustification.action;
+    const isSpecial = pendingJustification.action === 'MARCAJE_ESPECIAL';
+    const action = isSpecial ? specialDirection : pendingJustification.action;
     
-    submitPunchFinal({ ...pendingJustification.data, action, razon: finalReason });
+    submitPunchFinal({
+      ...pendingJustification.data,
+      action,
+      razon: finalReason,
+      justificacion_tipo: isSpecial ? 'MARCAJE_ESPECIAL' : undefined,
+    });
   };
 
   const submitPunchFinal = async (punchData: any) => {
@@ -403,7 +502,8 @@ export function BiometricKiosk() {
 
       const now = new Date();
       const currentDay = (now.getDay() || 7).toString();
-      const daySchedule = punchData.employee?.company_shifts?.weekly_schedule ? punchData.employee.company_shifts.weekly_schedule[currentDay] : null;
+      const shift = punchData.shift || punchData.employee?.company_shifts;
+      const daySchedule = shift?.weekly_schedule ? shift.weekly_schedule[currentDay] : null;
 
       let hora_entrada_prog = null;
       let hora_salida_prog = null;
@@ -412,7 +512,6 @@ export function BiometricKiosk() {
         hora_salida_prog = daySchedule.salida;
       }
 
-      const shift = punchData.employee?.company_shifts;
       const desayuno_inicio_prog = shift?.ventana_desayuno_inicio || '09:00:00';
       const desayuno_fin_prog = shift?.ventana_desayuno_fin || '10:15:00';
       const almuerzo_inicio_prog = shift?.ventana_almuerzo_inicio || '12:00:00';
@@ -431,7 +530,7 @@ export function BiometricKiosk() {
           .eq('employee_id', punchData.employee.id)
           .order('timestamp', { ascending: false })
           .limit(1)
-          .single();
+          .maybeSingle();
         
         if (lastLog && lastLog.attendance_session_id && lastLog.evento_detectado !== 'SALIDA_FINAL') {
           attendance_session_id = lastLog.attendance_session_id;
@@ -444,53 +543,66 @@ export function BiometricKiosk() {
       }
 
       const tipo_jornada = punchData.esDiaExtra ? 'Descanso' : 'Laboral';
+      const minutosJust = Math.max(
+        punchData.minRetraso || 0,
+        punchData.minExcesoAlm || 0,
+        punchData.minExcesoBreak || 0,
+        punchData.minSalidaAnt || 0,
+      );
 
-      const { data: logData, error } = await supabase.from('time_logs').insert({
-        employee_id: punchData.employee.id,
-        evento_detectado: eventToLog,
-        attendance_session_id,
-        tipo_jornada,
-        
-        minutos_retraso_entrada: punchData.minRetraso,
-        minutos_exceso_almuerzo: Math.max(punchData.minExcesoAlm || 0, punchData.minExcesoBreak || 0),
-        minutos_salida_anticipada: punchData.minSalidaAnt,
-        minutos_extra: punchData.minExtra,
-        es_dia_extra: punchData.esDiaExtra,
-        justificacion: punchData.razon,
-        
-        hora_entrada_prog,
-        hora_salida_prog,
-        desayuno_inicio_prog,
-        desayuno_fin_prog,
-        almuerzo_inicio_prog,
-        almuerzo_fin_prog,
-        estado_marcacion: punchData.estado_marcacion,
-        tardanza_segundos: punchData.tardanza_segundos,
-        tiempo_desayuno_segundos: punchData.exceso_desayuno_segundos > 0 ? (punchData.exceso_desayuno_segundos + (policies?.duracion_desayuno_min||15)*60) : 0,
-        tiempo_almuerzo_segundos: punchData.exceso_almuerzo_segundos > 0 ? (punchData.exceso_almuerzo_segundos + (policies?.duracion_almuerzo_min||60)*60) : 0,
-        salida_anticipada_segundos: punchData.salida_anticipada_segundos,
-        horas_extra_segundos: punchData.horas_extra_segundos
-      }).select().single();
+      let justificacion_tipo: string | null = punchData.justificacion_tipo || null;
+      if (punchData.razon && !justificacion_tipo) {
+        justificacion_tipo = 'LLEGADA_TARDE';
+        if (eventToLog.includes('REGRESO_ALMUERZO') || eventToLog.includes('ALMUERZO_FIN')) {
+          justificacion_tipo = 'EXCESO_ALMUERZO';
+        } else if (eventToLog.includes('REGRESO_REFACCION') || eventToLog.includes('DESAYUNO_FIN')) {
+          justificacion_tipo = 'EXCESO_DESAYUNO';
+        } else if (
+          eventToLog.includes('SALIDA_FINAL') &&
+          (punchData.minSalidaAnt > 0 || punchData.salida_anticipada_segundos > 0)
+        ) {
+          justificacion_tipo = 'SALIDA_ANTICIPADA';
+        }
+      }
+
+      const { data: logData, error } = await supabase.rpc('kiosk_insert_time_log', {
+        p_payload: {
+          employee_id: punchData.employee.id,
+          evento_detectado: eventToLog,
+          attendance_session_id,
+          tipo_jornada,
+          minutos_retraso_entrada: punchData.minRetraso || 0,
+          minutos_exceso_almuerzo: Math.max(punchData.minExcesoAlm || 0, punchData.minExcesoBreak || 0),
+          minutos_salida_anticipada: punchData.minSalidaAnt || 0,
+          minutos_extra: punchData.minExtra || 0,
+          es_dia_extra: !!punchData.esDiaExtra,
+          justificacion: punchData.razon || null,
+          justificacion_tipo: punchData.razon ? justificacion_tipo : null,
+          minutos_justificacion: minutosJust,
+          hora_entrada_prog,
+          hora_salida_prog,
+          desayuno_inicio_prog,
+          desayuno_fin_prog,
+          almuerzo_inicio_prog,
+          almuerzo_fin_prog,
+          estado_marcacion: punchData.estado_marcacion || null,
+          tardanza_segundos: punchData.tardanza_segundos || 0,
+          tiempo_desayuno_segundos:
+            punchData.exceso_desayuno_segundos > 0
+              ? punchData.exceso_desayuno_segundos + (policies?.duracion_desayuno_min || 15) * 60
+              : 0,
+          tiempo_almuerzo_segundos:
+            punchData.exceso_almuerzo_segundos > 0
+              ? punchData.exceso_almuerzo_segundos + (policies?.duracion_almuerzo_min || 60) * 60
+              : 0,
+          salida_anticipada_segundos: punchData.salida_anticipada_segundos || 0,
+          horas_extra_segundos: punchData.horas_extra_segundos || 0,
+        },
+        p_device_pin: getKioskBiometricPin(),
+      });
 
       if (error) throw error;
-
-      if (punchData.razon) {
-         let tipoJust = 'LLEGADA_TARDE';
-         if (eventToLog.includes('REGRESO_ALMUERZO') || eventToLog.includes('ALMUERZO_FIN')) tipoJust = 'EXCESO_ALMUERZO';
-         else if (eventToLog.includes('REGRESO_REFACCION') || eventToLog.includes('DESAYUNO_FIN')) tipoJust = 'EXCESO_DESAYUNO';
-         else if (eventToLog.includes('SALIDA_FINAL') && (punchData.minSalidaAnt > 0 || punchData.salida_anticipada_segundos > 0)) tipoJust = 'SALIDA_ANTICIPADA';
-         else if (eventToLog === 'MARCAJE_ESPECIAL') tipoJust = 'MARCAJE_ESPECIAL';
-
-         await supabase.from('time_justifications').insert({
-            time_log_id: logData.id,
-            employee_id: punchData.employee.id,
-            tipo: tipoJust,
-            minutos_calculados: Math.max(punchData.minRetraso, punchData.minExcesoAlm, punchData.minExcesoBreak, punchData.minSalidaAnt),
-            estado: 'PENDIENTE',
-            descripcion: punchData.razon,
-            resolucion: 'Pendiente'
-         });
-      }
+      if (!logData?.id) throw new Error('No se recibió el marcaje.');
 
       setMatchStatus('success');
       const shortName = getShortName(punchData.employee.nombre_completo);
@@ -504,8 +616,10 @@ export function BiometricKiosk() {
       setStatusMessage(text);
       playTTS(eventToLog, shortName);
       resetCooldown(policies?.kiosko_tiempo_bloqueo_ms || 4000);
-    } catch (err) {
-      showError('Error guardando marcaje.');
+    } catch (err: any) {
+      console.error('Error guardando marcaje:', err);
+      const detail = err?.message || err?.error_description || '';
+      showError(detail ? `Error guardando marcaje: ${detail}` : 'Error guardando marcaje.');
     }
   };
 
@@ -529,7 +643,9 @@ export function BiometricKiosk() {
     setTimeout(() => {
       setMatchStatus('idle'); setStatusMessage(''); setPendingActionSelect(null); setPendingJustification(null);
       setSelectedReason(''); setOtherReason(''); setSpecialMode(false); setSpecialDirection('INGRESO');
-      setFaceStatus('searching'); setEmployeeInput(''); setEmployeeToVerify(null); setConsecutiveMatches(0); setLivenessBuffer([]);
+      setFaceStatus('searching'); setEmployeeInput(''); setEmployeeToVerify(null);
+      setEntryMode('menu');
+      setEnrollmentCaptures([]); setEnrollmentPoseIndex(0);
       cooldownRef.current = false; stopVideo();
     }, ms);
   };
@@ -545,18 +661,30 @@ export function BiometricKiosk() {
 
   return (
     <div className="relative w-full overflow-hidden rounded-[2rem] bg-black shadow-2xl flex flex-col items-center">
-      <button onClick={() => { if (!isCameraActive) startVideo(); setSpecialMode(true); }} className={`absolute top-4 right-4 z-30 flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider transition-all ${specialMode ? 'bg-[#2ec4f1] text-white shadow-[0_0_15px_rgba(46,196,241,0.5)]' : 'bg-white/10 text-white/50 hover:bg-white/20'}`}>
-        <ShieldAlert className="w-3 h-3" /> Marcaje Especial
-      </button>
+      {policies?.permitir_marcaje_especial !== false && (
+        <button
+          onClick={() => {
+            if (!isWithinPermissionWindow(policies)) {
+              showError('Marcaje especial solo entre el horario de permisos configurado.');
+              return;
+            }
+            setSpecialMode(true);
+            if (!isCameraActive) startFacePunch();
+          }}
+          className={`absolute top-4 right-4 z-30 flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider transition-all ${specialMode ? 'bg-[#2ec4f1] text-white shadow-[0_0_15px_rgba(46,196,241,0.5)]' : 'bg-white/10 text-white/50 hover:bg-white/20'}`}
+        >
+          <ShieldAlert className="w-3 h-3" /> Marcaje Especial
+        </button>
+      )}
 
-      {!isCameraActive && !isRegistering && (
+      {!isCameraActive && !isRegistering && entryMode === 'menu' && (
         <button onClick={() => { setIsRegistering(true); setRegisterStep('pin'); setPinCode(''); }} className="absolute top-4 left-4 z-30 flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider transition-all bg-white/10 text-white/50 hover:bg-white/20">
           <Camera className="w-3 h-3" /> Registrar Rostro
         </button>
       )}
 
       {isCameraActive && !isRegistering && (
-        <button onClick={() => { stopVideo(); resetCooldown(100); }} className="absolute top-4 left-4 z-30 flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider transition-all bg-rose-500/20 text-rose-400 hover:bg-rose-500/40">
+        <button onClick={backToMenu} className="absolute top-4 left-4 z-30 flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider transition-all bg-rose-500/20 text-rose-400 hover:bg-rose-500/40">
           <AlertCircle className="w-3 h-3" /> Cerrar Cámara
         </button>
       )}
@@ -570,44 +698,79 @@ export function BiometricKiosk() {
                      {policies?.kiosko_mensaje_bienvenida || 'Bienvenido a Tech Corps Guatemala'}
                    </p>
                  </div>
-                 <p className="text-slate-300 text-xs font-medium leading-relaxed text-center mb-4">
-                   Ingrese su <strong className="text-white">Código de Empleado</strong> para verificar su identidad.
-                 </p>
-                 
-                 <div className="w-full relative mb-4">
-                   <input 
-                     type="text" 
-                     value={employeeInput} 
-                     onChange={(e) => setEmployeeInput(e.target.value)}
-                     onKeyDown={(e) => e.key === 'Enter' && handleVerifyCode()}
-                     placeholder="Código"
-                     className="w-full bg-slate-900 border-2 border-[#2ec4f1]/50 focus:border-[#2ec4f1] text-white text-center text-3xl font-black tracking-widest py-3 rounded-xl outline-none shadow-inner transition-colors"
-                     autoFocus
-                   />
-                 </div>
 
-                 {/* Numpad */}
-                 <div className="grid grid-cols-3 gap-2 w-full mb-4">
-                    {[1,2,3,4,5,6,7,8,9].map(num => (
-                      <button key={num} onClick={() => setEmployeeInput(prev => prev + num)} className="bg-slate-700 hover:bg-slate-600 text-white font-black text-xl py-3 rounded-lg transition-colors shadow-sm">
-                        {num}
-                      </button>
-                    ))}
-                    <button onClick={() => setEmployeeInput('')} className="bg-rose-500/20 hover:bg-rose-500/40 text-rose-400 font-bold text-xs uppercase py-3 rounded-lg transition-colors">
-                      Borrar
-                    </button>
-                    <button onClick={() => setEmployeeInput(prev => prev + '0')} className="bg-slate-700 hover:bg-slate-600 text-white font-black text-xl py-3 rounded-lg transition-colors shadow-sm">
-                      0
-                    </button>
-                    <button onClick={() => setEmployeeInput(prev => prev.slice(0, -1))} className="bg-slate-700 hover:bg-slate-600 text-white font-bold text-sm uppercase py-3 rounded-lg transition-colors flex items-center justify-center">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M3 12l6.414 6.414a2 2 0 001.414.586H19a2 2 0 002-2V7a2 2 0 00-2-2h-8.172a2 2 0 00-1.414.586L3 12z" /></svg>
-                    </button>
-                 </div>
+                 {entryMode === 'menu' && (
+                   <>
+                     <p className="text-slate-300 text-xs font-medium leading-relaxed text-center mb-6">
+                       Elija cómo desea <strong className="text-white">marcar su asistencia</strong>.
+                     </p>
+                     <button
+                       onClick={startFacePunch}
+                       className="w-full py-5 mb-3 bg-[#2ec4f1] hover:bg-[#2ec4f1]/80 text-slate-950 font-black text-lg tracking-wide rounded-xl transition-all transform hover:scale-[1.02] active:scale-95 shadow-[0_0_20px_rgba(46,196,241,0.35)] flex items-center justify-center gap-3"
+                     >
+                       <ScanFace className="w-7 h-7" />
+                       Reconocimiento Facial
+                     </button>
+                     <button
+                       onClick={() => { setEntryMode('code'); setEmployeeInput(''); setStatusMessage(''); }}
+                       className="w-full py-4 bg-slate-700/80 hover:bg-slate-600 text-white font-bold text-sm tracking-wide rounded-xl transition-all border border-slate-600 flex items-center justify-center gap-2"
+                     >
+                       <Hash className="w-5 h-5 text-[#2ec4f1]" />
+                       Usar código de empleado
+                     </button>
+                   </>
+                 )}
 
-                 <button onClick={handleVerifyCode} disabled={!employeeInput || matchStatus === 'verifying'} className="w-full py-4 bg-[#2ec4f1] hover:bg-[#2ec4f1]/80 text-slate-950 font-black text-lg tracking-widest rounded-xl transition-all transform hover:scale-[1.02] active:scale-95 shadow-[0_0_15px_rgba(46,196,241,0.3)] disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2">
-                   {matchStatus === 'verifying' ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Siguiente'}
-                 </button>
-                 {statusMessage && <p className={`mt-3 text-xs font-bold ${matchStatus === 'error' ? 'text-rose-400' : 'text-[#2ec4f1]'}`}>{statusMessage}</p>}
+                 {entryMode === 'code' && (
+                   <>
+                     <button
+                       onClick={() => { setEntryMode('menu'); setEmployeeInput(''); setStatusMessage(''); }}
+                       className="self-start mb-3 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-slate-400 hover:text-white transition-colors"
+                     >
+                       <ArrowLeft className="w-3.5 h-3.5" /> Volver
+                     </button>
+                     <p className="text-slate-300 text-xs font-medium leading-relaxed text-center mb-4">
+                       Ingrese su <strong className="text-white">Código de Empleado</strong> y luego confirme con su rostro.
+                     </p>
+
+                     <div className="w-full relative mb-4">
+                       <input
+                         type="text"
+                         value={employeeInput}
+                         onChange={(e) => setEmployeeInput(e.target.value)}
+                         onKeyDown={(e) => e.key === 'Enter' && handleVerifyCode()}
+                         placeholder="Código"
+                         className="w-full bg-slate-900 border-2 border-[#2ec4f1]/50 focus:border-[#2ec4f1] text-white text-center text-3xl font-black tracking-widest py-3 rounded-xl outline-none shadow-inner transition-colors"
+                         autoFocus
+                       />
+                     </div>
+
+                     <div className="grid grid-cols-3 gap-2 w-full mb-4">
+                        {[1,2,3,4,5,6,7,8,9].map(num => (
+                          <button key={num} onClick={() => setEmployeeInput(prev => prev + num)} className="bg-slate-700 hover:bg-slate-600 text-white font-black text-xl py-3 rounded-lg transition-colors shadow-sm">
+                            {num}
+                          </button>
+                        ))}
+                        <button onClick={() => setEmployeeInput('')} className="bg-rose-500/20 hover:bg-rose-500/40 text-rose-400 font-bold text-xs uppercase py-3 rounded-lg transition-colors">
+                          Borrar
+                        </button>
+                        <button onClick={() => setEmployeeInput(prev => prev + '0')} className="bg-slate-700 hover:bg-slate-600 text-white font-black text-xl py-3 rounded-lg transition-colors shadow-sm">
+                          0
+                        </button>
+                        <button onClick={() => setEmployeeInput(prev => prev.slice(0, -1))} className="bg-slate-700 hover:bg-slate-600 text-white font-bold text-sm uppercase py-3 rounded-lg transition-colors flex items-center justify-center">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M3 12l6.414 6.414a2 2 0 001.414.586H19a2 2 0 002-2V7a2 2 0 00-2-2h-8.172a2 2 0 00-1.414.586L3 12z" /></svg>
+                        </button>
+                     </div>
+
+                     <button onClick={handleVerifyCode} disabled={!employeeInput || matchStatus === 'verifying'} className="w-full py-4 bg-[#2ec4f1] hover:bg-[#2ec4f1]/80 text-slate-950 font-black text-lg tracking-widest rounded-xl transition-all transform hover:scale-[1.02] active:scale-95 shadow-[0_0_15px_rgba(46,196,241,0.3)] disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2">
+                       {matchStatus === 'verifying' ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Siguiente'}
+                     </button>
+                   </>
+                 )}
+
+                 {statusMessage && entryMode !== 'face' && (
+                   <p className={`mt-3 text-xs font-bold ${matchStatus === 'error' ? 'text-rose-400' : 'text-[#2ec4f1]'}`}>{statusMessage}</p>
+                 )}
               </div>
            </div>
         ) : (
@@ -616,14 +779,19 @@ export function BiometricKiosk() {
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
             
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-               <div className={`w-72 h-72 rounded-full border-[6px] transition-colors duration-300 flex items-end justify-center pb-8 ${faceStatus === 'searching' ? 'border-rose-500 shadow-[0_0_30px_rgba(244,63,94,0.5)]' : faceStatus === 'adjusting' ? 'border-amber-400 shadow-[0_0_30px_rgba(251,191,36,0.5)]' : faceStatus === 'unknown' ? 'border-purple-500 shadow-[0_0_30px_rgba(168,85,247,0.5)]' : 'border-emerald-500 shadow-[0_0_30px_rgba(16,185,129,0.5)]'}`}>
+               <div className={`w-72 h-72 rounded-full border-[6px] transition-colors duration-300 flex flex-col items-center justify-end pb-6 gap-2 ${faceStatus === 'searching' ? 'border-rose-500 shadow-[0_0_30px_rgba(244,63,94,0.5)]' : faceStatus === 'adjusting' ? 'border-amber-400 shadow-[0_0_30px_rgba(251,191,36,0.5)]' : faceStatus === 'unknown' ? 'border-purple-500 shadow-[0_0_30px_rgba(168,85,247,0.5)]' : 'border-emerald-500 shadow-[0_0_30px_rgba(16,185,129,0.5)]'}`}>
                   <span className={`px-4 py-1 rounded-full text-xs font-black uppercase tracking-widest backdrop-blur-md ${faceStatus === 'searching' ? 'bg-rose-500/80 text-white' : faceStatus === 'adjusting' ? 'bg-amber-400/80 text-black' : faceStatus === 'unknown' ? 'bg-purple-500/80 text-white' : 'bg-emerald-500/80 text-white'}`}>
                     {faceStatus === 'searching' && 'Buscando rostro'}
-                    {faceStatus === 'adjusting' && 'Ajustando posición'}
+                    {faceStatus === 'adjusting' && 'Ajustando captura'}
                     {faceStatus === 'unknown' && 'Rostro desconocido'}
                     {faceStatus === 'ready' && 'Rostro listo'}
                     {faceStatus === 'capturing' && 'Capturando...'}
                   </span>
+                  {isCameraActive && !isRegistering && statusMessage && faceStatus !== 'ready' && (
+                    <span className="max-w-[16rem] px-3 py-1 rounded-lg bg-black/70 text-white text-[11px] font-semibold leading-snug text-center backdrop-blur-sm">
+                      {statusMessage}
+                    </span>
+                  )}
                </div>
             </div>
             
@@ -654,7 +822,14 @@ export function BiometricKiosk() {
                   <h2 className="text-xl font-black text-white text-center mb-4">Seleccionar Empleado a Registrar</h2>
                   <div className="max-h-72 overflow-y-auto bg-slate-800 rounded-xl mb-4 border border-slate-700 p-2">
                      {registerEmployees.length > 0 ? registerEmployees.map(emp => (
-                        <button key={emp.id} onClick={() => { setSelectedRegisterEmp(emp); setRegisterStep('capture'); startVideo(); }} className="w-full text-left px-4 py-3 border-b border-slate-700/50 text-white hover:bg-[#2ec4f1]/20 hover:text-[#2ec4f1] font-bold rounded-lg transition-colors">
+                        <button key={emp.id} onClick={() => {
+                          setSelectedRegisterEmp(emp);
+                          setEnrollmentCaptures([]);
+                          setEnrollmentPoseIndex(0);
+                          setRegisterStep('capture');
+                          setRegisterStatusMsg(POSE_INSTRUCTIONS.FRONT);
+                          startVideo();
+                        }} className="w-full text-left px-4 py-3 border-b border-slate-700/50 text-white hover:bg-[#2ec4f1]/20 hover:text-[#2ec4f1] font-bold rounded-lg transition-colors">
                            {emp.nombre_completo}
                         </button>
                      )) : <p className="text-center text-slate-400 py-4">Cargando empleados...</p>}
@@ -722,6 +897,16 @@ export function BiometricKiosk() {
                   <span className="text-sm font-bold">Finalizar Turno</span>
                 </button>
               )}
+
+              {allowedActions.includes('MARCAJE_ESPECIAL') && (
+                <button
+                  onClick={openSpecialMarcajeFromActions}
+                  className="flex flex-col items-center justify-center gap-2 p-4 bg-purple-500/20 hover:bg-purple-500/40 border border-purple-500/30 rounded-2xl text-white transition-colors col-span-2"
+                >
+                  <ShieldAlert className="w-6 h-6 text-purple-300" />
+                  <span className="text-sm font-bold">Marcaje Especial</span>
+                </button>
+              )}
             </div>
 
             <button onClick={() => resetCooldown(100)} className="mt-8 text-slate-400 hover:text-white text-xs font-bold uppercase tracking-widest underline transition-colors">
@@ -749,7 +934,9 @@ export function BiometricKiosk() {
 
               <select value={selectedReason} onChange={e => setSelectedReason(e.target.value)} className="w-full h-14 bg-slate-800 border-2 border-slate-700 rounded-xl px-4 text-white font-bold outline-none focus:border-amber-500">
                 <option value="" disabled>Seleccione una justificación...</option>
-                {pendingJustification.options.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
+                {Array.from(new Set((pendingJustification.options || []) as string[])).map((opt) => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
               </select>
 
               {selectedReason === 'Otros' && (
@@ -773,10 +960,19 @@ export function BiometricKiosk() {
         {matchStatus === 'error' && <AlertCircle className="w-8 h-8" />}
         <div className="flex-1">
           <p className="text-xs font-black uppercase tracking-widest opacity-70">
-            {matchStatus === 'idle' ? (isCameraActive ? 'Kiosko Biométrico Activo' : 'Sistema en Espera') : matchStatus}
+            {matchStatus === 'idle'
+              ? (isCameraActive ? 'Reconocimiento Facial' : 'Sistema en Espera')
+              : matchStatus}
           </p>
           <h3 className="text-lg font-bold leading-tight">
-            {matchStatus === 'idle' ? (isCameraActive ? 'Ubique su rostro dentro del recuadro' : 'Presione MARCAR para iniciar') : statusMessage}
+            {matchStatus === 'idle'
+              ? (isCameraActive
+                  ? (statusMessage
+                      || (employeeToVerify
+                        ? `Confirme rostro · ${getShortName(employeeToVerify.nombre_completo)}`
+                        : 'Ubique su rostro dentro del círculo'))
+                  : 'Seleccione reconocimiento facial o código')
+              : statusMessage}
           </h3>
         </div>
       </div>

@@ -183,7 +183,12 @@ async function isValidSupabaseToken(token: string): Promise<boolean> {
 /** Acepta un Bearer token válido como compatibilidad (apiFetch legacy). */
 async function hasValidBearer(req: NextRequest): Promise<boolean> {
   const token = getBearerToken(req);
-  return Boolean(token && (await isValidSupabaseToken(token)));
+  if (!token) return false;
+  // Vercel Cron envía `Authorization: Bearer <CRON_SECRET>`. No validar ese
+  // valor contra Auth (genera 403 ruidosos en /auth/v1/user).
+  const cronSecret = process.env.CRON_SECRET?.trim();
+  if (cronSecret && token === cronSecret) return false;
+  return isValidSupabaseToken(token);
 }
 
 function applySecurityHeaders(res: NextResponse): NextResponse {
@@ -267,11 +272,12 @@ export async function middleware(req: NextRequest) {
     }
     rateLimit = rl;
 
-    // SEC-01: sesión (cookies), Bearer válido, o cron interno con CRON_SECRET.
+    // SEC-01: sesión (cookies), cron interno, o Bearer JWT válido.
+    // Cron ANTES de hasValidBearer: Vercel envía Bearer=<CRON_SECRET> y si se
+    // valida primero contra Supabase Auth produce 403 en /auth/v1/user en cada tick.
+    const cronOk = isCronInternalPath(pathname) && isValidCronSecret(req);
     const authed =
-      Boolean(sessionUser) ||
-      (await hasValidBearer(req)) ||
-      (isCronInternalPath(pathname) && isValidCronSecret(req));
+      Boolean(sessionUser) || cronOk || (await hasValidBearer(req));
     if (!authed) {
       const denied = NextResponse.json({ error: 'No autenticado' }, { status: 401 });
       return applyCorrelationHeaders(

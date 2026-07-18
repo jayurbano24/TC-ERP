@@ -6,13 +6,33 @@ import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { confirmDialog } from '@/components/ui';
 import { Settings, Save, Clock, AlertCircle, Speaker, ShieldAlert, History, GitCommit, RotateCcw, Copy, Eye, CheckCircle2, ChevronRight, CheckSquare, Plus, X } from 'lucide-react';
 
+const uniqueJustificationOptions = (options: string[]) => {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of options || []) {
+    const opt = String(raw || '').trim();
+    if (!opt) continue;
+    const key = opt.toLocaleLowerCase('es');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(opt);
+  }
+  return out;
+};
+
 const ListEditor = ({ name, title, defaultOptions, settings, setSettings }: any) => {
-  const list = settings[name] || defaultOptions;
+  const list = uniqueJustificationOptions(settings[name] || defaultOptions);
   const [newValue, setNewValue] = useState('');
 
   const handleAdd = () => {
-    if (!newValue.trim()) return;
-    setSettings({ ...settings, [name]: [...list, newValue.trim()] });
+    const next = newValue.trim();
+    if (!next) return;
+    const exists = list.some((opt) => opt.toLocaleLowerCase('es') === next.toLocaleLowerCase('es'));
+    if (exists) {
+      setNewValue('');
+      return;
+    }
+    setSettings({ ...settings, [name]: [...list, next] });
     setNewValue('');
   };
 
@@ -40,7 +60,7 @@ const ListEditor = ({ name, title, defaultOptions, settings, setSettings }: any)
       </div>
       <div className="space-y-2 overflow-y-auto pr-2 flex-1 max-h-48">
         {list.map((opt: string, idx: number) => (
-          <div key={idx} className="flex justify-between items-center bg-white border border-slate-100 px-3 py-2 rounded-lg shadow-sm group">
+          <div key={`${opt}-${idx}`} className="flex justify-between items-center bg-white border border-slate-100 px-3 py-2 rounded-lg shadow-sm group">
             <span className="text-sm font-medium text-slate-700">{opt}</span>
             <button onClick={() => handleRemove(idx)} className="text-slate-300 hover:text-rose-500 transition-colors opacity-0 group-hover:opacity-100">
               <X className="w-4 h-4" />
@@ -173,7 +193,21 @@ export default function ConfiguracionPoliticasTab() {
           .eq('id', activePolicy.id);
       }
 
-      // 4. Insert new policy
+      // 4. Insert new policy (dedupe listas de justificación)
+      const justificationKeys = [
+        'justificaciones_llegada_tarde',
+        'justificaciones_exceso_desayuno',
+        'justificaciones_exceso_almuerzo',
+        'justificaciones_salida_anticipada',
+        'justificaciones_marcaje_especial',
+      ] as const;
+      const cleanedSettings = { ...settings };
+      for (const key of justificationKeys) {
+        if (Array.isArray(cleanedSettings[key])) {
+          cleanedSettings[key] = uniqueJustificationOptions(cleanedSettings[key]);
+        }
+      }
+
       const { error } = await supabase
         .from('hr_policies_versions')
         .insert({
@@ -181,7 +215,7 @@ export default function ConfiguracionPoliticasTab() {
           is_active: true,
           created_by: userId,
           created_by_name: userName,
-          settings: settings
+          settings: cleanedSettings
         });
 
       if (error) throw error;

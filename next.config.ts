@@ -13,6 +13,30 @@ const nextConfig: NextConfig = {
   experimental: {
     proxyClientMaxBodySize: '32mb',
   },
+  // WASM / COOP para onnxruntime-web en kiosco biométrico
+  async headers() {
+    return [
+      {
+        source: '/onnx/:path*',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
+        ],
+      },
+      {
+        source: '/models/insightface/:path*',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
+        ],
+      },
+    ];
+  },
+  webpack: (config) => {
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      // Evita bundlear fs en cliente ORT
+    };
+    return config;
+  },
 };
 
 export default nextConfig;

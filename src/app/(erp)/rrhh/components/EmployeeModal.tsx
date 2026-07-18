@@ -1,8 +1,15 @@
 import { useState, useRef, useEffect } from 'react';
 import { Button, Spinner, notify, confirmDialog } from '@/components/ui';
 import { X, Camera, UploadCloud, User, Briefcase, Fingerprint, Banknote, Trash2 } from 'lucide-react';
-import * as faceapi from 'face-api.js';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import {
+  ENROLLMENT_POSES,
+  POSE_INSTRUCTIONS,
+  RECOGNITION_CONFIG,
+  faceEmbeddingRepository,
+  getInsightFaceService,
+  type EnrollmentCapture,
+} from '@/lib/face-recognition';
 
 export default function EmployeeModal({ 
   isOpen, 
@@ -87,147 +94,155 @@ export default function EmployeeModal({
         inicio_temporada: employee.inicio_temporada || '',
         fin_temporada: employee.fin_temporada || ''
       });
-      // Biometrics logic can be handled separately, maybe pre-fill if face_embedding exists
-      if (employee.face_embedding) {
-         setFaceEmbedding(employee.face_embedding);
-      } else {
-         setFaceEmbedding(null);
-      }
+      void (async () => {
+        const count = await faceEmbeddingRepository.countActiveForEmployee(employee.id);
+        setHasBiometrics(count > 0);
+      })();
     } else {
-      // Reset form
       setFormData({
         nombre_completo: '', dpi: '', nit: '', igss: '', fecha_nacimiento: '', sexo: 'Masculino', estado_civil: 'Soltero(a)', direccion: '', telefono: '', email: '', banco: '', numero_cuenta: '', tipo_pago: 'Transferencia', contacto_emergencia_nombre: '', contacto_emergencia_telefono: '', contacto_emergencia_relacion: '', department_id: '', position_id: '', employee_type_id: '', tipo_contrato: 'Fijo', fecha_inicio_labores: new Date().toISOString().split('T')[0], sueldo_mensual_base: '', shift_id: '', inicio_temporada: '', fin_temporada: ''
       });
-      setFaceEmbedding(null);
+      setHasBiometrics(false);
+      setPendingCaptures([]);
     }
   }, [employee]);
 
   // Biometrics
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isCameraActive, setIsCameraActive] = useState(false);
-  const [faceEmbedding, setFaceEmbedding] = useState<number[] | null>(null);
+  const [hasBiometrics, setHasBiometrics] = useState(false);
+  const [pendingCaptures, setPendingCaptures] = useState<EnrollmentCapture[]>([]);
+  const [poseIndex, setPoseIndex] = useState(0);
   const [biometricStatus, setBiometricStatus] = useState<'idle' | 'scanning' | 'success' | 'error'>('idle');
+  const [bioMessage, setBioMessage] = useState('');
 
   if (!isOpen) return null;
 
   const handleDeleteFace = async () => {
     if (!employee?.id) {
-       setFaceEmbedding(null);
-       return;
+      setHasBiometrics(false);
+      setPendingCaptures([]);
+      return;
     }
     const confirmDelete = await confirmDialog({
       title: 'Eliminar rostro',
-      message: '¿Está seguro de que desea eliminar el rostro registrado de este empleado?',
+      message: '¿Eliminar todos los embeddings activos de este empleado?',
       tone: 'error',
       confirmText: 'Eliminar',
     });
     if (!confirmDelete) return;
-    
+
     setLoading(true);
     try {
-      const supabase = getSupabaseBrowserClient();
-      if (supabase) {
-         const { error } = await supabase.from('employees').update({ face_embedding: null }).eq('id', employee.id);
-         if (!error) {
-           setFaceEmbedding(null);
-           notify.success('Rostro eliminado correctamente', { description: 'Ya puede registrar este rostro en otro usuario.' });
-         } else {
-           notify.error('Error eliminando rostro', { description: error.message });
-         }
-      }
+      await faceEmbeddingRepository.deactivateForEmployee(employee.id);
+      setHasBiometrics(false);
+      setPendingCaptures([]);
+      notify.success('Biometría desactivada', { description: 'Puede re-enrolar al empleado.' });
     } catch (err: any) {
-      notify.error('Error eliminando rostro', { description: err.message });
+      notify.error('Error eliminando biometría', { description: err.message });
     } finally {
       setLoading(false);
     }
   };
 
+  const stopCamera = (stream?: MediaStream | null) => {
+    const s = stream ?? (videoRef.current?.srcObject as MediaStream | null);
+    s?.getTracks().forEach((track) => track.stop());
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setIsCameraActive(false);
+  };
+
   const startCamera = async () => {
     setIsCameraActive(true);
     setBiometricStatus('scanning');
+    setPendingCaptures([]);
+    setPoseIndex(0);
+    setBioMessage(POSE_INSTRUCTIONS.FRONT);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        
-        // Wait a bit for the video to start playing
-        await new Promise(r => setTimeout(r, 1000));
-        
-        try {
-          await Promise.all([
-            faceapi.nets.ssdMobilenetv1.loadFromUri('/models'),
-            faceapi.nets.faceLandmark68Net.loadFromUri('/models'),
-            faceapi.nets.faceRecognitionNet.loadFromUri('/models')
-          ]);
-        } catch (modelErr) {
-          console.error("Error loading models:", modelErr);
-          setBiometricStatus('error');
-          stopCamera(stream);
+      const faceService = getInsightFaceService();
+      await faceService.initialize();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      });
+      if (!videoRef.current) {
+        stopCamera(stream);
+        return;
+      }
+      videoRef.current.srcObject = stream;
+      await new Promise((r) => setTimeout(r, 800));
+
+      const captures: EnrollmentCapture[] = [];
+      let idx = 0;
+      let attempts = 0;
+      const maxAttempts = 120;
+
+      const tick = async () => {
+        if (!videoRef.current || attempts >= maxAttempts) {
+          if (captures.length < RECOGNITION_CONFIG.MIN_ENROLLMENT_COUNT) {
+            setBiometricStatus('error');
+            setBioMessage('No se completó el enrolamiento. Intente de nuevo.');
+            setTimeout(() => { setBiometricStatus('idle'); stopCamera(stream); }, 2500);
+          }
+          return;
+        }
+        attempts++;
+        const pose = ENROLLMENT_POSES[idx] ?? 'FRONT';
+        setBioMessage(
+          `${POSE_INSTRUCTIONS[pose] || pose} (${captures.length + 1}/${RECOGNITION_CONFIG.MIN_ENROLLMENT_COUNT})`,
+        );
+        const result = await faceService.captureForEnrollment(videoRef.current, pose);
+        if ('error' in result) {
+          setTimeout(tick, 400);
           return;
         }
 
-        let attempts = 0;
-        const maxAttempts = 20; // 20 attempts = ~10 seconds
-        
-        const scanInterval = setInterval(async () => {
-          if (!videoRef.current || attempts >= maxAttempts) {
-            clearInterval(scanInterval);
-            if (attempts >= maxAttempts) {
-              setBiometricStatus('error');
-              setTimeout(() => { setBiometricStatus('idle'); stopCamera(stream); setIsCameraActive(false); }, 3000);
-            }
+        if (captures.length === 0) {
+          const dup = await faceService.findDuplicateEmployee(result.embedding, employee?.id);
+          if (dup) {
+            notify.warning('Rostro duplicado', {
+              description: `Ya existe biometría similar (dist ${dup.distance.toFixed(3)}).`,
+            });
+            setBiometricStatus('idle');
+            stopCamera(stream);
             return;
           }
-          
-          attempts++;
-          const detections = await faceapi.detectSingleFace(videoRef.current)
-            .withFaceLandmarks()
-            .withFaceDescriptor();
+        }
 
-          if (detections) {
-            clearInterval(scanInterval);
-            const supabase = getSupabaseBrowserClient();
-            if (supabase) {
-              const { data: existingFaces } = await supabase.from('employees').select('id, nombre_completo, face_embedding').not('face_embedding', 'is', null);
-              if (existingFaces) {
-                let isDuplicate = false;
-                let duplicateName = '';
-                for (const emp of existingFaces) {
-                  if (employee && emp.id === employee.id) continue;
-                  const empDescriptor = new Float32Array(emp.face_embedding);
-                  const distance = faceapi.euclideanDistance(detections.descriptor, empDescriptor);
-                  if (distance < 0.45) {
-                    isDuplicate = true;
-                    duplicateName = emp.nombre_completo;
-                    break;
-                  }
-                }
-                if (isDuplicate) {
-                  notify.warning('Rostro duplicado', { description: `Este rostro ya está registrado bajo el empleado: ${duplicateName}. No se permiten duplicados.` });
-                  setBiometricStatus('idle');
-                  stopCamera(stream);
-                  setIsCameraActive(false);
-                  return;
-                }
-              }
+        captures.push(result);
+        setPendingCaptures([...captures]);
+        idx = Math.min(idx + 1, ENROLLMENT_POSES.length - 1);
+        setPoseIndex(idx);
+
+        if (captures.length >= RECOGNITION_CONFIG.MIN_ENROLLMENT_COUNT) {
+          if (employee?.id) {
+            const ok = await faceService.saveEnrollment(employee.id, captures);
+            if (!ok) {
+              notify.error('No se pudieron guardar los embeddings');
+              setBiometricStatus('error');
+              stopCamera(stream);
+              return;
             }
-
-            setFaceEmbedding(Array.from(detections.descriptor));
-            setBiometricStatus('success');
-            stopCamera(stream);
+            setHasBiometrics(true);
+            setPendingCaptures([]);
           }
-        }, 500); // Poll every 500ms
-      }
+          setBiometricStatus('success');
+          setBioMessage('Enrolamiento completado');
+          stopCamera(stream);
+          notify.success('Biometría InsightFace registrada', {
+            description: `${captures.length} embeddings guardados`,
+          });
+          return;
+        }
+        setTimeout(tick, 700);
+      };
+
+      void tick();
     } catch (err) {
       console.error(err);
       setBiometricStatus('error');
       setIsCameraActive(false);
     }
-  };
-
-  const stopCamera = (stream: MediaStream) => {
-    stream.getTracks().forEach(track => track.stop());
-    setIsCameraActive(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -289,7 +304,6 @@ export default function EmployeeModal({
         shift_id: formData.shift_id || null,
         inicio_temporada: (formData.tipo_contrato === 'Temporada' && formData.inicio_temporada) ? formData.inicio_temporada : null,
         fin_temporada: (formData.tipo_contrato === 'Temporada' && formData.fin_temporada) ? formData.fin_temporada : null,
-        face_embedding: faceEmbedding,
         status: 'Activo'
       };
 
@@ -297,12 +311,12 @@ export default function EmployeeModal({
         payload.contrato_url = contrato_url;
       }
 
+      let savedEmployeeId = employee?.id as string | undefined;
       let error;
       if (employee?.id) {
         const { error: updateError } = await supabase.from('employees').update(payload).eq('id', employee.id);
         error = updateError;
       } else {
-        // Generar código consecutivo (ej. EMP-0022)
         const { data: allCodes } = await supabase.from('employees').select('codigo_empleado');
         let maxId = 0;
         if (allCodes) {
@@ -310,17 +324,26 @@ export default function EmployeeModal({
             const match = c.codigo_empleado?.match(/\d+/);
             if (match) {
               const num = parseInt(match[0], 10);
-              if (num > maxId && num < 100000) maxId = num; 
+              if (num > maxId && num < 100000) maxId = num;
             }
           });
         }
         payload.codigo_empleado = `EMP-${(maxId + 1).toString().padStart(4, '0')}`;
-        
-        const { error: insertError } = await supabase.from('employees').insert(payload);
+
+        const { data: inserted, error: insertError } = await supabase
+          .from('employees')
+          .insert(payload)
+          .select('id')
+          .single();
         error = insertError;
+        savedEmployeeId = inserted?.id;
       }
 
       if (error) throw error;
+
+      if (savedEmployeeId && pendingCaptures.length >= RECOGNITION_CONFIG.MIN_ENROLLMENT_COUNT) {
+        await getInsightFaceService().saveEnrollment(savedEmployeeId, pendingCaptures);
+      }
 
       onSuccess();
       onClose();
@@ -556,9 +579,13 @@ export default function EmployeeModal({
                 <div className="p-6 border border-slate-200 rounded-3xl bg-slate-50 space-y-6 shadow-inner">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h4 className="font-bold text-slate-800">Enrolamiento Biométrico Facial</h4>
+                      <h4 className="font-bold text-slate-800">Enrolamiento InsightFace (ArcFace)</h4>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Se capturan {RECOGNITION_CONFIG.MIN_ENROLLMENT_COUNT}–{RECOGNITION_CONFIG.MAX_ENROLLMENT_COUNT} poses.
+                        Calidad mínima {RECOGNITION_CONFIG.MIN_QUALITY_SCORE}/100.
+                      </p>
                     </div>
-                    {faceEmbedding ? (
+                    {hasBiometrics || pendingCaptures.length >= RECOGNITION_CONFIG.MIN_ENROLLMENT_COUNT ? (
                       <span className="bg-emerald-100 text-emerald-700 px-4 py-2 rounded-full text-xs font-black uppercase tracking-widest flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" /> Completado
                       </span>
@@ -569,42 +596,44 @@ export default function EmployeeModal({
                     )}
                   </div>
 
-                  {!faceEmbedding && !isCameraActive && (
+                  {!hasBiometrics && !isCameraActive && pendingCaptures.length < RECOGNITION_CONFIG.MIN_ENROLLMENT_COUNT && (
                     <Button type="button" variant="primary" className="w-full h-14 text-base font-bold shadow-lg shadow-[var(--accent)]/20" onClick={startCamera}>
                       <Camera className="w-5 h-5 mr-2" />
-                      Encender Cámara y Escanear
+                      Encender Cámara y Enrolar
                     </Button>
                   )}
 
                   {isCameraActive && (
                     <div className="relative w-full aspect-video bg-slate-900 rounded-2xl overflow-hidden flex items-center justify-center shadow-xl">
-                      <video ref={videoRef} autoPlay muted className="absolute inset-0 w-full h-full object-cover" />
+                      <video ref={videoRef} autoPlay muted playsInline className="absolute inset-0 w-full h-full object-cover" />
                       <div className="absolute inset-0 border-4 border-[#2ec4f1]/50 m-8 rounded-2xl pointer-events-none" />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent pointer-events-none" />
-                      
-                      {biometricStatus === 'scanning' && (
-                        <div className="absolute bottom-6 flex flex-col items-center animate-pulse">
-                          <span className="text-white text-sm font-black tracking-widest drop-shadow-md">ANALIZANDO ROSTRO...</span>
-                        </div>
-                      )}
-                      
-                      {biometricStatus === 'error' && (
-                        <div className="absolute bottom-6 bg-rose-500 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-lg">
-                          No se detectó un rostro claro.
-                        </div>
-                      )}
+                      <div className="absolute bottom-6 flex flex-col items-center px-4 text-center">
+                        <span className="text-white text-sm font-black tracking-widest drop-shadow-md">
+                          {bioMessage || 'ANALIZANDO ROSTRO...'}
+                        </span>
+                        <span className="text-white/70 text-xs mt-1">
+                          Pose {poseIndex + 1}/{ENROLLMENT_POSES.length} · capturas {pendingCaptures.length}
+                        </span>
+                      </div>
                     </div>
                   )}
 
-                  {faceEmbedding && (
+                  {(hasBiometrics || pendingCaptures.length >= RECOGNITION_CONFIG.MIN_ENROLLMENT_COUNT) && !isCameraActive && (
                     <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-center">
-                      <p className="text-emerald-800 font-bold text-sm">¡Rostro ya está registrado!</p>
+                      <p className="text-emerald-800 font-bold text-sm">
+                        {hasBiometrics
+                          ? 'Biometría activa en employee_face_embeddings'
+                          : `${pendingCaptures.length} capturas listas (se guardarán al finalizar)`}
+                      </p>
                       <div className="mt-4 flex gap-2 justify-center">
-                        <Button type="button" variant="outline" className="text-xs h-8 text-rose-600 border-rose-200 hover:bg-rose-50 hover:text-rose-700 transition-colors" onClick={handleDeleteFace}>
-                          <Trash2 className="w-4 h-4 mr-1" /> Eliminar Rostro
-                        </Button>
-                        <Button type="button" variant="outline" className="text-xs h-8" onClick={() => { setFaceEmbedding(null); startCamera(); }}>
-                          <Camera className="w-4 h-4 mr-1" /> Re-escanear
+                        {hasBiometrics && (
+                          <Button type="button" variant="outline" className="text-xs h-8 text-rose-600 border-rose-200 hover:bg-rose-50 hover:text-rose-700 transition-colors" onClick={handleDeleteFace}>
+                            <Trash2 className="w-4 h-4 mr-1" /> Eliminar Rostro
+                          </Button>
+                        )}
+                        <Button type="button" variant="outline" className="text-xs h-8" onClick={() => { setHasBiometrics(false); setPendingCaptures([]); startCamera(); }}>
+                          <Camera className="w-4 h-4 mr-1" /> Re-enrolar
                         </Button>
                       </div>
                     </div>

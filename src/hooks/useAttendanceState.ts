@@ -29,6 +29,27 @@ interface UseAttendanceStateProps {
   policies: any;
 }
 
+/** Parsea "HH:MM" o "HH:MM:SS" a minutos del día. */
+export function parsePolicyTimeToMins(timeStr: string | undefined, defaultMins: number): number {
+  if (!timeStr) return defaultMins;
+  const parts = String(timeStr).split(':');
+  if (parts.length < 2) return defaultMins;
+  const h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  if (Number.isNaN(h) || Number.isNaN(m)) return defaultMins;
+  return h * 60 + m;
+}
+
+/** Ventana de permisos especiales (marcaje especial) según políticas. */
+export function isWithinPermissionWindow(policies: any, now: Date = new Date()): boolean {
+  const currentMins = now.getHours() * 60 + now.getMinutes();
+  const start = parsePolicyTimeToMins(policies?.horario_permiso_inicio, 0);
+  const end = parsePolicyTimeToMins(policies?.horario_permiso_fin, 23 * 60 + 59);
+  if (start <= end) return currentMins >= start && currentMins <= end;
+  // Cruce de medianoche
+  return currentMins >= start || currentMins <= end;
+}
+
 export function useAttendanceState({ logs, shift, policies }: UseAttendanceStateProps) {
   
   const {
@@ -83,18 +104,19 @@ export function useAttendanceState({ logs, shift, policies }: UseAttendanceState
     const now = new Date();
     const currentMins = now.getHours() * 60 + now.getMinutes();
 
-    const parseTime = (timeStr: string | undefined, defaultMins: number) => {
-      if (!timeStr) return defaultMins;
-      const parts = timeStr.split(':');
-      if (parts.length < 2) return defaultMins;
-      return parseInt(parts[0]) * 60 + parseInt(parts[1]);
-    };
-
-    const desayunoStart = shift?.ventana_desayuno_inicio ? parseTime(shift.ventana_desayuno_inicio, 9*60) : parseTime(policies?.horario_desayuno_inicio, 9*60);
-    const desayunoEnd = shift?.ventana_desayuno_fin ? parseTime(shift.ventana_desayuno_fin, 10*60+15) : parseTime(policies?.horario_desayuno_fin, 10*60+15);
+    const desayunoStart = shift?.ventana_desayuno_inicio
+      ? parsePolicyTimeToMins(shift.ventana_desayuno_inicio, 9 * 60)
+      : parsePolicyTimeToMins(policies?.horario_desayuno_inicio, 9 * 60);
+    const desayunoEnd = shift?.ventana_desayuno_fin
+      ? parsePolicyTimeToMins(shift.ventana_desayuno_fin, 10 * 60 + 15)
+      : parsePolicyTimeToMins(policies?.horario_desayuno_fin, 10 * 60 + 15);
     
-    const almuerzoStart = shift?.ventana_almuerzo_inicio ? parseTime(shift.ventana_almuerzo_inicio, 12*60) : parseTime(policies?.horario_almuerzo_inicio, 12*60);
-    const almuerzoEnd = shift?.ventana_almuerzo_fin ? parseTime(shift.ventana_almuerzo_fin, 15*60+30) : parseTime(policies?.horario_almuerzo_fin, 15*60+30);
+    const almuerzoStart = shift?.ventana_almuerzo_inicio
+      ? parsePolicyTimeToMins(shift.ventana_almuerzo_inicio, 12 * 60)
+      : parsePolicyTimeToMins(policies?.horario_almuerzo_inicio, 12 * 60);
+    const almuerzoEnd = shift?.ventana_almuerzo_fin
+      ? parsePolicyTimeToMins(shift.ventana_almuerzo_fin, 15 * 60 + 30)
+      : parsePolicyTimeToMins(policies?.horario_almuerzo_fin, 15 * 60 + 30);
 
     switch (currentState) {
       case 'NO_INGRESO':
@@ -120,7 +142,7 @@ export function useAttendanceState({ logs, shift, policies }: UseAttendanceState
         break;
     }
 
-    if (policies?.permitir_marcaje_especial) {
+    if (policies?.permitir_marcaje_especial && isWithinPermissionWindow(policies, now)) {
       actions.push('MARCAJE_ESPECIAL');
     }
 
@@ -144,19 +166,18 @@ export function useAttendanceState({ logs, shift, policies }: UseAttendanceState
     let estado_marcacion = 'NORMAL';
 
     const tolIngreso = policies?.tolerancia_ingreso_min ?? 10;
-    const tolSalida = policies?.tolerancia_salida_min ?? 10;
+    /** Minutos permitidos antes del fin de turno sin justificar (salida anticipada). */
+    const graciaSalidaAnt = policies?.tolerancia_salida_min ?? 5;
     const duracionDesayuno = shift?.duracion_desayuno_override ?? policies?.duracion_desayuno_min ?? 15;
     const duracionAlmuerzo = shift?.duracion_almuerzo_override ?? policies?.duracion_almuerzo_min ?? 60;
     const maxExcesoReceso = policies?.gracia_recesos_min ?? policies?.max_exceso_receso_min ?? 5; 
 
     if (action === 'INGRESO') {
       if (daySchedule) {
-        // Cálculo antiguo
         const shiftEntradaMins = parseInt(daySchedule.entrada.split(':')[0]) * 60 + parseInt(daySchedule.entrada.split(':')[1]);
         if (currentMins > shiftEntradaMins + tolIngreso) {
           minRetraso = currentMins - shiftEntradaMins;
         }
-        // Cálculo nuevo exacto
         const [h, m, s] = (daySchedule.entrada + ':00').split(':').map(Number);
         const scheduledTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, s || 0).getTime();
         const toleranciaMs = tolIngreso * 60 * 1000;
@@ -171,12 +192,10 @@ export function useAttendanceState({ logs, shift, policies }: UseAttendanceState
       const salidaRef = logs?.find((l: any) => l.evento_detectado === 'DESAYUNO_INICIO' || l.evento_detectado === 'SALIDA_REFACCION');
       if (salidaRef) {
         const breakStartTime = new Date(salidaRef.timestamp).getTime();
-        // Antiguo
         const diffMins = Math.floor((nowTime - breakStartTime) / 60000);
         if (diffMins > (duracionDesayuno + maxExcesoReceso)) {
           minExcesoBreak = diffMins - duracionDesayuno; 
         }
-        // Nuevo
         const durationSeg = Math.floor((nowTime - breakStartTime) / 1000);
         const limitSeg = (duracionDesayuno + maxExcesoReceso) * 60;
         if (durationSeg > limitSeg) {
@@ -189,12 +208,10 @@ export function useAttendanceState({ logs, shift, policies }: UseAttendanceState
       const salidaAlm = logs?.find((l: any) => l.evento_detectado === 'ALMUERZO_INICIO' || l.evento_detectado === 'SALIDA_ALMUERZO');
       if (salidaAlm) {
         const almStartTime = new Date(salidaAlm.timestamp).getTime();
-        // Antiguo
         const diffMins = Math.floor((nowTime - almStartTime) / 60000);
         if (diffMins > (duracionAlmuerzo + maxExcesoReceso)) {
           minExcesoAlm = diffMins - duracionAlmuerzo;
         }
-        // Nuevo
         const durationSeg = Math.floor((nowTime - almStartTime) / 1000);
         const limitSeg = (duracionAlmuerzo + maxExcesoReceso) * 60;
         if (durationSeg > limitSeg) {
@@ -208,44 +225,40 @@ export function useAttendanceState({ logs, shift, policies }: UseAttendanceState
         const ingresoLog = logs?.find((l: any) => l.evento_detectado === 'INGRESO' || l.evento_detectado === 'INGRESO_ESPECIAL');
         if (ingresoLog) {
           const ingresoTime = new Date(ingresoLog.timestamp).getTime();
-          // Antiguo
           minExtra = Math.floor((nowTime - ingresoTime) / 60000); 
-          // Nuevo
           horas_extra_segundos = Math.floor((nowTime - ingresoTime) / 1000);
           estado_marcacion = 'EXTRA';
         }
       } else if (daySchedule) {
          const [h, m, s] = (daySchedule.salida + ':00').split(':').map(Number);
          const scheduledTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, s || 0).getTime();
-         const toleranciaSalidaMs = tolSalida * 60 * 1000;
+         const graciaAntMs = graciaSalidaAnt * 60 * 1000;
+         const earliestWithoutJustif = scheduledTime - graciaAntMs;
          
-         // Antiguo
          const shiftSalidaMins = h * 60 + m;
-         if (currentMins < shiftSalidaMins) {
-           minSalidaAnt = shiftSalidaMins - currentMins;
-         } else if (currentMins > shiftSalidaMins + tolSalida) {
-           minExtra = currentMins - shiftSalidaMins;
-         }
+         const minsEarly = shiftSalidaMins - currentMins;
 
-         // Nuevo
-         if (nowTime < scheduledTime) {
+         // Solo anticipada (y justificable) si sale antes de la gracia permitida
+         if (nowTime < earliestWithoutJustif) {
+           minSalidaAnt = minsEarly;
            salida_anticipada_segundos = Math.floor((scheduledTime - nowTime) / 1000);
            estado_marcacion = 'TEMPRANO';
-         } else if (nowTime > scheduledTime + toleranciaSalidaMs) {
+         } else if (nowTime > scheduledTime && policies?.regla_calcular_horas_extra === true) {
+           // Horas extra solo si la regla está activa en políticas
+           minExtra = currentMins - shiftSalidaMins;
            horas_extra_segundos = Math.floor((nowTime - scheduledTime) / 1000);
            estado_marcacion = 'EXTRA';
          }
+         // Dentro de [salida - gracia, salida]: NORMAL (sin justificación)
       }
     }
 
     return {
-      // Old
       minRetraso,
       minExcesoBreak,
       minExcesoAlm,
       minSalidaAnt,
       minExtra,
-      // New
       tardanza_segundos,
       exceso_desayuno_segundos,
       exceso_almuerzo_segundos,

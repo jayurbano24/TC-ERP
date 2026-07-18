@@ -39,8 +39,11 @@ export default function GestionPersonalTab() {
     if (supabase) {
       const { data: empData } = await supabase.from('employees').select(EMPLOYEE_LIST_SELECT).order('created_at', { ascending: false });
       if (empData) {
-        const { data: bioRows } = await supabase.from('employees').select('id').not('face_embedding', 'is', null);
-        const bioSet = new Set((bioRows || []).map((r) => r.id));
+        const { data: bioRows } = await supabase
+          .from('employee_face_embeddings')
+          .select('employee_id')
+          .eq('active', true);
+        const bioSet = new Set((bioRows || []).map((r) => r.employee_id as string));
         setEmployees(empData.map((emp) => ({ ...emp, face_embedding: bioSet.has(emp.id) ? true : null })));
       }
 

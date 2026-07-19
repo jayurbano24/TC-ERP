@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { memo } from 'react';
 import { Database } from 'lucide-react';
 import {
   HISTORY_TRAY_PAGE_SIZE,
@@ -28,7 +28,7 @@ type Props = HistoryTrayRowActions & {
   MASTER_MODELOS: CatalogModel[];
 };
 
-export function HistoryTrayTable({
+export const HistoryTrayTable = memo(function HistoryTrayTable({
   pageEntries,
   totalCount,
   totalPages,
@@ -46,7 +46,6 @@ export function HistoryTrayTable({
   onReturnToPending,
   onShowTimeline,
   onOpenHistoryModal,
-  onOpenEditMeta,
   onPrintConduce,
 }: Props) {
   const safePage = Math.min(historyPage, totalPages);
@@ -83,7 +82,6 @@ export function HistoryTrayTable({
         onReturnToPending={onReturnToPending}
         onShowTimeline={onShowTimeline}
         onOpenHistoryModal={onOpenHistoryModal}
-        onOpenEditMeta={onOpenEditMeta}
         onPrintConduce={onPrintConduce}
       />
     );
@@ -154,4 +152,4 @@ export function HistoryTrayTable({
       />
     </>
   );
-}
+});

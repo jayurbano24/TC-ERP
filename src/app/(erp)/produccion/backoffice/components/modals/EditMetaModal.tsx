@@ -21,9 +21,9 @@ type Props = {
 
 export function EditMetaModal({ reception, editMeta, saving, agencies, technologies, brands, models, onEditMetaChange, onSave, onClose }: Props) {
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-[#181c3a]/80 backdrop-blur-xl p-6">
+    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 backdrop-blur-xl p-6">
       <Card className="w-full max-w-lg bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border-none animate-rise-in p-0">
-        <div className="bg-[#181c3a] p-7 text-white flex justify-between items-center">
+        <div className="bg-[var(--heading)] p-7 text-white flex justify-between items-center">
           <div>
             <p className="text-[8px] font-black uppercase tracking-widest text-white/40 mb-1">Completar datos faltantes</p>
             <h3 className="text-lg font-black uppercase tracking-tight">Guía {reception.guide_number}</h3>
@@ -39,7 +39,7 @@ export function EditMetaModal({ reception, editMeta, saving, agencies, technolog
             <select
               value={editMeta.agency}
               onChange={e => onEditMetaChange({ agency: e.target.value })}
-              className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[#181c3a] outline-none focus:border-[#2ec4f1] transition-all"
+              className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[var(--heading)] outline-none focus:border-[var(--accent)] transition-all"
             >
               <option value="">— Seleccionar Agencia —</option>
               {agencies.map(a => (
@@ -53,7 +53,7 @@ export function EditMetaModal({ reception, editMeta, saving, agencies, technolog
             <select
               value={editMeta.tech}
               onChange={e => onEditMetaChange({ tech: e.target.value, brand: '', model: '' })}
-              className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[#181c3a] outline-none focus:border-[#2ec4f1] transition-all"
+              className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[var(--heading)] outline-none focus:border-[var(--accent)] transition-all"
             >
               <option value="">— Seleccionar Tecnología —</option>
               {technologies.map(t => (
@@ -67,7 +67,7 @@ export function EditMetaModal({ reception, editMeta, saving, agencies, technolog
             <select
               value={editMeta.brand}
               onChange={e => onEditMetaChange({ brand: e.target.value, model: '' })}
-              className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[#181c3a] outline-none focus:border-[#2ec4f1] transition-all"
+              className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[var(--heading)] outline-none focus:border-[var(--accent)] transition-all"
             >
               <option value="">— Seleccionar Marca —</option>
               {brands.map(b => (
@@ -81,7 +81,7 @@ export function EditMetaModal({ reception, editMeta, saving, agencies, technolog
             <select
               value={editMeta.model}
               onChange={e => onEditMetaChange({ model: e.target.value })}
-              className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[#181c3a] outline-none focus:border-[#2ec4f1] transition-all"
+              className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[var(--heading)] outline-none focus:border-[var(--accent)] transition-all"
             >
               <option value="">— Seleccionar Modelo —</option>
               {models
@@ -97,7 +97,7 @@ export function EditMetaModal({ reception, editMeta, saving, agencies, technolog
           <Button
             onClick={onSave}
             disabled={saving}
-            className="rounded-xl font-black uppercase text-[10px] tracking-widest px-8 bg-[#181c3a] text-white hover:bg-[#2ec4f1] hover:text-[#181c3a] transition-all"
+            className="rounded-xl font-black uppercase text-[10px] tracking-widest px-8 bg-[var(--heading)] text-white hover:bg-[var(--accent)] hover:text-[var(--heading)] transition-all"
           >
             {saving ? 'Guardando...' : 'Guardar'}
           </Button>

@@ -132,7 +132,7 @@ export function SubBodegaTab({
       header: 'No. Guía / Caja',
       width: 'minmax(140px,1fr)',
       cell: (item) => (
-        <span className="text-sm font-black text-[#181c3a] font-mono bg-slate-100 px-3 py-1.5 rounded-lg whitespace-pre-wrap">
+        <span className="text-sm font-black text-[var(--heading)] font-mono bg-slate-100 px-3 py-1.5 rounded-lg whitespace-pre-wrap">
           {item.guide}
         </span>
       ),
@@ -141,7 +141,7 @@ export function SubBodegaTab({
       id: 'origen',
       header: 'Origen (Agencia)',
       width: 'minmax(140px,1fr)',
-      cellClassName: 'text-xs font-black text-[#181c3a] uppercase',
+      cellClassName: 'text-xs font-black text-[var(--heading)] uppercase',
       cell: (item) => getAgenciaLabel(item.reception, CAC_AGENCIES, item.guide),
     },
     {
@@ -218,7 +218,7 @@ export function SubBodegaTab({
     <div className="space-y-8 animate-rise-in">
       <div className="flex flex-col gap-4 px-2 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h2 className="text-xl font-black text-[#181c3a] uppercase tracking-tight">
+          <h2 className="text-xl font-black text-[var(--heading)] uppercase tracking-tight">
             {isAccesorios ? 'Inventario de Accesorios' : 'Inventario de Teléfonos / Móviles'}
           </h2>
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mt-2">
@@ -276,11 +276,11 @@ export function SubBodegaTab({
       </div>
 
       <div className="relative group max-w-xl px-2">
-        <Search className="absolute left-8 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-[#2ec4f1] transition-colors" />
+        <Search className="absolute left-8 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-[var(--accent)] transition-colors" />
         <input
           type="text"
           placeholder="BUSCAR POR GUÍA, AGENCIA O USUARIO..."
-          className="w-full h-12 pl-12 pr-10 bg-white border-2 border-slate-100 rounded-2xl font-black text-[10px] text-[#181c3a] outline-none focus:border-[#2ec4f1] transition-all uppercase tracking-widest placeholder:text-slate-300"
+          className="w-full h-12 pl-12 pr-10 bg-white border-2 border-slate-100 rounded-2xl font-black text-[10px] text-[var(--heading)] outline-none focus:border-[var(--accent)] transition-all uppercase tracking-widest placeholder:text-slate-300"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />

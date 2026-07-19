@@ -34,11 +34,11 @@ export function CompletedStep({ ctx }: Props) {
   return (
       <div className="flex flex-col items-center justify-center py-24 bg-white rounded-3xl border-2 border-slate-100 shadow-xl animate-rise-in">
         <div className="bg-emerald-100 p-10 rounded-full mb-8"><CheckCircle2 className="w-20 h-20 text-emerald-500" /></div>
-        <h3 className="text-3xl font-black text-[#181c3a] mb-4 uppercase">Proceso Finalizado</h3>
+        <h3 className="text-3xl font-black text-[var(--heading)] mb-4 uppercase">Proceso Finalizado</h3>
         <p className="text-slate-400 font-bold uppercase text-[10px] tracking-[0.3em] mb-12 text-center max-w-sm">
           La información ha sido procesada {category === 'Accesorio' ? 'y la agencia ha sido notificada vía correo.' : 'y enviada a bodega.'}
         </p>
-        <Button variant="primary" className="bg-[#181c3a] px-12 h-16 rounded-2xl font-black uppercase text-xs" onClick={() => { fetchHistory(); setReceptionStep('classification'); setGuideItems([]); setScannedGuides([]); setAgencia(''); setReturnReason(''); setSelectedItemIdx(null); setItemSeriesInputs({}); setAccessoryPhotos([]); setSapGroups([]); setActiveSapGroupId(null); setSapTransferNumber(''); }}>Siguiente Caja</Button>
+        <Button variant="primary" className="bg-[var(--heading)] px-12 h-16 rounded-2xl font-black uppercase text-xs" onClick={() => { fetchHistory(); setReceptionStep('classification'); setGuideItems([]); setScannedGuides([]); setAgencia(''); setReturnReason(''); setSelectedItemIdx(null); setItemSeriesInputs({}); setAccessoryPhotos([]); setSapGroups([]); setActiveSapGroupId(null); setSapTransferNumber(''); }}>Siguiente Caja</Button>
       </div>
   );
 }

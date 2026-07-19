@@ -108,7 +108,7 @@ export function ClassificationStep({ ctx }: Props) {
           <ChevronLeft size={16} /> Volver a Bandeja
         </button>
         <div className="text-right">
-          <Badge className="bg-[#2ec4f1] text-[#181c3a] border-none font-black text-[9px] uppercase tracking-widest">
+          <Badge className="bg-[var(--accent)] text-[var(--heading)] border-none font-black text-[9px] uppercase tracking-widest">
             {String(activeReception.status)}
           </Badge>
           <p className="text-[10px] font-bold text-[var(--muted)] mt-1 uppercase">
@@ -141,7 +141,7 @@ export function ClassificationStep({ ctx }: Props) {
             placeholder="Buscar número de guía..."
             value={classificationSearch}
             onChange={(e) => setClassificationSearch(e.target.value)}
-            className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-[#2ec4f1] transition-all placeholder:text-slate-300"
+            className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-[var(--accent)] transition-all placeholder:text-slate-300"
           />
           {classificationSearch && (
             <button
@@ -156,8 +156,8 @@ export function ClassificationStep({ ctx }: Props) {
         </div>
 
         {selectedGuides.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2 mb-3 p-2.5 bg-[#181c3a]/5 rounded-xl border border-[#181c3a]/10">
-            <span className="text-[10px] font-black text-[#181c3a] uppercase mr-1">
+          <div className="flex flex-wrap items-center gap-2 mb-3 p-2.5 bg-[var(--heading)]/5 rounded-xl border border-[var(--heading)]/10">
+            <span className="text-[10px] font-black text-[var(--heading)] uppercase mr-1">
               {selectedGuides.length} seleccionada{selectedGuides.length !== 1 ? 's' : ''}:
             </span>
             <Button
@@ -193,7 +193,7 @@ export function ClassificationStep({ ctx }: Props) {
               type="checkbox"
               checked={allFilteredSelected}
               onChange={toggleSelectAll}
-              className="w-3.5 h-3.5 rounded border-slate-300 text-[#2ec4f1] focus:ring-[#2ec4f1]"
+              className="w-3.5 h-3.5 rounded border-slate-300 text-[var(--accent)] focus:ring-[var(--accent)]"
             />
             <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
               Seleccionar todas ({filteredGuides.length})
@@ -214,7 +214,7 @@ export function ClassificationStep({ ctx }: Props) {
                   key={guia}
                   className={`flex items-center gap-2 p-2 rounded-xl border transition-all ${
                     isSelected
-                      ? 'bg-[#2ec4f1]/5 border-[#2ec4f1]/40'
+                      ? 'bg-[var(--accent)]/5 border-[var(--accent)]/40'
                       : 'bg-slate-50 border-slate-100 hover:border-slate-200'
                   }`}
                 >
@@ -222,16 +222,16 @@ export function ClassificationStep({ ctx }: Props) {
                     type="checkbox"
                     checked={isSelected}
                     onChange={() => toggleGuide(guia)}
-                    className="w-3.5 h-3.5 shrink-0 rounded border-slate-300 text-[#2ec4f1] focus:ring-[#2ec4f1]"
+                    className="w-3.5 h-3.5 shrink-0 rounded border-slate-300 text-[var(--accent)] focus:ring-[var(--accent)]"
                   />
-                  <div className="w-8 h-8 shrink-0 rounded-lg bg-white flex items-center justify-center text-[#181c3a] border border-slate-100">
+                  <div className="w-8 h-8 shrink-0 rounded-lg bg-white flex items-center justify-center text-[var(--heading)] border border-slate-100">
                     <Box size={14} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">
                       No. Guía / Caja
                     </p>
-                    <p className="text-sm font-black font-mono text-[#181c3a] truncate">{guia}</p>
+                    <p className="text-sm font-black font-mono text-[var(--heading)] truncate">{guia}</p>
                   </div>
                   <div className="flex gap-1 shrink-0">
                     <Button
@@ -242,7 +242,7 @@ export function ClassificationStep({ ctx }: Props) {
                         setReceptionStep('config');
                       }}
                       title="Equipos (individual)"
-                      className="h-8 px-2.5 bg-[#181c3a] hover:bg-[#2ec4f1] text-white border-none rounded-lg font-black text-[8px] uppercase"
+                      className="h-8 px-2.5 bg-[var(--heading)] hover:bg-[var(--accent)] text-white border-none rounded-lg font-black text-[8px] uppercase"
                     >
                       <Monitor size={12} className="mr-1" /> Equipos
                     </Button>

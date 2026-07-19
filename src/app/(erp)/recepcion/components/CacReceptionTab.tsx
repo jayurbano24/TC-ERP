@@ -78,10 +78,10 @@ export const CacReceptionTab = ({
   return (
     <>
       <div className="space-y-6 animate-rise-in">
-        <Card className="overflow-hidden rounded-3xl border-2 border-[var(--accent)]/20 p-0 shadow-2xl">
-          <div className="flex items-center justify-between border-b-4 border-[var(--accent)] bg-[var(--primary)] p-8 text-[var(--primary-foreground)]">
+        <Card className="overflow-hidden rounded-3xl border-2 border-[var(--border)] p-0 shadow-2xl">
+          <div className="flex items-center justify-between border-b-4 border-[var(--accent)] bg-[var(--surface-hover)] p-8 text-[var(--heading)]">
             <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--accent)]/20 text-[var(--accent)]">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--accent)]/15 text-[var(--accent)]">
                 <Truck size={24} />
               </div>
               <h2 className="text-2xl font-black tracking-tight uppercase">
@@ -93,7 +93,7 @@ export const CacReceptionTab = ({
           <div className="space-y-12 p-10">
             <div className="space-y-6">
               <div className="flex items-center gap-3 border-b border-[var(--border)] pb-4">
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--primary)] text-xs font-black text-[var(--primary-foreground)]">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--heading)] text-xs font-black text-[var(--surface)]">
                   1
                 </div>
                 <h3 className="text-sm font-black tracking-widest text-[var(--heading)] uppercase">
@@ -185,7 +185,7 @@ export const CacReceptionTab = ({
                         ? 'cursor-not-allowed bg-[var(--surface-hover)] text-[var(--muted)] opacity-50 shadow-none'
                         : isIndustrialScanning
                           ? 'bg-[var(--success)] text-white'
-                          : 'bg-[var(--primary)] text-[var(--primary-foreground)] hover:bg-[var(--accent)] hover:text-[var(--accent-foreground)]'
+                          : 'bg-[var(--heading)] text-[var(--surface)] hover:bg-[var(--accent)] hover:text-[var(--accent-foreground)]'
                     }`}
                   >
                     <Barcode size={18} />{' '}
@@ -327,7 +327,7 @@ export const CacReceptionTab = ({
                             return (
                               <div
                                 key={globalIndex}
-                                className="group flex animate-rise-in items-center justify-between gap-4 rounded-xl border border-[var(--accent)]/30 bg-[var(--primary)] px-5 py-3 text-[var(--primary-foreground)] shadow-lg"
+                                className="group flex animate-rise-in items-center justify-between gap-4 rounded-xl border border-[var(--accent)]/30 bg-[var(--heading)] px-5 py-3 text-[var(--surface)] shadow-lg"
                               >
                                 <div className="flex flex-col">
                                   <span className="mb-0.5 text-[8px] font-black text-[var(--accent)]">

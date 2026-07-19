@@ -12,7 +12,7 @@ type Props = {
 function urgencyClass(hours: number): string {
   if (hours >= 72) return 'text-rose-400';
   if (hours >= 24) return 'text-amber-400';
-  return 'text-[#2ec4f1]';
+  return 'text-[var(--accent)]';
 }
 
 export function InboxElapsedTimer({ since }: Props) {
@@ -23,7 +23,7 @@ export function InboxElapsedTimer({ since }: Props) {
   return (
     <div className="mt-4 space-y-1">
       <div className="flex items-center gap-2">
-        <ErpIcon name="clock" className="w-3.5 h-3.5 text-[#2ec4f1]" />
+        <ErpIcon name="clock" className="w-3.5 h-3.5 text-[var(--accent)]" />
         <span className={`text-[10px] font-black uppercase tracking-widest ${urgencyClass(hours)}`}>
           En espera: {elapsed}
         </span>

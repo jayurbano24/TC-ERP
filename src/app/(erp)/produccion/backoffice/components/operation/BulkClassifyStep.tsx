@@ -56,7 +56,7 @@ export function BulkClassifyStep({ ctx }: Props) {
     <div className="space-y-4 animate-rise-in max-w-3xl mx-auto">
       <button
         onClick={() => setReceptionStep('classification')}
-        className="flex items-center gap-2 text-[10px] font-black text-slate-400 hover:text-[#181c3a] uppercase tracking-widest transition-all"
+        className="flex items-center gap-2 text-[10px] font-black text-slate-400 hover:text-[var(--heading)] uppercase tracking-widest transition-all"
       >
         <ChevronLeft size={16} /> Volver a Clasificación
       </button>
@@ -75,7 +75,7 @@ export function BulkClassifyStep({ ctx }: Props) {
             {meta?.icon ?? <FileText size={20} />}
           </div>
           <div>
-            <h2 className="text-lg font-black text-[#181c3a] uppercase">
+            <h2 className="text-lg font-black text-[var(--heading)] uppercase">
               Confirmar {meta?.label ?? 'Clasificación'}
             </h2>
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
@@ -90,7 +90,7 @@ export function BulkClassifyStep({ ctx }: Props) {
             {scannedGuides.map((g) => (
               <span
                 key={g}
-                className="text-[11px] font-mono font-bold text-[#181c3a] bg-white px-2 py-1 rounded border border-slate-200"
+                className="text-[11px] font-mono font-bold text-[var(--heading)] bg-white px-2 py-1 rounded border border-slate-200"
               >
                 {g}
               </span>
@@ -107,7 +107,7 @@ export function BulkClassifyStep({ ctx }: Props) {
               <p className="text-[9px] font-black text-slate-400 uppercase mb-1">
                 Agencia destino <span className="text-rose-500">*</span>
               </p>
-              <p className="text-sm font-black text-[#181c3a] uppercase">
+              <p className="text-sm font-black text-[var(--heading)] uppercase">
                 {agencyDetails
                   ? `${agencyDetails.name} — ${agencyDetails.manager || 'SIN ENCARGADO'}`
                   : 'Seleccionar agencia...'}
@@ -147,7 +147,7 @@ export function BulkClassifyStep({ ctx }: Props) {
               <p className="text-[9px] font-black text-slate-400 uppercase mb-1">
                 Agencia de origen (CAC) <span className="text-slate-300">(opcional)</span>
               </p>
-              <p className="text-sm font-black text-[#181c3a] uppercase">
+              <p className="text-sm font-black text-[var(--heading)] uppercase">
                 {agencyDetails
                   ? `${agencyDetails.name} — ${agencyDetails.manager || 'SIN ENCARGADO'}`
                   : 'Seleccionar agencia...'}
@@ -162,7 +162,7 @@ export function BulkClassifyStep({ ctx }: Props) {
             {isDevolucion && <span className="text-rose-500 ml-1">*</span>}
           </label>
           <textarea
-            className="w-full p-3 bg-white border border-slate-200 rounded-xl font-bold text-sm text-[#181c3a] outline-none focus:ring-2 focus:ring-[#2ec4f1] min-h-[80px]"
+            className="w-full p-3 bg-white border border-slate-200 rounded-xl font-bold text-sm text-[var(--heading)] outline-none focus:ring-2 focus:ring-[var(--accent)] min-h-[80px]"
             placeholder={
               isDevolucion
                 ? 'Motivo de la devolución...'

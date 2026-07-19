@@ -1,9 +1,10 @@
 'use client';
 
+import { memo } from 'react';
 import { Badge } from '@/components/ui';
 import { SapValidationBadge, SeriesSapValidationDots } from '@/components/sap/SapValidationBadge';
 import { resolveUnitSapStatus } from '@/lib/sap/sapValidationStatus';
-import { Clock, Edit2, Eye, Printer, RefreshCw, RotateCcw } from 'lucide-react';
+import { Clock, Eye, Printer, RefreshCw, RotateCcw } from 'lucide-react';
 import { formatAgencyLabel, getBackofficeClassifierName, type HistoryUnitEntry } from '../../historyTrayUtils';
 import type { CatalogAgency, CatalogBrand, CatalogModel, CatalogTech } from '../../types';
 
@@ -12,7 +13,6 @@ export type HistoryTrayRowActions = {
   onReturnToPending: (receptionId: string) => void;
   onShowTimeline: (rec: unknown) => void;
   onOpenHistoryModal: (rec: unknown) => void;
-  onOpenEditMeta: (rec: unknown) => void;
   onPrintConduce: (rec: unknown) => void;
 };
 
@@ -26,7 +26,7 @@ type Props = HistoryTrayRowActions & {
   MASTER_MODELOS: CatalogModel[];
 };
 
-export function HistoryTrayTableRow({
+export const HistoryTrayTableRow = memo(function HistoryTrayTableRow({
   entry,
   rowIdx,
   canReturnToPending,
@@ -38,7 +38,6 @@ export function HistoryTrayTableRow({
   onReturnToPending,
   onShowTimeline,
   onOpenHistoryModal,
-  onOpenEditMeta,
   onPrintConduce,
 }: Props) {
   const rec = entry.rec;
@@ -67,7 +66,7 @@ export function HistoryTrayTableRow({
   const cell = 'px-2 py-2 text-[10px] font-medium text-[var(--foreground)] whitespace-nowrap';
 
   return (
-    <tr className={`border-b border-[var(--border)] transition-colors hover:bg-[#2ec4f1]/10 ${bandBg}`}>
+    <tr className={`border-b border-[var(--border)] transition-colors hover:bg-[var(--accent)]/10 ${bandBg}`}>
       <td className={cell}>{formattedDate}</td>
       <td className={cell}>{unitGuide}</td>
       <td className={`${cell} text-[var(--muted)] uppercase hidden xl:table-cell`}>{piloto}</td>
@@ -130,14 +129,23 @@ export function HistoryTrayTableRow({
               <RefreshCw size={11} />
             </button>
           )}
-          <button type="button" onClick={() => onShowTimeline(rec)} className="flex h-6 w-6 items-center justify-center rounded-md bg-[var(--accent)]/15 text-[var(--accent)] transition-all hover:bg-[var(--accent)] hover:text-[var(--accent-foreground)]" title="Ver Trazabilidad">
+          <button
+            type="button"
+            onClick={() =>
+              onShowTimeline({
+                ...rec,
+                unitGuide,
+                unitStatus: entry.unitStatus,
+                unitStatusLabel: entry.unitStatusLabel,
+              })
+            }
+            className="flex h-6 w-6 items-center justify-center rounded-md bg-[var(--accent)]/15 text-[var(--accent)] transition-all hover:bg-[var(--accent)] hover:text-[var(--accent-foreground)]"
+            title="Ver Trazabilidad"
+          >
             <Clock size={11} />
           </button>
           <button type="button" onClick={() => onOpenHistoryModal(rec)} className="flex h-6 w-6 items-center justify-center rounded-md bg-[var(--surface-hover)] text-[var(--muted)] transition-all hover:text-[var(--foreground)]" title="Ver Detalle">
             <Eye size={11} />
-          </button>
-          <button type="button" onClick={() => onOpenEditMeta(rec)} className="flex h-6 w-6 items-center justify-center rounded-md bg-[var(--surface-hover)] text-[var(--muted)] transition-all hover:text-[var(--warning)]" title="Editar Metadatos">
-            <Edit2 size={11} />
           </button>
           <button type="button" onClick={() => onPrintConduce(rec)} className="flex h-6 w-6 items-center justify-center rounded-md bg-[var(--surface-hover)] text-[var(--muted)] transition-all hover:text-[var(--accent)]" title="Imprimir PDF">
             <Printer size={11} />
@@ -146,4 +154,4 @@ export function HistoryTrayTableRow({
       </td>
     </tr>
   );
-}
+});

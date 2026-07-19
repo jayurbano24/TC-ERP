@@ -1,11 +1,13 @@
 'use client';
 
+import { useCallback } from 'react';
 import { Button, Card } from '@/components/ui';
 import type { CacTrayStatsResponse } from '@/lib/backoffice/cacTrayTypes';
-import { ChevronDown, Filter, RefreshCw, Search } from 'lucide-react';
+import { ChevronDown, Filter, RefreshCw } from 'lucide-react';
 import { hasActiveHistoryTrayFilters, type HistoryTrayFilters, type HistoryUnitEntry } from '../../historyTrayUtils';
 import type { CatalogAgency, CatalogBrand, CatalogModel, CatalogTech } from '../../types';
 import { HistoryFiltersPanel } from './HistoryFiltersPanel';
+import { HistorySearchInput } from './HistorySearchInput';
 import { HistoryStatsGrid } from './HistoryStatsGrid';
 import { HistoryToolbar } from './HistoryToolbar';
 import { HistoryTrayTable } from './HistoryTrayTable';
@@ -45,7 +47,6 @@ type Props = {
   onReturnToPending: (receptionId: string) => void;
   onShowTimeline: (rec: unknown) => void;
   onOpenHistoryModal: (rec: unknown) => void;
-  onOpenEditMeta: (rec: unknown) => void;
   onPrintConduce: (rec: unknown) => void;
 };
 
@@ -84,10 +85,16 @@ export function HistoryTab({
   onReturnToPending,
   onShowTimeline,
   onOpenHistoryModal,
-  onOpenEditMeta,
   onPrintConduce,
 }: Props) {
   const trayEntries = getHistoryTrayEntries();
+  const onSearchChange = useCallback(
+    (value: string) => {
+      setHistorySearch(value);
+      setHistoryPage(1);
+    },
+    [setHistorySearch, setHistoryPage],
+  );
   const hasUserFilters =
     Boolean(historySearch.trim() || dateFilterFrom || dateFilterTo || hasActiveHistoryTrayFilters(historyFilters));
 
@@ -146,32 +153,20 @@ export function HistoryTab({
           <Card className="p-0 erp-themed-surface rounded-2xl shadow-lg border border-[var(--border)] overflow-hidden transition-all duration-500">
             <div className="p-3 sm:p-4 border-b border-[var(--border)] space-y-3">
               <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                <div className="relative group flex-1 min-w-0">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--muted)] group-focus-within:text-[#2ec4f1] transition-colors" />
-                  <input
-                    type="text"
-                    placeholder="BUSCAR SERIE, GUÍA O SAP..."
-                    className="w-full h-10 pl-10 pr-3 bg-[var(--surface-hover)] border border-[var(--border)] rounded-xl font-medium text-[10px] text-[var(--foreground)] outline-none focus:border-[#2ec4f1] focus:bg-[var(--surface)] transition-all uppercase tracking-wider"
-                    value={historySearch}
-                    onChange={(e) => {
-                      setHistorySearch(e.target.value);
-                      setHistoryPage(1);
-                    }}
-                  />
-                </div>
+                <HistorySearchInput value={historySearch} onChange={onSearchChange} />
                 <button
                   type="button"
                   onClick={() => setHistoryFiltersOpen((o) => !o)}
                   className={`flex items-center gap-2 h-10 px-4 rounded-xl text-[9px] font-medium uppercase tracking-wider border transition-all shrink-0 ${
                     historyFiltersOpen || hasActiveHistoryTrayFilters(historyFilters)
-                      ? 'border-[#181c3a] bg-[#181c3a] text-white'
-                      : 'border-[var(--border)] bg-[var(--surface-hover)] text-[var(--muted)] hover:border-[#2ec4f1] hover:text-[var(--foreground)]'
+                      ? 'border-[var(--heading)] bg-[var(--heading)] text-white'
+                      : 'border-[var(--border)] bg-[var(--surface-hover)] text-[var(--muted)] hover:border-[var(--accent)] hover:text-[var(--foreground)]'
                   }`}
                 >
                   <Filter size={14} />
                   Filtros
                   {hasActiveHistoryTrayFilters(historyFilters) && (
-                    <span className="ml-1 px-1.5 py-0.5 rounded-full bg-[#2ec4f1] text-[#181c3a] text-[8px]">on</span>
+                    <span className="ml-1 px-1.5 py-0.5 rounded-full bg-[var(--accent)] text-[var(--heading)] text-[8px]">on</span>
                   )}
                   <ChevronDown size={12} className={`transition-transform ${historyFiltersOpen ? 'rotate-180' : ''}`} />
                 </button>
@@ -216,7 +211,6 @@ export function HistoryTab({
               onReturnToPending={onReturnToPending}
               onShowTimeline={onShowTimeline}
               onOpenHistoryModal={onOpenHistoryModal}
-              onOpenEditMeta={onOpenEditMeta}
               onPrintConduce={onPrintConduce}
             />
           </Card>

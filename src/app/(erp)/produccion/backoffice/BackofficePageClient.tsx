@@ -1,5 +1,6 @@
 'use client';
 
+import { useCallback, startTransition } from 'react';
 import { ModulePage } from '@/components/module-page';
 import { BackofficeTabNav } from './components/BackofficeTabNav';
 import { HistoryTab } from './components/history/HistoryTab';
@@ -69,11 +70,11 @@ export default function BackofficePageClient() {
     editMetaRec,
     editMeta,
     editMetaSaving,
-    handleOpenEditMeta,
     onEditMetaChange,
     handleSaveEditMeta,
     onCloseEditMeta,
     showTimeline,
+    timelineLoading,
     timelineActiveGuide,
     onShowTimeline,
     onTimelineActiveGuideChange,
@@ -108,6 +109,31 @@ export default function BackofficePageClient() {
     operationCtx.setAgencia(agency?.name || '');
     setShowAgencyModal(false);
   };
+
+  const handleShowTimeline = useCallback(
+    (rec: unknown) => {
+      startTransition(() => {
+        void onShowTimeline(rec as Record<string, unknown>);
+      });
+    },
+    [onShowTimeline],
+  );
+
+  const handleOpenHistoryModalStable = useCallback(
+    (rec: unknown) => {
+      startTransition(() => {
+        void handleOpenHistoryModal(rec as Record<string, unknown>);
+      });
+    },
+    [handleOpenHistoryModal],
+  );
+
+  const handlePrintConduceStable = useCallback(
+    (rec: unknown) => {
+      handlePrintConduce(rec as BackofficeReception);
+    },
+    [handlePrintConduce],
+  );
 
   return (
     <ModulePage
@@ -168,10 +194,9 @@ export default function BackofficePageClient() {
           onOpenMassTransfer={onOpenMassTransfer}
           onSapBlockReturn={handleSapBlockReturn}
           onReturnToPending={handleReturnToPending}
-          onShowTimeline={(rec) => onShowTimeline(rec as Record<string, unknown>)}
-          onOpenHistoryModal={(rec) => void handleOpenHistoryModal(rec as Record<string, unknown>)}
-          onOpenEditMeta={(rec) => handleOpenEditMeta(rec as Record<string, unknown>)}
-          onPrintConduce={(rec) => handlePrintConduce(rec as BackofficeReception)}
+          onShowTimeline={handleShowTimeline}
+          onOpenHistoryModal={handleOpenHistoryModalStable}
+          onPrintConduce={handlePrintConduceStable}
         />
       )}
 
@@ -220,6 +245,7 @@ export default function BackofficePageClient() {
         onSaveEditMeta={handleSaveEditMeta}
         onCloseEditMeta={onCloseEditMeta}
         showTimeline={showTimeline}
+        timelineLoading={timelineLoading}
         timelineActiveGuide={timelineActiveGuide}
         onTimelineActiveGuideChange={onTimelineActiveGuideChange}
         onCloseTimeline={onCloseTimeline}

@@ -690,6 +690,32 @@ export async function getSeriesByReceptionId(receptionId: string) {
   return data || [];
 }
 
+/** Notas/status reales para el modal de trazabilidad (el tray CAC no incluye la matriz). */
+export async function getReceptionTimelineSource(receptionId: string) {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return null;
+
+  const { data, error } = await supabase
+    .from('receptions')
+    .select('id, guide_number, notes, status, processed_guides, carrier')
+    .eq('id', receptionId)
+    .maybeSingle();
+
+  if (error) {
+    console.error('Error fetching reception timeline source:', error);
+    return null;
+  }
+
+  return data as {
+    id: string;
+    guide_number: string;
+    notes?: string | null;
+    status?: string | null;
+    processed_guides?: string[] | null;
+    carrier?: string | null;
+  } | null;
+}
+
 export async function updateReception(id: string, updates: Partial<DbReception>) {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: "Supabase not configured" };

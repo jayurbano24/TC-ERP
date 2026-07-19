@@ -31,15 +31,15 @@ export function HistoryTrayPagination({ totalCount, safePage, totalPages, startI
         <p className="text-[9px] font-black text-[var(--muted)] uppercase tracking-widest">{HISTORY_TRAY_PAGE_SIZE} por pagina</p>
       </div>
       <div className="flex items-center gap-1">
-        <button type="button" onClick={() => setHistoryPage(1)} disabled={safePage === 1} className="w-8 h-8 rounded-xl flex items-center justify-center text-[10px] font-black text-[var(--muted)] hover:bg-[#181c3a] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all" title="Primera pagina">«</button>
-        <button type="button" onClick={() => setHistoryPage((p) => Math.max(1, p - 1))} disabled={safePage === 1} className="w-8 h-8 rounded-xl flex items-center justify-center text-[10px] font-black text-[var(--muted)] hover:bg-[#181c3a] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all" title="Pagina anterior">‹</button>
+        <button type="button" onClick={() => setHistoryPage(1)} disabled={safePage === 1} className="w-8 h-8 rounded-xl flex items-center justify-center text-[10px] font-black text-[var(--muted)] hover:bg-[var(--heading)] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all" title="Primera pagina">«</button>
+        <button type="button" onClick={() => setHistoryPage((p) => Math.max(1, p - 1))} disabled={safePage === 1} className="w-8 h-8 rounded-xl flex items-center justify-center text-[10px] font-black text-[var(--muted)] hover:bg-[var(--heading)] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all" title="Pagina anterior">‹</button>
         {pageButtons.map((p, idx) => p === 'gap' ? (
           <span key={`gap-${idx}`} className="w-8 h-8 flex items-center justify-center text-[10px] font-black text-[var(--muted)]">…</span>
         ) : (
-          <button key={p} type="button" onClick={() => setHistoryPage(p as number)} className={`w-8 h-8 rounded-xl flex items-center justify-center text-[10px] font-black transition-all ${safePage === p ? 'bg-[#181c3a] text-white shadow-lg' : 'text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]'}`}>{p}</button>
+          <button key={p} type="button" onClick={() => setHistoryPage(p as number)} className={`w-8 h-8 rounded-xl flex items-center justify-center text-[10px] font-black transition-all ${safePage === p ? 'bg-[var(--heading)] text-white shadow-lg' : 'text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]'}`}>{p}</button>
         ))}
-        <button type="button" onClick={() => setHistoryPage((p) => Math.min(totalPages, p + 1))} disabled={safePage === totalPages} className="w-8 h-8 rounded-xl flex items-center justify-center text-[10px] font-black text-[var(--muted)] hover:bg-[#181c3a] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all" title="Siguiente pagina">›</button>
-        <button type="button" onClick={() => setHistoryPage(totalPages)} disabled={safePage === totalPages} className="w-8 h-8 rounded-xl flex items-center justify-center text-[10px] font-black text-[var(--muted)] hover:bg-[#181c3a] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all" title="Ultima pagina">»</button>
+        <button type="button" onClick={() => setHistoryPage((p) => Math.min(totalPages, p + 1))} disabled={safePage === totalPages} className="w-8 h-8 rounded-xl flex items-center justify-center text-[10px] font-black text-[var(--muted)] hover:bg-[var(--heading)] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all" title="Siguiente pagina">›</button>
+        <button type="button" onClick={() => setHistoryPage(totalPages)} disabled={safePage === totalPages} className="w-8 h-8 rounded-xl flex items-center justify-center text-[10px] font-black text-[var(--muted)] hover:bg-[var(--heading)] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all" title="Ultima pagina">»</button>
       </div>
     </div>
   );

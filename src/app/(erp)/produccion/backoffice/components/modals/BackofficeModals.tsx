@@ -37,6 +37,7 @@ type Props = {
   onSaveEditMeta: () => void;
   onCloseEditMeta: () => void;
   showTimeline: Record<string, unknown> | null;
+  timelineLoading?: boolean;
   timelineActiveGuide: string | null;
   onTimelineActiveGuideChange: (guide: string | null) => void;
   onCloseTimeline: () => void;
@@ -86,6 +87,7 @@ export function BackofficeModals({
   onSaveEditMeta,
   onCloseEditMeta,
   showTimeline,
+  timelineLoading = false,
   timelineActiveGuide,
   onTimelineActiveGuideChange,
   onCloseTimeline,
@@ -160,6 +162,7 @@ export function BackofficeModals({
           reception={showTimeline}
           activeGuide={timelineActiveGuide}
           agencies={agencies}
+          loading={timelineLoading}
           onActiveGuideChange={onTimelineActiveGuideChange}
           onClose={onCloseTimeline}
         />

@@ -9,8 +9,8 @@ type Props = {
 
 export function BackofficeTabNav({ activeTab, onTabChange }: Props) {
   const tabs: { id: BackofficeTab; label: string; activeClass: string }[] = [
-    { id: 'op', label: 'NUEVA RECEPCIÓN', activeClass: 'bg-[#2ec4f1]' },
-    { id: 'history', label: 'HISTORIAL / REGISTROS', activeClass: 'bg-[#2ec4f1]' },
+    { id: 'op', label: 'NUEVA RECEPCIÓN', activeClass: 'bg-[var(--accent)]' },
+    { id: 'history', label: 'HISTORIAL / REGISTROS', activeClass: 'bg-[var(--accent)]' },
     { id: 'sub_accesorios', label: 'BODEGA ACCESORIOS', activeClass: 'bg-emerald-500' },
     { id: 'sub_telefonos', label: 'BODEGA TELÉFONOS', activeClass: 'bg-amber-500' },
   ];

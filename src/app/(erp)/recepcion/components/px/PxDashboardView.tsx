@@ -52,7 +52,7 @@ export const PxDashboardView = (props: any) => {
               <CheckCircle2 className="w-6 h-6 text-emerald-500" />
             </div>
             <div>
-              <h2 className="text-xl font-black text-[#181c3a] uppercase tracking-widest">Recepción en Curso</h2>
+              <h2 className="text-xl font-black text-[var(--heading)] uppercase tracking-widest">Recepción en Curso</h2>
               <div className="flex gap-4 mt-1 text-xs font-bold text-slate-400 uppercase">
                 <span>Pedido: {guideData.sap || 'N/A'}</span>
                 <span>•</span>
@@ -82,7 +82,7 @@ export const PxDashboardView = (props: any) => {
             <Button
               variant="outline"
               onClick={openHeaderEdit}
-              className="border-none text-slate-500 hover:text-[#2ec4f1] hover:bg-[#2ec4f1]/10 font-black text-[11px] uppercase tracking-widest"
+              className="border-none text-slate-500 hover:text-[var(--accent)] hover:bg-[var(--accent)]/10 font-black text-[11px] uppercase tracking-widest"
             >
               <Pencil className="w-4 h-4 mr-1" /> Editar cabecera
             </Button>
@@ -156,13 +156,13 @@ export const PxDashboardView = (props: any) => {
 
         {/* Resumen Global */}
         <div className="flex flex-col md:flex-row gap-6">
-          <Card className="p-6 border-l-4 border-l-[#2ec4f1] shadow-md w-full md:max-w-xs flex flex-col justify-between">
+          <Card className="p-6 border-l-4 border-l-[var(--accent)] shadow-md w-full md:max-w-xs flex flex-col justify-between">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Cajas en Proceso</h3>
-              <Box className="w-5 h-5 text-[#2ec4f1]" />
+              <Box className="w-5 h-5 text-[var(--accent)]" />
             </div>
             <div>
-              <span className="text-4xl font-black text-[#181c3a]">{activeBoxCodes.length}</span>
+              <span className="text-4xl font-black text-[var(--heading)]">{activeBoxCodes.length}</span>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
                 {closedBoxCount} cerrada(s) · {openBoxCount} abierta(s)
               </p>
@@ -174,15 +174,15 @@ export const PxDashboardView = (props: any) => {
 
           <div className="flex-1 bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-center">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-black text-[#181c3a] uppercase tracking-widest flex items-center gap-2">
-                <Box className="w-6 h-6 text-[#2ec4f1]" />
+              <h2 className="text-xl font-black text-[var(--heading)] uppercase tracking-widest flex items-center gap-2">
+                <Box className="w-6 h-6 text-[var(--accent)]" />
                 Cajas Activas
               </h2>
               <Button 
                 onClick={handleCreateNewBox}
                 disabled={boxLimitReached}
                 title={boxLimitReached ? 'Edite la cabecera para aumentar la cantidad de cajas esperadas' : undefined}
-                className="bg-[#181c3a] hover:bg-[#252b57] text-white font-black text-[10px] uppercase tracking-widest h-10 px-6 transition-all shadow-lg hover:shadow-xl disabled:opacity-40 disabled:cursor-not-allowed"
+                className="bg-[var(--heading)] hover:brightness-110 text-white font-black text-[10px] uppercase tracking-widest h-10 px-6 transition-all shadow-lg hover:shadow-xl disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Plus className="w-4 h-4 mr-2" /> Nueva Caja
               </Button>
@@ -217,11 +217,11 @@ export const PxDashboardView = (props: any) => {
               const uniqueModels = Array.from(new Set(boxItems.map((i: any) => `${i.marca} ${i.modelo}`)));
 
               return (
-                <Card key={boxCode} className={`p-0 overflow-hidden shadow hover:shadow-md transition-all border-l-4 ${isClosed ? 'border-l-emerald-500' : isComplete ? 'border-l-[#181c3a]' : 'border-l-[#2ec4f1]'}`}>
+                <Card key={boxCode} className={`p-0 overflow-hidden shadow hover:shadow-md transition-all border-l-4 ${isClosed ? 'border-l-emerald-500' : isComplete ? 'border-l-[var(--heading)]' : 'border-l-[var(--accent)]'}`}>
                   <div className="p-3 flex justify-between items-start border-b border-slate-50">
                     <div>
                       <div className="flex items-center gap-2">
-                        <h4 className="text-sm font-black text-[#181c3a] leading-none">{boxCode}</h4>
+                        <h4 className="text-sm font-black text-[var(--heading)] leading-none">{boxCode}</h4>
                         {isClosed && (
                           <Badge className="bg-emerald-100 text-emerald-700 border-none text-[8px] font-black uppercase px-1.5 py-0">
                             <Lock className="w-2.5 h-2.5 mr-0.5 inline" /> Cerrada
@@ -236,7 +236,7 @@ export const PxDashboardView = (props: any) => {
                     </div>
                     {!isClosed && (
                       <div className="flex gap-2">
-                        <button onClick={() => handleEditBox(boxCode)} className="text-slate-300 hover:text-[#2ec4f1] transition-colors"><Pencil className="w-3 h-3" /></button>
+                        <button onClick={() => handleEditBox(boxCode)} className="text-slate-300 hover:text-[var(--accent)] transition-colors"><Pencil className="w-3 h-3" /></button>
                         <button onClick={() => handleDeleteBox(boxCode)} className="text-slate-300 hover:text-rose-500 transition-colors"><Trash2 className="w-3 h-3" /></button>
                       </div>
                     )}
@@ -244,7 +244,7 @@ export const PxDashboardView = (props: any) => {
                   <div className="bg-slate-50/50 p-3">
                     <div className="flex justify-between items-center mb-3">
                       <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Items: {received} / {totalExpected}</span>
-                      {isClosed ? <Lock className="w-3.5 h-3.5 text-emerald-500" /> : isComplete && <CheckCircle2 className="w-3.5 h-3.5 text-[#181c3a]" />}
+                      {isClosed ? <Lock className="w-3.5 h-3.5 text-emerald-500" /> : isComplete && <CheckCircle2 className="w-3.5 h-3.5 text-[var(--heading)]" />}
                     </div>
                     <Button 
                       onClick={() => handleEnterBox(boxCode)}
@@ -252,8 +252,8 @@ export const PxDashboardView = (props: any) => {
                         isClosed
                           ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm shadow-emerald-500/20'
                           : isComplete 
-                            ? 'bg-[#181c3a] hover:bg-[#252b57] text-white shadow-sm shadow-[#181c3a]/20'
-                            : 'bg-[#2ec4f1] hover:bg-[#1fb3e0] text-white shadow-sm shadow-[#2ec4f1]/20'
+                            ? 'bg-[var(--heading)] hover:brightness-110 text-white shadow-sm shadow-[var(--heading)]/20'
+                            : 'bg-[var(--accent)] hover:opacity-90 text-white shadow-sm shadow-[var(--accent)]/20'
                       }`}
                     >
                       {isClosed ? 'Ver caja cerrada' : isComplete ? 'Revisar y cerrar' : 'Continuar armado'} <ArrowRight className="w-3 h-3 ml-1" />

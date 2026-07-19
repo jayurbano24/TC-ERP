@@ -20,7 +20,7 @@ type Props = {
 export function MassTransferScanModal({ open, data, scannedSeries, scanInput, loading, onScanInputChange, onScanKeyDown, onConfirm, onClose }: Props) {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-[#181c3a]/80 backdrop-blur-xl p-6">
+    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 backdrop-blur-xl p-6">
       <Card className="w-full max-w-lg bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border-none animate-rise-in p-0">
         <div className="bg-amber-500 p-7 text-white flex justify-between items-center">
           <div>
@@ -36,7 +36,7 @@ export function MassTransferScanModal({ open, data, scannedSeries, scanInput, lo
           <div className="flex justify-between items-end">
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Progreso</p>
-              <p className="text-2xl font-black text-[#181c3a]">{scannedSeries.length} <span className="text-sm text-slate-400">/ {data.quantity}</span></p>
+              <p className="text-2xl font-black text-[var(--heading)]">{scannedSeries.length} <span className="text-sm text-slate-400">/ {data.quantity}</span></p>
             </div>
             <div className="w-full max-w-[200px] h-2 bg-slate-100 rounded-full overflow-hidden">
               <div 
@@ -47,7 +47,7 @@ export function MassTransferScanModal({ open, data, scannedSeries, scanInput, lo
           </div>
     
           <div>
-            <label className="text-[10px] font-black uppercase tracking-widest text-[#181c3a] block mb-2">Ingresar Serie (S/N)</label>
+            <label className="text-[10px] font-black uppercase tracking-widest text-[var(--heading)] block mb-2">Ingresar Serie (S/N)</label>
             <div className="relative">
               <input
                 type="text"
@@ -57,7 +57,7 @@ export function MassTransferScanModal({ open, data, scannedSeries, scanInput, lo
                 value={scanInput}
                 onChange={e => onScanInputChange(e.target.value)}
                 onKeyDown={onScanKeyDown}
-                className="w-full h-14 pl-12 pr-4 bg-slate-50 border-2 border-slate-200 focus:border-amber-500 outline-none rounded-2xl font-mono text-sm text-[#181c3a] transition-all"
+                className="w-full h-14 pl-12 pr-4 bg-slate-50 border-2 border-slate-200 focus:border-amber-500 outline-none rounded-2xl font-mono text-sm text-[var(--heading)] transition-all"
               />
               <Barcode className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
             </div>
@@ -67,7 +67,7 @@ export function MassTransferScanModal({ open, data, scannedSeries, scanInput, lo
             <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 max-h-[150px] overflow-y-auto">
               <div className="flex flex-wrap gap-2">
                 {scannedSeries.map((sn, i) => (
-                  <span key={i} className="inline-block px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] font-mono font-bold text-[#181c3a]">
+                  <span key={i} className="inline-block px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] font-mono font-bold text-[var(--heading)]">
                     {sn}
                   </span>
                 ))}
@@ -77,7 +77,7 @@ export function MassTransferScanModal({ open, data, scannedSeries, scanInput, lo
         </div>
     
         <div className="p-7 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
-          <Button variant="outline" className="h-12 px-6 rounded-2xl text-xs font-black uppercase text-slate-400 hover:text-[#181c3a]" onClick={() => onClose()}>
+          <Button variant="outline" className="h-12 px-6 rounded-2xl text-xs font-black uppercase text-slate-400 hover:text-[var(--heading)]" onClick={() => onClose()}>
             Cancelar
           </Button>
           <Button

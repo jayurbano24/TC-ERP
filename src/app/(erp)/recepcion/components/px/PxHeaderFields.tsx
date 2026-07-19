@@ -32,7 +32,7 @@ export const PxHeaderFields = memo(function PxHeaderFields({
           className={`w-full h-12 bg-slate-50 border-2 rounded-xl px-4 text-sm font-bold outline-none transition-all ${
             headerFieldErrors.sap
               ? 'border-rose-400 bg-rose-50 focus:border-rose-500'
-              : 'border-slate-100 focus:border-[#2ec4f1]'
+              : 'border-slate-100 focus:border-[var(--accent)]'
           }`}
           value={guideData.sap}
           onChange={(e) => {
@@ -59,7 +59,7 @@ export const PxHeaderFields = memo(function PxHeaderFields({
           className={`w-full h-12 bg-slate-50 border-2 rounded-xl px-4 text-sm font-bold outline-none transition-all ${
             headerFieldErrors.docReferencia
               ? 'border-rose-400 bg-rose-50 focus:border-rose-500'
-              : 'border-slate-100 focus:border-[#2ec4f1]'
+              : 'border-slate-100 focus:border-[var(--accent)]'
           }`}
           value={guideData.docReferencia}
           onChange={(e) => {
@@ -81,7 +81,7 @@ export const PxHeaderFields = memo(function PxHeaderFields({
       <div className="space-y-2">
         <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Proveedor PX *</label>
         <select
-          className="w-full h-12 bg-slate-50 border-2 border-slate-100 rounded-xl px-4 text-sm font-bold outline-none focus:border-[#2ec4f1] transition-all appearance-none"
+          className="w-full h-12 bg-slate-50 border-2 border-slate-100 rounded-xl px-4 text-sm font-bold outline-none focus:border-[var(--accent)] transition-all appearance-none"
           value={guideData.proveedorPx}
           onChange={(e) => setGuideData({ ...guideData, proveedorPx: e.target.value })}
         >
@@ -100,7 +100,7 @@ export const PxHeaderFields = memo(function PxHeaderFields({
           min={1}
           max={100}
           placeholder={`Ej: ${getPxBoxesDefault()}`}
-          className="w-full h-12 bg-slate-50 border-2 border-slate-100 rounded-xl px-4 text-sm font-bold outline-none focus:border-[#2ec4f1] transition-all"
+          className="w-full h-12 bg-slate-50 border-2 border-slate-100 rounded-xl px-4 text-sm font-bold outline-none focus:border-[var(--accent)] transition-all"
           value={guideData.totalCajasEsperadas || getPxBoxesDefault()}
           onChange={(e) => {
             const n = parseInt(e.target.value, 10);

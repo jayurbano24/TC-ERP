@@ -31,9 +31,9 @@ export function AgencyPickerModal({
   );
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#181c3a]/80 backdrop-blur-xl p-6">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-xl p-6">
       <Card className="w-full max-w-2xl bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border-none animate-rise-in p-0 max-h-[85vh] flex flex-col">
-        <div className="bg-[#181c3a] p-7 text-white flex justify-between items-center shrink-0">
+        <div className="bg-[var(--heading)] p-7 text-white flex justify-between items-center shrink-0">
           <div>
             <p className="text-[8px] font-black uppercase tracking-widest text-white/40 mb-1">
               Selección de Agencia
@@ -54,7 +54,7 @@ export function AgencyPickerModal({
             value={search}
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder="Buscar agencia..."
-            className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-sm outline-none focus:border-[#2ec4f1]"
+            className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-sm outline-none focus:border-[var(--accent)]"
           />
         </div>
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
@@ -63,9 +63,9 @@ export function AgencyPickerModal({
               key={ag.id}
               type="button"
               onClick={() => onSelect(ag.id)}
-              className="w-full text-left p-4 rounded-2xl border-2 border-slate-100 hover:border-[#2ec4f1] hover:bg-blue-50/30 transition-all"
+              className="w-full text-left p-4 rounded-2xl border-2 border-slate-100 hover:border-[var(--accent)] hover:bg-blue-50/30 transition-all"
             >
-              <p className="text-xs font-black text-[#181c3a]">{ag.id.toUpperCase().includes(ag.name.toUpperCase()) ? ag.id : `${ag.id} — ${ag.name}`}</p>
+              <p className="text-xs font-black text-[var(--heading)]">{ag.id.toUpperCase().includes(ag.name.toUpperCase()) ? ag.id : `${ag.id} — ${ag.name}`}</p>
               <p className="text-[10px] text-slate-400 mt-1">{ag.direccion}</p>
             </button>
           ))}

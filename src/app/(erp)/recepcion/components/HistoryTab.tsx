@@ -685,8 +685,8 @@ export const HistoryTab = ({
             rowHeight={68}
             maxBodyHeight={640}
             minWidth={1010}
-            headerClassName="bg-[var(--primary)]"
-            headerTextClassName="text-[var(--primary-foreground)]/50"
+            headerClassName="bg-[var(--surface-hover)] border-b border-[var(--border)]"
+            headerTextClassName="text-[var(--heading)]"
             emptyMessage="No hay recepciones PX finalizadas"
             rowClassName={(rec: any) => {
               const sap = String(rec.sap_document || '').trim();
@@ -698,7 +698,7 @@ export const HistoryTab = ({
         <Card padding="none" className="overflow-hidden border-none shadow-xl">
           <div className="overflow-x-auto">
             <table className="w-full text-left">
-              <thead className="bg-[var(--primary)] text-[var(--primary-foreground)] font-black uppercase tracking-[0.1em] text-[11px]">
+              <thead className="bg-[var(--surface-hover)] text-[var(--heading)] border-b border-[var(--border)] font-black uppercase tracking-[0.1em] text-[11px]">
                 <tr>
                   <th className="px-6 py-5 whitespace-nowrap">Fecha / Hora</th>
                   <th className="px-6 py-5 whitespace-nowrap">No. Recepción TC</th>
@@ -854,8 +854,8 @@ export const HistoryTab = ({
                         <td className="px-6 py-4 text-right">
                           <div className="flex justify-end gap-1.5">
                             <button onClick={(e) => { e.stopPropagation(); setShowTimeline(item); }} className="w-8 h-8 flex items-center justify-center bg-[var(--accent)]/15 text-[var(--accent)] rounded-lg hover:bg-[var(--accent)] hover:text-[var(--primary-foreground)] transition-all shadow-sm"><Clock className="w-3.5 h-3.5" /></button>
-                            {!isSubRow ? <button onClick={(e) => { e.stopPropagation(); handleEditHistoryCAC && handleEditHistoryCAC(item.id, item.guiaIdx); }} className="w-8 h-8 flex items-center justify-center bg-[var(--surface-hover)] text-[var(--muted)] rounded-lg hover:bg-[var(--primary)] hover:text-[var(--primary-foreground)] transition-all shadow-sm"><Pencil className="w-3.5 h-3.5" /></button> : null}
-                            {!isSubRow ? <button onClick={(e) => { e.stopPropagation(); handlePrintCAC && handlePrintCAC(item); }} className="w-8 h-8 flex items-center justify-center bg-[var(--surface-hover)] text-[var(--muted)] rounded-lg hover:bg-[var(--primary)] hover:text-[var(--primary-foreground)] transition-all shadow-sm"><Printer className="w-3.5 h-3.5" /></button> : null}
+                            {!isSubRow ? <button onClick={(e) => { e.stopPropagation(); handleEditHistoryCAC && handleEditHistoryCAC(item.id, item.guiaIdx); }} className="w-8 h-8 flex items-center justify-center bg-[var(--surface-hover)] text-[var(--muted)] rounded-lg hover:bg-[var(--heading)] hover:text-[var(--surface)] transition-all shadow-sm"><Pencil className="w-3.5 h-3.5" /></button> : null}
+                            {!isSubRow ? <button onClick={(e) => { e.stopPropagation(); handlePrintCAC && handlePrintCAC(item); }} className="w-8 h-8 flex items-center justify-center bg-[var(--surface-hover)] text-[var(--muted)] rounded-lg hover:bg-[var(--heading)] hover:text-[var(--surface)] transition-all shadow-sm"><Printer className="w-3.5 h-3.5" /></button> : null}
                             {!isSubRow ? <button onClick={(e) => { e.stopPropagation(); handleDeleteHistoryCAC && handleDeleteHistoryCAC(item.id, item.guiaIdx); }} className="w-8 h-8 flex items-center justify-center bg-[var(--surface-hover)] text-[var(--muted)] rounded-lg hover:bg-[var(--danger)] hover:text-[var(--primary-foreground)] transition-all shadow-sm"><Trash2 className="w-3.5 h-3.5" /></button> : null}
                           </div>
                         </td>
@@ -901,23 +901,23 @@ export const HistoryTab = ({
 
       {/* MODAL DETALLE PX */}
       {showPxDetails && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#181c3a]/80 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-rise-in">
-            <div className="bg-[#181c3a] p-5 flex items-center justify-between text-white">
+            <div className="bg-[var(--surface-hover)] border-b border-[var(--border)] p-5 flex items-center justify-between text-[var(--heading)]">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center">
-                  <Box className="w-5 h-5 text-[#2ec4f1]" />
+                <div className="w-10 h-10 bg-[var(--accent)]/15 rounded-xl flex items-center justify-center">
+                  <Box className="w-5 h-5 text-[var(--accent)]" />
                 </div>
                 <div>
                   <h3 className="font-black tracking-widest uppercase text-sm">Detalle de Recepción PX</h3>
-                  <p className="text-[10px] text-white/50 mt-1 uppercase tracking-wider">
+                  <p className="text-[10px] text-[var(--muted)] mt-1 uppercase tracking-wider">
                     {showPxDetails.fecha_formateada || new Date(showPxDetails.created_at).toLocaleString()} • Por: {(showPxDetails.notes?.split('Recibido Por: ')?.[1]?.split('\n')?.[0]?.trim() || showPxDetails.received_by || 'SISTEMA').split('@')[0]}
                   </p>
                 </div>
               </div>
               <button 
                 onClick={() => setShowPxDetails(null)}
-                className="w-8 h-8 flex items-center justify-center bg-white/10 hover:bg-rose-500 rounded-lg transition-colors"
+                className="w-8 h-8 flex items-center justify-center bg-[var(--surface)] border border-[var(--border)] text-[var(--muted)] hover:bg-rose-500 hover:text-white hover:border-rose-500 rounded-lg transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -927,15 +927,15 @@ export const HistoryTab = ({
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                 <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Doc SAP</p>
-                  <p className="font-black text-[#181c3a]">{showPxDetails.sap_document || 'N/A'}</p>
+                  <p className="font-black text-[var(--heading)]">{showPxDetails.sap_document || 'N/A'}</p>
                 </div>
                 <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Proveedor</p>
-                  <p className="font-black text-[#181c3a]">{showPxDetails.carrier || 'N/A'}</p>
+                  <p className="font-black text-[var(--heading)]">{showPxDetails.carrier || 'N/A'}</p>
                 </div>
                 <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Cajas</p>
-                  <p className="font-black text-[#2ec4f1] text-lg">{pxDetailsData.boxes.length}</p>
+                  <p className="font-black text-[var(--accent)] text-lg">{pxDetailsData.boxes.length}</p>
                 </div>
                 <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Equipos</p>
@@ -945,7 +945,7 @@ export const HistoryTab = ({
 
               {pxDetailsData.loading ? (
                 <div className="flex flex-col items-center justify-center py-12 text-slate-400">
-                  <div className="w-8 h-8 border-4 border-[#2ec4f1] border-t-transparent rounded-full animate-spin mb-4" />
+                  <div className="w-8 h-8 border-4 border-[var(--accent)] border-t-transparent rounded-full animate-spin mb-4" />
                   <p className="text-xs font-bold uppercase tracking-widest">Cargando detalles...</p>
                 </div>
               ) : (
@@ -961,7 +961,7 @@ export const HistoryTab = ({
                             <Badge variant="slate" className="font-black text-sm px-4 py-1.5">{box.box_code}</Badge>
                             <div className="flex flex-col">
                               <span className="text-[9px] text-slate-400 font-black uppercase tracking-widest leading-tight">Marca & Modelo</span>
-                              <span className="text-sm font-black text-[#181c3a]">{box.brands?.name || 'N/A'} <span className="text-slate-300 mx-1">|</span> {box.models?.name || 'N/A'}</span>
+                              <span className="text-sm font-black text-[var(--heading)]">{box.brands?.name || 'N/A'} <span className="text-slate-300 mx-1">|</span> {box.models?.name || 'N/A'}</span>
                             </div>
                           </div>
                           <div className="flex items-center gap-6">
@@ -982,7 +982,7 @@ export const HistoryTab = ({
                                 };
                                 printingService.printAllBoxLabels([mappedBox]); 
                               }}
-                              className="w-10 h-10 flex items-center justify-center bg-slate-50 hover:bg-[#181c3a] text-slate-400 hover:text-white rounded-xl transition-all shadow-sm"
+                              className="w-10 h-10 flex items-center justify-center bg-slate-50 hover:bg-[var(--heading)] text-[var(--muted)] hover:text-[var(--surface)] rounded-xl transition-all shadow-sm"
                               title="Imprimir Etiqueta Individual"
                             >
                               <Printer size={18} strokeWidth={2} />
@@ -1003,7 +1003,7 @@ export const HistoryTab = ({
                               <tbody>
                                 {boxEquipments.map((eq: any) => (
                                   <tr key={eq.service_order_id || eq.sn} className="border-t border-slate-100">
-                                    <td className="px-4 py-2 font-mono font-bold text-[#181c3a]">{eq.sn}</td>
+                                    <td className="px-4 py-2 font-mono font-bold text-[var(--heading)]">{eq.sn}</td>
                                     <td className="px-4 py-2 font-mono text-slate-500">{eq.s2 || '-'}</td>
                                     <td className="px-4 py-2 font-mono text-slate-500">{eq.s3 || '-'}</td>
                                     <td className="px-4 py-2 font-mono text-slate-500">{eq.s4 || '-'}</td>
@@ -1020,7 +1020,7 @@ export const HistoryTab = ({
               )}
             </div>
             <div className="p-4 bg-white border-t border-slate-100 flex justify-end gap-3">
-              <Button onClick={() => handlePrintLabelsPX(showPxDetails)} className="bg-[#2ec4f1] hover:bg-[#25a8d1] text-white text-[10px] uppercase font-black tracking-widest rounded-lg h-10 px-6">
+              <Button onClick={() => handlePrintLabelsPX(showPxDetails)} className="bg-[var(--accent)] hover:opacity-90 text-white text-[10px] uppercase font-black tracking-widest rounded-lg h-10 px-6">
                 <Tag className="w-4 h-4 mr-2" /> Imprimir Etiquetas
               </Button>
               <Button onClick={() => setShowPxDetails(null)} className="bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] uppercase font-black tracking-widest rounded-lg h-10 px-6">
@@ -1032,25 +1032,25 @@ export const HistoryTab = ({
       )}
 
       {showTimeline && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#181c3a]/80 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden animate-rise-in">
-            <div className="bg-[#181c3a] p-5 flex items-center justify-between text-white shrink-0">
+            <div className="bg-[var(--surface-hover)] border-b border-[var(--border)] p-5 flex items-center justify-between text-[var(--heading)] shrink-0">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center">
-                  <History className="w-5 h-5 text-[#2ec4f1]" />
+                <div className="w-10 h-10 bg-[var(--accent)]/15 rounded-xl flex items-center justify-center">
+                  <History className="w-5 h-5 text-[var(--accent)]" />
                 </div>
                 <div>
                   <h3 className="font-black tracking-widest uppercase text-sm">
                     {timelineActiveGuide ? `Trazabilidad - Guía ${timelineActiveGuide}` : 'Trazabilidad de Recepción'}
                   </h3>
-                  <p className="text-[10px] text-white/50 mt-1 uppercase tracking-wider">
+                  <p className="text-[10px] text-[var(--muted)] mt-1 uppercase tracking-wider">
                     Registro de movimientos TC: {showTimeline.guide_number}
                   </p>
                 </div>
               </div>
               <button 
                 onClick={() => { setShowTimeline(null); setTimelineActiveGuide(null); }}
-                className="w-8 h-8 flex items-center justify-center bg-white/10 hover:bg-rose-500 rounded-lg transition-colors"
+                className="w-8 h-8 flex items-center justify-center bg-[var(--surface)] border border-[var(--border)] text-[var(--muted)] hover:bg-rose-500 hover:text-white hover:border-rose-500 rounded-lg transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1061,9 +1061,9 @@ export const HistoryTab = ({
                 <div className="absolute left-[11px] top-2 bottom-2 w-0.5 bg-slate-200" />
                 
                 <div className="relative flex items-start gap-4">
-                  <div className="absolute -left-[30px] w-6 h-6 rounded-full border-4 border-slate-50 bg-[#2ec4f1] z-10" />
+                  <div className="absolute -left-[30px] w-6 h-6 rounded-full border-4 border-slate-50 bg-[var(--accent)] z-10" />
                   <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex-1">
-                    <p className="text-xs font-black uppercase tracking-widest text-[#181c3a]">Recepción Registrada</p>
+                    <p className="text-xs font-black uppercase tracking-widest text-[var(--heading)]">Recepción Registrada</p>
                     <p className="text-[10px] font-bold text-slate-400 mt-1">
                       {showTimeline.fecha_formateada || (showTimeline.created_at ? new Date(showTimeline.created_at).toLocaleString() : 'Fecha no disponible')}
                     </p>
@@ -1090,7 +1090,7 @@ export const HistoryTab = ({
                           <button 
                             key={i} 
                             onClick={(e) => { e.stopPropagation(); setTimelineActiveGuide(g); }}
-                            className={`border rounded-md px-3 py-1.5 flex items-center justify-center transition-all ${timelineActiveGuide === g ? 'bg-[#2ec4f1] border-[#2ec4f1] text-white shadow-md scale-105' : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-600 hover:text-[#2ec4f1]'}`}
+                            className={`border rounded-md px-3 py-1.5 flex items-center justify-center transition-all ${timelineActiveGuide === g ? 'bg-[var(--accent)] border-[var(--accent)] text-white shadow-md scale-105' : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-600 hover:text-[var(--accent)]'}`}
                             title={`Ver detalle de movimientos para la guía ${g}`}
                           >
                             <span className="font-mono text-xs font-bold">{g}</span>
@@ -1138,7 +1138,7 @@ export const HistoryTab = ({
                         <div className={`absolute -left-[30px] w-6 h-6 rounded-full border-4 border-slate-50 ${color} z-10`} />
                         <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex-1">
                           <p className="text-[10px] font-bold text-slate-400 mb-1">{evt.date}</p>
-                          <p className="text-xs font-bold text-[#181c3a]">{evt.content}</p>
+                          <p className="text-xs font-bold text-[var(--heading)]">{evt.content}</p>
                         </div>
                       </div>
                     );
@@ -1146,10 +1146,10 @@ export const HistoryTab = ({
                 })()}
 
                 <div className="relative flex items-start gap-4">
-                  <div className={`absolute -left-[30px] w-6 h-6 rounded-full border-4 border-slate-50 ${showTimeline.status !== 'RECEPCIONADA' ? 'bg-[#2ec4f1]' : 'bg-slate-200'} z-10`} />
+                  <div className={`absolute -left-[30px] w-6 h-6 rounded-full border-4 border-slate-50 ${showTimeline.status !== 'RECEPCIONADA' ? 'bg-[var(--accent)]' : 'bg-slate-200'} z-10`} />
                   <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex-1">
-                    <p className={`text-xs font-black uppercase tracking-widest ${showTimeline.status !== 'RECEPCIONADA' ? 'text-[#181c3a]' : 'text-slate-400'}`}>Estado Final Actual</p>
-                    <Badge className={`mt-2 ${showTimeline.status !== 'RECEPCIONADA' ? 'bg-[#2ec4f1] hover:bg-[#2ec4f1]' : 'bg-slate-200 text-slate-500 hover:bg-slate-200'}`}>
+                    <p className={`text-xs font-black uppercase tracking-widest ${showTimeline.status !== 'RECEPCIONADA' ? 'text-[var(--heading)]' : 'text-slate-400'}`}>Estado Final Actual</p>
+                    <Badge className={`mt-2 ${showTimeline.status !== 'RECEPCIONADA' ? 'bg-[var(--accent)] hover:bg-[var(--accent)]' : 'bg-slate-200 text-slate-500 hover:bg-slate-200'}`}>
                       {showTimeline.status || 'RECEPCIONADA'}
                     </Badge>
                   </div>

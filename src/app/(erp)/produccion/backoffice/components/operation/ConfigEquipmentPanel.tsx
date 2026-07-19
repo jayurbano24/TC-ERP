@@ -30,7 +30,7 @@ export function ConfigEquipmentPanel({ ctx }: Props) {
     <Card className={`${manifestPanelOpen ? 'xl:col-span-8' : 'xl:col-span-12'} p-8 xl:p-10 border-none shadow-2xl rounded-[2.5rem] bg-white min-h-[500px] flex flex-col order-1 transition-all`}>
             <div className="flex items-center justify-between mb-6 border-b border-slate-100 pb-4">
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-[#2ec4f1] text-[#181c3a] rounded-xl flex items-center justify-center font-black text-xs">2</div>
+                <div className="w-8 h-8 bg-[var(--accent)] text-[var(--heading)] rounded-xl flex items-center justify-center font-black text-xs">2</div>
                 <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Listado de Equipos del Conduce</h3>
               </div>
               <div className="flex items-center gap-2">
@@ -38,7 +38,7 @@ export function ConfigEquipmentPanel({ ctx }: Props) {
                   <button
                     type="button"
                     onClick={() => setManifestPanelOpen(true)}
-                    className="flex items-center gap-2 px-4 py-2 bg-[#181c3a] text-white rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-[#2ec4f1] hover:text-[#181c3a] transition-all"
+                    className="flex items-center gap-2 px-4 py-2 bg-[var(--heading)] text-white rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-[var(--accent)] hover:text-[var(--heading)] transition-all"
                   >
                     <ChevronLeft size={14} /> Manifiesto
                   </button>
@@ -69,7 +69,7 @@ export function ConfigEquipmentPanel({ ctx }: Props) {
                 <div className="overflow-x-auto rounded-2xl border border-slate-100">
                   <table className="w-full text-left">
                     <thead>
-                      <tr className="bg-[#181c3a] border-b border-[#181c3a]">
+                      <tr className="bg-[var(--heading)] border-b border-[var(--heading)]">
                         <th className="px-5 py-5 text-[9px] font-black uppercase tracking-widest text-white/90">Tecnología</th>
                         <th className="px-5 py-5 text-[9px] font-black uppercase tracking-widest text-white/90">Marca</th>
                         <th className="px-5 py-5 text-[9px] font-black uppercase tracking-widest text-white/90">Modelo</th>
@@ -99,16 +99,16 @@ export function ConfigEquipmentPanel({ ctx }: Props) {
                             onClick={() => setSelectedItemIdx(isSelected ? null : idx)}
                           >
                             <td className="px-5 py-4">
-                              <span className="text-[10px] font-black text-[#181c3a] uppercase">{techName}</span>
+                              <span className="text-[10px] font-black text-[var(--heading)] uppercase">{techName}</span>
                             </td>
                             <td className="px-5 py-4">
-                              <span className="text-[10px] font-black text-[#181c3a] uppercase">{marcaName}</span>
+                              <span className="text-[10px] font-black text-[var(--heading)] uppercase">{marcaName}</span>
                             </td>
                             <td className="px-5 py-4">
-                              <span className="text-xs font-black text-[#181c3a]">{modeloName}</span>
+                              <span className="text-xs font-black text-[var(--heading)]">{modeloName}</span>
                             </td>
                             <td className="px-5 py-4 text-center">
-                              <span className="font-black text-sm text-[#181c3a]">{item.cantidad}</span>
+                              <span className="font-black text-sm text-[var(--heading)]">{item.cantidad}</span>
                             </td>
                             <td className="px-5 py-4 text-center">
                               <Badge className={`border-none font-black text-[10px] ${completedUnits > 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-400'}`}>
@@ -129,7 +129,7 @@ export function ConfigEquipmentPanel({ ctx }: Props) {
                               <div className="flex justify-end gap-1">
                                 <button 
                                   onClick={() => setSelectedItemIdx(isSelected ? null : idx)} 
-                                  className={`p-2 rounded-lg transition-all ${isSelected ? 'bg-[#2ec4f1] text-white' : 'text-slate-300 hover:text-[#2ec4f1] hover:bg-blue-50'}`}
+                                  className={`p-2 rounded-lg transition-all ${isSelected ? 'bg-[var(--accent)] text-white' : 'text-slate-300 hover:text-[var(--accent)] hover:bg-blue-50'}`}
                                   title="Pistolear series"
                                 >
                                   <Barcode size={16} />
@@ -175,7 +175,7 @@ export function ConfigEquipmentPanel({ ctx }: Props) {
                 return (
                   <Button 
                     variant="primary" 
-                    className={`w-full h-20 rounded-[1.5rem] shadow-2xl font-black uppercase tracking-[0.2em] text-xs transition-all ${(!isReady || isSubmitting) ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none' : (isAccesorio ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : 'bg-[#181c3a] hover:bg-[#2ec4f1] text-white')}`} 
+                    className={`w-full h-20 rounded-[1.5rem] shadow-2xl font-black uppercase tracking-[0.2em] text-xs transition-all ${(!isReady || isSubmitting) ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none' : (isAccesorio ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : 'bg-[var(--heading)] hover:bg-[var(--accent)] text-white')}`} 
                     onClick={async () => {
                       if (!isReady || isSubmitting) return;
                       if (isAccesorio) {

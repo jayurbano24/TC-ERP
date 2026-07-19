@@ -13,7 +13,7 @@ type Props = {
 };
 
 const fieldClass =
-  'w-full h-11 px-4 bg-[var(--surface)] text-[var(--foreground)] border border-[var(--border)] rounded-xl font-black text-[10px] uppercase outline-none focus:border-[#2ec4f1]';
+  'w-full h-11 px-4 bg-[var(--surface)] text-[var(--foreground)] border border-[var(--border)] rounded-xl font-black text-[10px] uppercase outline-none focus:border-[var(--accent)]';
 
 export function HistoryFiltersPanel({
   historyFilters,
@@ -109,7 +109,7 @@ export function HistoryFiltersPanel({
             <input
               type="text"
               placeholder={`Filtrar ${label.toLowerCase()}...`}
-              className="w-full h-10 px-3 bg-[var(--surface)] text-[var(--foreground)] border border-[var(--border)] rounded-xl font-bold text-[10px] outline-none focus:border-[#2ec4f1] uppercase"
+              className="w-full h-10 px-3 bg-[var(--surface)] text-[var(--foreground)] border border-[var(--border)] rounded-xl font-bold text-[10px] outline-none focus:border-[var(--accent)] uppercase"
               value={historyFilters[key]}
               onChange={(e) => patchHistoryFilter({ [key]: e.target.value })}
             />

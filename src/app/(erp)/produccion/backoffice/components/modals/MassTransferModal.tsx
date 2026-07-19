@@ -20,7 +20,7 @@ type Props = {
 export function MassTransferModal({ open, data, technologies, brands, models, onDataChange, onPrepare, onClose }: Props) {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-[#181c3a]/80 backdrop-blur-xl p-6">
+    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 backdrop-blur-xl p-6">
       <Card className="w-full max-w-lg bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border-none animate-rise-in p-0">
         <div className="bg-amber-500 p-7 text-white flex justify-between items-center">
           <div>
@@ -35,7 +35,7 @@ export function MassTransferModal({ open, data, technologies, brands, models, on
           <div>
             <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 block mb-1">Tecnología</label>
             <select
-              className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[#181c3a] outline-none focus:border-amber-500 transition-all"
+              className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[var(--heading)] outline-none focus:border-amber-500 transition-all"
               value={data.techId}
               onChange={(e) => onDataChange({ techId: e.target.value, modelId: '' })}
             >
@@ -46,7 +46,7 @@ export function MassTransferModal({ open, data, technologies, brands, models, on
           <div>
             <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 block mb-1">Marca</label>
             <select
-              className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[#181c3a] outline-none focus:border-amber-500 transition-all"
+              className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[var(--heading)] outline-none focus:border-amber-500 transition-all"
               value={data.brandId}
               onChange={(e) => onDataChange({ brandId: e.target.value, modelId: '' })}
             >
@@ -57,7 +57,7 @@ export function MassTransferModal({ open, data, technologies, brands, models, on
           <div>
             <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 block mb-1">Modelo</label>
             <select
-              className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[#181c3a] outline-none focus:border-amber-500 transition-all"
+              className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[var(--heading)] outline-none focus:border-amber-500 transition-all"
               value={data.modelId}
               onChange={(e) => onDataChange({ modelId: e.target.value })}
             >
@@ -71,7 +71,7 @@ export function MassTransferModal({ open, data, technologies, brands, models, on
             <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 block mb-1">Cantidad a Trasladar</label>
             <input
               type="number"
-              className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[#181c3a] outline-none focus:border-amber-500 transition-all"
+              className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[var(--heading)] outline-none focus:border-amber-500 transition-all"
               placeholder="Ej. 10"
               value={data.quantity}
               onChange={(e) => onDataChange({ quantity: e.target.value ? Number(e.target.value) : '' })}
@@ -79,7 +79,7 @@ export function MassTransferModal({ open, data, technologies, brands, models, on
           </div>
         </div>
         <div className="p-7 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
-          <Button variant="outline" className="h-12 px-6 rounded-2xl text-xs font-black uppercase text-slate-400 hover:text-[#181c3a]" onClick={() => onClose()}>
+          <Button variant="outline" className="h-12 px-6 rounded-2xl text-xs font-black uppercase text-slate-400 hover:text-[var(--heading)]" onClick={() => onClose()}>
             Cancelar
           </Button>
           <Button

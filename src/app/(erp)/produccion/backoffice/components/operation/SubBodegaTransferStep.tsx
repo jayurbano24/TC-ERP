@@ -34,7 +34,7 @@ export function SubBodegaTransferStep({ ctx }: Props) {
   return (
       <div className="space-y-8 animate-rise-in max-w-4xl mx-auto">
         <div className="flex justify-between items-center">
-          <button onClick={() => setReceptionStep('classification')} className="flex items-center gap-2 text-[10px] font-black text-slate-400 hover:text-[#181c3a] uppercase tracking-widest transition-all">
+          <button onClick={() => setReceptionStep('classification')} className="flex items-center gap-2 text-[10px] font-black text-slate-400 hover:text-[var(--heading)] uppercase tracking-widest transition-all">
             <ChevronLeft size={16} /> Volver a Clasificación
           </button>
         </div>
@@ -43,7 +43,7 @@ export function SubBodegaTransferStep({ ctx }: Props) {
           <div className={`${category === 'Accesorio' ? 'bg-emerald-50 text-emerald-500' : 'bg-amber-50 text-amber-500'} w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-8`}>
             {category === 'Accesorio' ? <Package size={48} /> : <Radio size={48} />}
           </div>
-          <h2 className="text-3xl font-black text-[#181c3a] uppercase mb-4">Transferencia a Sub-Bodega</h2>
+          <h2 className="text-3xl font-black text-[var(--heading)] uppercase mb-4">Transferencia a Sub-Bodega</h2>
           <p className="text-slate-400 font-bold uppercase text-[10px] tracking-[0.2em] mb-12">Confirmar el envío de la caja a la sub-bodega correspondiente</p>
     
           <div className="bg-slate-50 p-8 rounded-3xl text-left mb-12 border border-slate-100">
@@ -56,14 +56,14 @@ export function SubBodegaTransferStep({ ctx }: Props) {
               </div>
               <div>
                 <p className="text-[9px] font-black text-slate-400 uppercase mb-2">Caja / Guía a Transferir</p>
-                <p className="text-xl font-black text-[#181c3a] font-mono">{scannedGuides.join(', ')}</p>
+                <p className="text-xl font-black text-[var(--heading)] font-mono">{scannedGuides.join(', ')}</p>
               </div>
             </div>
             <div className="space-y-4 mb-8">
               <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Agencia de Origen (CAC) <span className="text-slate-300">(opcional)</span></label>
               <div className="relative">
                 <select 
-                  className="w-full p-6 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-[#181c3a] outline-none focus:ring-2 focus:ring-[#2ec4f1] appearance-none transition-all"
+                  className="w-full p-6 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-[var(--heading)] outline-none focus:ring-2 focus:ring-[var(--accent)] appearance-none transition-all"
                   value={agencia}
                   onChange={(e) => {
                     const name = e.target.value;
@@ -86,7 +86,7 @@ export function SubBodegaTransferStep({ ctx }: Props) {
             <div className="space-y-2">
               <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Notas de la Transferencia (Opcional)</label>
               <textarea 
-                className="w-full p-6 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-[#181c3a] outline-none focus:ring-2 focus:ring-[#2ec4f1] min-h-[100px] transition-all"
+                className="w-full p-6 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-[var(--heading)] outline-none focus:ring-2 focus:ring-[var(--accent)] min-h-[100px] transition-all"
                 placeholder="Ej. Cantidad estimada de piezas, estado de la caja..."
                 value={returnReason}
                 onChange={(e) => setReturnReason(e.target.value)}

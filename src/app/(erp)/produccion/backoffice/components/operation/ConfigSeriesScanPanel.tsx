@@ -116,13 +116,13 @@ export function ConfigSeriesScanPanel({ ctx }: Props) {
         const expectedSeries = item.cantidad * item.seriesPerUnit;
 
         return (
-          <div className="bg-slate-50 rounded-[2rem] p-8 border-2 border-[#2ec4f1]/20 animate-rise-in">
+          <div className="bg-slate-50 rounded-[2rem] p-8 border-2 border-[var(--accent)]/20 animate-rise-in">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
               <div>
-                <p className="text-[9px] font-black text-[#2ec4f1] uppercase tracking-widest mb-1">
+                <p className="text-[9px] font-black text-[var(--accent)] uppercase tracking-widest mb-1">
                   {techName} • {marcaName}
                 </p>
-                <h4 className="text-lg font-black text-[#181c3a] uppercase">{modeloName}</h4>
+                <h4 className="text-lg font-black text-[var(--heading)] uppercase">{modeloName}</h4>
                 <p className="text-[9px] font-black text-slate-400 uppercase mt-1">
                   {item.seriesPerUnit} series/unidad —{' '}
                   <span className="text-emerald-500">
@@ -138,7 +138,7 @@ export function ConfigSeriesScanPanel({ ctx }: Props) {
                     setBulkTargetIdx(idx);
                     setShowBulkModal(true);
                   }}
-                  className="border-slate-200 text-[9px] font-black uppercase text-[#2ec4f1] hover:bg-blue-50"
+                  className="border-slate-200 text-[9px] font-black uppercase text-[var(--accent)] hover:bg-blue-50"
                 >
                   <Table size={12} className="mr-1.5" /> Carga Masiva
                 </Button>
@@ -155,7 +155,7 @@ export function ConfigSeriesScanPanel({ ctx }: Props) {
                           item.series.length
                         : 'Serie 1 / Unidad ' + (item.series.length + 1)
                     }...`}
-                    className="bg-white border-2 border-slate-200 rounded-xl px-4 py-3 text-xs font-mono font-bold outline-none focus:border-[#2ec4f1] w-64 transition-all"
+                    className="bg-white border-2 border-slate-200 rounded-xl px-4 py-3 text-xs font-mono font-bold outline-none focus:border-[var(--accent)] w-64 transition-all"
                     value={itemSeriesInputs[idx] || ''}
                     onChange={(e) =>
                       setItemSeriesInputs({ ...itemSeriesInputs, [idx]: e.target.value })
@@ -168,7 +168,7 @@ export function ConfigSeriesScanPanel({ ctx }: Props) {
                   />
                   <Button
                     variant="secondary"
-                    className="h-12 w-12 p-0 rounded-xl bg-[#181c3a] text-white hover:bg-[#2ec4f1]"
+                    className="h-12 w-12 p-0 rounded-xl bg-[var(--heading)] text-white hover:bg-[var(--accent)]"
                     onClick={() => void handleAddSerial(idx, itemSeriesInputs[idx] || '')}
                   >
                     <Plus size={16} />
@@ -181,7 +181,7 @@ export function ConfigSeriesScanPanel({ ctx }: Props) {
               <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
                 <table className="w-full text-left min-w-[640px]">
                   <thead>
-                    <tr className="bg-[#181c3a] text-white">
+                    <tr className="bg-[var(--heading)] text-white">
                       <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest whitespace-nowrap">
                         Unidad
                       </th>
@@ -213,7 +213,7 @@ export function ConfigSeriesScanPanel({ ctx }: Props) {
                           }`}
                         >
                           <td className="px-4 py-3 whitespace-nowrap">
-                            <span className="text-[10px] font-black text-[#181c3a] uppercase">
+                            <span className="text-[10px] font-black text-[var(--heading)] uppercase">
                               Unidad {uIdx + 1}
                             </span>
                           </td>
@@ -227,7 +227,7 @@ export function ConfigSeriesScanPanel({ ctx }: Props) {
                                       S{sIdx + 1}-
                                     </span>
                                     <span
-                                      className="text-[10px] font-mono font-bold text-[#181c3a] max-w-[140px] truncate"
+                                      className="text-[10px] font-mono font-bold text-[var(--heading)] max-w-[140px] truncate"
                                       title={sn}
                                     >
                                       {sn}
@@ -249,7 +249,7 @@ export function ConfigSeriesScanPanel({ ctx }: Props) {
                                             setGuideItems(newItems);
                                           }
                                         }}
-                                        className="p-1 text-slate-400 hover:text-[#2ec4f1]"
+                                        className="p-1 text-slate-400 hover:text-[var(--accent)]"
                                         title="Editar serie"
                                       >
                                         <Edit3 size={10} />

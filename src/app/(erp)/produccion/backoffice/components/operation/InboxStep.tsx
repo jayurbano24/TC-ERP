@@ -87,7 +87,7 @@ export function InboxStep({ ctx }: Props) {
         <input
           type="search"
           placeholder="Escanea o escribe el número de guía..."
-          className="w-full bg-[var(--surface)] text-[var(--foreground)] border-2 border-[var(--border)] rounded-2xl py-3.5 sm:py-4 pl-12 pr-4 text-sm font-bold outline-none focus:border-[#2ec4f1] transition-colors placeholder:text-[var(--muted)]"
+          className="w-full bg-[var(--surface)] text-[var(--foreground)] border-2 border-[var(--border)] rounded-2xl py-3.5 sm:py-4 pl-12 pr-4 text-sm font-bold outline-none focus:border-[var(--accent)] transition-colors placeholder:text-[var(--muted)]"
           value={inboxSearch}
           onChange={(e) => setInboxSearch(e.target.value)}
           autoFocus
@@ -97,7 +97,7 @@ export function InboxStep({ ctx }: Props) {
       {!loading && !inboxLoadError && pendingReceptionCount > 0 && (
         <div className="flex flex-wrap gap-3">
           <div className="inline-flex items-center gap-2.5 rounded-2xl border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] px-4 py-2.5 shadow-sm">
-            <ErpIcon name="clock" className="w-4 h-4 text-[#2ec4f1]" />
+            <ErpIcon name="clock" className="w-4 h-4 text-[var(--accent)]" />
             <div>
               <p className="text-[9px] font-black uppercase tracking-widest text-[var(--muted)]">
                 Cajas pendientes de clasificar
@@ -108,7 +108,7 @@ export function InboxStep({ ctx }: Props) {
             </div>
           </div>
           <div className="inline-flex items-center gap-2.5 rounded-2xl border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] px-4 py-2.5 shadow-sm">
-            <ErpIcon name="box" className="w-4 h-4 text-[#2ec4f1]" />
+            <ErpIcon name="box" className="w-4 h-4 text-[var(--accent)]" />
             <div>
               <p className="text-[9px] font-black uppercase tracking-widest text-[var(--muted)]">
                 Recepciones en bandeja
@@ -141,7 +141,7 @@ export function InboxStep({ ctx }: Props) {
       <div className="grid grid-cols-1 gap-4">
         {loading && pendingReceptions.length === 0 && !inboxLoadError && (
           <div className="py-20 text-center erp-themed-surface rounded-2xl border border-[var(--border)]">
-            <ErpIcon name="refresh" className="w-10 h-10 mx-auto mb-4 text-[#2ec4f1] animate-spin" />
+            <ErpIcon name="refresh" className="w-10 h-10 mx-auto mb-4 text-[var(--accent)] animate-spin" />
             <p className="text-sm font-black text-[var(--muted)] uppercase tracking-widest">Cargando bandeja...</p>
           </div>
         )}
@@ -194,7 +194,7 @@ export function InboxStep({ ctx }: Props) {
                 <div>
                   <p className={erpTypography.label}>Transportista</p>
                   <p className="text-sm font-black text-[var(--foreground)] leading-tight mt-1">{rec.carrier || '---'}</p>
-                  <p className="text-[10px] font-bold text-[#2ec4f1] uppercase mt-1">
+                  <p className="text-[10px] font-bold text-[var(--accent)] uppercase mt-1">
                     Recibido por: {getReceiverName(rec)}
                   </p>
                 </div>

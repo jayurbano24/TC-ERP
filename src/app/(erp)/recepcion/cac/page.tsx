@@ -231,11 +231,11 @@ export default function RecepcionCacPage() {
     >
       <div className="space-y-10">
         {showForm && (
-          <Card className="p-0 overflow-hidden border-2 border-[#2ec4f1]/20">
-            <div className="bg-[#181c3a] p-8 text-white flex justify-between items-center">
+          <Card className="p-0 overflow-hidden border-2 border-[var(--accent)]/20">
+            <div className="bg-[var(--heading)] p-8 text-white flex justify-between items-center">
               <div className="flex items-center gap-4">
                 <div className="bg-white/10 p-3 rounded-2xl">
-                  <ClipboardList className="w-6 h-6 text-[#2ec4f1]" />
+                  <ClipboardList className="w-6 h-6 text-[var(--accent)]" />
                 </div>
                 <div>
                   <h2 className="text-xl font-bold">Registro de Manifiesto</h2>
@@ -257,7 +257,7 @@ export default function RecepcionCacPage() {
                       <select 
                         value={tipoCarga}
                         onChange={(e) => setTipoCarga(e.target.value as any)}
-                        className="w-full bg-slate-50 p-4 rounded-xl border border-slate-200 outline-none font-bold text-sm focus:ring-2 focus:ring-[#2ec4f1]/20 transition-all"
+                        className="w-full bg-slate-50 p-4 rounded-xl border border-slate-200 outline-none font-bold text-sm focus:ring-2 focus:ring-[var(--accent)]/20 transition-all"
                       >
                         <option value="Equipos">Ingreso de Equipos</option>
                         <option value="Accesorios">Ingreso de Accesorios</option>
@@ -270,7 +270,7 @@ export default function RecepcionCacPage() {
                       <select 
                         value={courier}
                         onChange={(e) => setCourier(e.target.value)}
-                        className="w-full bg-slate-50 p-4 rounded-xl border border-slate-200 outline-none font-bold text-sm focus:ring-2 focus:ring-[#2ec4f1]/20 transition-all"
+                        className="w-full bg-slate-50 p-4 rounded-xl border border-slate-200 outline-none font-bold text-sm focus:ring-2 focus:ring-[var(--accent)]/20 transition-all"
                       >
                         <option value="Cargo Express">Cargo Express</option>
                         <option value="GUATEX">GUATEX</option>
@@ -288,7 +288,7 @@ export default function RecepcionCacPage() {
                           value={transportista}
                           onChange={(e) => setTransportista(e.target.value)}
                           placeholder="Nombre del piloto"
-                          className="w-full bg-slate-50 pl-12 pr-4 py-4 rounded-xl border border-slate-200 outline-none font-bold text-sm focus:ring-2 focus:ring-[#2ec4f1]/20 transition-all"
+                          className="w-full bg-slate-50 pl-12 pr-4 py-4 rounded-xl border border-slate-200 outline-none font-bold text-sm focus:ring-2 focus:ring-[var(--accent)]/20 transition-all"
                         />
                       </div>
                     </div>
@@ -302,7 +302,7 @@ export default function RecepcionCacPage() {
                           value={totalCajas || ''}
                           onChange={(e) => setTotalCajas(parseInt(e.target.value) || 0)}
                           placeholder="Cantidad"
-                          className="w-full bg-slate-50 pl-12 pr-4 py-4 rounded-xl border border-slate-200 outline-none font-bold text-sm focus:ring-2 focus:ring-[#2ec4f1]/20 transition-all"
+                          className="w-full bg-slate-50 pl-12 pr-4 py-4 rounded-xl border border-slate-200 outline-none font-bold text-sm focus:ring-2 focus:ring-[var(--accent)]/20 transition-all"
                         />
                       </div>
                     </div>
@@ -311,7 +311,7 @@ export default function RecepcionCacPage() {
                   <div className="pt-8 border-t border-slate-100">
                     <div className="flex items-center justify-between mb-6">
                       <div className="flex items-center gap-3">
-                        <QrCode className="w-5 h-5 text-[#2ec4f1]" />
+                        <QrCode className="w-5 h-5 text-[var(--accent)]" />
                         <h3 className="text-sm font-black uppercase tracking-widest text-slate-800">Pistoleo de Guías</h3>
                       </div>
                       <div className="flex items-center gap-2">
@@ -330,7 +330,7 @@ export default function RecepcionCacPage() {
                         onKeyDown={(e) => e.key === 'Enter' && handleScan(e)}
                         disabled={totalCajas <= 0 || scannedItems.length >= totalCajas}
                         placeholder={totalCajas <= 0 ? "Indique cantidad total primero..." : "Escanee código de barra..."}
-                        className="flex-1 bg-slate-50 p-5 rounded-2xl border-2 border-slate-100 focus:border-[#2ec4f1] outline-none text-lg font-mono font-bold shadow-sm transition-all"
+                        className="flex-1 bg-slate-50 p-5 rounded-2xl border-2 border-slate-100 focus:border-[var(--accent)] outline-none text-lg font-mono font-bold shadow-sm transition-all"
                       />
                       <Button 
                         variant="primary" 
@@ -394,10 +394,10 @@ export default function RecepcionCacPage() {
 
                   <div 
                     onClick={handleEvidenceUpload}
-                    className="w-full max-w-md flex flex-col items-center gap-4 bg-[#f8fafc] p-10 rounded-[2.5rem] border-2 border-dashed border-[#2ec4f1]/30 hover:bg-[#2ec4f1]/5 transition-all cursor-pointer group"
+                    className="w-full max-w-md flex flex-col items-center gap-4 bg-[#f8fafc] p-10 rounded-[2.5rem] border-2 border-dashed border-[var(--accent)]/30 hover:bg-[var(--accent)]/5 transition-all cursor-pointer group"
                   >
-                    <div className="bg-white p-4 rounded-2xl shadow-xl shadow-[#2ec4f1]/10 group-hover:scale-110 transition-transform">
-                      <Camera className="w-8 h-8 text-[#2ec4f1]" />
+                    <div className="bg-white p-4 rounded-2xl shadow-xl shadow-[var(--accent)]/10 group-hover:scale-110 transition-transform">
+                      <Camera className="w-8 h-8 text-[var(--accent)]" />
                     </div>
                     <div className="text-center">
                       <p className="text-sm font-black text-slate-700 uppercase tracking-widest mb-1">Cargar Evidencia Física</p>
@@ -418,13 +418,13 @@ export default function RecepcionCacPage() {
         {/* Tabs para Bandeja e Historial */}
         <div className="flex gap-4 mb-6">
           <button
-            className={`px-4 py-2 rounded-lg font-black uppercase text-xs tracking-widest transition-all ${activeTab === 'bandeja' ? 'bg-[#181c3a] text-white shadow-lg' : 'bg-slate-100 text-slate-400 hover:text-slate-600'}`}
+            className={`px-4 py-2 rounded-lg font-black uppercase text-xs tracking-widest transition-all ${activeTab === 'bandeja' ? 'bg-[var(--heading)] text-white shadow-lg' : 'bg-slate-100 text-slate-400 hover:text-slate-600'}`}
             onClick={() => setActiveTab('bandeja')}
           >
             Bandeja de Entrada
           </button>
           <button
-            className={`px-4 py-2 rounded-lg font-black uppercase text-xs tracking-widest transition-all ${activeTab === 'historial' ? 'bg-[#181c3a] text-white shadow-lg' : 'bg-slate-100 text-slate-400 hover:text-slate-600'}`}
+            className={`px-4 py-2 rounded-lg font-black uppercase text-xs tracking-widest transition-all ${activeTab === 'historial' ? 'bg-[var(--heading)] text-white shadow-lg' : 'bg-slate-100 text-slate-400 hover:text-slate-600'}`}
             onClick={() => setActiveTab('historial')}
           >
             Historial Detallado
@@ -462,7 +462,7 @@ export default function RecepcionCacPage() {
                           </div>
                         </td>
                         <td className="px-6 py-5">
-                          <span className="text-sm font-black text-[#181c3a] font-mono">{rec.noGuia}</span>
+                          <span className="text-sm font-black text-[var(--heading)] font-mono">{rec.noGuia}</span>
                         </td>
                         <td className="px-6 py-5">
                           <div className="flex items-center gap-3">
@@ -480,7 +480,7 @@ export default function RecepcionCacPage() {
                         <td className="px-6 py-5">
                           <div className="flex items-center gap-2">
                             <div className={`w-1.5 h-1.5 rounded-full ${
-                              rec.estatus.includes('PROCESO') ? 'bg-[#2ec4f1]' : 
+                              rec.estatus.includes('PROCESO') ? 'bg-[var(--accent)]' : 
                               rec.estatus.includes('BODEGA') ? 'bg-amber-400' : 'bg-rose-500'
                             }`} />
                             <span className="text-[10px] font-black uppercase tracking-tight text-slate-600">{rec.estatus}</span>
@@ -492,7 +492,7 @@ export default function RecepcionCacPage() {
                         <td className="px-6 py-5 text-right">
                           <div className="flex items-center justify-end gap-2">
                             {rec.evidencia && <Camera className="w-4 h-4 text-emerald-500" />}
-                            <Download className="w-4 h-4 text-slate-300 group-hover:text-[#2ec4f1] transition-colors" />
+                            <Download className="w-4 h-4 text-slate-300 group-hover:text-[var(--accent)] transition-colors" />
                             <Button 
                               size="sm"
                               variant="primary"
@@ -543,7 +543,7 @@ export default function RecepcionCacPage() {
                           </div>
                         </td>
                         <td className="px-6 py-5">
-                          <span className="text-sm font-black text-[#181c3a] font-mono">{rec.noGuia}</span>
+                          <span className="text-sm font-black text-[var(--heading)] font-mono">{rec.noGuia}</span>
                         </td>
                         <td className="px-6 py-5">
                           <div className="flex items-center gap-3">
@@ -570,7 +570,7 @@ export default function RecepcionCacPage() {
                         <td className="px-6 py-5 text-right">
                           <div className="flex items-center justify-end gap-2">
                             {rec.evidencia && <Camera className="w-4 h-4 text-emerald-500" />}
-                            <Download className="w-4 h-4 text-slate-300 group-hover:text-[#2ec4f1] transition-colors" />
+                            <Download className="w-4 h-4 text-slate-300 group-hover:text-[var(--accent)] transition-colors" />
                           </div>
                         </td>
                       </tr>
@@ -584,12 +584,12 @@ export default function RecepcionCacPage() {
 
         {/* Modal de Detalle */}
         {selectedRecord && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#181c3a]/40 backdrop-blur-sm p-6">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-6">
             <Card className="max-w-2xl w-full shadow-2xl animate-rise-in p-0 overflow-hidden">
-              <div className="bg-[#181c3a] p-6 text-white flex justify-between items-center">
+              <div className="bg-[var(--heading)] p-6 text-white flex justify-between items-center">
                 <div className="flex items-center gap-4">
                   <div className="bg-white/10 p-2 rounded-xl">
-                    <ClipboardList className="w-5 h-5 text-[#2ec4f1]" />
+                    <ClipboardList className="w-5 h-5 text-[var(--accent)]" />
                   </div>
                   <div>
                     <h3 className="text-lg font-bold">Detalle de Manifiesto</h3>
@@ -620,7 +620,7 @@ export default function RecepcionCacPage() {
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <QrCode className="w-4 h-4 text-[#2ec4f1]" />
+                      <QrCode className="w-4 h-4 text-[var(--accent)]" />
                       <h4 className="text-xs font-black uppercase tracking-widest text-slate-800">Guías Recibidas ({selectedRecord.guias?.length || 0})</h4>
                     </div>
                   </div>
@@ -629,7 +629,7 @@ export default function RecepcionCacPage() {
                       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                         {selectedRecord.guias?.map((guia: string, i: number) => (
                           <div key={i} className="bg-white p-2.5 rounded-lg border border-slate-100 text-[10px] font-mono font-bold text-slate-600 flex items-center gap-2">
-                            <span className="w-4 h-4 bg-[#2ec4f1]/10 text-[#2ec4f1] rounded flex items-center justify-center text-[8px]">{i + 1}</span>
+                            <span className="w-4 h-4 bg-[var(--accent)]/10 text-[var(--accent)] rounded flex items-center justify-center text-[8px]">{i + 1}</span>
                             {guia}
                           </div>
                         ))}

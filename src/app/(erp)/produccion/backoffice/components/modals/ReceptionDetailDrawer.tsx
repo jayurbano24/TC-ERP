@@ -15,9 +15,9 @@ type Props = {
 
 export function ReceptionDetailDrawer({ reception, series, loading, agencies, onClose }: Props) {
   return (
-      <div className="fixed inset-0 z-50 flex items-center justify-end bg-[#181c3a]/40 backdrop-blur-sm">
+      <div className="fixed inset-0 z-50 flex items-center justify-end bg-black/40 backdrop-blur-sm">
         <div className="w-[95vw] max-w-none h-full bg-white shadow-2xl animate-slide-in-right flex flex-col">
-          <div className="bg-[#181c3a] p-8 text-white relative overflow-hidden shrink-0">
+          <div className="bg-[var(--heading)] p-8 text-white relative overflow-hidden shrink-0">
             <div className="absolute top-0 right-0 p-8 opacity-10">
               <Package className="w-40 h-40" />
             </div>
@@ -26,14 +26,14 @@ export function ReceptionDetailDrawer({ reception, series, loading, agencies, on
               <div className="flex justify-between items-start mb-6">
                 <div>
                   <div className="flex items-center gap-2 mb-2">
-                    <Badge variant="blue" className="bg-[#2ec4f1] text-[#181c3a]">NO. GUÍA / CAJA: {reception.guide_number}</Badge>
+                    <Badge variant="blue" className="bg-[var(--accent)] text-[var(--heading)]">NO. GUÍA / CAJA: {reception.guide_number}</Badge>
                   </div>
                   <h3 className="text-3xl font-black uppercase">
                     {getAgenciaLabel(reception, agencies)}
                   </h3>
                   <div className="flex items-center gap-4 mt-2 text-white/60">
                     <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest">
-                      <Clock className="w-3 h-3 text-[#2ec4f1]" /> {new Date(reception.created_at).toLocaleString()}
+                      <Clock className="w-3 h-3 text-[var(--accent)]" /> {new Date(reception.created_at).toLocaleString()}
                     </div>
                   </div>
                 </div>
@@ -51,7 +51,7 @@ export function ReceptionDetailDrawer({ reception, series, loading, agencies, on
               <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm bg-white">
                 <table className="w-full text-left whitespace-nowrap">
                   <thead>
-                    <tr className="bg-[#181c3a] text-white">
+                    <tr className="bg-[var(--heading)] text-white">
                       <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">Fecha / Hora</th>
                       <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">No. Guía</th>
                       <th className="px-4 py-3 text-[9px] font-black uppercase tracking-widest">Tecnología</th>
@@ -76,21 +76,21 @@ export function ReceptionDetailDrawer({ reception, series, loading, agencies, on
                     ) : series.length > 0 ? series.map((item: any, i: number) => (
                       <tr key={i} className="hover:bg-slate-50 transition-colors group">
                         <td className="px-4 py-3 text-[10px] font-bold text-slate-700">{new Date(item.created_at || new Date()).toLocaleString()}</td>
-                        <td className="px-4 py-3 text-[10px] font-bold text-[#181c3a] font-mono">{reception.guide_number}</td>
-                        <td className="px-4 py-3 text-[10px] font-black text-[#2ec4f1] uppercase">{item.tecnologia || '---'}</td>
+                        <td className="px-4 py-3 text-[10px] font-bold text-[var(--heading)] font-mono">{reception.guide_number}</td>
+                        <td className="px-4 py-3 text-[10px] font-black text-[var(--accent)] uppercase">{item.tecnologia || '---'}</td>
                         <td className="px-4 py-3 text-[10px] font-bold text-slate-700">{item.marca || '---'}</td>
                         <td className="px-4 py-3 text-[10px] font-bold text-slate-700">{item.modelo || '---'}</td>
                         <td className="px-4 py-3">
-                          {item.s1 ? <span className="inline-block px-2 py-1 bg-slate-50 text-[10px] font-mono font-bold text-[#181c3a] rounded-md">{item.s1}</span> : <span className="text-slate-300">---</span>}
+                          {item.s1 ? <span className="inline-block px-2 py-1 bg-slate-50 text-[10px] font-mono font-bold text-[var(--heading)] rounded-md">{item.s1}</span> : <span className="text-slate-300">---</span>}
                         </td>
                         <td className="px-4 py-3">
-                          {item.s2 ? <span className="inline-block px-2 py-1 bg-slate-50 text-[10px] font-mono font-bold text-[#181c3a] rounded-md">{item.s2}</span> : <span className="text-slate-300">---</span>}
+                          {item.s2 ? <span className="inline-block px-2 py-1 bg-slate-50 text-[10px] font-mono font-bold text-[var(--heading)] rounded-md">{item.s2}</span> : <span className="text-slate-300">---</span>}
                         </td>
                         <td className="px-4 py-3">
-                          {item.s3 ? <span className="inline-block px-2 py-1 bg-slate-50 text-[10px] font-mono font-bold text-[#181c3a] rounded-md">{item.s3}</span> : <span className="text-slate-300">---</span>}
+                          {item.s3 ? <span className="inline-block px-2 py-1 bg-slate-50 text-[10px] font-mono font-bold text-[var(--heading)] rounded-md">{item.s3}</span> : <span className="text-slate-300">---</span>}
                         </td>
                         <td className="px-4 py-3">
-                          {item.s4 ? <span className="inline-block px-2 py-1 bg-slate-50 text-[10px] font-mono font-bold text-[#181c3a] rounded-md">{item.s4}</span> : <span className="text-slate-300">---</span>}
+                          {item.s4 ? <span className="inline-block px-2 py-1 bg-slate-50 text-[10px] font-mono font-bold text-[var(--heading)] rounded-md">{item.s4}</span> : <span className="text-slate-300">---</span>}
                         </td>
                         <td className="px-4 py-3 text-[10px] font-bold text-slate-700">{item.material || '---'}</td>
                         <td className="px-4 py-3 text-[10px] font-bold text-slate-700">{item.lote || '---'}</td>

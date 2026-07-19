@@ -5,7 +5,6 @@ import type { CacTrayQueryParams, CacTrayStatsResponse, CacTrayUnitRow } from '@
 import { trayRowsToHistoryEntries } from '@/lib/backoffice/trayRowAdapter';
 import { buildTrayQueryString } from '@/modules/recepcion/client/cacTray';
 import { apiFetch } from '@/lib/http/apiFetch';
-import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import {
   EMPTY_HISTORY_TRAY_FILTERS,
   HISTORY_TRAY_PAGE_SIZE,
@@ -86,14 +85,14 @@ export function useBackofficeHistory(
   const [totalPages, setTotalPages] = useState(1);
   const [historyStats, setHistoryStats] = useState<CacTrayStatsResponse>({ total: 0, byTechId: {} });
   const [historySearch, setHistorySearch] = useState('');
-  const debouncedSearch = useDebouncedValue(historySearch, 350);
   const [historyFilters, setHistoryFilters] = useState<HistoryTrayFilters>(EMPTY_HISTORY_TRAY_FILTERS);
   const [historyFiltersOpen, setHistoryFiltersOpen] = useState(false);
   const [historyPage, setHistoryPage] = useState(1);
 
+  // historySearch ya llega debounceado desde HistorySearchInput (evita doble wait).
   const queryParams = useMemo(
-    () => buildQueryParams(historyPage, debouncedSearch, historyFilters, dateFilterFrom, dateFilterTo),
-    [historyPage, debouncedSearch, historyFilters, dateFilterFrom, dateFilterTo]
+    () => buildQueryParams(historyPage, historySearch, historyFilters, dateFilterFrom, dateFilterTo),
+    [historyPage, historySearch, historyFilters, dateFilterFrom, dateFilterTo]
   );
 
   const fetchHistory = useCallback(

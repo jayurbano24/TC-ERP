@@ -34,7 +34,7 @@ export const PxBoxDetailView = (props: any) => {
         <Button 
           variant="outline" 
           onClick={handleBackToDashboard}
-          className="border-none text-slate-500 hover:text-[#181c3a] hover:bg-slate-100 font-black text-[11px] uppercase tracking-widest h-10 px-4"
+          className="border-none text-slate-500 hover:text-[var(--heading)] hover:bg-slate-100 font-black text-[11px] uppercase tracking-widest h-10 px-4"
         >
           <ArrowLeft className="w-4 h-4 mr-2" /> Volver a Cajas Activas
         </Button>
@@ -119,10 +119,10 @@ export const PxBoxDetailView = (props: any) => {
         
         {/* COLUMNA IZQUIERDA: CREACIÓN DE LOTES Y RESUMEN */}
         <div className="lg:col-span-4 xl:col-span-3 space-y-6">
-          <Card className="border-l-4 border-l-[#2ec4f1] shadow-xl p-0 overflow-hidden">
-            <div className="bg-[#181c3a] p-5 flex items-center justify-between text-white">
+          <Card className="border-l-4 border-l-[var(--accent)] shadow-xl p-0 overflow-hidden">
+            <div className="bg-[var(--heading)] p-5 flex items-center justify-between text-white">
               <div className="flex items-center gap-3">
-                <Box className="w-5 h-5 text-[#2ec4f1]" />
+                <Box className="w-5 h-5 text-[var(--accent)]" />
                 <h3 className="text-sm font-black uppercase tracking-widest">Caja Activa</h3>
               </div>
               <Badge className="bg-white/10 text-white border-none font-black">{targetBox}</Badge>
@@ -131,13 +131,13 @@ export const PxBoxDetailView = (props: any) => {
             <div className="p-5 space-y-6 bg-slate-50">
               {!isBoxClosed && !boxEditDisabled && (
               <div className="space-y-4">
-                <h4 className="text-[11px] font-black text-[#181c3a] uppercase tracking-widest border-b border-slate-200 pb-2">Agregar Lote a {targetBox}</h4>
+                <h4 className="text-[11px] font-black text-[var(--heading)] uppercase tracking-widest border-b border-slate-200 pb-2">Agregar Lote a {targetBox}</h4>
                 
                 <div className="space-y-3">
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold text-slate-400 uppercase">Tecnología</label>
                     <select 
-                      className="w-full bg-white border-2 border-slate-200 rounded-lg p-2.5 text-xs font-bold outline-none focus:border-[#2ec4f1] transition-colors"
+                      className="w-full bg-white border-2 border-slate-200 rounded-lg p-2.5 text-xs font-bold outline-none focus:border-[var(--accent)] transition-colors"
                       value={currentEntry.tecnologia}
                       onChange={(e) => setCurrentEntry({...currentEntry, tecnologia: e.target.value, marca: '', modelo: ''})}
                     >
@@ -152,7 +152,7 @@ export const PxBoxDetailView = (props: any) => {
                     <div className="space-y-1">
                       <label className="text-[10px] font-bold text-slate-400 uppercase">Marca</label>
                       <select
-                        className="w-full bg-white border-2 border-slate-200 rounded-lg p-2.5 text-xs font-bold outline-none focus:border-[#2ec4f1] transition-colors"
+                        className="w-full bg-white border-2 border-slate-200 rounded-lg p-2.5 text-xs font-bold outline-none focus:border-[var(--accent)] transition-colors"
                         value={currentEntry.marca}
                         onChange={(e) => setCurrentEntry({...currentEntry, marca: e.target.value, modelo: ''})}
                       >
@@ -165,7 +165,7 @@ export const PxBoxDetailView = (props: any) => {
                     <div className="space-y-1">
                       <label className="text-[10px] font-bold text-slate-400 uppercase">Modelo</label>
                       <select
-                        className="w-full bg-white border-2 border-slate-200 rounded-lg p-2.5 text-xs font-bold outline-none focus:border-[#2ec4f1] transition-colors"
+                        className="w-full bg-white border-2 border-slate-200 rounded-lg p-2.5 text-xs font-bold outline-none focus:border-[var(--accent)] transition-colors"
                         value={currentEntry.modelo}
                         onChange={(e) => setCurrentEntry({...currentEntry, modelo: e.target.value})}
                       >
@@ -183,7 +183,7 @@ export const PxBoxDetailView = (props: any) => {
                       type="number" 
                       min="1"
                       placeholder="Ej: 50"
-                      className="w-full bg-white border-2 border-slate-200 rounded-lg p-2.5 text-xs font-bold outline-none focus:border-[#2ec4f1] transition-colors"
+                      className="w-full bg-white border-2 border-slate-200 rounded-lg p-2.5 text-xs font-bold outline-none focus:border-[var(--accent)] transition-colors"
                       value={currentEntry.totalEsperado || ''}
                       onChange={(e) => setCurrentEntry({...currentEntry, totalEsperado: parseInt(e.target.value) || 0})}
                     />
@@ -191,7 +191,7 @@ export const PxBoxDetailView = (props: any) => {
 
                   <Button 
                     onClick={handleAddLotToActiveBox}
-                    className="w-full h-12 mt-2 bg-[#181c3a] hover:bg-[#252b57] text-white text-[11px] uppercase font-black tracking-widest rounded-lg shadow-lg shadow-[#181c3a]/20"
+                    className="w-full h-12 mt-2 bg-[var(--heading)] hover:brightness-110 text-white text-[11px] uppercase font-black tracking-widest rounded-lg shadow-lg shadow-[var(--heading)]/20"
                   >
                     + Agregar Lote
                   </Button>
@@ -238,8 +238,8 @@ export const PxBoxDetailView = (props: any) => {
                     boxItems.map((item: any) => (
                       <div key={item.id} className="bg-white p-3 rounded-lg border border-slate-200 flex justify-between items-center shadow-sm">
                         <div>
-                          <p className="text-[11px] font-black text-[#181c3a]">{item.marca} {item.modelo}</p>
-                          <p className="text-[9px] font-bold text-[#2ec4f1] uppercase">{item.tecnologia}</p>
+                          <p className="text-[11px] font-black text-[var(--heading)]">{item.marca} {item.modelo}</p>
+                          <p className="text-[9px] font-bold text-[var(--accent)] uppercase">{item.tecnologia}</p>
                         </div>
                         <div className="text-right">
                           <span className="text-xs font-black text-slate-500">{item.totalEsperado} und</span>
@@ -262,7 +262,7 @@ export const PxBoxDetailView = (props: any) => {
             <div className="lg:col-span-4 xl:col-span-4 flex flex-col gap-6">
               <Card className="p-6 border-2 border-slate-100 shadow-xl shadow-slate-200/50">
                 <div className="mb-6 flex justify-between items-center">
-                  <h3 className="text-[13px] font-black text-[#181c3a] uppercase tracking-widest">Escáner de Series</h3>
+                  <h3 className="text-[13px] font-black text-[var(--heading)] uppercase tracking-widest">Escáner de Series</h3>
                 </div>
                 <form onSubmit={(e) => {
                   if (isBoxClosed) {
@@ -317,7 +317,7 @@ export const PxBoxDetailView = (props: any) => {
                                   }
                                 }}
                                 placeholder={`Escanear Serie ${idx + 1}...`}
-                                className={`w-full h-12 px-4 bg-white border-2 rounded-lg text-sm font-mono font-bold outline-none transition-colors shadow-inner uppercase ${isDuplicate ? 'border-rose-500 text-rose-600 focus:border-rose-500 bg-rose-50' : 'border-slate-200 focus:border-[#2ec4f1]'}`}
+                                className={`w-full h-12 px-4 bg-white border-2 rounded-lg text-sm font-mono font-bold outline-none transition-colors shadow-inner uppercase ${isDuplicate ? 'border-rose-500 text-rose-600 focus:border-rose-500 bg-rose-50' : 'border-slate-200 focus:border-[var(--accent)]'}`}
                                 autoFocus={idx === 0 && !isBoxClosed && !boxEditDisabled}
                                 disabled={boxItems.length === 0 || boxEditDisabled}
                               />
@@ -335,7 +335,7 @@ export const PxBoxDetailView = (props: any) => {
                   <Button 
                     type="submit" 
                     disabled={boxItems.length === 0 || boxEditDisabled}
-                    className="w-full h-12 bg-[#181c3a] hover:bg-[#252b57] text-white text-[11px] uppercase tracking-widest font-black rounded-lg mt-2 shadow-lg shadow-[#181c3a]/20 disabled:opacity-50"
+                    className="w-full h-12 bg-[var(--heading)] hover:brightness-110 text-white text-[11px] uppercase tracking-widest font-black rounded-lg mt-2 shadow-lg shadow-[var(--heading)]/20 disabled:opacity-50"
                   >
                     {isBoxClosed ? 'Caja cerrada' : boxEditDisabled ? 'Sin control de caja' : 'Registrar Equipo (Enter)'}
                   </Button>
@@ -348,7 +348,7 @@ export const PxBoxDetailView = (props: any) => {
                   <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Progreso: {targetBox}</h3>
                 </div>
                 <div className="flex items-end gap-2 mb-4">
-                  <span className="text-4xl font-black text-[#181c3a] leading-none">{received}</span>
+                  <span className="text-4xl font-black text-[var(--heading)] leading-none">{received}</span>
                   <span className="text-sm font-bold text-slate-400 mb-1">/ {totalExpected} equipos</span>
                 </div>
                 <div className="h-3 w-full bg-slate-100 rounded-full overflow-hidden">
@@ -365,7 +365,7 @@ export const PxBoxDetailView = (props: any) => {
               <Card padding="none" className="overflow-hidden h-full border-2 border-slate-100 shadow-xl shadow-slate-200/50 flex flex-col">
                 <div className="bg-white border-b border-slate-100 p-5 flex justify-between items-center">
                   <div className="flex items-center gap-2">
-                    <h3 className="text-[11px] font-black text-[#181c3a] uppercase tracking-widest">Equipos Escaneados</h3>
+                    <h3 className="text-[11px] font-black text-[var(--heading)] uppercase tracking-widest">Equipos Escaneados</h3>
                   </div>
                 </div>
                 <div className="overflow-x-auto flex-1 bg-white">
@@ -395,7 +395,7 @@ export const PxBoxDetailView = (props: any) => {
                                 <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
                                   <Scan className="w-8 h-8 text-slate-300" />
                                 </div>
-                                <h4 className="text-[12px] font-black text-[#181c3a] uppercase tracking-widest">La caja está vacía</h4>
+                                <h4 className="text-[12px] font-black text-[var(--heading)] uppercase tracking-widest">La caja está vacía</h4>
                                 <p className="text-[10px] font-bold text-slate-400 mt-2">
                                   {boxItems.length > 0 ? 'Agregue lotes y escanee equipos.' : 'Primero agregue un lote a la caja en el panel lateral.'}
                                 </p>
@@ -404,7 +404,7 @@ export const PxBoxDetailView = (props: any) => {
                           )}
                           {boxSeriesPagination.slice.map((s: any, idx: number) => (
                             <tr key={`${s.sn}-${idx}`} className="hover:bg-slate-50/50 transition-colors">
-                              <td className="px-6 py-4 font-mono font-black text-[#181c3a]">
+                              <td className="px-6 py-4 font-mono font-black text-[var(--heading)]">
                                 <div className="flex items-center gap-2">
                                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                                   {s.sn}

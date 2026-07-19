@@ -52,12 +52,12 @@ export function HistoryStatsGrid({ stats, loading = false, MASTER_TECNOLOGIAS }:
         </Card>
       )}
 
-      <Card className="px-3 py-2 border-none shadow-sm bg-[#2ec4f1] rounded-xl flex flex-col items-center justify-center text-center text-[#181c3a] gap-0.5 min-w-[5.5rem] shrink-0">
-        <p className="text-[8px] font-medium uppercase tracking-wider text-[#181c3a]/80">Total OS</p>
-        <p className="text-base font-semibold text-[#181c3a] leading-none tabular-nums">
+      <Card className="px-3 py-2 border-none shadow-sm bg-[var(--accent)] rounded-xl flex flex-col items-center justify-center text-center text-[var(--heading)] gap-0.5 min-w-[5.5rem] shrink-0">
+        <p className="text-[8px] font-medium uppercase tracking-wider text-[var(--heading)]/80">Total OS</p>
+        <p className="text-base font-semibold text-[var(--heading)] leading-none tabular-nums">
           {loading ? <span className="opacity-40 animate-pulse">—</span> : stats.total.toLocaleString()}
         </p>
-        <p className="text-[7px] font-medium text-[#181c3a]/70 uppercase tracking-wider">Unidades</p>
+        <p className="text-[7px] font-medium text-[var(--heading)]/70 uppercase tracking-wider">Unidades</p>
       </Card>
     </div>
   );

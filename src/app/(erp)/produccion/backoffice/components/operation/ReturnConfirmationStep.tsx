@@ -35,7 +35,7 @@ export function ReturnConfirmationStep({ ctx }: Props) {
   return (
       <div className="space-y-8 animate-rise-in max-w-4xl mx-auto">
         <div className="flex justify-between items-center">
-          <button onClick={() => setReceptionStep('classification')} className="flex items-center gap-2 text-[10px] font-black text-slate-400 hover:text-[#181c3a] uppercase tracking-widest transition-all">
+          <button onClick={() => setReceptionStep('classification')} className="flex items-center gap-2 text-[10px] font-black text-slate-400 hover:text-[var(--heading)] uppercase tracking-widest transition-all">
             <ChevronLeft size={16} /> Volver a Clasificación
           </button>
         </div>
@@ -44,7 +44,7 @@ export function ReturnConfirmationStep({ ctx }: Props) {
           <div className="bg-amber-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-8 text-amber-500">
             <FileText size={40} />
           </div>
-          <h2 className="text-3xl font-black text-[#181c3a] uppercase mb-4">Confirmación de Devolución</h2>
+          <h2 className="text-3xl font-black text-[var(--heading)] uppercase mb-4">Confirmación de Devolución</h2>
           <p className="text-slate-400 font-bold uppercase text-[10px] tracking-[0.2em] mb-12">Se enviará una notificación formal a la agencia</p>
     
           <div className="bg-slate-50 p-8 rounded-3xl text-left mb-8 border border-slate-100">
@@ -55,10 +55,10 @@ export function ReturnConfirmationStep({ ctx }: Props) {
               >
                 <p className="text-[9px] font-black text-slate-400 uppercase mb-2 flex items-center gap-2">
                   Notificar a Encargado (Agencia)
-                  <span className="bg-[#2ec4f1]/10 text-[#2ec4f1] px-2 py-0.5 rounded-full text-[8px]">Cambiar Agencia</span>
+                  <span className="bg-[var(--accent)]/10 text-[var(--accent)] px-2 py-0.5 rounded-full text-[8px]">Cambiar Agencia</span>
                 </p>
-                <p className="text-sm font-black text-[#181c3a] uppercase">{agencyDetails ? `${agencyDetails.name} - ${agencyDetails.manager || 'SIN ENCARGADO'}` : 'SELECCIONAR AGENCIA...'}</p>
-                <p className="text-[10px] font-bold text-[#2ec4f1] lowercase mt-1">
+                <p className="text-sm font-black text-[var(--heading)] uppercase">{agencyDetails ? `${agencyDetails.name} - ${agencyDetails.manager || 'SIN ENCARGADO'}` : 'SELECCIONAR AGENCIA...'}</p>
+                <p className="text-[10px] font-bold text-[var(--accent)] lowercase mt-1">
                   {agencyDetails?.email || 'correo@claro.com.gt'}
                   {activeReception && getReceiverName(activeReception) !== 'SISTEMA' && (
                     <span className="text-slate-400 ml-2 text-[9px] uppercase">+ CC: {getReceiverName(activeReception)}</span>
@@ -67,7 +67,7 @@ export function ReturnConfirmationStep({ ctx }: Props) {
               </div>
               <div>
                 <p className="text-[9px] font-black text-slate-400 uppercase mb-2">Guías de Recepción</p>
-                <p className="text-sm font-black text-[#181c3a] font-mono">{scannedGuides.join(', ')}</p>
+                <p className="text-sm font-black text-[var(--heading)] font-mono">{scannedGuides.join(', ')}</p>
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                   <div>
@@ -99,7 +99,7 @@ export function ReturnConfirmationStep({ ctx }: Props) {
                 <label className="text-[9px] font-black text-slate-400 uppercase">Motivo de la Devolución</label>
               </div>
               <textarea 
-                className="w-full p-6 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-[#181c3a] outline-none focus:ring-2 focus:ring-amber-500 min-h-[120px] transition-all"
+                className="w-full p-6 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-[var(--heading)] outline-none focus:ring-2 focus:ring-amber-500 min-h-[120px] transition-all"
                 placeholder="Ej. Material no corresponde al manifiesto / Daño físico detectado..."
                 value={returnReason}
                 onChange={(e) => setReturnReason(e.target.value)}
@@ -109,7 +109,7 @@ export function ReturnConfirmationStep({ ctx }: Props) {
             <div className="mt-8 border-t border-slate-200 pt-8">
               <div className="flex justify-between items-center mb-4">
                 <div>
-                  <p className="text-[10px] font-black text-[#181c3a] uppercase">Evidencia Fotográfica</p>
+                  <p className="text-[10px] font-black text-[var(--heading)] uppercase">Evidencia Fotográfica</p>
                   <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Sube hasta 5 fotos (se comprimirán automáticamente)</p>
                 </div>
                 <input 
@@ -135,7 +135,7 @@ export function ReturnConfirmationStep({ ctx }: Props) {
                     }
                   }}
                 />
-                <label htmlFor="return-photo-upload" className="px-6 py-3 bg-slate-100 text-[#181c3a] rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-[#2ec4f1] hover:text-white transition-all cursor-pointer shadow-sm flex items-center gap-2">
+                <label htmlFor="return-photo-upload" className="px-6 py-3 bg-slate-100 text-[var(--heading)] rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-[var(--accent)] hover:text-white transition-all cursor-pointer shadow-sm flex items-center gap-2">
                   <Camera size={14} /> Agregar Fotos
                 </label>
               </div>

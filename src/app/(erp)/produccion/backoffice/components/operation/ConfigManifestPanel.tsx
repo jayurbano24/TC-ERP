@@ -33,13 +33,13 @@ export function ConfigManifestPanel({ ctx }: Props) {
     <Card className="xl:col-span-4 p-5 border-none shadow-2xl rounded-[2rem] bg-white sticky top-8 order-2 max-h-[calc(100vh-6rem)] overflow-y-auto">
       <div className="flex items-center justify-between gap-2 mb-4 border-b border-slate-100 pb-3">
         <div className="flex items-center gap-2 min-w-0">
-          <div className="w-7 h-7 bg-[#181c3a] text-white rounded-lg flex items-center justify-center font-black text-[10px] shrink-0">1</div>
+          <div className="w-7 h-7 bg-[var(--heading)] text-white rounded-lg flex items-center justify-center font-black text-[10px] shrink-0">1</div>
           <h3 className="text-[9px] font-black uppercase tracking-[0.15em] text-slate-400 truncate">Definición de Manifiesto</h3>
         </div>
         <button
           type="button"
           onClick={() => setManifestPanelOpen(false)}
-          className="p-1.5 rounded-lg text-slate-400 hover:text-[#181c3a] hover:bg-slate-100 shrink-0"
+          className="p-1.5 rounded-lg text-slate-400 hover:text-[var(--heading)] hover:bg-slate-100 shrink-0"
           title="Ocultar panel"
         >
           <ChevronRight size={16} />
@@ -53,7 +53,7 @@ export function ConfigManifestPanel({ ctx }: Props) {
             type="button"
             onClick={addSapGroup}
             disabled={!agencyDetails}
-            className="flex items-center gap-1 px-2 py-1 bg-[#2ec4f1] text-[#181c3a] rounded-lg text-[7px] font-black uppercase hover:bg-[#181c3a] hover:text-white transition-all disabled:opacity-40"
+            className="flex items-center gap-1 px-2 py-1 bg-[var(--accent)] text-[var(--heading)] rounded-lg text-[7px] font-black uppercase hover:bg-[var(--heading)] hover:text-white transition-all disabled:opacity-40"
           >
             <Plus size={10} /> Nuevo
           </button>
@@ -67,7 +67,7 @@ export function ConfigManifestPanel({ ctx }: Props) {
               <div
                 key={g.id}
                 className={`inline-flex items-center gap-0.5 rounded-lg border pl-2 pr-0.5 py-1 ${
-                  isActive ? 'border-[#181c3a] bg-[#181c3a] text-white' : 'border-slate-200 bg-white text-slate-600'
+                  isActive ? 'border-[var(--heading)] bg-[var(--heading)] text-white' : 'border-slate-200 bg-white text-slate-600'
                 }`}
               >
                 <button type="button" onClick={() => selectSapGroup(g.id)} className="text-[8px] font-black uppercase max-w-[90px] truncate">
@@ -87,7 +87,7 @@ export function ConfigManifestPanel({ ctx }: Props) {
           <label className="text-[8px] font-black uppercase text-slate-400 mb-1 block">No. Documento SAP</label>
           <input
             type="text"
-            className={`w-full px-3 py-2.5 bg-white border rounded-xl font-black text-[10px] text-[#181c3a] outline-none focus:border-[#2ec4f1] ${
+            className={`w-full px-3 py-2.5 bg-white border rounded-xl font-black text-[10px] text-[var(--heading)] outline-none focus:border-[var(--accent)] ${
               isActiveSapDocumentFilled ? 'border-slate-200' : 'border-amber-300'
             }`}
             value={sapTransferNumber}
@@ -113,7 +113,7 @@ export function ConfigManifestPanel({ ctx }: Props) {
                   <span>{line.name}</span><span>{line.units} eq.</span>
                 </div>
               ))}
-              <div className="flex justify-between text-[#181c3a] pt-1 border-t border-slate-200">
+              <div className="flex justify-between text-[var(--heading)] pt-1 border-t border-slate-200">
                 <span>Total</span><span>{summary.totalUnits} eq.</span>
               </div>
             </div>
@@ -124,7 +124,7 @@ export function ConfigManifestPanel({ ctx }: Props) {
           <div className="col-span-2">
             <label className="text-[8px] font-black uppercase text-slate-400 mb-1 block">Tecnología</label>
             <select
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-black text-[10px] text-[#181c3a] outline-none focus:border-[#2ec4f1] disabled:opacity-50"
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-black text-[10px] text-[var(--heading)] outline-none focus:border-[var(--accent)] disabled:opacity-50"
               value={newItem.tipo}
               onChange={(e) => setNewItem({ ...newItem, tipo: e.target.value, modelo: '' })}
               disabled={!agencyDetails}
@@ -138,7 +138,7 @@ export function ConfigManifestPanel({ ctx }: Props) {
           <div className="col-span-2">
             <label className="text-[8px] font-black uppercase text-slate-400 mb-1 block">Marca</label>
             <select
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-black text-[10px] text-[#181c3a] outline-none focus:border-[#2ec4f1] disabled:opacity-50"
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-black text-[10px] text-[var(--heading)] outline-none focus:border-[var(--accent)] disabled:opacity-50"
               value={newItem.marca}
               onChange={(e) => setNewItem({ ...newItem, marca: e.target.value, modelo: '' })}
               disabled={!agencyDetails}
@@ -152,7 +152,7 @@ export function ConfigManifestPanel({ ctx }: Props) {
           <div className="col-span-2">
             <label className="text-[8px] font-black uppercase text-slate-400 mb-1 block">Modelo</label>
             <select
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-black text-[10px] text-[#181c3a] outline-none focus:border-[#2ec4f1] disabled:opacity-50"
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-black text-[10px] text-[var(--heading)] outline-none focus:border-[var(--accent)] disabled:opacity-50"
               value={newItem.modelo}
               onChange={(e) => setNewItem({ ...newItem, modelo: e.target.value })}
               disabled={!agencyDetails || !newItem.marca || !newItem.tipo}
@@ -167,7 +167,7 @@ export function ConfigManifestPanel({ ctx }: Props) {
             <label className="text-[8px] font-black uppercase text-slate-400 mb-1 block">Cant.</label>
             <input
               type="number"
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-black text-[10px] text-[#181c3a] outline-none focus:border-[#2ec4f1] disabled:opacity-50"
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-black text-[10px] text-[var(--heading)] outline-none focus:border-[var(--accent)] disabled:opacity-50"
               value={newItem.cantidad || ''}
               onChange={(e) => setNewItem({ ...newItem, cantidad: parseInt(e.target.value) || 0 })}
               placeholder="0"
@@ -181,7 +181,7 @@ export function ConfigManifestPanel({ ctx }: Props) {
               className={`w-full h-10 rounded-xl font-black uppercase text-[8px] gap-1 ${
                 !agencyDetails || !isActiveSapDocumentFilled
                   ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                  : 'bg-[#181c3a] hover:bg-[#2ec4f1] text-white'
+                  : 'bg-[var(--heading)] hover:bg-[var(--accent)] text-white'
               }`}
               title={!isActiveSapDocumentFilled ? 'Ingrese el No. Documento SAP primero' : undefined}
             >

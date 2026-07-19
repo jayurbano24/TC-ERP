@@ -46,14 +46,14 @@ export const PxReceptionTab = (props: any) => {
   if (!isReceptionStarted) {
     return (
       <div className="max-w-3xl mx-auto animate-rise-in mt-8">
-        <Card className="border-l-4 border-l-[#2ec4f1] shadow-2xl">
+        <Card className="border-l-4 border-l-[var(--accent)] shadow-2xl">
           <div className="p-8 space-y-8">
             <div className="flex items-center gap-4 border-b border-slate-100 pb-4">
-              <div className="w-12 h-12 bg-[#2ec4f1]/10 rounded-full flex items-center justify-center">
-                <FileText className="w-6 h-6 text-[#2ec4f1]" />
+              <div className="w-12 h-12 bg-[var(--accent)]/10 rounded-full flex items-center justify-center">
+                <FileText className="w-6 h-6 text-[var(--accent)]" />
               </div>
               <div>
-                <h2 className="text-xl font-black text-[#181c3a] uppercase tracking-widest">Paso 1: Cabecera de Recepción</h2>
+                <h2 className="text-xl font-black text-[var(--heading)] uppercase tracking-widest">Paso 1: Cabecera de Recepción</h2>
                 <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Ingrese los datos del documento y proveedor</p>
               </div>
             </div>
@@ -73,8 +73,8 @@ export const PxReceptionTab = (props: any) => {
               {renderHeaderFields()}
 
               {useIncrementalCapture && (pxInProgressList?.length > 0 || isLoadingIncrementalResume) && (
-                <div className="rounded-2xl border border-[#2ec4f1]/30 bg-[#2ec4f1]/5 px-5 py-4 space-y-3">
-                  <p className="text-[11px] font-black uppercase tracking-widest text-[#181c3a]">
+                <div className="rounded-2xl border border-[var(--accent)]/30 bg-[var(--accent)]/5 px-5 py-4 space-y-3">
+                  <p className="text-[11px] font-black uppercase tracking-widest text-[var(--heading)]">
                     Recepciones en servidor (EN_PROCESO)
                   </p>
                   {isLoadingIncrementalResume && (
@@ -86,7 +86,7 @@ export const PxReceptionTab = (props: any) => {
                       className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-white border border-slate-100 px-4 py-3"
                     >
                       <div>
-                        <p className="text-xs font-black text-[#181c3a]">{rec.guide_number}</p>
+                        <p className="text-xs font-black text-[var(--heading)]">{rec.guide_number}</p>
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                           SAP {rec.sap_document || '—'} · {rec.captured_count} equipos capturados
                         </p>
@@ -94,7 +94,7 @@ export const PxReceptionTab = (props: any) => {
                       <Button
                         type="button"
                         onClick={() => onResumePxReception?.(rec.id)}
-                        className="h-9 px-4 text-[9px] font-black uppercase tracking-widest bg-[#2ec4f1] hover:bg-[#25aed4] text-white rounded-xl"
+                        className="h-9 px-4 text-[9px] font-black uppercase tracking-widest bg-[var(--accent)] hover:bg-[#25aed4] text-white rounded-xl"
                       >
                         Continuar
                       </Button>
@@ -117,7 +117,7 @@ export const PxReceptionTab = (props: any) => {
               <Button
                 onClick={handleStartReception}
                 disabled={isCheckingHeader || headerHasBlockingErrors}
-                className="bg-[#181c3a] hover:bg-[#252b57] text-white h-14 px-8 font-black text-xs uppercase tracking-widest shadow-xl shadow-[#181c3a]/20 rounded-2xl flex items-center gap-3 sm:ml-auto disabled:opacity-50 disabled:cursor-not-allowed"
+                className="bg-[var(--heading)] hover:brightness-110 text-white h-14 px-8 font-black text-xs uppercase tracking-widest shadow-xl shadow-[var(--heading)]/20 rounded-2xl flex items-center gap-3 sm:ml-auto disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isCheckingHeader
                   ? 'Verificando...'
@@ -143,7 +143,7 @@ export const PxReceptionTab = (props: any) => {
           <Card className="border-l-4 border-l-amber-400 shadow-2xl">
             <div className="p-8 space-y-6">
               <div>
-                <h2 className="text-xl font-black text-[#181c3a] uppercase tracking-widest">Editar cabecera</h2>
+                <h2 className="text-xl font-black text-[var(--heading)] uppercase tracking-widest">Editar cabecera</h2>
                 <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">
                   Las cajas y series escaneadas no se borran
                 </p>
@@ -172,7 +172,7 @@ export const PxReceptionTab = (props: any) => {
                 <Button
                   onClick={saveHeaderEdit}
                   disabled={isCheckingHeader || headerHasBlockingErrors}
-                  className="bg-[#181c3a] hover:bg-[#252b57] text-white font-black text-[11px] uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="bg-[var(--heading)] hover:brightness-110 text-white font-black text-[11px] uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isCheckingHeader ? 'Verificando...' : 'Guardar cabecera'}
                 </Button>
@@ -222,7 +222,7 @@ export const PxReceptionTab = (props: any) => {
         <Button
           variant="outline"
           onClick={handleBackToDashboard}
-          className="border-none text-slate-500 hover:text-[#181c3a] font-black text-[11px] uppercase tracking-widest"
+          className="border-none text-slate-500 hover:text-[var(--heading)] font-black text-[11px] uppercase tracking-widest"
         >
           <ArrowLeft className="w-4 h-4 mr-2" /> Volver a Cajas Activas
         </Button>

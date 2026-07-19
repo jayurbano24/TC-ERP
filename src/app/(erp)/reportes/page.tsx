@@ -39,6 +39,12 @@ export default function ReportesPage() {
   const [exporting, setExporting] = useState(false);
   const [{ from, to }, setDateRange] = useState(defaultDateRange);
   const [batchNumber, setBatchNumber] = useState('');
+  const [year, setYear] = useState(String(new Date().getFullYear()));
+  const [month, setMonth] = useState('');
+  const [country, setCountry] = useState('GT');
+  const [technology, setTechnology] = useState('');
+
+  const isOpsMonthly = selectedCode === 'OPERACIONES_MENSUAL_TECNOLOGIA';
 
   useEffect(() => {
     if (!enabled) {
@@ -77,9 +83,13 @@ export default function ReportesPage() {
       await downloadReportApi(
         selected.code,
         {
-          from: selected.requiresDateRange ? from : undefined,
-          to: selected.requiresDateRange ? to : undefined,
+          from: selected.requiresDateRange && !isOpsMonthly ? from : undefined,
+          to: selected.requiresDateRange && !isOpsMonthly ? to : undefined,
           batchNumber: selected.code === 'DESPACHO_POR_LOTE_SALIDA' ? batchNumber || undefined : undefined,
+          year: isOpsMonthly ? year || undefined : undefined,
+          month: isOpsMonthly ? month || undefined : undefined,
+          country: isOpsMonthly ? country || undefined : undefined,
+          technology: isOpsMonthly ? technology || undefined : undefined,
         },
         format
       );
@@ -94,8 +104,8 @@ export default function ReportesPage() {
     return (
       <ModulePage title="Portal de Reportes" subtitle="Centralización de exportaciones TC-ERP" category="Gestión">
         <Card className="p-8 text-center">
-          <p className="text-slate-600">
-            Activa <code className="text-sm bg-slate-100 px-2 py-1 rounded">USE_CENTRAL_REPORTING</code> en
+          <p className="text-[var(--muted)]">
+            Activa <code className="text-sm bg-[var(--surface-hover)] px-2 py-1 rounded">USE_CENTRAL_REPORTING</code> en
             FEATURE_FLAGS para usar el portal centralizado.
           </p>
         </Card>
@@ -115,20 +125,20 @@ export default function ReportesPage() {
       }
     >
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="lg:col-span-1 p-0 overflow-hidden border-none shadow-lg">
-          <div className="bg-[#181c3a] p-4 text-white">
-            <h3 className="font-black text-sm uppercase tracking-widest">Catálogo</h3>
+        <Card className="lg:col-span-1 overflow-hidden border border-[var(--border)] p-0 shadow-lg">
+          <div className="border-b border-[var(--border)] bg-[var(--surface)] p-4">
+            <h3 className="text-sm font-black tracking-widest text-[var(--heading)] uppercase">Catálogo</h3>
           </div>
           <div className="max-h-[520px] overflow-y-auto p-3 space-y-4">
             {loading && (
-              <div className="flex items-center gap-2 text-slate-500 text-sm p-4">
+              <div className="flex items-center gap-2 text-[var(--muted)] text-sm p-4">
                 <Loader2 className="w-4 h-4 animate-spin" /> Cargando…
               </div>
             )}
             {!loading &&
               categories.map(([category, items]) => (
                 <div key={category}>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 px-1">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)] mb-2 px-1">
                     {category}
                   </p>
                   <div className="space-y-1">
@@ -139,8 +149,8 @@ export default function ReportesPage() {
                         onClick={() => setSelectedCode(r.code)}
                         className={`w-full text-left p-3 rounded-xl text-sm font-bold transition-all ${
                           selectedCode === r.code
-                            ? 'bg-[#181c3a] text-white shadow-lg'
-                            : 'bg-slate-50 text-slate-700 hover:bg-slate-100'
+                            ? 'bg-[var(--surface-hover)] text-[var(--heading)] border-2 border-[var(--accent)] shadow-sm'
+                            : 'bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)] border-2 border-transparent'
                         }`}
                       >
                         {r.name}
@@ -154,36 +164,96 @@ export default function ReportesPage() {
 
         <Card className="lg:col-span-2 p-6 border-none shadow-lg space-y-6">
           {!selected ? (
-            <p className="text-slate-500">Selecciona un reporte del catálogo.</p>
+            <p className="text-[var(--muted)]">Selecciona un reporte del catálogo.</p>
           ) : (
             <>
               <div>
-                <h2 className="text-xl font-black text-[#181c3a]">{selected.name}</h2>
-                <p className="text-sm text-slate-500 mt-1">{selected.description}</p>
-                <p className="text-[10px] font-mono text-slate-400 mt-2">{selected.code}</p>
+                <h2 className="text-xl font-black text-[var(--heading)]">{selected.name}</h2>
+                <p className="text-sm text-[var(--muted)] mt-1">{selected.description}</p>
+                <p className="text-[10px] font-mono text-[var(--muted)] mt-2">{selected.code}</p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {selected.requiresDateRange && (
+                {selected.requiresDateRange && !isOpsMonthly && (
                   <>
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)] flex items-center gap-1">
                         <Filter className="w-3 h-3" /> Desde
                       </label>
                       <input
                         type="date"
                         value={from}
                         onChange={(e) => setDateRange((d) => ({ ...d, from: e.target.value }))}
-                        className="w-full p-3 rounded-xl border border-slate-200 text-sm font-bold"
+                        className="w-full p-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] text-sm font-bold"
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Hasta</label>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)]">Hasta</label>
                       <input
                         type="date"
                         value={to}
                         onChange={(e) => setDateRange((d) => ({ ...d, to: e.target.value }))}
-                        className="w-full p-3 rounded-xl border border-slate-200 text-sm font-bold"
+                        className="w-full p-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] text-sm font-bold"
+                      />
+                    </div>
+                  </>
+                )}
+
+                {isOpsMonthly && (
+                  <>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)] flex items-center gap-1">
+                        <Filter className="w-3 h-3" /> Año
+                      </label>
+                      <input
+                        type="number"
+                        min={2000}
+                        max={2100}
+                        value={year}
+                        onChange={(e) => setYear(e.target.value)}
+                        className="w-full p-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] text-sm font-bold"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)]">País</label>
+                      <input
+                        type="text"
+                        value={country}
+                        onChange={(e) => setCountry(e.target.value.toUpperCase())}
+                        placeholder="GT"
+                        maxLength={8}
+                        className="w-full p-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] text-sm font-bold"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)]">
+                        Mes (opcional)
+                      </label>
+                      <select
+                        value={month}
+                        onChange={(e) => setMonth(e.target.value)}
+                        className="w-full p-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] text-sm font-bold"
+                      >
+                        <option value="">Todos</option>
+                        {['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'].map(
+                          (m) => (
+                            <option key={m} value={m}>
+                              {m}
+                            </option>
+                          )
+                        )}
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)]">
+                        Tecnología (opcional)
+                      </label>
+                      <input
+                        type="text"
+                        value={technology}
+                        onChange={(e) => setTechnology(e.target.value)}
+                        placeholder="Ej: EMTA, GPON, ADSL"
+                        className="w-full p-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] text-sm font-bold"
                       />
                     </div>
                   </>
@@ -191,7 +261,7 @@ export default function ReportesPage() {
 
                 {selected.code === 'DESPACHO_POR_LOTE_SALIDA' && (
                   <div className="space-y-2 md:col-span-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)]">
                       Nº Lote (opcional)
                     </label>
                     <input
@@ -199,17 +269,17 @@ export default function ReportesPage() {
                       value={batchNumber}
                       onChange={(e) => setBatchNumber(e.target.value)}
                       placeholder="Ej: LS-2026-00002"
-                      className="w-full p-3 rounded-xl border border-slate-200 text-sm font-bold"
+                      className="w-full p-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] text-sm font-bold"
                     />
                   </div>
                 )}
 
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Formato</label>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)]">Formato</label>
                   <select
                     value={format}
                     onChange={(e) => setFormat(e.target.value as 'XLSX' | 'CSV')}
-                    className="w-full p-3 rounded-xl border border-slate-200 text-sm font-bold"
+                    className="w-full p-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] text-sm font-bold"
                   >
                     <option value="XLSX">Excel (.xlsx)</option>
                     <option value="CSV">CSV</option>
@@ -218,12 +288,12 @@ export default function ReportesPage() {
               </div>
 
               <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Columnas</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)] mb-2">Columnas</p>
                 <div className="flex flex-wrap gap-2">
                   {selected.columns.map((col) => (
                     <span
                       key={col}
-                      className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-1 rounded-lg"
+                      className="text-[10px] font-bold bg-[var(--surface-hover)] text-[var(--muted)] px-2 py-1 rounded-lg"
                     >
                       {col}
                     </span>
@@ -232,21 +302,22 @@ export default function ReportesPage() {
               </div>
 
               {error && (
-                <div className="p-3 rounded-xl bg-rose-50 text-rose-700 text-sm font-bold border border-rose-100">
+                <div className="rounded-xl border border-[var(--danger)]/30 bg-[var(--danger)]/15 p-3 text-sm font-bold text-[var(--danger)]">
                   {error}
                 </div>
               )}
 
-              <div className="flex justify-end gap-3 pt-2 border-t border-slate-100">
+              <div className="flex justify-end gap-3 border-t border-[var(--border)] pt-2">
                 <Button
                   variant="primary"
+                  className="!bg-[var(--accent)] !text-[var(--accent-foreground)] hover:!opacity-90"
                   leftIcon={
                     exporting ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <Loader2 className="h-4 w-4 animate-spin" />
                     ) : format === 'XLSX' ? (
-                      <FileSpreadsheet className="w-4 h-4" />
+                      <FileSpreadsheet className="h-4 w-4" />
                     ) : (
-                      <Download className="w-4 h-4" />
+                      <Download className="h-4 w-4" />
                     )
                   }
                   onClick={handleExport}

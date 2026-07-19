@@ -42,7 +42,14 @@ next-env.d.ts
 
 .vercel
 
+# InsightFace ONNX + ORT wasm (descargar con npm run download:insightface)
+/public/models/insightface/*.onnx
+/public/onnx/
+/.tmp-insightface/
+
 # agent/dev scratch files (one-off scripts, transcripts, extractions)
+/scratch/
+/.npm-cache/
 /tmp/
 /query_*.js
 /apply_*.js

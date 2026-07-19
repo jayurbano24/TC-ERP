@@ -76,7 +76,7 @@ export function getSapStatusMeta(status: SapValidationState): SapStatusMeta {
       return {
         label: 'Validado SAP',
         shortLabel: 'OK',
-        className: 'bg-emerald-50 text-emerald-700 border border-emerald-100',
+        className: 'border border-[var(--success)]/30 bg-[var(--success)]/15 text-[var(--success)]',
         canDispatch: true,
         canTransfer: true,
       };
@@ -84,7 +84,7 @@ export function getSapStatusMeta(status: SapValidationState): SapStatusMeta {
       return {
         label: 'Sin Coincidencia',
         shortLabel: 'NO',
-        className: 'bg-rose-50 text-rose-700 border border-rose-100',
+        className: 'border border-[var(--danger)]/30 bg-[var(--danger)]/15 text-[var(--danger)]',
         canDispatch: false,
         canTransfer: false,
       };
@@ -92,7 +92,7 @@ export function getSapStatusMeta(status: SapValidationState): SapStatusMeta {
       return {
         label: 'Pendiente Revisión',
         shortLabel: 'REV',
-        className: 'bg-orange-50 text-orange-700 border border-orange-100',
+        className: 'border border-[var(--warning)]/30 bg-[var(--warning)]/15 text-[var(--warning)]',
         canDispatch: false,
         canTransfer: false,
       };
@@ -100,7 +100,7 @@ export function getSapStatusMeta(status: SapValidationState): SapStatusMeta {
       return {
         label: 'Obsoleto',
         shortLabel: 'OBS',
-        className: 'bg-slate-100 text-slate-600 border border-slate-200',
+        className: 'border border-[var(--border)] bg-[var(--surface-hover)] text-[var(--muted)]',
         canDispatch: false,
         canTransfer: false,
       };
@@ -108,7 +108,7 @@ export function getSapStatusMeta(status: SapValidationState): SapStatusMeta {
       return {
         label: 'Pendiente Validación',
         shortLabel: 'PEN',
-        className: 'bg-amber-50 text-amber-700 border border-amber-100',
+        className: 'border border-[var(--warning)]/30 bg-[var(--warning)]/15 text-[var(--warning)]',
         canDispatch: false,
         canTransfer: true,
       };

@@ -25,17 +25,48 @@ export const erpLayout = {
 } as const;
 
 export const erpInputClass =
-  'w-full h-11 sm:h-12 bg-[var(--surface-hover)] border-2 border-[var(--border)] rounded-xl px-4 text-sm font-bold text-[var(--foreground)] outline-none focus:border-[#2ec4f1] transition-colors placeholder:text-[var(--muted)]';
+  'w-full h-11 sm:h-12 rounded-xl border-2 border-[var(--border)] bg-[var(--surface-hover)] px-4 text-sm font-bold text-[var(--foreground)] outline-none transition-colors placeholder:text-[var(--muted)] focus:border-[var(--accent)]';
+
+/** Selects / inputs densos en modales ERP. */
+export const erpFieldClass =
+  'w-full rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] p-3 text-sm font-bold text-[var(--foreground)] outline-none transition-colors focus:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60';
+
+export const erpLabelClass =
+  'text-[10px] font-black uppercase tracking-widest text-[var(--muted)]';
+
+/** Segmented control / tab pills — claro y oscuro. */
+export const erpTab = {
+  list: 'inline-flex flex-wrap gap-1 rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] p-1',
+  trigger:
+    'rounded-lg px-4 py-2 text-[10px] font-black tracking-widest uppercase transition-all',
+  triggerActive: 'bg-[var(--surface)] text-[var(--heading)] shadow-sm',
+  triggerInactive: 'text-[var(--muted)] hover:text-[var(--foreground)]',
+} as const;
+
+/** Soft status / KPI tiles — reemplaza pasteles *-50. */
+export const erpSoftStat = {
+  accent: 'border border-[var(--accent)]/30 bg-[var(--accent)]/15 text-[var(--accent)]',
+  success: 'border border-[var(--success)]/30 bg-[var(--success)]/15 text-[var(--success)]',
+  warning: 'border border-[var(--warning)]/30 bg-[var(--warning)]/15 text-[var(--warning)]',
+  danger: 'border border-[var(--danger)]/30 bg-[var(--danger)]/15 text-[var(--danger)]',
+  muted: 'border border-[var(--border)] bg-[var(--surface-hover)] text-[var(--muted)]',
+} as const;
 
 export const erpCard = {
   /** Tarjeta de listado (bandeja, inbox) — sin bloque sólido oscuro */
   list: 'overflow-hidden border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] shadow-sm hover:border-[var(--border)] transition-colors',
-  listMeta: 'p-4 sm:p-5 sm:min-w-[12rem] lg:min-w-[14rem] border-b sm:border-b-0 sm:border-r border-[var(--border)]',
+  listMeta:
+    'p-4 sm:p-5 sm:min-w-[12rem] lg:min-w-[14rem] border-b sm:border-b-0 sm:border-r border-[var(--border)]',
   listMetaAccent: {
-    default: 'bg-[var(--surface-hover)] border-l-4 border-l-[#2ec4f1]',
-    warning: 'bg-[var(--surface-hover)] border-l-4 border-l-rose-400',
-    success: 'bg-[var(--surface-hover)] border-l-4 border-l-emerald-500',
-    neutral: 'bg-[var(--surface-hover)] border-l-4 border-l-slate-400',
+    default: 'bg-[var(--surface-hover)] border-l-4 border-l-[var(--accent)]',
+    warning: 'bg-[var(--surface-hover)] border-l-4 border-l-[var(--danger)]',
+    success: 'bg-[var(--surface-hover)] border-l-4 border-l-[var(--success)]',
+    neutral: 'bg-[var(--surface-hover)] border-l-4 border-l-[var(--muted)]',
   },
   listBody: 'flex-1 p-4 sm:p-5 flex flex-col justify-between min-w-0',
 } as const;
+
+/** Cabecera DataTable temática. */
+export const erpTableHeader =
+  'border-b border-[var(--border)] bg-[var(--surface-hover)]';
+export const erpTableHeaderText = 'text-[var(--muted)]';

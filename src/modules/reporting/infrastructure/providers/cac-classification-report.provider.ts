@@ -55,7 +55,12 @@ export class CacClassificationReportProvider implements IReportDataProvider {
     const entries = trayRowsToHistoryEntries(rows);
     const { techMap, brandMap, modelMap } = await loadCatalogMaps();
 
-    const reportRows: ReportRow[] = entries.map((entry) => {
+    // Integridad: una S-1 no puede aparecer en dos filas del reporte.
+    const s1Seen = new Map<string, string>();
+    const integrityErrors: string[] = [];
+
+    const reportRows: ReportRow[] = [];
+    for (const entry of entries) {
       const dateObj = new Date(entry.classifiedAtIso);
       const formattedDate = `${dateObj.getDate()}-${dateObj.getMonth() + 1}-${dateObj.getFullYear()} ${dateObj.getHours().toString().padStart(2, '0')}:${dateObj.getMinutes().toString().padStart(2, '0')}`;
       const piloto = entry.rec.notes?.split('Piloto: ')[1]?.split('\n')[0] || '---';
@@ -67,7 +72,17 @@ export class CacClassificationReportProvider implements IReportDataProvider {
         entry.unitSapValidationStatus ??
         resolveUnitSapStatus(entry.unit[0]?.service_orders?.sap_integration_status, seriesSapStatuses);
 
-      return {
+      const s1 = String(entry.unit[0]?.serial_number || '').trim().toUpperCase();
+      if (s1 && s1 !== '---' && s1.length >= 3) {
+        const prev = s1Seen.get(s1);
+        if (prev && prev !== entry.osLabel) {
+          integrityErrors.push(`S-1 ${s1} duplicada en ${prev} y ${entry.osLabel}`);
+          continue; // no exportar fila inconsistente
+        }
+        s1Seen.set(s1, entry.osLabel);
+      }
+
+      reportRows.push({
         'Fecha / Hora': formattedDate,
         'No. Guía': entry.unitGuide,
         Piloto: piloto,
@@ -83,11 +98,27 @@ export class CacClassificationReportProvider implements IReportDataProvider {
         'Documento SAP': entry.unitSap,
         'Validación SAP': formatUnitSapValidationForExport(unitSapValidationStatus),
         'S-1': entry.unit[0]?.serial_number || '---',
+        'S-1 Validación SAP': entry.unit[0]
+          ? formatSeriesSapStatusLabel(entry.unit[0].sap_status)
+          : '---',
         'S-2': entry.unit[1]?.serial_number || '---',
+        'S-2 Validación SAP': entry.unit[1]
+          ? formatSeriesSapStatusLabel(entry.unit[1].sap_status)
+          : '---',
         'S-3': entry.unit[2]?.serial_number || '---',
+        'S-3 Validación SAP': entry.unit[2]
+          ? formatSeriesSapStatusLabel(entry.unit[2].sap_status)
+          : '---',
         'S-4': entry.unit[3]?.serial_number || '---',
-      };
-    });
+        'S-4 Validación SAP': entry.unit[3]
+          ? formatSeriesSapStatusLabel(entry.unit[3].sap_status)
+          : '---',
+      });
+    }
+
+    if (integrityErrors.length) {
+      console.error('[CAC_CLASIFICACION_HISTORICO] integridad S-1:', integrityErrors.slice(0, 20));
+    }
 
     return { rows: reportRows, truncated: rows.length >= 10000 };
   }

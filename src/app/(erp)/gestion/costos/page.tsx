@@ -109,7 +109,7 @@ export default function CostosPage() {
       id: 'sap',
       header: 'Documento SAP / Guía',
       width: 'minmax(160px,1fr)',
-      cellClassName: 'font-mono font-black text-[#181c3a]',
+      cellClassName: 'font-mono font-black text-[var(--heading)]',
       cell: (rec) => rec.sap_document || rec.guide_number || 'S/N',
     },
     {
@@ -124,7 +124,7 @@ export default function CostosPage() {
       header: 'Equipos (Unidades)',
       width: '150px',
       align: 'center',
-      cellClassName: 'font-black text-slate-800',
+      cellClassName: 'font-black text-[var(--heading)]',
       cell: (rec) => rec.received_units || 0,
     },
     {
@@ -143,26 +143,26 @@ export default function CostosPage() {
       category="Gestión Financiera"
     >
       {/* TABS NAVEGACIÓN */}
-      <div className="flex items-center gap-4 mb-8 border-b border-slate-100">
+      <div className="flex items-center gap-4 mb-8 border-b border-[var(--border)]">
         <button 
           onClick={() => setActiveTab('dashboard')}
-          className={`pb-4 px-2 text-sm font-black uppercase tracking-widest transition-all relative ${activeTab === 'dashboard' ? 'text-[#181c3a]' : 'text-slate-300 hover:text-slate-400'}`}
+          className={`pb-4 px-2 text-sm font-black uppercase tracking-widest transition-all relative ${activeTab === 'dashboard' ? 'text-[var(--heading)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]'}`}
         >
           <div className="flex items-center gap-2">
             <Calculator className="w-4 h-4" />
             Costos por Ingreso
           </div>
-          {activeTab === 'dashboard' && <div className="absolute bottom-0 left-0 w-full h-1 bg-amber-500 rounded-t-full" />}
+          {activeTab === 'dashboard' && <div className="absolute bottom-0 left-0 w-full h-1 bg-[var(--accent)] rounded-t-full" />}
         </button>
         <button 
           onClick={() => setActiveTab('config')}
-          className={`pb-4 px-2 text-sm font-black uppercase tracking-widest transition-all relative ${activeTab === 'config' ? 'text-[#181c3a]' : 'text-slate-300 hover:text-slate-400'}`}
+          className={`pb-4 px-2 text-sm font-black uppercase tracking-widest transition-all relative ${activeTab === 'config' ? 'text-[var(--heading)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]'}`}
         >
           <div className="flex items-center gap-2">
             <Settings className="w-4 h-4" />
             Configuración de Actividades
           </div>
-          {activeTab === 'config' && <div className="absolute bottom-0 left-0 w-full h-1 bg-amber-500 rounded-t-full" />}
+          {activeTab === 'config' && <div className="absolute bottom-0 left-0 w-full h-1 bg-[var(--accent)] rounded-t-full" />}
         </button>
       </div>
 
@@ -177,7 +177,7 @@ export default function CostosPage() {
                 </div>
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Costo Base por Equipo</p>
-                  <p className="text-2xl font-black text-[#181c3a]">${totalCostPerUnit.toFixed(2)}</p>
+                  <p className="text-2xl font-black text-[var(--heading)]">${totalCostPerUnit.toFixed(2)}</p>
                 </div>
               </div>
             </Card>
@@ -188,18 +188,18 @@ export default function CostosPage() {
                 </div>
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Ingresos Procesados</p>
-                  <p className="text-2xl font-black text-[#181c3a]">{receptions.length}</p>
+                  <p className="text-2xl font-black text-[var(--heading)]">{receptions.length}</p>
                 </div>
               </div>
             </Card>
-            <Card className="p-6 border-l-4 border-l-[#2ec4f1]">
+            <Card className="p-6 border-l-4 border-l-[var(--accent)]">
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-[#2ec4f1]/10 rounded-xl flex items-center justify-center text-[#2ec4f1]">
+                <div className="w-12 h-12 bg-[var(--accent)]/10 rounded-xl flex items-center justify-center text-[var(--accent)]">
                   <FileText size={24} />
                 </div>
                 <div>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Costo Total Estimado</p>
-                  <p className="text-2xl font-black text-[#181c3a]">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)]">Costo Total Estimado</p>
+                  <p className="text-2xl font-black text-[var(--heading)]">
                     ${(receptions.reduce((acc: number, rec: any) => acc + (rec.received_units || 0), 0) * totalCostPerUnit).toFixed(2)}
                   </p>
                 </div>
@@ -208,9 +208,9 @@ export default function CostosPage() {
           </div>
 
           <Card padding="none" className="overflow-hidden border-2 border-slate-100 shadow-xl shadow-slate-200/50">
-            <div className="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-              <h3 className="text-sm font-black text-[#181c3a] uppercase tracking-widest">Desglose de Costos por Guía (Backoffice)</h3>
-              <p className="text-xs text-slate-400">Calculado a ${totalCostPerUnit.toFixed(2)} por equipo</p>
+            <div className="p-5 border-b border-[var(--border)] bg-[var(--surface-hover)] flex justify-between items-center">
+              <h3 className="text-sm font-black text-[var(--heading)] uppercase tracking-widest">Desglose de Costos por Guía (Backoffice)</h3>
+              <p className="text-xs text-[var(--muted)]">Calculado a ${totalCostPerUnit.toFixed(2)} por equipo</p>
             </div>
             {dashboardLoading ? (
               <div className="p-10 text-center text-slate-400">Cargando datos...</div>
@@ -222,8 +222,8 @@ export default function CostosPage() {
                 rowHeight={52}
                 maxBodyHeight={560}
                 minWidth={790}
-                headerClassName="bg-[#181c3a]"
-                headerTextClassName="text-white/40"
+                headerClassName="bg-[var(--surface-hover)]"
+                headerTextClassName="text-[var(--muted)]"
                 emptyMessage="No hay registros de ingresos para costear."
               />
             )}
@@ -235,7 +235,7 @@ export default function CostosPage() {
         <div className="grid lg:grid-cols-3 gap-8 animate-rise-in">
           <div className="lg:col-span-1">
             <Card className="p-6 border-2 border-slate-100 shadow-xl shadow-slate-200/50">
-              <h3 className="text-sm font-black text-[#181c3a] uppercase tracking-widest mb-6 border-b border-slate-100 pb-4">
+              <h3 className="text-sm font-black text-[var(--heading)] uppercase tracking-widest mb-6 border-b border-[var(--border)] pb-4">
                 {editingId ? 'Editar Actividad' : 'Nueva Actividad'}
               </h3>
               <div className="space-y-4">
@@ -246,7 +246,7 @@ export default function CostosPage() {
                     value={formData.name}
                     onChange={(e) => setFormData({...formData, name: e.target.value})}
                     placeholder="Ej. Limpieza General"
-                    className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-xl text-sm font-bold text-[#181c3a] outline-none focus:border-amber-500 focus:bg-white transition-all"
+                    className="w-full h-12 px-4 bg-[var(--surface-hover)] border-2 border-[var(--border)] rounded-xl text-sm font-bold text-[var(--heading)] outline-none focus:border-[var(--warning)] focus:bg-[var(--surface)] transition-all"
                   />
                 </div>
                 <div>
@@ -258,7 +258,7 @@ export default function CostosPage() {
                     value={formData.cost}
                     onChange={(e) => setFormData({...formData, cost: e.target.value})}
                     placeholder="0.00"
-                    className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-xl text-sm font-bold text-[#181c3a] outline-none focus:border-amber-500 focus:bg-white transition-all font-mono"
+                    className="w-full h-12 px-4 bg-[var(--surface-hover)] border-2 border-[var(--border)] rounded-xl text-sm font-bold text-[var(--heading)] outline-none focus:border-[var(--warning)] focus:bg-[var(--surface)] transition-all font-mono"
                   />
                 </div>
                 <div>
@@ -267,7 +267,7 @@ export default function CostosPage() {
                     value={formData.description}
                     onChange={(e) => setFormData({...formData, description: e.target.value})}
                     placeholder="Detalles sobre esta actividad..."
-                    className="w-full h-24 p-4 bg-slate-50 border-2 border-slate-100 rounded-xl text-xs font-bold text-[#181c3a] outline-none focus:border-amber-500 focus:bg-white transition-all resize-none"
+                    className="w-full h-24 p-4 bg-[var(--surface-hover)] border-2 border-[var(--border)] rounded-xl text-xs font-bold text-[var(--heading)] outline-none focus:border-[var(--warning)] focus:bg-[var(--surface)] transition-all resize-none"
                   />
                 </div>
               </div>
@@ -291,16 +291,16 @@ export default function CostosPage() {
 
           <div className="lg:col-span-2">
             <Card padding="none" className="overflow-hidden border-2 border-slate-100 shadow-xl shadow-slate-200/50">
-              <div className="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-                <h3 className="text-sm font-black text-[#181c3a] uppercase tracking-widest">Catálogo de Costos por Actividad</h3>
-                <Badge className="bg-[#181c3a] text-white border-none font-black text-xs">Total: ${totalCostPerUnit.toFixed(2)}</Badge>
+              <div className="p-5 border-b border-[var(--border)] bg-[var(--surface-hover)] flex justify-between items-center">
+                <h3 className="text-sm font-black text-[var(--heading)] uppercase tracking-widest">Catálogo de Costos por Actividad</h3>
+                <Badge className="bg-[var(--heading)] text-[var(--surface)] border-none font-black text-xs">Total: ${totalCostPerUnit.toFixed(2)}</Badge>
               </div>
               {loading ? (
                 <div className="p-10 text-center text-slate-400">Cargando...</div>
               ) : (
                 <table className="w-full text-left text-xs">
                   <thead>
-                    <tr className="bg-[#181c3a] text-white/40 text-[10px] font-black uppercase tracking-widest">
+                    <tr className="bg-[var(--surface-hover)] text-[var(--muted)] text-[10px] font-black uppercase tracking-widest">
                       <th className="px-6 py-4">Actividad</th>
                       <th className="px-6 py-4 hidden md:table-cell">Descripción</th>
                       <th className="px-6 py-4 text-right">Costo Unitario</th>
@@ -309,21 +309,21 @@ export default function CostosPage() {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {costs.length > 0 ? costs.map(item => (
-                      <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-6 py-4 font-black text-[#181c3a]">{item.name}</td>
+                      <tr key={item.id} className="hover:bg-[var(--surface-hover)] transition-colors">
+                        <td className="px-6 py-4 font-black text-[var(--heading)]">{item.name}</td>
                         <td className="px-6 py-4 text-slate-500 hidden md:table-cell">{item.description || '---'}</td>
                         <td className="px-6 py-4 text-right font-black font-mono text-amber-600">${Number(item.cost).toFixed(2)}</td>
                         <td className="px-6 py-4">
                           <div className="flex items-center justify-center gap-3">
                             <button 
                               onClick={() => handleEdit(item)}
-                              className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-400 hover:text-amber-500 hover:border-amber-500 transition-all shadow-sm"
+                              className="w-8 h-8 rounded-lg bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center text-[var(--muted)] hover:text-[var(--warning)] hover:border-[var(--warning)] transition-all shadow-sm"
                             >
                               <Edit3 size={14} />
                             </button>
                             <button 
                               onClick={() => handleDelete(item.id)}
-                              className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-400 hover:text-rose-500 hover:border-rose-500 transition-all shadow-sm"
+                              className="w-8 h-8 rounded-lg bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center text-[var(--muted)] hover:text-[var(--danger)] hover:border-[var(--danger)] transition-all shadow-sm"
                             >
                               <Trash2 size={14} />
                             </button>

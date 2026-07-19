@@ -4,6 +4,7 @@ import React from 'react';
 import { Button, Card, notify } from '@/components/ui';
 import { Camera, ChevronLeft, FileText, X } from 'lucide-react';
 import type { OperationContext } from '../../operation/operationContext';
+import { getReceiverName } from '../../backofficeHelpers';
 
 type Props = { ctx: OperationContext };
 
@@ -59,7 +60,9 @@ export function ReturnConfirmationStep({ ctx }: Props) {
                 <p className="text-sm font-black text-[#181c3a] uppercase">{agencyDetails ? `${agencyDetails.name} - ${agencyDetails.manager || 'SIN ENCARGADO'}` : 'SELECCIONAR AGENCIA...'}</p>
                 <p className="text-[10px] font-bold text-[#2ec4f1] lowercase mt-1">
                   {agencyDetails?.email || 'correo@claro.com.gt'}
-                  {activeReception?.received_by && <span className="text-slate-400 ml-2 text-[9px] uppercase">+ CC: {activeReception.received_by}</span>}
+                  {activeReception && getReceiverName(activeReception) !== 'SISTEMA' && (
+                    <span className="text-slate-400 ml-2 text-[9px] uppercase">+ CC: {getReceiverName(activeReception)}</span>
+                  )}
                 </p>
               </div>
               <div>

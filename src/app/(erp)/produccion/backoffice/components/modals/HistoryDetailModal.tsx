@@ -4,7 +4,7 @@ import { Badge, Button, Card } from '@/components/ui';
 import { SapValidationBadge } from '@/components/sap/SapValidationBadge';
 import { normalizeSeriesSapStatus, resolveUnitSapStatus } from '@/lib/sap/sapValidationStatus';
 import { Database, Plus, Printer } from 'lucide-react';
-import { getAgenciaLabel } from '../../backofficeHelpers';
+import { getAgenciaLabel, getReceiverName } from '../../backofficeHelpers';
 import type { CatalogAgency, CatalogBrand, CatalogModel, CatalogTech } from '../../types';
 
 type Props = {
@@ -105,7 +105,7 @@ export function HistoryDetailModal({ reception, series, agencies, technologies, 
           </div>
           <div className="bg-white rounded-2xl p-4 border border-slate-100">
             <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 mb-1">Recibido en Backoffice</p>
-            <p className="text-sm font-black text-[#181c3a] uppercase leading-tight">{reception.received_by || 'SISTEMA'}</p>
+            <p className="text-sm font-black text-[#181c3a] uppercase leading-tight">{getReceiverName(reception)}</p>
           </div>
           <div className="bg-white rounded-2xl p-4 border border-slate-100">
             <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 mb-1">Estatus</p>

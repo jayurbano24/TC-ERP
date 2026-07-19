@@ -9,6 +9,11 @@ import { fetchWorkshopTasksPageViaApi, locateWorkshopEquipmentViaApi, type Works
 import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
 import { parseWorkshopSearchTokens } from '@/modules/workshop/shared/workshopSearch';
 import {
+  entrySourceLabel,
+  normalizeEntrySource,
+  resolveEntrySource,
+} from '@/modules/workshop/shared/entrySource';
+import {
   operateWorkshopInBatches,
   countSeriesInSelection,
   countEquipmentsInSelection,
@@ -122,7 +127,7 @@ export default function TallerPage() {
   const [scrapBoxTecnologia, setScrapBoxTecnologia] = useState('');
   const [scrapBoxCantidad, setScrapBoxCantidad] = useState<number | ''>('');
 
-  // ── Despacho Taller ──────────────────────────────────────────────────────
+  // ── Retornar a Bodega (antes Despacho Taller) ─────────────────────────────
   type DespachoMovement = {
     id: string;
     origen: string;
@@ -271,8 +276,6 @@ export default function TallerPage() {
   };
 
   const adaptWorkshopRow = (t: any) => {
-    const notes = (t.receptions?.notes || '').replace(/\\n/g, '\n');
-
     const modelRow = catModelos.find((m: any) => m.id === t.model_id);
     let techId =
       t.models?.technology_id ||
@@ -281,12 +284,28 @@ export default function TallerPage() {
 
     let brandId = t.brand_id || '';
     let modelId = t.model_id || '';
-    let courierStr = t.receptions?.carrier || 'Desconocido';
-    let sourceStr = t.receptions?.source?.toUpperCase() || 'CAC';
+    const reception = Array.isArray(t.receptions) ? t.receptions[0] : t.receptions;
+    let courierStr = reception?.carrier || 'Desconocido';
+    const seriesEntryMap: Record<string, 'CAC' | 'PX'> = {};
+    const rawMap = t.series_entry_map || {};
+    for (const [sn, src] of Object.entries(rawMap)) {
+      const label = entrySourceLabel(normalizeEntrySource(src));
+      if (label) seriesEntryMap[sn] = label;
+    }
+    const resolvedSource = resolveEntrySource({
+      entry_source: t.entry_source,
+      receptions: reception,
+      series_entry_map: rawMap,
+      guide: reception?.guide_number,
+      serial: t.all_sns?.[0] || t.serial_number,
+    });
+    const tipoIngreso = entrySourceLabel(resolvedSource);
+    const sourceStr = tipoIngreso || '—';
     let agenciaStr = 'N/A';
 
-    const receptionGuide = (t.receptions?.reception_guides || []).find(
-      (rg: any) => rg.guide_number === t.receptions?.guide_number
+    const notes = (reception?.notes || '').replace(/\\n/g, '\n');
+    const receptionGuide = (reception?.reception_guides || []).find(
+      (rg: any) => rg.guide_number === reception?.guide_number
     );
     const soGuide = t.service_orders?.reception_guides;
     const sapAgency = t.service_orders?.sap_transfer_documents?.agency;
@@ -378,9 +397,12 @@ export default function TallerPage() {
       responsable: responsableName,
       dbId: t.service_order_id || t.id,
       all_dbIds: t.all_dbIds?.length ? t.all_dbIds : [t.id],
-      courier: `${sourceStr} - ${courierStr}`,
+      tipo_ingreso: sourceStr,
+      courier_name: courierStr,
+      courier: `${sourceStr} – ${courierStr}`,
+      series_entry_map: seriesEntryMap,
       agencia: agenciaStr,
-      guide: t.receptions?.guide_number || 'S/G',
+      guide: reception?.guide_number || 'S/G',
       ingress_count: t.ingress_count || 1,
       current_diagnostics: t.current_diagnostics || []
     };
@@ -775,7 +797,7 @@ ${funcNotes || 'Ninguno evaluado'}
     { id: 'l3', label: 'L3 (Avanzado)', icon: Zap, color: 'text-orange-500', bg: 'bg-orange-50' },
     { id: 'scraps', label: 'SCRAPS', icon: Trash2, color: 'text-rose-500', bg: 'bg-rose-50' },
     { id: 'listo', label: 'Equipo Listo', icon: CheckCircle2, color: 'text-teal-500', bg: 'bg-teal-50' },
-    { id: 'despacho', label: 'Despacho Taller', icon: Send, color: 'text-indigo-500', bg: 'bg-indigo-50' },
+    { id: 'despacho', label: 'Retornar a Bodega', icon: Send, color: 'text-indigo-500', bg: 'bg-indigo-50' },
   ];
 
   const filteredTasks = useMemo(() => tasks.filter(t => {
@@ -1245,7 +1267,7 @@ ${funcNotes || 'Ninguno evaluado'}
             );
           })()}
 
-          {/* ════════════ TAB: DESPACHO TALLER ════════════ */}
+          {/* ════════════ TAB: RETORNAR A BODEGA ════════════ */}
           {activeTab === 'despacho' && (
             <DespachoView
               tasks={tasks}

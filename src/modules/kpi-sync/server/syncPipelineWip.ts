@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { rpcInternal } from '@/lib/supabase/rpcInternal';
 import { fechaEnGuatemala } from './timeRange';
 import type { SyncRunResult } from './types';
 
@@ -24,8 +25,13 @@ async function upsertProcesoMetric(
 export async function runKpiPipelineWipSync(supabase: SupabaseClient): Promise<SyncRunResult> {
   const fecha = fechaEnGuatemala(new Date().toISOString());
 
-  await supabase.rpc('refresh_enterprise_summary_views').then(({ error }) => {
-    if (error && error.code !== '42883' && error.code !== 'PGRST202') {
+  await rpcInternal(supabase, 'refresh_enterprise_summary_views').then(({ error }) => {
+    if (
+      error &&
+      error.code !== '42883' &&
+      error.code !== 'PGRST202' &&
+      error.code !== 'PGRST106'
+    ) {
       console.warn('[kpi_pipeline_wip] MV refresh:', error.message);
     }
   });

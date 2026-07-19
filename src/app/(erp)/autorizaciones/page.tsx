@@ -3,8 +3,9 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { Card, Button, Badge, notify } from '@/components/ui';
+import { Card, Button, Badge, notify, SegmentedTabs } from '@/components/ui';
 import { ModulePage } from '@/components/module-page';
+import { erpSoftStat } from '@/lib/design/tokens';
 import { useAuthz } from '@/components/authz';
 import {
   ShieldCheck,
@@ -71,20 +72,20 @@ export default function AutorizacionesPage() {
       {
         label: 'Pendientes',
         value: pendingCount,
-        icon: <Clock className="w-5 h-5 text-amber-500" />,
-        tone: 'bg-amber-50',
+        icon: <Clock className="w-5 h-5" />,
+        tone: erpSoftStat.warning,
       },
       {
         label: 'En esta vista',
         value: rows.length,
-        icon: <Inbox className="w-5 h-5 text-[#2ec4f1]" />,
-        tone: 'bg-blue-50',
+        icon: <Inbox className="w-5 h-5" />,
+        tone: erpSoftStat.accent,
       },
       {
         label: 'Tipo',
         value: 'Eliminación de cajas',
-        icon: <Package className="w-5 h-5 text-[#181c3a]" />,
-        tone: 'bg-slate-100',
+        icon: <Package className="w-5 h-5" />,
+        tone: erpSoftStat.muted,
         isText: true,
       },
     ],
@@ -119,7 +120,7 @@ export default function AutorizacionesPage() {
   if (authzLoading) {
     return (
       <ModulePage title="Autorizaciones" subtitle="Cargando…" category="Gestión">
-        <p className="text-sm text-slate-400">Verificando permisos…</p>
+        <p className="text-sm text-[var(--muted)]">Verificando permisos…</p>
       </ModulePage>
     );
   }
@@ -132,9 +133,9 @@ export default function AutorizacionesPage() {
         category="Gestión"
       >
         <Card className="p-8 text-center space-y-3">
-          <ShieldCheck className="w-10 h-10 text-slate-300 mx-auto" />
-          <h3 className="text-lg font-black text-[#181c3a]">Solo Gerente General</h3>
-          <p className="text-sm text-slate-500 max-w-md mx-auto">
+          <ShieldCheck className="w-10 h-10 text-[var(--muted)] mx-auto" />
+          <h3 className="text-lg font-black text-[var(--heading)]">Solo Gerente General</h3>
+          <p className="text-sm text-[var(--muted)] max-w-md mx-auto">
             Este módulo concentra las solicitudes que requieren autorización previa
             (por ejemplo, eliminación de cajas de bodega).
           </p>
@@ -168,10 +169,10 @@ export default function AutorizacionesPage() {
             <Card key={s.label} className="p-5 flex items-center gap-4" padding="md">
               <div className={`p-3 rounded-2xl ${s.tone}`}>{s.icon}</div>
               <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                <p className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)]">
                   {s.label}
                 </p>
-                <p className={`font-black text-[#181c3a] ${s.isText ? 'text-sm mt-1' : 'text-2xl'}`}>
+                <p className={`font-black text-[var(--heading)] ${s.isText ? 'text-sm mt-1' : 'text-2xl'}`}>
                   {s.value}
                 </p>
               </div>
@@ -179,33 +180,25 @@ export default function AutorizacionesPage() {
           ))}
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          {TABS.map((t) => {
-            const active = tab === t.id;
-            return (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setTab(t.id)}
-                className={`h-10 px-4 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${
-                  active
-                    ? 'bg-[#181c3a] text-white'
-                    : 'bg-white border border-slate-200 text-slate-500 hover:border-slate-300'
-                }`}
-              >
-                {t.label}
-                {t.id === 'pending' && pendingCount > 0 ? ` (${pendingCount})` : ''}
-              </button>
-            );
-          })}
-        </div>
+        <SegmentedTabs
+          items={TABS.map((t) => ({
+            id: t.id,
+            label:
+              t.id === 'pending' && pendingCount > 0
+                ? `${t.label} (${pendingCount})`
+                : t.label,
+          }))}
+          value={tab}
+          onChange={(id) => setTab(id as Tab)}
+          className="flex-wrap"
+        />
 
         <Card className="p-0 overflow-hidden" padding="none">
-          <div className="bg-[#181c3a] px-6 py-4 flex items-center gap-3 text-white">
-            <ShieldCheck className="w-5 h-5 text-[#2ec4f1]" />
+          <div className="border-b border-[var(--border)] bg-[var(--surface)] px-6 py-4 flex items-center gap-3">
+            <ShieldCheck className="w-5 h-5 text-[var(--accent)]" />
             <div>
-              <h3 className="font-bold">Eliminación de cajas — Bodega</h3>
-              <p className="text-[11px] text-white/50">
+              <h3 className="font-bold text-[var(--heading)]">Eliminación de cajas — Bodega</h3>
+              <p className="text-[11px] text-[var(--muted)]">
                 Soft delete solo tras aprobación. Las series se conservan para auditoría.
               </p>
             </div>
@@ -213,12 +206,12 @@ export default function AutorizacionesPage() {
 
           <div className="p-5 space-y-3">
             {isLoading ? (
-              <p className="text-sm text-slate-400 py-8 text-center">Cargando solicitudes…</p>
+              <p className="text-sm text-[var(--muted)] py-8 text-center">Cargando solicitudes…</p>
             ) : rows.length === 0 ? (
               <div className="py-12 text-center space-y-2">
-                <Inbox className="w-8 h-8 text-slate-200 mx-auto" />
-                <p className="text-sm font-bold text-slate-500">No hay solicitudes en esta vista</p>
-                <p className="text-[12px] text-slate-400">
+                <Inbox className="w-8 h-8 text-[var(--muted)]/40 mx-auto" />
+                <p className="text-sm font-bold text-[var(--foreground)]">No hay solicitudes en esta vista</p>
+                <p className="text-[12px] text-[var(--muted)]">
                   Cuando Bodega solicite eliminar una caja, aparecerá aquí.
                 </p>
               </div>
@@ -226,33 +219,33 @@ export default function AutorizacionesPage() {
               rows.map((r: any) => (
                 <div
                   key={r.id}
-                  className="rounded-2xl border border-slate-100 bg-slate-50/80 p-4 flex flex-col lg:flex-row lg:items-center gap-4 justify-between"
+                  className="rounded-2xl border border-[var(--border)] bg-[var(--surface-hover)] p-4 flex flex-col lg:flex-row lg:items-center gap-4 justify-between"
                 >
                   <div className="min-w-0 space-y-1.5">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-mono font-black text-[#181c3a] text-lg">
+                      <span className="font-mono font-black text-[var(--heading)] text-lg">
                         {r.box_code || r.box_id}
                       </span>
                       {statusBadge(r.status)}
-                      <span className="text-[10px] text-slate-400">
+                      <span className="text-[10px] text-[var(--muted)]">
                         Solicitada:{' '}
                         {r.requested_at ? new Date(r.requested_at).toLocaleString() : '—'}
                       </span>
                     </div>
-                    <p className="text-sm text-slate-700">
+                    <p className="text-sm text-[var(--foreground)]">
                       <span className="font-bold">Motivo:</span> {r.reason}
                     </p>
                     {r.observations ? (
-                      <p className="text-[12px] text-slate-500">Observaciones: {r.observations}</p>
+                      <p className="text-[12px] text-[var(--muted)]">Observaciones: {r.observations}</p>
                     ) : null}
-                    <p className="text-[11px] text-slate-400">
+                    <p className="text-[11px] text-[var(--muted)]">
                       {r.equipos_count ?? 0} equipos · rack {r.rack || '—'}
                       {r.reviewed_at
                         ? ` · Revisada ${new Date(r.reviewed_at).toLocaleString()}`
                         : ''}
                     </p>
                     {r.review_notes ? (
-                      <p className="text-[12px] text-slate-500">Nota revisión: {r.review_notes}</p>
+                      <p className="text-[12px] text-[var(--muted)]">Nota revisión: {r.review_notes}</p>
                     ) : null}
                   </div>
 

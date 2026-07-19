@@ -1,4 +1,4 @@
-/** Agrupa series enriquecidas por OS → filas UI (S1–S4) como en BodegaGestionV1. */
+/** Agrupa series enriquecidas por OS → filas UI (S1–S4) para detalle de caja. */
 export function groupSeriesToUiRows(rawSeries: any[]): any[] {
   const grouped = (rawSeries || []).reduce((acc: Record<string, any[]>, s: any) => {
     const key = s.service_order_id || s.serial_number;
@@ -34,10 +34,17 @@ export function groupSeriesToUiRows(rawSeries: any[]): any[] {
       '';
     const modelId =
       main.model_id ||
-      main.models?.name ||
       normalizedNotes.split('Backoffice_Model: ')[1]?.split('\n')[0]?.trim() ||
       '';
     const reentryCount = main.service_orders?.reentry_count || 1;
+    const marcaLabel =
+      main.brands?.name ||
+      main.models?.brands?.name ||
+      '';
+    const modeloLabel = main.models?.name || '';
+    const tecnologiaLabel =
+      main.models?.technologies?.name ||
+      '';
 
     return {
       notes: main.notes,
@@ -53,6 +60,9 @@ export function groupSeriesToUiRows(rawSeries: any[]): any[] {
       marca: brandId,
       modelo: modelId,
       tecnologia: techId,
+      marcaLabel,
+      modeloLabel,
+      tecnologiaLabel,
       origen: main.receptions?.carrier || 'Desconocida',
       agenciaCAC,
       piloto,

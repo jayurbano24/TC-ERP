@@ -72,12 +72,15 @@ export async function GET(request: Request) {
       console.warn('equiposConSerie count skipped:', eqSerieErr.message);
     }
 
-    const { data: lastUpload } = await supabase
+    const { data: lastUpload, error: uploadErr } = await supabase
       .from('sap_uploads')
       .select(SAP_UPLOAD_SELECT)
       .order('fecha', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
+    if (uploadErr) {
+      console.warn('lastUpload skipped:', uploadErr.message);
+    }
 
     return NextResponse.json({
       success: true,

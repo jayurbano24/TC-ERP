@@ -4,6 +4,8 @@ import { useCallback } from 'react';
 import { notify, confirmDialog, promptDialog } from '@/components/ui/messaging/messageStore';
 import { updateReceptionStatus } from '@/modules/recepcion/client/receptions';
 import { processBlockReturnBySapTransfer } from '@/modules/returns/client/returnData';
+import { sapDocumentBase } from '@/modules/sap-transfer';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { downloadReportApi, isCentralReportingEnabledClient } from '@/modules/reporting/client/reportingApi';
 import { exportHistoryReport } from '../history/exportHistoryReport';
 import type { HistoryUnitEntry } from '../historyTrayUtils';
@@ -92,19 +94,65 @@ export function useBackofficeHistoryActions({
         window.location.href = `/logistica/devoluciones?reception_id=${entry.rec.id}`;
         return;
       }
-      const unitCount = entry.unit.length;
-      const msg =
-        `Devolución en bloque por Documento SAP ${entry.unitSap}.
-` +
-        `Se revertirán TODAS las unidades asociadas a este documento SAP en la guía (no solo esta fila).
 
-¿Continuar?`;
-      const ok = await confirmDialog({ title: 'Devolución en bloque', message: msg, confirmText: 'Continuar' });
+      const sapDoc = String(entry.unitSap || '').trim();
+      const sapBase = sapDocumentBase(sapDoc) || sapDoc;
+      if (!sapBase) {
+        notify.error('No se pudo determinar el Número SAP Base de este registro.');
+        return;
+      }
+
+      let docsPreview: string[] = sapDoc ? [sapDoc] : [];
+      try {
+        const supabase = getSupabaseBrowserClient();
+        if (supabase) {
+          const { data } = await supabase
+            .from('sap_transfer_documents')
+            .select('sap_document_number')
+            .or(`sap_document_number.eq.${sapBase},sap_document_number.like.${sapBase}-%`)
+            .order('sap_document_number');
+          const nums = (data || [])
+            .map((d: { sap_document_number?: string }) => String(d.sap_document_number || '').trim())
+            .filter(Boolean);
+          if (nums.length) docsPreview = nums;
+        }
+      } catch {
+        /* preview opcional */
+      }
+
+      const msg =
+        `Devolver Bloque SAP\n\n` +
+        `SAP Base: ${sapBase}\n` +
+        `Documentos: ${docsPreview.join(', ')}\n\n` +
+        `Se enviarán a estado "Devolución" TODOS los equipos de este bloque en una sola transacción.\n` +
+        `Si alguno no puede actualizarse, se cancela toda la operación.\n\n` +
+        `¿Continuar?`;
+
+      const ok = await confirmDialog({
+        title: 'Devolver Bloque SAP',
+        message: msg,
+        confirmText: 'Continuar',
+      });
       if (!ok) return;
-      const motivo = await promptDialog({ title: 'Motivo de la devolución', prompt: { required: true, multiline: true } });
-      if (!motivo?.trim()) return;
-      const guiaSalida = await promptDialog({ title: 'Guía de salida / tracking', prompt: { required: true } });
-      if (!guiaSalida?.trim()) return;
+
+      const motivo = await promptDialog({
+        title: 'Motivo de la devolución',
+        prompt: { required: true, multiline: true, placeholder: 'Indique el motivo (obligatorio)' },
+      });
+      if (!motivo?.trim()) {
+        notify.warning('Devolución cancelada: el motivo es obligatorio.');
+        return;
+      }
+
+      const guiaSalida = await promptDialog({
+        title: 'Guía de salida / tracking',
+        prompt: { required: true },
+      });
+      if (!guiaSalida?.trim()) {
+        notify.warning('Devolución cancelada: la guía de salida es obligatoria.');
+        return;
+      }
+
       try {
         const res = await processBlockReturnBySapTransfer(
           entry.sapTransferId,
@@ -115,8 +163,10 @@ export function useBackofficeHistoryActions({
           notify.error('No se pudo procesar la devolución', { description: res.error });
           return;
         }
-        notify.success('Devolución en bloque aplicada', {
-          description: `${res.unitsCount ?? unitCount} equipo(s) del Documento SAP ${entry.unitSap}.`,
+        notify.success('Devolución Bloque SAP aplicada', {
+          description:
+            `Base ${res.sapBase || sapBase} · ${res.documentsCount ?? docsPreview.length} documento(s) · ` +
+            `${res.unitsCount ?? 0} equipo(s) → Devolución.`,
         });
         await fetchHistory();
       } catch (err: unknown) {

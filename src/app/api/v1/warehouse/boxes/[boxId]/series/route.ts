@@ -86,14 +86,25 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ boxI
     fetchMap('models', modelIds, 'id, name, technology_id, brand_id'),
   ]);
 
-  // 3) Resolve the models with nested technologies (technologies is nested under models)
-  // Let's resolve technologies for models.
+  // 3) Resolve brands + technologies for models
+  const brandIds = [
+    ...new Set([
+      ...items.map((s) => s.brand_id).filter(Boolean),
+      ...Array.from(modelMap.values()).map((m) => m.brand_id).filter(Boolean),
+    ]),
+  ];
   const techIds = [...new Set(Array.from(modelMap.values()).map((m) => m.technology_id).filter(Boolean))];
-  const techMap = await fetchMap('technologies', techIds, 'id, name');
+  const [brandMap, techMap] = await Promise.all([
+    fetchMap('brands', brandIds, 'id, name'),
+    fetchMap('technologies', techIds, 'id, name'),
+  ]);
 
   for (const m of modelMap.values()) {
     if (m.technology_id) {
       m.technologies = techMap.get(m.technology_id) || null;
+    }
+    if (m.brand_id) {
+      m.brands = brandMap.get(m.brand_id) || null;
     }
   }
 
@@ -102,6 +113,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ boxI
     s.receptions = s.current_reception_id ? recMap.get(s.current_reception_id) || null : null;
     s.service_orders = s.service_order_id ? osMap.get(s.service_order_id) || null : null;
     s.models = s.model_id ? modelMap.get(s.model_id) || null : null;
+    const brandId = s.brand_id || s.models?.brand_id;
+    s.brands = brandId ? brandMap.get(brandId) || null : null;
   }
 
   return NextResponse.json({

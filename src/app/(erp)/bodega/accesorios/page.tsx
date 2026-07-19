@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Card, Button, Badge, notify, confirmDialog, DataTable, type DataTableColumn } from '@/components/ui';
+import { Card, Button, Badge, notify, confirmDialog, DataTable, type DataTableColumn, SegmentedTabs } from '@/components/ui';
+import { erpTableHeader, erpTableHeaderText, erpFieldClass, erpLabelClass } from '@/lib/design/tokens';
 import { ModulePage, ModuleToolbar } from '@/components/module-page';
 import { Boxes, Plus, X, ArrowUpRight, ArrowDownRight, Search, Activity, PackageSearch, MoreVertical, Trash2, Edit2, MapPin, ScanLine } from 'lucide-react';
 import { getAccessories, createAccessory, registerAccessoryEntry, registerAccessoryDispatch, getAccessoryMovements, getAccessoryBoxes, updateAccessoryBoxStatus, deleteAccessoryBox, updateAccessoryBox, bulkUpdateAccessoryBoxLocation } from '@/modules/accessories/client/accessories';
@@ -329,7 +330,7 @@ export default function BodegaAccesoriosPage() {
       id: 'orden',
       header: 'Orden de Recup.',
       width: '150px',
-      cellClassName: 'text-sm font-black text-[#181c3a] font-mono',
+      cellClassName: 'text-sm font-black text-[var(--heading)] font-mono',
       cell: (box: any) => box.recovery_order,
     },
     {
@@ -424,7 +425,7 @@ export default function BodegaAccesoriosPage() {
       id: 'accesorio',
       header: 'Accesorio',
       width: 'minmax(140px,1fr)',
-      cellClassName: 'text-sm font-black text-[#181c3a]',
+      cellClassName: 'text-sm font-black text-[var(--heading)]',
       cell: (mov: any) => mov.accessories?.name,
     },
     {
@@ -495,26 +496,17 @@ export default function BodegaAccesoriosPage() {
       }
     >
       <div className="space-y-6">
-        <div className="flex bg-slate-100 p-1 rounded-xl w-fit">
-          <button 
-            onClick={() => setActiveTab('inventario')}
-            className={`px-6 py-2.5 text-sm font-bold rounded-lg transition-colors ${activeTab === 'inventario' ? 'bg-white text-[#181c3a] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-          >
-            Inventario Actual
-          </button>
-          <button 
-            onClick={() => setActiveTab('recuperacion')}
-            className={`px-6 py-2.5 text-sm font-bold rounded-lg transition-colors ${activeTab === 'recuperacion' ? 'bg-white text-[#181c3a] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-          >
-            Proceso de Recuperación
-          </button>
-          <button 
-            onClick={() => setActiveTab('historial')}
-            className={`px-6 py-2.5 text-sm font-bold rounded-lg transition-colors ${activeTab === 'historial' ? 'bg-white text-[#181c3a] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-          >
-            Historial de Movimientos
-          </button>
-        </div>
+        <SegmentedTabs
+          className="w-fit"
+          triggerClassName="px-6 py-2.5 text-sm normal-case tracking-normal"
+          items={[
+            { id: 'inventario', label: 'Inventario Actual' },
+            { id: 'recuperacion', label: 'Proceso de Recuperación' },
+            { id: 'historial', label: 'Historial de Movimientos' },
+          ]}
+          value={activeTab}
+          onChange={(id) => setActiveTab(id as 'inventario' | 'historial' | 'recuperacion')}
+        />
 
         {activeTab === 'inventario' ? (
           <div className="space-y-6 animate-in fade-in">
@@ -522,23 +514,23 @@ export default function BodegaAccesoriosPage() {
               <div className="overflow-x-auto">
                 <table className="w-full text-left">
                   <thead>
-                    <tr className="bg-slate-50 border-b border-slate-100">
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Accesorio</th>
+                    <tr className={erpTableHeader}>
+                      <th className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest ${erpTableHeaderText}`}>Accesorio</th>
                       <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-emerald-600 bg-emerald-50/30">Nuevos (SAP)</th>
                       <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-amber-600 bg-amber-50/30">Recuperados</th>
                       <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-indigo-600 bg-indigo-50/30">Total</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Acciones</th>
+                      <th className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest ${erpTableHeaderText} text-right`}>Acciones</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {accessories.map((acc) => (
-                      <tr key={acc.id} className="hover:bg-slate-50/50 transition-colors">
+                      <tr key={acc.id} className="hover:bg-[var(--surface-hover)]/50 transition-colors">
                         <td className="px-6 py-5">
                           <div className="flex items-center gap-3">
                             <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
                               <Boxes className="w-4 h-4" />
                             </div>
-                            <span className="text-sm font-black text-[#181c3a]">{acc.name}</span>
+                            <span className="text-sm font-black text-[var(--heading)]">{acc.name}</span>
                           </div>
                         </td>
                         <td className="px-6 py-5 bg-emerald-50/10">
@@ -591,8 +583,8 @@ export default function BodegaAccesoriosPage() {
                   rowHeight={56}
                   maxBodyHeight={620}
                   minWidth={1018}
-                  headerClassName="bg-slate-50 border-b border-slate-100"
-                  headerTextClassName="text-slate-400"
+                  headerClassName={erpTableHeader}
+                  headerTextClassName={erpTableHeaderText}
                   emptyMessage="No hay cajas en proceso de recuperación."
                 />
               </div>
@@ -609,8 +601,8 @@ export default function BodegaAccesoriosPage() {
                   rowHeight={56}
                   maxBodyHeight={620}
                   minWidth={910}
-                  headerClassName="bg-slate-50 border-b border-slate-100"
-                  headerTextClassName="text-slate-400"
+                  headerClassName={erpTableHeader}
+                  headerTextClassName={erpTableHeaderText}
                   emptyMessage="No hay movimientos registrados."
                 />
               </div>
@@ -621,43 +613,43 @@ export default function BodegaAccesoriosPage() {
         {/* Create Accessory Modal */}
         {showCreateModal && (
           <div className="fixed inset-0 bg-[#0b0e20]/80 backdrop-blur-sm z-50 flex items-center justify-center animate-in fade-in">
-            <Card className="w-full max-w-sm bg-white shadow-2xl p-0 overflow-hidden">
-              <div className="bg-[#181c3a] p-5 text-white flex justify-between items-center">
+            <Card className="w-full max-w-sm bg-[var(--surface)] shadow-2xl p-0 overflow-hidden">
+              <div className="border-b border-[var(--border)] bg-[var(--surface-hover)] p-5 text-[var(--heading)] flex justify-between items-center">
                 <h3 className="font-black text-lg">Nuevo Accesorio</h3>
-                <button onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-white"><X className="w-5 h-5"/></button>
+                <button onClick={() => setShowCreateModal(false)} className="text-[var(--muted)] hover:text-[var(--foreground)]"><X className="w-5 h-5"/></button>
               </div>
               <div className="p-6 space-y-4">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Nombre del Accesorio *</label>
+                  <label className={erpLabelClass}>Nombre del Accesorio *</label>
                   <input 
                     type="text" 
                     value={newAccName}
                     onChange={(e) => setNewAccName(e.target.value)}
                     placeholder="Ej: Control Remoto ZXV10"
-                    className="w-full bg-slate-50 p-3 rounded-xl border border-slate-200 text-sm outline-none focus:border-indigo-500"
+                    className={erpFieldClass}
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Características del Accesorio</label>
+                  <label className={erpLabelClass}>Características del Accesorio</label>
                   <input 
                     type="text" 
                     value={newAccCharacteristics}
                     onChange={(e) => setNewAccCharacteristics(e.target.value)}
                     placeholder="Ej: Infrarrojo, Negro"
-                    className="w-full bg-slate-50 p-3 rounded-xl border border-slate-200 text-sm outline-none focus:border-indigo-500"
+                    className={erpFieldClass}
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Comentarios</label>
+                  <label className={erpLabelClass}>Comentarios</label>
                   <textarea 
                     value={newAccComments}
                     onChange={(e) => setNewAccComments(e.target.value)}
                     placeholder="Observaciones adicionales..."
-                    className="w-full bg-slate-50 p-3 rounded-xl border border-slate-200 text-sm outline-none focus:border-indigo-500 min-h-[80px]"
+                    className={`${erpFieldClass} min-h-[80px]`}
                   />
                 </div>
               </div>
-              <div className="p-4 bg-slate-50 flex justify-end gap-3 border-t border-slate-100">
+              <div className="p-4 bg-[var(--surface-hover)] flex justify-end gap-3 border-t border-[var(--border)]">
                 <Button variant="outline" onClick={() => setShowCreateModal(false)}>Cancelar</Button>
                 <Button variant="primary" onClick={handleCreateAccessory} disabled={isProcessing || !newAccName.trim()}>Guardar</Button>
               </div>
@@ -668,7 +660,7 @@ export default function BodegaAccesoriosPage() {
         {/* Movement Modal */}
         {showMoveModal && (
           <div className="fixed inset-0 bg-[#0b0e20]/80 backdrop-blur-sm z-50 flex items-center justify-center animate-in fade-in">
-            <Card className="w-full max-w-md bg-white shadow-2xl p-0 overflow-hidden">
+            <Card className="w-full max-w-md bg-[var(--surface)] shadow-2xl p-0 overflow-hidden">
               <div className={`p-5 text-white flex justify-between items-center ${moveType === 'IN' ? 'bg-emerald-600' : 'bg-rose-600'}`}>
                 <h3 className="font-black text-lg">{moveType === 'IN' ? 'Ingreso de Accesorios' : 'Despacho de Accesorios'}</h3>
                 <button onClick={() => setShowMoveModal(false)} className="text-white/60 hover:text-white"><X className="w-5 h-5"/></button>
@@ -684,18 +676,18 @@ export default function BodegaAccesoriosPage() {
                       value={scannedBarcode}
                       onChange={handleBarcodeScan}
                       placeholder="Pistolea la etiqueta aquí..."
-                      className="w-full bg-white p-3 rounded-lg border border-indigo-200 text-sm font-bold outline-none focus:border-indigo-500 text-indigo-900 shadow-sm"
+                      className="w-full bg-[var(--surface)] p-3 rounded-lg border border-indigo-200 text-sm font-bold outline-none focus:border-[var(--accent)] text-indigo-900 shadow-sm"
                       autoFocus
                     />
                   </div>
                 )}
                 
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Accesorio *</label>
+                  <label className={erpLabelClass}>Accesorio *</label>
                   <select 
                     value={moveAccId}
                     onChange={(e) => setMoveAccId(e.target.value)}
-                    className="w-full bg-slate-50 p-3 rounded-xl border border-slate-200 text-sm font-bold outline-none focus:border-indigo-500"
+                    className={erpFieldClass}
                   >
                     {accessories.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                   </select>
@@ -703,11 +695,11 @@ export default function BodegaAccesoriosPage() {
 
                 <div className="flex gap-4">
                   <div className="space-y-2 flex-1">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Condición *</label>
+                    <label className={erpLabelClass}>Condición *</label>
                     <select 
                       value={moveCondition}
                       onChange={(e) => setMoveCondition(e.target.value as any)}
-                      className="w-full bg-slate-50 p-3 rounded-xl border border-slate-200 text-sm font-bold outline-none focus:border-indigo-500"
+                      className={erpFieldClass}
                     >
                       <option value="NEW">Nuevo</option>
                       <option value="RECOVERED">Recuperado</option>
@@ -717,27 +709,27 @@ export default function BodegaAccesoriosPage() {
                   {moveType === 'IN' ? (
                     <>
                       <div className="space-y-2 flex-1">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Cant. Cajas *</label>
+                        <label className={erpLabelClass}>Cant. Cajas *</label>
                         <input 
                           type="number" 
                           min="1"
                           value={moveNumBoxes}
                           onChange={(e) => setMoveNumBoxes(e.target.value)}
                           placeholder="1"
-                          className="w-full bg-slate-50 p-3 rounded-xl border border-slate-200 text-sm font-bold outline-none focus:border-indigo-500"
+                          className={erpFieldClass}
                         />
                       </div>
                     </>
                   ) : (
                     <div className="space-y-2 flex-1">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Cantidad *</label>
+                      <label className={erpLabelClass}>Cantidad *</label>
                       <input 
                         type="number" 
                         min="1"
                         value={moveQty}
                         onChange={(e) => setMoveQty(e.target.value)}
                         placeholder="0"
-                        className="w-full bg-slate-50 p-3 rounded-xl border border-slate-200 text-sm font-bold outline-none focus:border-indigo-500"
+                        className={erpFieldClass}
                       />
                     </div>
                   )}
@@ -745,8 +737,8 @@ export default function BodegaAccesoriosPage() {
 
                 {/* Cantidades individuales por caja para IN */}
                 {moveType === 'IN' && parseInt(moveNumBoxes) > 0 && (
-                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-3">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block">Detalle de Unidades por Caja *</label>
+                  <div className="bg-[var(--surface-hover)] p-3 rounded-xl border border-[var(--border)] space-y-3">
+                    <label className={`${erpLabelClass} block`}>Detalle de Unidades por Caja *</label>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-40 overflow-y-auto pr-1">
                       {moveBoxDetails.map((qty, idx) => (
                         <div key={idx} className="flex items-center gap-2">
@@ -761,7 +753,7 @@ export default function BodegaAccesoriosPage() {
                               setMoveBoxDetails(newDetails);
                             }}
                             placeholder="Ej: 20"
-                            className="w-full bg-white p-2 rounded-lg border border-slate-200 text-sm font-bold outline-none focus:border-indigo-500"
+                            className="w-full bg-[var(--surface)] p-2 rounded-lg border border-[var(--border)] text-sm font-bold outline-none focus:border-[var(--accent)]"
                           />
                         </div>
                       ))}
@@ -777,7 +769,7 @@ export default function BodegaAccesoriosPage() {
 
                 {/* Mostrar disponibilidad */}
                 {moveType === 'OUT' && moveAccId && (
-                  <div className="text-xs text-slate-500 bg-slate-50 p-2 rounded-md">
+                  <div className="text-xs text-slate-500 bg-[var(--surface-hover)] p-2 rounded-md">
                     Disponibilidad: <strong>{moveCondition === 'NEW' ? accessories.find(a => a.id === moveAccId)?.qty_new : accessories.find(a => a.id === moveAccId)?.qty_recovered}</strong> unidades
                   </div>
                 )}
@@ -847,7 +839,7 @@ export default function BodegaAccesoriosPage() {
                   />
                 )}
               </div>
-              <div className="p-4 bg-slate-50 flex justify-end gap-3 border-t border-slate-100">
+              <div className="p-4 bg-[var(--surface-hover)] flex justify-end gap-3 border-t border-[var(--border)]">
                 <Button variant="outline" onClick={() => setShowMoveModal(false)}>Cancelar</Button>
                 <Button 
                   className={`border-none shadow-lg text-white ${moveType === 'IN' ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/20' : 'bg-rose-600 hover:bg-rose-700 shadow-rose-500/20'}`}
@@ -864,14 +856,14 @@ export default function BodegaAccesoriosPage() {
         {/* Print Label Modal */}
         {showLabelModal && generatedLabels.length > 0 && (
           <div className="fixed inset-0 bg-[#0b0e20]/80 backdrop-blur-sm z-50 flex items-center justify-center animate-in fade-in py-10">
-            <Card className="w-full max-w-4xl bg-white shadow-2xl p-0 flex flex-col max-h-full overflow-hidden">
-              <div className="bg-[#181c3a] p-5 text-white flex justify-between items-center shrink-0 print:hidden">
+            <Card className="w-full max-w-4xl bg-[var(--surface)] shadow-2xl p-0 flex flex-col max-h-full overflow-hidden">
+              <div className="border-b border-[var(--border)] bg-[var(--surface-hover)] p-5 text-[var(--heading)] flex justify-between items-center shrink-0 print:hidden">
                 <h3 className="font-black text-lg">Cajas Generadas con Éxito ({generatedLabels.length})</h3>
-                <button onClick={() => setShowLabelModal(false)} className="text-slate-400 hover:text-white"><X className="w-5 h-5"/></button>
+                <button onClick={() => setShowLabelModal(false)} className="text-[var(--muted)] hover:text-[var(--foreground)]"><X className="w-5 h-5"/></button>
               </div>
               
-              <div className="overflow-y-auto p-6 bg-slate-100 flex-1">
-                <div id="print-label-area" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 bg-white p-6 rounded-xl shadow-inner min-h-full">
+              <div className="overflow-y-auto p-6 bg-[var(--surface-hover)] flex-1">
+                <div id="print-label-area" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 bg-[var(--surface)] p-6 rounded-xl shadow-inner min-h-full">
                   {generatedLabels.map((label, index) => (
                     <div key={index} className="text-center w-full border-2 border-dashed border-slate-300 rounded-xl p-4 break-inside-avoid" style={{ pageBreakInside: 'avoid', marginBottom: '20px' }}>
                       <h4 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-2">ETIQUETA DE CAJA {label.status === 'Nuevo' ? 'NUEVA' : 'RECUPERADA'}</h4>
@@ -885,9 +877,9 @@ export default function BodegaAccesoriosPage() {
                           background="#ffffff"
                         />
                       </div>
-                      <div className="mt-4 space-y-1 text-left bg-slate-50 p-3 rounded-lg border border-slate-100">
+                      <div className="mt-4 space-y-1 text-left bg-[var(--surface-hover)] p-3 rounded-lg border border-[var(--border)]">
                         <p className="text-[10px] font-black uppercase text-slate-400">Contenido</p>
-                        <p className="text-sm font-bold text-[#181c3a] truncate">{label.name}</p>
+                        <p className="text-sm font-bold text-[var(--heading)] truncate">{label.name}</p>
                         
                         <div className="flex justify-between mt-2 pt-2 border-t border-slate-200">
                           <div>
@@ -905,7 +897,7 @@ export default function BodegaAccesoriosPage() {
                 </div>
               </div>
               
-              <div className="p-4 bg-slate-50 flex justify-end gap-3 border-t border-slate-100 shrink-0 print:hidden">
+              <div className="p-4 bg-[var(--surface-hover)] flex justify-end gap-3 border-t border-[var(--border)] shrink-0 print:hidden">
                 <Button variant="outline" onClick={() => setShowLabelModal(false)}>Cerrar</Button>
                 <Button 
                   variant="primary" 
@@ -930,35 +922,35 @@ export default function BodegaAccesoriosPage() {
         {/* Edit Box Modal */}
         {showEditBoxModal && (
           <div className="fixed inset-0 bg-[#0b0e20]/80 backdrop-blur-sm z-50 flex items-center justify-center animate-in fade-in">
-            <Card className="w-full max-w-sm bg-white shadow-2xl p-0 overflow-hidden">
-              <div className="bg-[#181c3a] p-5 text-white flex justify-between items-center">
+            <Card className="w-full max-w-sm bg-[var(--surface)] shadow-2xl p-0 overflow-hidden">
+              <div className="border-b border-[var(--border)] bg-[var(--surface-hover)] p-5 text-[var(--heading)] flex justify-between items-center">
                 <h3 className="font-black text-lg">Actualizar Caja</h3>
-                <button onClick={() => setShowEditBoxModal(false)} className="text-slate-400 hover:text-white"><X className="w-5 h-5"/></button>
+                <button onClick={() => setShowEditBoxModal(false)} className="text-[var(--muted)] hover:text-[var(--foreground)]"><X className="w-5 h-5"/></button>
               </div>
               <div className="p-6 space-y-4">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Cantidad *</label>
+                  <label className={erpLabelClass}>Cantidad *</label>
                   <input 
                     type="number" 
                     min="1"
                     value={editBoxQty}
                     onChange={(e) => setEditBoxQty(e.target.value)}
-                    className="w-full bg-slate-50 p-3 rounded-xl border border-slate-200 text-sm font-bold outline-none focus:border-indigo-500"
+                    className={erpFieldClass}
                   />
                   <p className="text-[10px] text-amber-600 font-bold">Nota: Al cambiar la cantidad se ajustará automáticamente el inventario general.</p>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Ubicación (Rack)</label>
+                  <label className={erpLabelClass}>Ubicación (Rack)</label>
                   <input 
                     type="text" 
                     value={editBoxLocation}
                     onChange={(e) => setEditBoxLocation(e.target.value)}
                     placeholder="Ej: A-1-4"
-                    className="w-full bg-slate-50 p-3 rounded-xl border border-slate-200 text-sm font-bold outline-none focus:border-indigo-500 uppercase"
+                    className={`${erpFieldClass} uppercase`}
                   />
                 </div>
               </div>
-              <div className="p-4 bg-slate-50 flex justify-end gap-3 border-t border-slate-100">
+              <div className="p-4 bg-[var(--surface-hover)] flex justify-end gap-3 border-t border-[var(--border)]">
                 <Button variant="outline" onClick={() => setShowEditBoxModal(false)}>Cancelar</Button>
                 <Button 
                   className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-500/20 border-none"
@@ -975,24 +967,24 @@ export default function BodegaAccesoriosPage() {
         {/* Bulk Location Modal */}
         {showBulkLocationModal && (
           <div className="fixed inset-0 bg-[#0b0e20]/80 backdrop-blur-sm z-50 flex items-center justify-center animate-in fade-in">
-            <Card className="w-full max-w-sm bg-white shadow-2xl p-0 overflow-hidden">
+            <Card className="w-full max-w-sm bg-[var(--surface)] shadow-2xl p-0 overflow-hidden">
               <div className="bg-indigo-600 p-5 text-white flex justify-between items-center">
                 <h3 className="font-black text-lg">Ubicación Masiva ({selectedBoxes.length} cajas)</h3>
                 <button onClick={() => setShowBulkLocationModal(false)} className="text-indigo-200 hover:text-white"><X className="w-5 h-5"/></button>
               </div>
               <div className="p-6 space-y-4">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Ubicación (Rack)</label>
+                  <label className={erpLabelClass}>Ubicación (Rack)</label>
                   <input 
                     type="text" 
                     value={bulkLocationText}
                     onChange={(e) => setBulkLocationText(e.target.value)}
                     placeholder="Ej: Rack Principal"
-                    className="w-full bg-slate-50 p-3 rounded-xl border border-slate-200 text-sm font-bold outline-none focus:border-indigo-500 uppercase"
+                    className={`${erpFieldClass} uppercase`}
                   />
                 </div>
               </div>
-              <div className="p-4 bg-slate-50 flex justify-end gap-3 border-t border-slate-100">
+              <div className="p-4 bg-[var(--surface-hover)] flex justify-end gap-3 border-t border-[var(--border)]">
                 <Button variant="outline" onClick={() => setShowBulkLocationModal(false)}>Cancelar</Button>
                 <Button 
                   className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-500/20 border-none"

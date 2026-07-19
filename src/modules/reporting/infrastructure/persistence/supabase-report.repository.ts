@@ -48,7 +48,7 @@ export class SupabaseReportCatalogRepository implements IReportCatalogRepository
 
       if (error || !data?.length) return STATIC_REPORT_CATALOG;
 
-      return data.map((row) => ({
+      const fromDb = data.map((row) => ({
         code: row.code,
         name: row.name,
         category: row.category,
@@ -56,6 +56,11 @@ export class SupabaseReportCatalogRepository implements IReportCatalogRepository
         columns: Array.isArray(row.columns) ? (row.columns as string[]) : [],
         requiresDateRange: Boolean(row.requires_date_range),
       }));
+
+      // Incluir códigos del fallback estático aún no sembrados en DB (ej. migraciones pendientes).
+      const codes = new Set(fromDb.map((r) => r.code));
+      const missing = STATIC_REPORT_CATALOG.filter((r) => !codes.has(r.code));
+      return [...fromDb, ...missing];
     } catch {
       return STATIC_REPORT_CATALOG;
     }

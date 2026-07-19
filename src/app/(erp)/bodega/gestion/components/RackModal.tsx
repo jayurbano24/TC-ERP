@@ -38,59 +38,64 @@ export const RackModal = memo(function RackModal({
 }: Props) {
   const isBulk = typeof count === 'number' && count > 1;
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-      <Card className="w-full max-w-md p-6 bg-white shadow-2xl rounded-3xl border-slate-100 animate-in fade-in zoom-in duration-200">
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-black text-[#181c3a] flex items-center gap-2">
-            <MapPin className="w-5 h-5 text-[#2ec4f1]" />
-            {isBulk ? 'Ubicación Masiva (Rack)' : 'Actualizar Ubicación (Rack)'}
-          </h3>
-          <button onClick={onClose} className="p-2 bg-slate-100 text-slate-400 rounded-full hover:bg-rose-100 hover:text-rose-500 transition-colors">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <Card className="w-full max-w-md p-0 shadow-2xl rounded-3xl border border-[var(--border)] animate-in fade-in zoom-in duration-200 overflow-hidden">
+        <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-6 py-5">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--accent)]/15">
+              <MapPin className="w-5 h-5 text-[var(--accent)]" />
+            </div>
+            <h3 className="text-lg font-black text-[var(--heading)]">
+              {isBulk ? 'Ubicación Masiva (Rack)' : 'Actualizar Ubicación (Rack)'}
+            </h3>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-2 text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]" aria-label="Cerrar">
             <X size={20} />
           </button>
         </div>
-        <p className="text-sm text-slate-500 mb-6">
+        <div className="p-6">
+        <p className="text-sm text-[var(--muted)] mb-6">
           {isBulk ? (
-            <>Ingrese las coordenadas que se aplicarán a las <strong className="text-[#181c3a]">{count} cajas seleccionadas</strong>.</>
+            <>Ingrese las coordenadas que se aplicarán a las <strong className="text-[var(--heading)]">{count} cajas seleccionadas</strong>.</>
           ) : (
-            <>Ingrese las coordenadas exactas de la ubicación para la caja <strong className="text-[#181c3a]">{box?.id}</strong>.</>
+            <>Ingrese las coordenadas exactas de la ubicación para la caja <strong className="text-[var(--heading)]">{box?.id}</strong>.</>
           )}
         </p>
 
         <div className="space-y-4">
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 block">
+              <label className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)] mb-2 block">
                 No. Rack
               </label>
               <input
                 type="text"
                 autoFocus
-                className="w-full h-12 px-3 bg-slate-50 border-2 border-slate-100 rounded-xl text-sm font-bold outline-none focus:border-[#2ec4f1] focus:bg-white transition-all uppercase"
+                className="w-full h-12 px-3 bg-[var(--surface-hover)] border-2 border-[var(--border)] rounded-xl text-sm font-bold outline-none focus:border-[var(--accent)] focus:bg-[var(--surface)] transition-all uppercase"
                 placeholder="Ej: A"
                 value={rackNum}
                 onChange={(e) => setRackNum(e.target.value)}
               />
             </div>
             <div>
-              <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 block">
+              <label className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)] mb-2 block">
                 Nivel
               </label>
               <input
                 type="text"
-                className="w-full h-12 px-3 bg-slate-50 border-2 border-slate-100 rounded-xl text-sm font-bold outline-none focus:border-[#2ec4f1] focus:bg-white transition-all uppercase"
+                className="w-full h-12 px-3 bg-[var(--surface-hover)] border-2 border-[var(--border)] rounded-xl text-sm font-bold outline-none focus:border-[var(--accent)] focus:bg-[var(--surface)] transition-all uppercase"
                 placeholder="Ej: 2"
                 value={rackNivel}
                 onChange={(e) => setRackNivel(e.target.value)}
               />
             </div>
             <div>
-              <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 block">
+              <label className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)] mb-2 block">
                 Posición
               </label>
               <input
                 type="text"
-                className="w-full h-12 px-3 bg-slate-50 border-2 border-slate-100 rounded-xl text-sm font-bold outline-none focus:border-[#2ec4f1] focus:bg-white transition-all uppercase"
+                className="w-full h-12 px-3 bg-[var(--surface-hover)] border-2 border-[var(--border)] rounded-xl text-sm font-bold outline-none focus:border-[var(--accent)] focus:bg-[var(--surface)] transition-all uppercase"
                 placeholder="Ej: A1"
                 value={rackPosicion}
                 onChange={(e) => setRackPosicion(e.target.value)}
@@ -110,13 +115,14 @@ export const RackModal = memo(function RackModal({
             </Button>
             <Button
               variant="primary"
-              className="flex-1 h-12 font-black uppercase tracking-widest text-[10px] bg-[#181c3a]"
+              className="flex-1 h-12 font-black uppercase tracking-widest text-[10px]"
               onClick={onSave}
               disabled={loading}
             >
               {loading ? 'Guardando...' : 'Guardar Ubicación'}
             </Button>
           </div>
+        </div>
         </div>
       </Card>
     </div>

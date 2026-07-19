@@ -61,8 +61,8 @@ export function HistoryTrayTable({
     if (hourKey !== lastHourKey) {
       lastHourKey = hourKey;
       hourRows.push(
-        <tr key={`hour-${hourKey}`} className="bg-[#2ec4f1]/10">
-          <td colSpan={19} className="px-3 py-2 text-[9px] font-medium uppercase tracking-wider text-[var(--heading)]">
+        <tr key={`hour-${hourKey}`} className="bg-[color-mix(in_srgb,var(--accent)_12%,transparent)]">
+          <td colSpan={19} className="px-3 py-2 text-[9px] font-medium tracking-wider text-[var(--heading)] uppercase">
             {formatHistoryHourLabel(entry.classifiedAtIso)}
           </td>
         </tr>

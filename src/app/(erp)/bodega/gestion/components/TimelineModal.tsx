@@ -28,24 +28,24 @@ export const TimelineModal = memo(function TimelineModal({
   onClose,
 }: Props) {
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#181c3a]/80 backdrop-blur-sm p-4">
-      <Card className="w-full max-w-2xl bg-white rounded-[2.5rem] shadow-2xl border-none overflow-hidden animate-rise-in p-0">
-        <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <Card className="w-full max-w-2xl rounded-[2.5rem] shadow-2xl border border-[var(--border)] overflow-hidden animate-rise-in p-0">
+        <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-8 py-6">
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-[#2ec4f1] rounded-2xl flex items-center justify-center text-[#181c3a] shadow-lg shadow-[#2ec4f1]/20">
-              <History size={24} />
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--accent)]/15">
+              <History size={24} className="text-[var(--accent)]" />
             </div>
             <div>
-              <h3 className="text-xl font-black text-[#181c3a] uppercase tracking-tighter leading-none">Trazabilidad de la Guía</h3>
-              <p className="text-[10px] font-bold text-slate-400 uppercase mt-2 tracking-widest font-mono">
+              <h3 className="text-xl font-black text-[var(--heading)] uppercase tracking-tighter leading-none">Trazabilidad de la Guía</h3>
+              <p className="text-[10px] font-bold text-[var(--muted)] uppercase mt-2 tracking-widest font-mono">
                 {box.box_code ? `${box.box_code} · ` : ''}{box.guide_number}
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="w-10 h-10 rounded-full bg-white shadow-sm flex items-center justify-center text-slate-400 hover:text-rose-500 transition-all border border-slate-100"><X size={20} /></button>
+          <button onClick={onClose} className="rounded-lg p-2 text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]" aria-label="Cerrar"><X size={20} /></button>
         </div>
-        <div className="p-10 max-h-[60vh] overflow-y-auto custom-scrollbar bg-white">
-          <div className="relative border-l-2 border-slate-100 ml-4 space-y-10">
+        <div className="p-10 max-h-[60vh] overflow-y-auto custom-scrollbar">
+          <div className="relative border-l-2 border-[var(--border)] ml-4 space-y-10">
             {(() => {
               if (loadingBoxHistory) {
                 return (
@@ -88,21 +88,21 @@ export const TimelineModal = memo(function TimelineModal({
                     const isLast = idx === boxHistoryData.length - 1;
                     return (
                       <div key={idx} className="relative group">
-                        <div className="absolute -left-[23px] top-1/2 -mt-1.5 w-3 h-3 rounded-full bg-slate-200 group-hover:bg-[#2ec4f1] ring-4 ring-white shadow-sm transition-colors z-10" />
-                        <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm hover:shadow-md hover:border-[#2ec4f1]/30 transition-all">
+                        <div className="absolute -left-[23px] top-1/2 -mt-1.5 w-3 h-3 rounded-full bg-[var(--border)] group-hover:bg-[var(--accent)] ring-4 ring-[var(--surface)] shadow-sm transition-colors z-10" />
+                        <div className="bg-[var(--surface)] rounded-2xl p-4 border border-[var(--border)] shadow-sm hover:shadow-md hover:border-[var(--accent)]/30 transition-all">
                           <div className="flex items-center justify-between mb-2">
                             <div className="flex items-center gap-2">
-                              <Clock size={12} className="text-slate-400" />
-                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{cleanTime}</span>
+                              <Clock size={12} className="text-[var(--muted)]" />
+                              <span className="text-[10px] font-bold text-[var(--muted)] uppercase tracking-wider">{cleanTime}</span>
                             </div>
-                            <div className="flex items-center gap-1.5 text-slate-400">
+                            <div className="flex items-center gap-1.5 text-[var(--muted)]">
                               <Info size={12} />
                               <span className="text-[9px] font-black uppercase tracking-widest">{operator}</span>
                             </div>
                           </div>
-                          <p className="text-sm font-semibold text-[#181c3a]">{content}</p>
+                          <p className="text-sm font-semibold text-[var(--heading)]">{content}</p>
                         </div>
-                        {!isLast && <div className="absolute left-[-17px] top-[calc(50%+6px)] bottom-[-calc(50%+6px)] w-[2px] bg-slate-100" />}
+                        {!isLast && <div className="absolute left-[-17px] top-[calc(50%+6px)] bottom-[-calc(50%+6px)] w-[2px] bg-[var(--border)]" />}
                       </div>
                     );
                   })}
@@ -112,14 +112,14 @@ export const TimelineModal = memo(function TimelineModal({
           </div>
 
           {timelineGuideDetails?.loading ? (
-            <div className="mt-8 text-center text-slate-400">
-              <div className="w-6 h-6 border-2 border-[#2ec4f1] border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+            <div className="mt-8 text-center text-[var(--muted)]">
+              <div className="w-6 h-6 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin mx-auto mb-2" />
               <p className="text-[10px] uppercase font-black tracking-widest">Cargando detalles de la guía...</p>
             </div>
           ) : timelineGuideDetails?.data ? (
-            <div className="mt-10 pt-8 border-t-2 border-dashed border-slate-200">
-              <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-400 mb-6 flex items-center gap-2">
-                <Box size={14} className="text-[#2ec4f1]" />
+            <div className="mt-10 pt-8 border-t-2 border-dashed border-[var(--border)]">
+              <h4 className="text-[11px] font-black uppercase tracking-widest text-[var(--muted)] mb-6 flex items-center gap-2">
+                <Box size={14} className="text-[var(--accent)]" />
                 Equipos Registrados en esta Guía
               </h4>
               <div className="grid grid-cols-2 gap-4">
@@ -127,26 +127,26 @@ export const TimelineModal = memo(function TimelineModal({
                   const marcaStr = catMarcas.find((m: any) => m.id === so.brand_id)?.name || '---';
                   const modeloStr = catModelos.find((m: any) => m.id === so.model_id)?.name || '---';
                   return (
-                    <div key={so.id} className="bg-slate-50 border border-slate-100 rounded-2xl p-4 group hover:border-[#2ec4f1]/30 transition-colors">
+                    <div key={so.id} className="bg-[var(--surface-hover)] border border-[var(--border)] rounded-2xl p-4 group hover:border-[var(--accent)]/30 transition-colors">
                       <div className="flex justify-between items-start mb-3">
                         <div>
-                          <span className="text-[9px] font-black uppercase text-[#2ec4f1] tracking-widest block mb-0.5">{so.os_label}</span>
-                          <span className="text-xs font-black text-[#181c3a]">{marcaStr} {modeloStr}</span>
+                          <span className="text-[9px] font-black uppercase text-[var(--accent)] tracking-widest block mb-0.5">{so.os_label}</span>
+                          <span className="text-xs font-black text-[var(--heading)]">{marcaStr} {modeloStr}</span>
                         </div>
-                        <Badge variant="outline" className="bg-white border-slate-200 text-slate-400 text-[9px] font-black tracking-widest">
+                        <Badge variant="outline" className="bg-[var(--surface)] border-[var(--border)] text-[var(--muted)] text-[9px] font-black tracking-widest">
                           {so.series?.length || 0} SERIE{(so.series?.length || 0) !== 1 ? 'S' : ''}
                         </Badge>
                       </div>
                       <details className="group/details mt-3">
-                        <summary className="text-[9px] font-black uppercase text-slate-400 cursor-pointer hover:text-[#2ec4f1] list-none outline-none select-none flex items-center justify-between p-2 bg-white border border-slate-100 rounded-lg transition-colors">
+                        <summary className="text-[9px] font-black uppercase text-[var(--muted)] cursor-pointer hover:text-[var(--accent)] list-none outline-none select-none flex items-center justify-between p-2 bg-[var(--surface)] border border-[var(--border)] rounded-lg transition-colors">
                           <span>Ver detalle de series en log</span>
                           <span className="group-open/details:rotate-180 transition-transform duration-300 text-[8px]">▼</span>
                         </summary>
-                        <div className="space-y-1 mt-2 bg-white rounded-xl p-2 border border-slate-100 shadow-sm">
+                        <div className="space-y-1 mt-2 bg-[var(--surface)] rounded-xl p-2 border border-[var(--border)] shadow-sm">
                           {so.series?.map((s: any, idx: number) => (
-                            <div key={idx} className="flex gap-2 items-center text-[10px] font-mono font-bold text-slate-500 bg-slate-50 p-1.5 rounded-lg">
-                              <span className="text-slate-400 w-6">S-{idx + 1}</span>
-                              <span className="text-[#181c3a]">{s.serial_number}</span>
+                            <div key={idx} className="flex gap-2 items-center text-[10px] font-mono font-bold text-[var(--foreground)] bg-[var(--surface-hover)] p-1.5 rounded-lg">
+                              <span className="text-[var(--muted)] w-6">S-{idx + 1}</span>
+                              <span className="text-[var(--heading)]">{s.serial_number}</span>
                             </div>
                           ))}
                         </div>
@@ -163,8 +163,8 @@ export const TimelineModal = memo(function TimelineModal({
           ) : null}
 
         </div>
-        <div className="p-8 bg-slate-50 text-center border-t border-slate-100">
-          <Badge className="bg-[#181c3a] text-white px-8 py-3 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] border-none shadow-xl">
+        <div className="p-8 bg-[var(--surface-hover)] text-center border-t border-[var(--border)]">
+          <Badge className="bg-[var(--heading)] text-[var(--surface)] px-8 py-3 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] border-none shadow-xl">
             Estatus Actual: {box.status}
           </Badge>
         </div>

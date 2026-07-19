@@ -1373,18 +1373,24 @@ export default function BodegaGestionV2({
       cell: (item) => (
         <div className="flex items-center gap-1.5 min-w-0 w-full">
           <span
-            className="text-[11px] font-black text-[#181c3a] font-mono truncate"
+            className="truncate font-mono text-[11px] font-bold text-[var(--heading)]"
             title={item.isLegacyBoxCode ? item.displayIdFull : item.displayId}
           >
             {item.displayId}
           </span>
           {item.isLegacyBoxCode && (
-            <span className="shrink-0 px-1 py-0.5 rounded text-[7px] font-black uppercase tracking-widest bg-amber-100 text-amber-800 border border-amber-200">
+            <span className="shrink-0 rounded border border-warning/40 bg-warning/15 px-1 py-0.5 text-[7px] font-bold tracking-wide text-warning uppercase">
               LEGACY
             </span>
           )}
           {item.fuente && (
-            <span className={`shrink-0 px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-widest ${item.fuente === 'CAC' ? 'bg-[#181c3a] text-white' : 'bg-[#2ec4f1] text-[#181c3a]'}`}>
+            <span
+              className={`shrink-0 rounded px-1.5 py-0.5 text-[7px] font-bold tracking-wide uppercase ${
+                item.fuente === 'CAC'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-accent text-accent-foreground'
+              }`}
+            >
               {item.fuente}
             </span>
           )}
@@ -1395,9 +1401,9 @@ export default function BodegaGestionV2({
       id: 'fechaIngreso',
       header: 'Fecha Ingreso',
       width: '128px',
-      cellClassName: 'text-[10px] font-bold text-slate-700',
+      cellClassName: 'text-[10px] font-semibold text-[var(--foreground)]',
       cell: (item) => (
-        <span className="whitespace-nowrap truncate" title={item.fechaIngreso}>
+        <span className="truncate whitespace-nowrap" title={item.fechaIngreso}>
           {item.fechaIngreso}
         </span>
       ),
@@ -1406,9 +1412,9 @@ export default function BodegaGestionV2({
       id: 'tecnologia',
       header: 'Tecnología',
       width: '72px',
-      cellClassName: 'text-[10px] font-bold text-cyan-800',
+      cellClassName: 'text-[10px] font-semibold text-[var(--accent)]',
       cell: (item) => (
-        <span className="whitespace-nowrap truncate" title={item.tecnologia || '---'}>
+        <span className="truncate whitespace-nowrap" title={item.tecnologia || '---'}>
           {item.tecnologia || '---'}
         </span>
       ),
@@ -1417,7 +1423,7 @@ export default function BodegaGestionV2({
       id: 'usuario',
       header: 'Usuario Ingreso',
       width: '140px',
-      cellClassName: 'text-[10px] font-bold text-slate-700',
+      cellClassName: 'text-[10px] font-semibold text-[var(--foreground)]',
       cell: (item) => {
         const name = (item.usuarioIngreso || 'Sin registro').split('@')[0];
         return (
@@ -1454,19 +1460,20 @@ export default function BodegaGestionV2({
           }}
           title={`Cambiar ubicación · ${item.area || 'Bodega Central'}`}
         >
-          <MapPin className="w-3.5 h-3.5 shrink-0 text-[#2ec4f1] group-hover/loc:text-amber-500 transition-colors" />
+          <MapPin className="h-3.5 w-3.5 shrink-0 text-[var(--accent)] transition-colors group-hover/loc:text-[var(--warning)]" />
           {(() => {
             const r = item.rack || '';
             if (r === 'SIN RACK' || !r) {
-              return <span className="text-[10px] font-bold text-slate-600 truncate">Sin Asignar</span>;
+              return <span className="truncate text-[10px] font-semibold text-[var(--muted)]">Sin Asignar</span>;
             }
             const parts = r.split(' - ').map((p: string) => p.replace('RACK-', '').replace('NIVEL-', '').replace('POSICION-', ''));
             return (
-              <div className="flex items-center gap-1 min-w-0 overflow-hidden">
+              <div className="flex min-w-0 items-center gap-1 overflow-hidden">
                 {parts.map((p: string, idx: number) => (
                   <span
                     key={idx}
-                    className="shrink-0 max-w-[88px] truncate px-1.5 py-0.5 bg-slate-100 text-slate-700 text-[9px] font-black rounded-md border border-slate-200"
+                    className="max-w-[88px] shrink-0 truncate rounded-md border border-[var(--border)] px-1.5 py-0.5 text-[9px] font-bold text-[var(--foreground)]"
+                    style={{ backgroundColor: 'var(--surface-hover)' }}
                     title={p}
                   >
                     {p}
@@ -1475,7 +1482,7 @@ export default function BodegaGestionV2({
               </div>
             );
           })()}
-          <Pencil className="w-3 h-3 shrink-0 text-slate-300 opacity-0 group-hover/loc:opacity-100 transition-opacity" />
+          <Pencil className="h-3 w-3 shrink-0 text-[var(--muted)] opacity-0 transition-opacity group-hover/loc:opacity-100" />
         </div>
       ),
     },
@@ -1488,7 +1495,7 @@ export default function BodegaGestionV2({
         const modelo = item.modeloLabel || modelName(item.modelo) || '';
         const label = [marca, modelo].filter(Boolean).join(' ') || '---';
         return (
-          <span className="block truncate whitespace-nowrap text-[11px] font-bold text-slate-700" title={label}>
+          <span className="block truncate whitespace-nowrap text-[11px] font-semibold text-[var(--foreground)]" title={label}>
             {label}
           </span>
         );
@@ -1499,14 +1506,20 @@ export default function BodegaGestionV2({
       header: 'Cantidad',
       width: '110px',
       cell: (item) => (
-        <div className="flex items-center gap-1.5 min-w-0">
-          <div className="w-12 h-1.5 shrink-0 bg-slate-100 rounded-full overflow-hidden">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <div
+            className="h-1.5 w-12 shrink-0 overflow-hidden rounded-full"
+            style={{ backgroundColor: 'var(--surface-hover)' }}
+          >
             <div
-              className={`h-full ${item.status === 'Full' ? 'bg-[#2ec4f1]' : 'bg-amber-400'}`}
-              style={{ width: `${Math.min(((item.unitCount || item.series?.length || 0) / Math.max(item.cantidad || 1, 1)) * 100, 100)}%` }}
+              className="h-full"
+              style={{
+                width: `${Math.min(((item.unitCount || item.series?.length || 0) / Math.max(item.cantidad || 1, 1)) * 100, 100)}%`,
+                backgroundColor: item.status === 'Full' ? 'var(--accent)' : 'var(--warning)',
+              }}
             />
           </div>
-          <span className="text-[10px] font-bold text-slate-700 whitespace-nowrap">
+          <span className="whitespace-nowrap text-[10px] font-semibold text-[var(--foreground)]">
             {item.unitCount ?? item.series?.length ?? 0}
             {item.cantidad ? ` / ${item.cantidad}` : ''}
           </span>
@@ -1543,7 +1556,7 @@ export default function BodegaGestionV2({
       cellClassName: 'justify-end pr-3 pl-1',
       cell: (item) => (
         <div className="ml-auto flex w-full items-center justify-end gap-1.5 transition-opacity">
-          <button className="p-1 text-slate-400 hover:text-[#2ec4f1] transition-all hover:scale-110" title="Ver Eventos" onClick={async (e) => {
+          <button className="p-1 text-[var(--muted)] transition-all hover:scale-110 hover:text-[var(--accent)]" title="Ver Eventos" onClick={async (e) => {
             e.stopPropagation();
             try {
               const series = item.series?.length
@@ -1568,21 +1581,21 @@ export default function BodegaGestionV2({
             <History size={18} strokeWidth={2} />
           </button>
 
-          <button className="p-1 text-slate-400 hover:text-slate-700 transition-all hover:scale-110" title="Imprimir Etiqueta" onClick={(e) => {
+          <button className="p-1 text-[var(--muted)] transition-all hover:scale-110 hover:text-[var(--foreground)]" title="Imprimir Etiqueta" onClick={(e) => {
             e.stopPropagation();
             setShowPrintModal(item);
           }}>
             <Printer size={18} strokeWidth={2} />
           </button>
 
-          <button className="p-1 text-slate-400 hover:text-emerald-500 transition-all hover:scale-110" title="Despachar de Inventario" onClick={(e) => {
+          <button className="p-1 text-[var(--muted)] transition-all hover:scale-110 hover:text-[var(--success)]" title="Despachar de Inventario" onClick={(e) => {
             e.stopPropagation();
             void openDispatchFlow(item, 'all');
           }}>
             <Truck size={18} strokeWidth={2} />
           </button>
 
-          <button className="p-1 text-slate-400 hover:text-amber-500 transition-all hover:scale-110" title="Transferir a Otra Bodega" onClick={(e) => {
+          <button className="p-1 text-[var(--muted)] transition-all hover:scale-110 hover:text-[var(--warning)]" title="Transferir a Otra Bodega" onClick={(e) => {
             e.stopPropagation();
             setSelectedBoxesForTransfer([item.id]);
             setShowTransferModal(true);
@@ -1593,8 +1606,8 @@ export default function BodegaGestionV2({
           <button
             className={
               item.deletionStatus === 'pending_approval' || item.status === 'Pendiente Aprobación'
-                ? 'p-1 text-amber-500 cursor-not-allowed opacity-80'
-                : 'p-1 text-slate-400 hover:text-rose-500 transition-all hover:scale-110'
+                ? 'cursor-not-allowed p-1 text-[var(--warning)] opacity-80'
+                : 'p-1 text-[var(--muted)] transition-all hover:scale-110 hover:text-[var(--danger)]'
             }
             title={
               item.deletionStatus === 'pending_approval' || item.status === 'Pendiente Aprobación'
@@ -1667,53 +1680,53 @@ export default function BodegaGestionV2({
         )}
 
         {/* KPI Cards — totales globales (Equipos TC / OS), no la página actual */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <Card className="border-l-4 border-l-[#181c3a]" padding="md">
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
+          <Card className="border-l-4 border-l-heading" padding="md">
             <div className="flex items-center gap-4">
-              <div className="bg-[#181c3a]/5 p-3 rounded-2xl">
-                <Box className="w-6 h-6 text-[#181c3a]" />
+              <div className="rounded-2xl bg-surface-hover p-3">
+                <Box className="h-6 w-6 text-heading" />
               </div>
               <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">Total Cajas</p>
-                <h3 className="text-2xl font-black text-[#181c3a]">
+                <p className="text-[10px] font-semibold tracking-wide text-[var(--muted)] uppercase">Total Cajas</p>
+                <h3 className="text-2xl font-bold text-[var(--heading)]">
                   {(warehouseTotals?.total_boxes ?? inventory.length).toLocaleString()}
                 </h3>
               </div>
             </div>
           </Card>
-          <Card className="border-l-4 border-l-[#2ec4f1]" padding="md">
+          <Card className="border-l-4 border-l-accent" padding="md">
             <div className="flex items-center gap-4">
-              <div className="bg-blue-50 p-3 rounded-2xl">
-                <QrCode className="w-6 h-6 text-[#2ec4f1]" />
+              <div className="rounded-2xl bg-accent/10 p-3">
+                <QrCode className="h-6 w-6 text-accent" />
               </div>
               <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">Total Equipos TC</p>
-                <h3 className="text-2xl font-black text-[#181c3a]">
+                <p className="text-[10px] font-semibold tracking-wide text-[var(--muted)] uppercase">Total Equipos TC</p>
+                <h3 className="text-2xl font-bold text-[var(--heading)]">
                   {(
                     warehouseTotals?.total_equipos ??
                     inventory.reduce((sum, b) => sum + (b.unitCount ?? b.series?.length ?? 0), 0)
                   ).toLocaleString()}
                 </h3>
-                <p className="text-[9px] font-bold text-slate-400">Por OS (no series S1–S4)</p>
+                <p className="text-[9px] font-semibold text-[var(--muted)]">Por OS (no series S1–S4)</p>
               </div>
             </div>
           </Card>
-          <Card className="border-l-4 border-l-emerald-500" padding="md">
+          <Card className="border-l-4 border-l-success" padding="md">
             <div className="flex items-center gap-4">
-              <div className="bg-emerald-50 p-3 rounded-2xl">
-                <PackageCheck className="w-6 h-6 text-emerald-500" />
+              <div className="rounded-2xl bg-success/10 p-3">
+                <PackageCheck className="h-6 w-6 text-success" />
               </div>
               <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">Cajas Completas</p>
-                <h3 className="text-2xl font-black text-[#181c3a]">
+                <p className="text-[10px] font-semibold tracking-wide text-[var(--muted)] uppercase">Cajas Completas</p>
+                <h3 className="text-2xl font-bold text-[var(--heading)]">
                   {(warehouseTotals?.cajas_completas ?? inventory.filter((b) => b.status === 'Full').length).toLocaleString()}
                 </h3>
               </div>
             </div>
           </Card>
           <Card
-            className={`border-l-4 border-l-amber-500 cursor-pointer transition-all hover:shadow-md hover:border-amber-400 ${
-              filterStatus === 'Partial' ? 'ring-2 ring-amber-300 bg-amber-50/40' : ''
+            className={`cursor-pointer border-l-4 border-l-warning transition-all hover:shadow-md ${
+              filterStatus === 'Partial' ? 'bg-warning/10 ring-2 ring-warning/40' : ''
             }`}
             padding="md"
             role="button"
@@ -1728,19 +1741,19 @@ export default function BodegaGestionV2({
             title="Clic para ver / reanudar cajas pendientes"
           >
             <div className="flex items-center gap-4">
-              <div className="bg-amber-50 p-3 rounded-2xl">
-                <TrendingUp className="w-6 h-6 text-amber-500" />
+              <div className="rounded-2xl bg-warning/10 p-3">
+                <TrendingUp className="h-6 w-6 text-warning" />
               </div>
               <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">Cajas en Proceso</p>
-                <h3 className="text-2xl font-black text-[#181c3a]">
+                <p className="text-[10px] font-semibold tracking-wide text-[var(--muted)] uppercase">Cajas en Proceso</p>
+                <h3 className="text-2xl font-bold text-[var(--heading)]">
                   {(warehouseTotals?.cajas_parciales ??
                     inventory.filter(
                       (b) => isBodegaOperationalRack(b.rack) && b.status === 'Parcial'
                     ).length
                   ).toLocaleString()}
                 </h3>
-                <p className="text-[9px] font-bold text-amber-600 mt-0.5">Clic para reanudar pistoleo</p>
+                <p className="mt-0.5 text-[9px] font-semibold text-[var(--warning)]">Clic para reanudar pistoleo</p>
               </div>
             </div>
           </Card>
@@ -1749,22 +1762,22 @@ export default function BodegaGestionV2({
         {/* Cantidad por Tecnología */}
         {techStats.length > 0 && (
           <div>
-            <div className="flex items-center gap-2 mb-3">
-              <Cpu className="w-4 h-4 text-[#2ec4f1]" />
-              <h3 className="text-[11px] font-black uppercase tracking-widest text-slate-600">
+            <div className="mb-3 flex items-center gap-2">
+              <Cpu className="h-4 w-4 text-accent" />
+              <h3 className="text-[11px] font-semibold tracking-wide text-muted uppercase">
                 Equipos TC por Tecnología
               </h3>
               {filterTech && (
                 <button
                   type="button"
                   onClick={() => setFilterTech('')}
-                  className="ml-auto text-[10px] font-black uppercase tracking-widest text-[#2ec4f1] hover:underline"
+                  className="ml-auto text-[10px] font-semibold tracking-wide text-accent uppercase hover:underline"
                 >
                   Limpiar filtro
                 </button>
               )}
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
               {techStats.map((t) => {
                 const active = filterTech === t.value;
                 return (
@@ -1772,20 +1785,26 @@ export default function BodegaGestionV2({
                     key={t.value}
                     type="button"
                     onClick={() => setFilterTech(active ? '' : t.value)}
-                    className={`text-left p-4 rounded-2xl border-2 transition-all ${
+                    className={`rounded-2xl border-2 p-4 text-left transition-all ${
                       active
-                        ? 'border-[#2ec4f1] bg-blue-50/60 shadow-sm'
-                        : 'border-slate-100 bg-white hover:border-slate-200'
+                        ? 'border-[var(--accent)] shadow-sm'
+                        : 'border-[var(--border)] hover:border-[var(--accent)]/40'
                     }`}
+                    style={{
+                      backgroundColor: active
+                        ? 'color-mix(in srgb, var(--accent) 12%, var(--surface))'
+                        : 'var(--surface)',
+                      color: 'var(--foreground)',
+                    }}
                     title={`Filtrar por ${t.label}`}
                   >
-                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 truncate">
+                    <p className="truncate text-[10px] font-semibold tracking-wide text-[var(--muted)] uppercase">
                       {t.label}
                     </p>
-                    <h4 className="text-2xl font-black text-[#181c3a] leading-tight mt-1">
+                    <h4 className="mt-1 text-2xl leading-tight font-bold text-[var(--heading)]">
                       {t.units.toLocaleString()}
                     </h4>
-                    <p className="text-[10px] font-bold text-slate-500 mt-0.5">
+                    <p className="mt-0.5 text-[10px] font-semibold text-[var(--muted)]">
                       {t.boxes} {t.boxes === 1 ? 'caja' : 'cajas'} · equipos OS
                     </p>
                   </button>
@@ -1817,7 +1836,7 @@ export default function BodegaGestionV2({
                   <select 
                     value={filterTech} 
                     onChange={(e) => setFilterTech(e.target.value)}
-                    className="h-10 px-3 bg-white border border-slate-200 rounded-lg text-sm outline-none focus:border-[#2ec4f1]"
+                    className="h-10 rounded-lg border border-border bg-surface px-3 text-sm text-foreground outline-none focus:border-accent"
                   >
                     <option value="">Todas las Tecnologías</option>
                     {catTecnologias.map(t => (
@@ -1827,7 +1846,7 @@ export default function BodegaGestionV2({
                   <select 
                     value={filterStatus} 
                     onChange={(e) => setFilterStatus(e.target.value)}
-                    className="h-10 px-3 bg-white border border-slate-200 rounded-lg text-sm outline-none focus:border-[#2ec4f1]"
+                    className="h-10 rounded-lg border border-border bg-surface px-3 text-sm text-foreground outline-none focus:border-accent"
                   >
                     <option value="">Todos los Estatus</option>
                     <option value="Full">Cajas Completas</option>
@@ -1837,7 +1856,7 @@ export default function BodegaGestionV2({
                     <button
                       type="button"
                       onClick={() => setFilterStatus('')}
-                      className="h-10 px-3 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-[#181c3a]"
+                      className="h-10 px-3 text-[10px] font-black tracking-widest text-[var(--muted)] uppercase hover:text-[var(--heading)]"
                     >
                       Limpiar estatus
                     </button>
@@ -1848,14 +1867,14 @@ export default function BodegaGestionV2({
           />
 
           {selectedBoxIds.length > 0 && (
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-[#181c3a] text-white p-4 rounded-2xl shadow-xl animate-in fade-in slide-in-from-top-2 duration-200">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-[var(--surface-hover)] border border-[var(--border)] text-[var(--foreground)] p-4 rounded-2xl shadow-xl animate-in fade-in slide-in-from-top-2 duration-200">
               <span className="text-sm font-bold self-center sm:ml-2">
                 {selectedBoxIds.length} {selectedBoxIds.length === 1 ? 'caja seleccionada' : 'cajas seleccionadas'}
               </span>
               <div className="flex flex-col sm:flex-row items-stretch gap-3">
                 <Button
                   variant="primary"
-                  className="bg-[#2ec4f1] text-[#181c3a] hover:bg-[#2ec4f1]/90 font-black uppercase text-[10px] tracking-widest"
+                  className="font-black uppercase text-[10px] tracking-widest"
                   leftIcon={<MapPin className="w-4 h-4" />}
                   onClick={() => {
                     setRackNum('');
@@ -1868,7 +1887,7 @@ export default function BodegaGestionV2({
                 </Button>
                 <Button
                   variant="outline"
-                  className="border-white/20 text-white hover:bg-white/10 font-black uppercase text-[10px] tracking-widest"
+                  className="font-black uppercase text-[10px] tracking-widest"
                   onClick={() => setSelectedBoxIds([])}
                 >
                   Limpiar selección
@@ -1877,7 +1896,7 @@ export default function BodegaGestionV2({
             </div>
           )}
 
-          <Card padding="none" className="overflow-hidden border-2 border-slate-100 shadow-sm">
+          <Card padding="none" className="overflow-hidden border-2 border-border shadow-sm">
             <DataTable
               columns={inventoryColumns}
               data={filteredInventory}
@@ -1887,8 +1906,8 @@ export default function BodegaGestionV2({
               compact
               maxBodyHeight={720}
               minWidth={1100}
-              headerClassName="bg-[#181c3a] border-b border-[#181c3a]"
-              headerTextClassName="text-white/80"
+              headerClassName="border-b border-[var(--sidebar)] bg-[var(--sidebar)]"
+              headerTextClassName="text-[var(--sidebar-foreground)]/80"
               emptyMessage="No hay cajas en inventario"
             />
             {hasNextPage && (

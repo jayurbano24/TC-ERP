@@ -3,6 +3,7 @@ import { logAudit } from "@/lib/database/audit";
 import { isWorkshopQueueApiEnabled } from "@/shared/feature-flags/clientFlags";
 import { fetchWorkshopCountsViaApi, fetchWorkshopQueuePage } from "@/lib/api/workshopQueue";
 import { fetchWorkshopTasksViaApi } from "@/lib/api/workshopTasks";
+import { resolveEntrySource } from "@/modules/workshop/shared/entrySource";
 
 const TALLER_WORKSHOP_AUDIT_ACTIONS = new Set([
   'INGRESO A TALLER',
@@ -44,6 +45,7 @@ const WORKSHOP_SERIES_SELECT = `
   updated_at,
   brand_id,
   model_id,
+  entry_source,
   models (
     id,
     name,
@@ -413,25 +415,51 @@ function workshopGroupKey(row: {
   return `series:${row.id}`;
 }
 
+function resolveSeriesEntrySource(row: {
+  entry_source?: string | null;
+  receptions?: { source?: string | null; guide_number?: string | null } | null;
+  series_entry_map?: Record<string, string> | null;
+  serial_number?: string | null;
+}): 'cac' | 'px' | null {
+  return resolveEntrySource({
+    entry_source: row.entry_source,
+    receptions: row.receptions,
+    series_entry_map: row.series_entry_map,
+    serial: row.serial_number,
+    guide: row.receptions?.guide_number,
+  });
+}
+
 function groupWorkshopSeriesRows(rows: any[]) {
   const groupedMap = new Map<string, any>();
 
   for (const row of rows) {
     const groupKey = workshopGroupKey(row);
+    const entrySource = resolveSeriesEntrySource(row);
+    const sn = row.serial_number ? String(row.serial_number) : '';
 
     if (!groupedMap.has(groupKey)) {
       groupedMap.set(groupKey, {
         ...row,
+        entry_source: entrySource ?? row.entry_source ?? null,
+        series_entry_map: sn && entrySource ? { [sn]: entrySource } : {},
         all_dbIds: [row.id],
-        all_sns: row.serial_number ? [row.serial_number] : [],
+        all_sns: sn ? [sn] : [],
       });
       continue;
     }
 
     const existing = groupedMap.get(groupKey)!;
     if (!existing.all_dbIds.includes(row.id)) existing.all_dbIds.push(row.id);
-    if (row.serial_number && !existing.all_sns.includes(row.serial_number)) {
-      existing.all_sns.push(row.serial_number);
+    if (sn && !existing.all_sns.includes(sn)) {
+      existing.all_sns.push(sn);
+    }
+    if (!existing.series_entry_map) existing.series_entry_map = {};
+    if (sn && entrySource && !existing.series_entry_map[sn]) {
+      existing.series_entry_map[sn] = entrySource;
+    }
+    if (!existing.entry_source && (entrySource || row.entry_source)) {
+      existing.entry_source = entrySource ?? row.entry_source;
     }
     if (!existing.service_orders?.os_label && row.service_orders?.os_label) {
       existing.service_orders = row.service_orders;
@@ -441,7 +469,18 @@ function groupWorkshopSeriesRows(rows: any[]) {
     }
   }
 
-  return [...groupedMap.values()];
+  const groups = [...groupedMap.values()];
+  for (const g of groups) {
+    if (!g.entry_source) {
+      g.entry_source = resolveEntrySource({
+        entry_source: g.entry_source,
+        receptions: g.receptions,
+        series_entry_map: g.series_entry_map,
+        guide: g.receptions?.guide_number,
+      });
+    }
+  }
+  return groups;
 }
 
 export { groupWorkshopSeriesRows };

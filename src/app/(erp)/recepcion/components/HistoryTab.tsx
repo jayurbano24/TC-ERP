@@ -368,14 +368,14 @@ export const HistoryTab = ({
       id: 'fecha',
       header: 'Fecha / Hora',
       width: '150px',
-      cellClassName: 'truncate text-slate-600 font-bold',
+      cellClassName: 'truncate text-[var(--muted)] font-bold',
       cell: (rec: any) => rec.fecha_formateada || new Date(rec.created_at).toLocaleString(),
     },
     {
       id: 'norec',
       header: 'No. REC',
       width: '95px',
-      cellClassName: 'font-mono font-black text-[#2ec4f1] truncate',
+      cellClassName: 'font-mono font-black text-[var(--accent)] truncate',
       cell: (rec: any) => rec.guide_number || '---',
     },
     {
@@ -387,7 +387,7 @@ export const HistoryTab = ({
         const isDup = sap && duplicatePxSapDocuments.has(sap);
         return (
           <div className="min-w-0">
-            <span className="font-mono font-black text-[#181c3a]">{rec.sap_document || '---'}</span>
+            <span className="font-mono font-black text-[var(--heading)]">{rec.sap_document || '---'}</span>
             {isDup && (
               <span className="block text-[9px] font-black uppercase tracking-widest text-amber-600 mt-1">
                 Pedido duplicado
@@ -401,14 +401,14 @@ export const HistoryTab = ({
       id: 'agencia',
       header: 'Nombre Agencia PX',
       width: 'minmax(120px,1fr)',
-      cellClassName: 'text-slate-500 font-bold truncate',
+      cellClassName: 'text-[var(--muted)] font-bold truncate',
       cell: (rec: any) => rec.carrier || '---',
     },
     {
       id: 'usuario',
       header: 'Usuario',
       width: '120px',
-      cellClassName: 'text-slate-500 font-bold truncate',
+      cellClassName: 'text-[var(--muted)] font-bold truncate',
       cell: (rec: any) =>
         (rec.notes?.split('Recibido Por: ')?.[1]?.split('\n')?.[0]?.trim() || rec.received_by || 'SISTEMA').split('@')[0],
     },
@@ -417,7 +417,7 @@ export const HistoryTab = ({
       header: 'Cant. Cajas',
       width: '95px',
       align: 'center' as const,
-      cellClassName: 'font-black text-slate-800',
+      cellClassName: 'font-black text-[var(--foreground)]',
       cell: (rec: any) => `${parsePxCajasCount(rec)} Cajas`,
     },
     {
@@ -425,7 +425,7 @@ export const HistoryTab = ({
       header: 'Cantidad Equipos',
       width: '110px',
       align: 'center' as const,
-      cellClassName: 'font-black text-slate-800',
+      cellClassName: 'font-black text-[var(--foreground)]',
       cell: (rec: any) => `${rec.received_units || 0} Equipos`,
     },
     {
@@ -455,7 +455,7 @@ export const HistoryTab = ({
       cell: (rec: any) => (
         <div className="flex items-center justify-end gap-3">
           <button
-            className="text-slate-400 hover:text-indigo-500 transition-all hover:scale-110"
+            className="text-[var(--muted)] hover:text-indigo-500 transition-all hover:scale-110"
             title="Ver Detalle"
             onClick={(e) => {
               e.stopPropagation();
@@ -465,7 +465,7 @@ export const HistoryTab = ({
             <Eye size={18} strokeWidth={2} />
           </button>
           <button
-            className="text-slate-400 hover:text-amber-500 transition-all hover:scale-110"
+            className="text-[var(--muted)] hover:text-amber-500 transition-all hover:scale-110"
             title="Editar Documento SAP"
             onClick={async (e) => {
               e.stopPropagation();
@@ -482,7 +482,7 @@ export const HistoryTab = ({
             <Pencil size={18} strokeWidth={2} />
           </button>
           <button
-            className="text-slate-400 hover:text-purple-500 transition-all hover:scale-110"
+            className="text-[var(--muted)] hover:text-purple-500 transition-all hover:scale-110"
             title="Imprimir Etiquetas"
             onClick={(e) => {
               e.stopPropagation();
@@ -492,7 +492,7 @@ export const HistoryTab = ({
             <Tag size={18} strokeWidth={2} />
           </button>
           <button
-            className="text-slate-400 hover:text-[#2ec4f1] transition-all hover:scale-110"
+            className="text-[var(--muted)] hover:text-[var(--accent)] transition-all hover:scale-110"
             title="Imprimir Conduce"
             onClick={(e) => {
               e.stopPropagation();
@@ -502,7 +502,7 @@ export const HistoryTab = ({
             <Printer size={18} strokeWidth={2} />
           </button>
           <button
-            className="text-slate-400 hover:text-rose-500 transition-all hover:scale-110"
+            className="text-[var(--muted)] hover:text-rose-500 transition-all hover:scale-110"
             title="Eliminar Recepción"
             onClick={async (e) => {
               e.stopPropagation();
@@ -531,8 +531,8 @@ export const HistoryTab = ({
     <div className="space-y-6 animate-rise-in">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-black text-[#181c3a]">Historial de Recepciones ({moduleMode.toUpperCase()})</h2>
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Registros consolidados de auditoría</p>
+          <h2 className="text-xl font-black text-[var(--heading)]">Historial de Recepciones ({moduleMode.toUpperCase()})</h2>
+          <p className="text-xs font-bold text-[var(--muted)] uppercase tracking-widest mt-1">Registros consolidados de auditoría</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" className="flex gap-2" onClick={handleExportReport}><Download size={14} /> Exportar Reporte</Button>
@@ -599,30 +599,30 @@ export const HistoryTab = ({
 
         return (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Card className="p-6 border-l-4 border-l-[#2ec4f1] bg-white shadow-sm">
+            <Card className="p-6 border-l-4 border-l-[var(--accent)] shadow-sm">
               <div className="flex items-center gap-4">
-                <div className="bg-blue-50 p-3 rounded-xl text-[#2ec4f1]"><ClipboardList size={20} /></div>
+                <div className="bg-[var(--accent)]/10 p-3 rounded-xl text-[var(--accent)]"><ClipboardList size={20} /></div>
                 <div>
-                  <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Guías Hoy</p>
-                  <h4 className="text-2xl font-black text-[#181c3a]">{kpis.guiasHoy}</h4>
+                  <p className="text-[10px] font-black uppercase text-[var(--muted)] tracking-widest">Guías Hoy</p>
+                  <h4 className="text-2xl font-black text-[var(--heading)]">{kpis.guiasHoy}</h4>
                 </div>
               </div>
             </Card>
-            <Card className="p-6 border-l-4 border-l-emerald-500 bg-white shadow-sm">
+            <Card className="p-6 border-l-4 border-l-[var(--success)] shadow-sm">
               <div className="flex items-center gap-4">
-                <div className="bg-emerald-50 p-3 rounded-xl text-emerald-500"><Scan size={20} /></div>
+                <div className="bg-[var(--success)]/10 p-3 rounded-xl text-[var(--success)]"><Scan size={20} /></div>
                 <div>
-                  <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Equipos Hoy</p>
-                  <h4 className="text-2xl font-black text-[#181c3a]">{kpis.equiposHoy}</h4>
+                  <p className="text-[10px] font-black uppercase text-[var(--muted)] tracking-widest">Equipos Hoy</p>
+                  <h4 className="text-2xl font-black text-[var(--heading)]">{kpis.equiposHoy}</h4>
                 </div>
               </div>
             </Card>
-            <Card className="p-6 border-l-4 border-l-amber-500 bg-white shadow-sm">
+            <Card className="p-6 border-l-4 border-l-[var(--warning)] shadow-sm">
               <div className="flex items-center gap-4">
-                <div className="bg-amber-50 p-3 rounded-xl text-amber-500"><Clock size={20} /></div>
+                <div className="bg-[var(--warning)]/10 p-3 rounded-xl text-[var(--warning)]"><Clock size={20} /></div>
                 <div>
-                  <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">En Espera (Backoffice)</p>
-                  <h4 className="text-2xl font-black text-[#181c3a]">{kpis.enEspera}</h4>
+                  <p className="text-[10px] font-black uppercase text-[var(--muted)] tracking-widest">En Espera (Backoffice)</p>
+                  <h4 className="text-2xl font-black text-[var(--heading)]">{kpis.enEspera}</h4>
                 </div>
               </div>
             </Card>
@@ -630,22 +630,22 @@ export const HistoryTab = ({
         );
       })()}
            {/* BARRA DE BÚSQUEDA Y FILTROS */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-[var(--surface)] p-4 rounded-2xl shadow-sm border border-[var(--border)]">
         <div className="relative group">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-[#2ec4f1] transition-colors" />
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--muted)] group-focus-within:text-[var(--accent)] transition-colors" />
           <input 
             type="text" 
             placeholder={moduleMode === 'cac' ? "Buscar por No. Guía o Piloto..." : "Buscar por SAP, Agencia o Usuario..."}
-            className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold outline-none focus:border-[#2ec4f1] transition-all"
+            className="w-full pl-11 pr-4 py-3 bg-[var(--surface-hover)] border border-[var(--border)] rounded-xl text-xs font-bold text-[var(--foreground)] outline-none focus:border-[var(--accent)] transition-all"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
         
         <div className="relative">
-          <Truck className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <Truck className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--muted)]" />
           <select 
-            className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-black uppercase outline-none focus:border-[#2ec4f1] appearance-none"
+            className="w-full pl-11 pr-4 py-3 bg-[var(--surface-hover)] border border-[var(--border)] rounded-xl text-xs font-black uppercase text-[var(--foreground)] outline-none focus:border-[var(--accent)] appearance-none"
             value={filterPilot}
             onChange={(e) => setFilterPilot(e.target.value)}
           >
@@ -661,9 +661,9 @@ export const HistoryTab = ({
         </div>
 
         <div className="relative">
-          <Clock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <Clock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--muted)]" />
           <select 
-            className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-black uppercase outline-none focus:border-[#2ec4f1] appearance-none"
+            className="w-full pl-11 pr-4 py-3 bg-[var(--surface-hover)] border border-[var(--border)] rounded-xl text-xs font-black uppercase text-[var(--foreground)] outline-none focus:border-[var(--accent)] appearance-none"
             value={filterDate}
             onChange={(e) => setFilterDate(e.target.value)}
           >
@@ -685,8 +685,8 @@ export const HistoryTab = ({
             rowHeight={68}
             maxBodyHeight={640}
             minWidth={1010}
-            headerClassName="bg-[#181c3a]"
-            headerTextClassName="text-white/50"
+            headerClassName="bg-[var(--primary)]"
+            headerTextClassName="text-[var(--primary-foreground)]/50"
             emptyMessage="No hay recepciones PX finalizadas"
             rowClassName={(rec: any) => {
               const sap = String(rec.sap_document || '').trim();
@@ -698,7 +698,7 @@ export const HistoryTab = ({
         <Card padding="none" className="overflow-hidden border-none shadow-xl">
           <div className="overflow-x-auto">
             <table className="w-full text-left">
-              <thead className="bg-[#181c3a] text-white font-black uppercase tracking-[0.1em] text-[11px]">
+              <thead className="bg-[var(--primary)] text-[var(--primary-foreground)] font-black uppercase tracking-[0.1em] text-[11px]">
                 <tr>
                   <th className="px-6 py-5 whitespace-nowrap">Fecha / Hora</th>
                   <th className="px-6 py-5 whitespace-nowrap">No. Recepción TC</th>
@@ -709,14 +709,14 @@ export const HistoryTab = ({
                   <th className="px-6 py-5 whitespace-nowrap text-right">Acción</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-[var(--border)]">
                 {(() => {
                   const renderItem = (item: any, isSubRow: boolean, masterItem: any, isExpanded: boolean = false, passedLoteId: string = '', hasSubs: boolean = false) => {
                     const loteId = passedLoteId || `LOTE-${(masterItem || item).id.split('-')[0].toUpperCase()}`;
                     const isMasterWithSubs = !isSubRow && hasSubs;
-                    const rowClass = `hover:bg-blue-50/50 transition-colors border-b border-slate-100 group ${isSubRow ? "bg-slate-50/50" : ""} ${isMasterWithSubs ? "cursor-pointer" : ""}`;
-                    const tdClass = "px-6 py-4 font-bold text-slate-800 text-xs whitespace-nowrap " + (isSubRow ? "pl-[4.5rem]" : "");
-                    const spanClass = "font-mono font-black text-sm tracking-wide " + (isSubRow ? "text-slate-500" : "text-[#2ec4f1]");
+                    const rowClass = `hover:bg-[var(--surface-hover)] transition-colors border-b border-[var(--border)] group ${isSubRow ? "bg-[var(--surface-hover)]/50" : ""} ${isMasterWithSubs ? "cursor-pointer" : ""}`;
+                    const tdClass = "px-6 py-4 font-bold text-[var(--foreground)] text-xs whitespace-nowrap " + (isSubRow ? "pl-[4.5rem]" : "");
+                    const spanClass = "font-mono font-black text-sm tracking-wide " + (isSubRow ? "text-[var(--muted)]" : "text-[var(--accent)]");
                     
                     let badgeClass = "border-none font-black text-[9px] uppercase tracking-widest whitespace-nowrap ";
                     let badgeText = item.status || 'RECEPCIONADA';
@@ -727,14 +727,14 @@ export const HistoryTab = ({
                         badgeText = "PENDIENTE";
                       } else {
                         badgeText = item.category.toUpperCase();
-                        if (item.category === 'equipo') badgeClass += "bg-blue-100 text-blue-600";
+                        if (item.category === 'equipo') badgeClass += "bg-[var(--accent)]/15 text-[var(--accent)]";
                         else if (item.category === 'accesorio') badgeClass += "bg-emerald-100 text-emerald-600";
                         else if (item.category === 'telefono') badgeClass += "bg-orange-100 text-orange-600";
                         else if (item.category === 'devolucion') badgeClass += "bg-rose-100 text-rose-600";
                         else badgeClass += "bg-slate-100 text-slate-500";
                       }
                     } else {
-                      badgeClass += (isSubRow ? "bg-slate-100 text-slate-500" : "bg-blue-50 text-blue-600");
+                      badgeClass += (isSubRow ? "bg-[var(--surface-hover)] text-[var(--muted)]" : "bg-[var(--accent)]/15 text-[var(--accent)]");
                       if (isSubRow && !item.isGuidesDb) badgeText = item.status || 'PROCESADO';
                     }
 
@@ -770,10 +770,10 @@ export const HistoryTab = ({
                         unitsDisplay = (
                           <div className="flex flex-col items-center justify-center">
                             <div className="flex items-center">
-                              <span className="font-black text-[#181c3a]">{processedGuidesCount}</span>
-                              <span className="text-slate-400 text-[10px] mx-1">/</span>
-                              <span className="font-bold text-slate-500 text-[10px]">{expectedGuidesCount}</span>
-                              <span className="text-slate-400 text-[10px] font-bold ml-1">guías</span>
+                              <span className="font-black text-[var(--heading)]">{processedGuidesCount}</span>
+                              <span className="text-[var(--muted)] text-[10px] mx-1">/</span>
+                              <span className="font-bold text-[var(--muted)] text-[10px]">{expectedGuidesCount}</span>
+                              <span className="text-[var(--muted)] text-[10px] font-bold ml-1">guías</span>
                             </div>
                             {faltan > 0 && <div className="text-[9px] font-black text-rose-500 mt-0.5 tracking-widest uppercase">Faltan {faltan}</div>}
                             {faltan <= 0 && <div className="text-[9px] font-black text-emerald-500 mt-0.5 tracking-widest uppercase">Completo</div>}
@@ -784,17 +784,17 @@ export const HistoryTab = ({
                         unitsDisplay = (
                           <div className="flex flex-col items-center justify-center">
                             <div className="flex items-center">
-                              <span className="font-black text-[#181c3a]">0</span>
-                              <span className="text-slate-400 text-[10px] mx-1">/</span>
-                              <span className="font-bold text-slate-500 text-[10px]">{expectedGuidesCount}</span>
-                              <span className="text-slate-400 text-[10px] font-bold ml-1">guías</span>
+                              <span className="font-black text-[var(--heading)]">0</span>
+                              <span className="text-[var(--muted)] text-[10px] mx-1">/</span>
+                              <span className="font-bold text-[var(--muted)] text-[10px]">{expectedGuidesCount}</span>
+                              <span className="text-[var(--muted)] text-[10px] font-bold ml-1">guías</span>
                             </div>
                             <div className="text-[9px] font-black text-rose-500 mt-0.5 tracking-widest uppercase">Faltan {expectedGuidesCount}</div>
                           </div>
                         );
                       }
                     } else {
-                      unitsDisplay = <><span className="font-black text-slate-300">-</span></>;
+                      unitsDisplay = <><span className="font-black text-[var(--muted)]">-</span></>;
                     }
 
                     return (
@@ -806,16 +806,16 @@ export const HistoryTab = ({
                         <td className={tdClass}>
                           <div className="flex items-center">
                             {isMasterWithSubs && (
-                              <button className="mr-2 text-slate-400 hover:text-slate-600 transition-colors focus:outline-none">
+                              <button className="mr-2 text-[var(--muted)] hover:text-[var(--foreground)] transition-colors focus:outline-none">
                                 {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                               </button>
                             )}
-                            {isSubRow ? <div className="inline-block w-3 h-3 border-l-2 border-b-2 border-slate-300 rounded-bl mr-2 -translate-y-1"></div> : null}
+                            {isSubRow ? <div className="inline-block w-3 h-3 border-l-2 border-b-2 border-[var(--border)] rounded-bl mr-2 -translate-y-1"></div> : null}
                             {item.fecha_formateada}
                           </div>
                         </td>
                         <td className="px-6 py-4">
-                          {!isSubRow ? <div className="text-[9px] font-black uppercase text-slate-400 mb-0.5 tracking-widest">{loteId}</div> : null}
+                          {!isSubRow ? <div className="text-[9px] font-black uppercase text-[var(--muted)] mb-0.5 tracking-widest">{loteId}</div> : null}
                           <div className="flex items-center gap-2 mb-1">
                             <span className={spanClass}>{item.guide_number}</span>
                           </div>
@@ -825,7 +825,7 @@ export const HistoryTab = ({
                                 <button 
                                   key={i} 
                                   onClick={(e) => { e.stopPropagation(); setShowTimeline(item); setTimelineActiveGuide(g); }}
-                                  className="font-mono text-[10px] font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 hover:text-[#181c3a] px-1.5 py-0.5 rounded cursor-pointer transition-colors"
+                                  className="font-mono text-[10px] font-bold text-[var(--muted)] bg-[var(--surface-hover)] hover:bg-[var(--border)] hover:text-[var(--heading)] px-1.5 py-0.5 rounded cursor-pointer transition-colors"
                                   title={`Ver trazabilidad de la guía ${g}`}
                                 >
                                   {g}
@@ -834,14 +834,14 @@ export const HistoryTab = ({
                             </div>
                           ) : null}
                         </td>
-                        <td className="px-6 py-4 font-black text-slate-800 text-xs uppercase">{!isSubRow ? item.pilot_display : <span className="text-slate-300">-</span>}</td>
-                        <td className="px-6 py-4 font-black text-slate-700 text-xs uppercase">{!isSubRow ? receivedBy : <span className="text-slate-300">-</span>}</td>
+                        <td className="px-6 py-4 font-black text-[var(--foreground)] text-xs uppercase">{!isSubRow ? item.pilot_display : <span className="text-[var(--muted)]">-</span>}</td>
+                        <td className="px-6 py-4 font-black text-[var(--foreground)] text-xs uppercase">{!isSubRow ? receivedBy : <span className="text-[var(--muted)]">-</span>}</td>
                         <td className="px-6 py-4">
                           <Badge className={badgeClass}>
                             {badgeText}
                           </Badge>
                           {isSubRow && item.classified_by && (
-                            <div className="mt-1 text-[9px] text-slate-400 font-bold leading-tight">
+                            <div className="mt-1 text-[9px] text-[var(--muted)] font-bold leading-tight">
                               Por: {item.classified_by.split('@')[0]}
                               {item.classified_at && <br />}
                               {item.classified_at && new Date(item.classified_at).toLocaleString()}
@@ -853,10 +853,10 @@ export const HistoryTab = ({
                         </td>
                         <td className="px-6 py-4 text-right">
                           <div className="flex justify-end gap-1.5">
-                            <button onClick={(e) => { e.stopPropagation(); setShowTimeline(item); }} className="w-8 h-8 flex items-center justify-center bg-blue-50 text-[#2ec4f1] rounded-lg hover:bg-[#2ec4f1] hover:text-white transition-all shadow-sm"><Clock className="w-3.5 h-3.5" /></button>
-                            {!isSubRow ? <button onClick={(e) => { e.stopPropagation(); handleEditHistoryCAC && handleEditHistoryCAC(item.id, item.guiaIdx); }} className="w-8 h-8 flex items-center justify-center bg-slate-100 text-slate-500 rounded-lg hover:bg-[#181c3a] hover:text-white transition-all shadow-sm"><Pencil className="w-3.5 h-3.5" /></button> : null}
-                            {!isSubRow ? <button onClick={(e) => { e.stopPropagation(); handlePrintCAC && handlePrintCAC(item); }} className="w-8 h-8 flex items-center justify-center bg-slate-100 text-slate-500 rounded-lg hover:bg-[#181c3a] hover:text-white transition-all shadow-sm"><Printer className="w-3.5 h-3.5" /></button> : null}
-                            {!isSubRow ? <button onClick={(e) => { e.stopPropagation(); handleDeleteHistoryCAC && handleDeleteHistoryCAC(item.id, item.guiaIdx); }} className="w-8 h-8 flex items-center justify-center bg-slate-50 text-slate-400 rounded-lg hover:bg-rose-500 hover:text-white transition-all shadow-sm"><Trash2 className="w-3.5 h-3.5" /></button> : null}
+                            <button onClick={(e) => { e.stopPropagation(); setShowTimeline(item); }} className="w-8 h-8 flex items-center justify-center bg-[var(--accent)]/15 text-[var(--accent)] rounded-lg hover:bg-[var(--accent)] hover:text-[var(--primary-foreground)] transition-all shadow-sm"><Clock className="w-3.5 h-3.5" /></button>
+                            {!isSubRow ? <button onClick={(e) => { e.stopPropagation(); handleEditHistoryCAC && handleEditHistoryCAC(item.id, item.guiaIdx); }} className="w-8 h-8 flex items-center justify-center bg-[var(--surface-hover)] text-[var(--muted)] rounded-lg hover:bg-[var(--primary)] hover:text-[var(--primary-foreground)] transition-all shadow-sm"><Pencil className="w-3.5 h-3.5" /></button> : null}
+                            {!isSubRow ? <button onClick={(e) => { e.stopPropagation(); handlePrintCAC && handlePrintCAC(item); }} className="w-8 h-8 flex items-center justify-center bg-[var(--surface-hover)] text-[var(--muted)] rounded-lg hover:bg-[var(--primary)] hover:text-[var(--primary-foreground)] transition-all shadow-sm"><Printer className="w-3.5 h-3.5" /></button> : null}
+                            {!isSubRow ? <button onClick={(e) => { e.stopPropagation(); handleDeleteHistoryCAC && handleDeleteHistoryCAC(item.id, item.guiaIdx); }} className="w-8 h-8 flex items-center justify-center bg-[var(--surface-hover)] text-[var(--muted)] rounded-lg hover:bg-[var(--danger)] hover:text-[var(--primary-foreground)] transition-all shadow-sm"><Trash2 className="w-3.5 h-3.5" /></button> : null}
                           </div>
                         </td>
                       </tr>
@@ -880,7 +880,7 @@ export const HistoryTab = ({
                 })()}
                 {cacTotalGroups === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center text-slate-300 italic uppercase font-black tracking-widest">
+                    <td colSpan={7} className="px-6 py-12 text-center text-[var(--muted)] italic uppercase font-black tracking-widest">
                       No hay registros de CAC disponibles
                     </td>
                   </tr>

@@ -12,10 +12,8 @@ import { registerUserSession } from "@/lib/userSession";
 import { 
   LayoutDashboard, 
   Settings, 
-  LogOut, 
   Moon, 
   Sun, 
-  ChevronRight,
   Menu,
   X,
   PackageSearch,
@@ -27,14 +25,18 @@ import {
   TrendingUp,
   CircleDollarSign,
   ShieldCheck,
-  PanelLeftClose,
-  PanelLeftOpen,
   Activity,
   Users,
   FileSpreadsheet,
   Boxes,
   Database
 } from "lucide-react";
+import {
+  ErpNavItem,
+  ErpSidebarBrand,
+  ErpTopBar,
+  isNavActive,
+} from "@/components/shell";
 
 const ICON_MAP: Record<string, React.ElementType> = {
   LayoutDashboard, PackageSearch, Undo2, Laptop, Wrench, Warehouse, Truck,
@@ -210,230 +212,138 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
 
 
   return (
-    <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)] transition-colors duration-300 font-sans antialiased">
-      {/* Top Mobile Nav */}
-      <div className="md:hidden flex items-center justify-between p-4 bg-[var(--surface)] border-b border-[var(--border)] sticky top-0 z-50">
+    <div className="min-h-screen bg-background font-sans text-foreground antialiased transition-colors duration-300">
+      <div className="sticky top-0 z-50 flex items-center justify-between border-b border-border bg-surface p-4 md:hidden">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-[#181c3a] rounded-lg flex items-center justify-center">
-            <span className="text-white text-[10px] font-black tracking-tighter">TC</span>
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--sidebar)]">
+            <span className="text-[10px] font-bold tracking-tight text-white">TC</span>
           </div>
-          <span className="font-bold tracking-tight">TC-ERP</span>
+          <span className="font-semibold tracking-tight">TC-ERP</span>
         </div>
-        <button onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
+        <button
+          type="button"
+          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+          className="flex min-h-11 min-w-11 items-center justify-center rounded-xl text-muted hover:bg-surface-hover hover:text-foreground"
+          aria-label={isSidebarOpen ? 'Cerrar menú' : 'Abrir menú'}
+        >
           {isSidebarOpen ? <X /> : <Menu />}
         </button>
       </div>
 
-      <div className="mx-auto flex min-h-screen relative overflow-x-hidden">
-        {/* Mobile Sidebar Overlay */}
-        {isMobile && isSidebarOpen && (
-          <div 
-            className="fixed inset-0 bg-black/60 z-30 backdrop-blur-sm transition-opacity"
+      <div className="relative mx-auto flex min-h-screen overflow-x-hidden">
+        {isMobile && isSidebarOpen ? (
+          <div
+            className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm"
             onClick={() => setIsSidebarOpen(false)}
+            aria-hidden
           />
-        )}
+        ) : null}
 
-        {/* Sidebar */}
-        <aside className={`
-          ${isSidebarOpen ? 'translate-x-0 w-56' : '-translate-x-full md:translate-x-0 w-0 md:w-16'} 
-          fixed inset-y-0 left-0 z-40 bg-[var(--sidebar)] text-[var(--sidebar-foreground)] transition-all duration-300 md:relative shrink-0 flex flex-col shadow-2xl shadow-black/40
-        `}>
-          {/* Logo Section */}
-          <div className="px-3 py-3 border-b border-white/5 flex justify-between items-center min-h-[3.25rem]">
-            {isSidebarOpen ? (
-              <div className="flex items-center gap-2.5 min-w-0 animate-in fade-in duration-300">
-                <div className="flex items-center justify-center shrink-0">
-                  <svg viewBox="0 0 565 280" className="h-6 w-auto drop-shadow-md">
-                    <g fill="#ffffff">
-                      <rect x="8" y="9" width="232" height="60"/>
-                      <rect x="92" y="9" width="65" height="271"/>
-                    </g>
-                    <g fill="#ffffff">
-                      <circle cx="425" cy="140" r="140"/>
-                      <circle cx="425" cy="140" r="85" fill="#181c3a"/>
-                      <rect x="500" y="100" width="80" height="60" fill="#181c3a"/>
-                      <circle cx="425" cy="140" r="35" fill="#ffffff"/>
-                    </g>
-                  </svg>
-                </div>
-                <div className="flex flex-col min-w-0">
-                  <h1 className="text-sm font-black tracking-tight leading-none truncate">MULTIMEDIA</h1>
-                  <span className="text-[7px] font-bold text-white/60 uppercase tracking-[0.15em] mt-0.5 truncate">Enterprise</span>
-                </div>
-              </div>
-            ) : (
-              <div className="w-full flex justify-center animate-in fade-in duration-300">
-                <div className="w-8 h-8 flex items-center justify-center">
-                  <svg viewBox="0 0 565 280" className="h-5 w-auto drop-shadow-md">
-                    <g fill="#ffffff">
-                      <rect x="8" y="9" width="232" height="60"/>
-                      <rect x="92" y="9" width="65" height="271"/>
-                    </g>
-                    <g fill="#ffffff">
-                      <circle cx="425" cy="140" r="140"/>
-                      <circle cx="425" cy="140" r="85" fill="#181c3a"/>
-                      <rect x="500" y="100" width="80" height="60" fill="#181c3a"/>
-                      <circle cx="425" cy="140" r="35" fill="#ffffff"/>
-                    </g>
-                  </svg>
-                </div>
-              </div>
-            )}
-          </div>
+        <aside
+          className={[
+            'fixed inset-y-0 left-0 z-40 flex shrink-0 flex-col bg-[var(--sidebar)] text-[var(--sidebar-foreground)] shadow-xl shadow-black/30 transition-all duration-300 md:relative',
+            isSidebarOpen
+              ? 'w-60 translate-x-0'
+              : 'w-0 -translate-x-full md:w-16 md:translate-x-0',
+          ].join(' ')}
+        >
+          <ErpSidebarBrand expanded={isSidebarOpen} />
 
-          {/* Navigation */}
-          <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-3 custom-scrollbar">
+          <nav className="custom-scrollbar flex-1 space-y-3 overflow-y-auto px-2 py-3">
             {authz.isLoading ? (
               <div className="space-y-2 px-1 animate-pulse">
                 {[1, 2, 3, 4, 5].map((i) => (
-                  <div key={i} className="h-8 rounded-lg bg-white/5" />
+                  <div key={i} className="h-9 rounded-xl bg-white/5" />
                 ))}
-                <p className="text-[8px] font-bold text-slate-500 uppercase tracking-widest text-center pt-1">
+                <p className="pt-1 text-center text-[10px] font-semibold tracking-wide text-[var(--sidebar-foreground)]/40 uppercase">
                   Cargando menú…
                 </p>
               </div>
             ) : (
-            navigationGroups.map((group) => {
-              // Filtrar items basados en permisos
-              const filteredItems = group.items.filter((item) =>
-                canViewNavItem(item, authz)
-              );
+              navigationGroups.map((group) => {
+                const filteredItems = group.items.filter((item) =>
+                  canViewNavItem(item, authz),
+                );
+                if (filteredItems.length === 0) return null;
 
-              // Si el grupo no tiene items después de filtrar, no lo renderizamos
-              if (filteredItems.length === 0) return null;
+                return (
+                  <div key={group.title} className="space-y-0.5">
+                    {isSidebarOpen ? (
+                      <p className="mb-1.5 px-2 text-[10px] font-semibold tracking-wide text-[var(--sidebar-foreground)]/40 uppercase">
+                        {group.title}
+                      </p>
+                    ) : (
+                      <div className="mx-2 mb-2 h-px border-b border-[var(--sidebar-foreground)]/10" />
+                    )}
 
-              return (
-              <div key={group.title} className="space-y-0.5">
-                {isSidebarOpen ? (
-                  <p className="text-[8px] font-bold text-slate-400 uppercase tracking-[0.12em] px-2 mb-1.5">
-                    {group.title}
-                  </p>
-                ) : (
-                  <div className="h-3 border-b border-white/5 mb-2 mx-2"></div>
-                )}
-                
-                <div className="space-y-0.5">
-                  {filteredItems.map((item) => {
-                    const isActive = pathname === item.href;
-                    const Icon = item.icon ? ICON_MAP[item.icon] : LayoutDashboard;
-                    
-                    return (
-                      <Link
-                        key={item.href}
-                        href={item.href}
-                        onClick={() => { if (isMobile) setIsSidebarOpen(false); }}
-                        title={!isSidebarOpen ? item.label : item.descripcion}
-                        className={`
-                          group flex items-center rounded-lg py-2 transition-all duration-200
-                          ${isActive 
-                            ? 'bg-[#2ec4f1] text-[#181c3a] shadow-md shadow-[#2ec4f1]/15' 
-                            : 'hover:bg-white/5'}
-                          ${isSidebarOpen ? 'justify-between px-2.5' : 'justify-center mx-1'}
-                        `}
-                      >
-                        <div className="flex items-center gap-2 w-full min-w-0">
-                          {Icon && <Icon size={16} strokeWidth={2} className={`shrink-0 ${isActive ? 'text-[#181c3a]' : 'text-slate-400 group-hover:text-white transition-colors'}`} />}
-                          
-                          {isSidebarOpen && (
-                            <div className="flex flex-col overflow-hidden min-w-0 animate-in fade-in duration-300">
-                              <span className={`text-xs font-semibold truncate leading-tight ${isActive ? 'text-[#181c3a]' : 'text-slate-200 group-hover:text-white transition-colors'}`}>{item.label}</span>
-                              <span className={`text-[9px] font-medium truncate leading-tight transition-colors ${isActive ? 'text-[#181c3a]/75' : 'text-slate-500 group-hover:text-slate-300'}`}>
-                                {item.descripcion}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                        {(isActive && isSidebarOpen) && <ChevronRight className="w-3 h-3 opacity-50 shrink-0" />}
-                      </Link>
-                    );
-                  })}
-                </div>
-              </div>
-              );
-            })
+                    <div className="space-y-0.5">
+                      {filteredItems.map((item) => (
+                        <ErpNavItem
+                          key={item.href}
+                          href={item.href}
+                          label={item.label}
+                          description={item.descripcion}
+                          icon={item.icon ? ICON_MAP[item.icon] : LayoutDashboard}
+                          active={isNavActive(pathname, item.href)}
+                          expanded={isSidebarOpen}
+                          onNavigate={() => {
+                            if (isMobile) setIsSidebarOpen(false);
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })
             )}
           </nav>
 
-          {/* User & Footer */}
-          <div className={`px-2 py-2 border-t border-white/5 flex flex-col justify-end space-y-0.5 ${!isSidebarOpen && 'items-center'}`}>
-            <Link 
+          <div
+            className={[
+              'flex flex-col justify-end space-y-0.5 border-t border-[var(--sidebar-foreground)]/10 px-2 py-2',
+              !isSidebarOpen ? 'items-center' : '',
+            ].join(' ')}
+          >
+            <Link
               href="/configuracion"
-              className={`flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-white/5 transition-colors text-white/70 hover:text-white ${!isSidebarOpen && 'justify-center'}`}
-              title={!isSidebarOpen ? "Configuración" : undefined}
+              className={[
+                'flex min-h-11 items-center gap-2 rounded-xl px-2 py-2 text-[var(--sidebar-foreground)] transition-colors hover:bg-[var(--sidebar-foreground)]/10',
+                !isSidebarOpen ? 'justify-center' : '',
+              ].join(' ')}
+              title={!isSidebarOpen ? 'Configuración' : undefined}
             >
-              <Settings size={15} />
-              {isSidebarOpen && <span className="text-[10px] font-bold">Configuración</span>}
+              <Settings size={15} strokeWidth={2.25} aria-hidden />
+              {isSidebarOpen ? (
+                <span className="text-xs font-semibold">Configuración</span>
+              ) : null}
             </Link>
-            <button 
+            <button
+              type="button"
               onClick={toggleTheme}
-              className={`flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-white/5 transition-colors text-white/70 hover:text-white ${!isSidebarOpen && 'justify-center'}`}
-              title={!isSidebarOpen ? "Cambiar Tema" : undefined}
+              className={[
+                'flex min-h-11 items-center gap-2 rounded-xl px-2 py-2 text-[var(--sidebar-foreground)] transition-colors hover:bg-[var(--sidebar-foreground)]/10',
+                !isSidebarOpen ? 'justify-center' : '',
+              ].join(' ')}
+              title={!isSidebarOpen ? 'Cambiar tema' : undefined}
             >
-              {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
-              {isSidebarOpen && <span className="text-[10px] font-bold">Cambiar Tema</span>}
+              {theme === 'dark' ? <Sun size={15} aria-hidden /> : <Moon size={15} aria-hidden />}
+              {isSidebarOpen ? (
+                <span className="text-xs font-semibold">Cambiar Tema</span>
+              ) : null}
             </button>
           </div>
         </aside>
 
-        {/* Main Content Area */}
-        <div className="flex-1 min-w-0 bg-[var(--background)] flex flex-col">
-          {/* Top Bar / Global Actions */}
-          <header className="min-h-16 lg:h-20 bg-[var(--surface)] border-b border-[var(--border)] px-3 sm:px-4 md:px-6 lg:px-8 py-3 lg:py-0 flex flex-wrap items-center justify-between gap-3 sticky top-0 z-30">
-            <div className="flex items-center gap-2 sm:gap-4 text-[var(--muted)] min-w-0">
-              <button 
-                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                className="hidden md:flex p-2 rounded-xl hover:bg-[var(--surface-hover)] transition-colors text-[var(--muted)] hover:text-[var(--foreground)] mr-2"
-                title={isSidebarOpen ? "Ocultar menú" : "Mostrar menú"}
-              >
-                {isSidebarOpen ? <PanelLeftClose size={20} /> : <PanelLeftOpen size={20} />}
-              </button>
-              <div className="hidden md:flex items-center gap-2">
-                <LayoutDashboard className="w-4 h-4" />
-                <span className="text-[10px] font-bold uppercase tracking-widest">Dashboard</span>
-                <ChevronRight className="w-3 h-3" />
-                <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--foreground)]">
-                  {pathname?.split('/').pop()?.replace('-', ' ')}
-                </span>
-              </div>
-            </div>
-            
-            <div className="flex flex-wrap items-center gap-2 sm:gap-4 ml-auto">
-              <div className="hidden lg:flex items-center gap-2 bg-[var(--surface-hover)] border border-[var(--border)] rounded-xl px-3 py-1.5">
-                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="text-[10px] font-bold text-[var(--muted)] uppercase tracking-widest">Sistema Online</span>
-              </div>
-              
-              {currentUser && (
-                <div className="flex items-center gap-2 sm:gap-3 bg-[var(--surface-hover)] border border-[var(--border)] rounded-full p-1 pr-2 sm:pr-4 shadow-sm max-w-[12rem] sm:max-w-none">
-                  <div className="w-8 h-8 rounded-full overflow-hidden bg-slate-200 shrink-0">
-                    {currentUser.avatar_url ? (
-                      <img src={currentUser.avatar_url} alt="User avatar" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-[#181c3a] text-white text-xs font-black uppercase">
-                        {currentUser.full_name ? currentUser.full_name.substring(0,2) : 'US'}
-                      </div>
-                    )}
-                  </div>
-                  <div className="hidden sm:flex flex-col min-w-0">
-                    <span className="text-xs font-bold leading-tight truncate">{currentUser.full_name || 'Cargando...'}</span>
-                    <span className="text-[9px] font-black uppercase tracking-widest text-cyan-800 truncate">{currentUser.role || 'SIN ROL'}</span>
-                  </div>
-                </div>
-              )}
+        <div className="flex min-w-0 flex-1 flex-col bg-background">
+          <ErpTopBar
+            pathname={pathname}
+            sidebarOpen={isSidebarOpen}
+            onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+            currentUser={currentUser}
+            onLogout={handleLogout}
+          />
 
-
-
-              <button 
-                onClick={handleLogout}
-                className="p-2 rounded-xl bg-rose-50 text-rose-500 hover:text-white hover:bg-rose-500 border border-rose-100 transition-all ml-1"
-                title="Cerrar Sesión"
-              >
-                <LogOut size={18} />
-              </button>
-            </div>
-          </header>
-
-          <main className="flex-1 p-4 sm:p-6 lg:p-8 xl:p-10 max-w-[1600px] mx-auto w-full min-w-0 transition-all duration-500 overflow-x-hidden">
+          <main className="mx-auto w-full max-w-[1600px] min-w-0 flex-1 overflow-x-hidden p-4 transition-all duration-300 sm:p-6 lg:p-8 xl:p-10">
             {children}
           </main>
         </div>

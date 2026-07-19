@@ -59,6 +59,7 @@ export type BackofficeReception = {
   notes?: string;
   carrier?: string;
   received_by?: string;
+  received_by_profile?: { id?: string; full_name?: string | null } | { id?: string; full_name?: string | null }[] | null;
   received_units?: number;
   created_at: string;
   processed_guides?: string[];

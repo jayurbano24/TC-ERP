@@ -23,6 +23,21 @@ export type DbReception = {
 
 const PX_REC_MIN = 800000;
 
+type EntrySource = 'cac' | 'px';
+
+async function resolveReceptionEntrySource(
+  supabase: NonNullable<ReturnType<typeof getSupabaseBrowserClient>>,
+  receptionId: string
+): Promise<EntrySource | undefined> {
+  const { data } = await supabase
+    .from('receptions')
+    .select('source')
+    .eq('id', receptionId)
+    .maybeSingle();
+  if (data?.source === 'cac' || data?.source === 'px') return data.source;
+  return undefined;
+}
+
 export function isDuplicatePxGuideError(message: string): boolean {
   const msg = (message || '').toLowerCase();
   return (
@@ -461,7 +476,8 @@ export async function createReceptionWithSeries(reception: DbReception, series: 
   const seriesToInsert = series.map(sn => ({
     serial_number: sn,
     current_reception_id: recData.id,
-    current_status: 'INGRESADO'
+    current_status: 'INGRESADO',
+    entry_source: reception.source === 'px' ? 'px' : 'cac',
   }));
 
   // 3. Insert series
@@ -513,10 +529,13 @@ export async function addSeriesToReception(receptionId: string, series: string[]
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: "Supabase not configured" };
 
+  const entrySource = await resolveReceptionEntrySource(supabase, receptionId);
+
   const seriesToInsert = series.map(sn => ({
     serial_number: sn,
     current_reception_id: receptionId,
     current_status: 'INGRESADO',
+    ...(entrySource ? { entry_source: entrySource } : {}),
     ...(modelId ? { model_id: modelId } : {}),
     ...(brandId ? { brand_id: brandId } : {})
   }));
@@ -553,13 +572,15 @@ export async function fixMissingOS(receptionId: string, unit: { main_serial: str
 
   if (osError) return { error: osError.message };
 
+  const entrySource = await resolveReceptionEntrySource(supabase, receptionId);
   const seriesToUpsert = unit.all_series.map(sn => ({
     serial_number: sn,
     current_reception_id: receptionId,
     service_order_id: osData.id,
     current_status: 'RECEPCIONADO_BODEGA_GENERAL',
     model_id: unit.model_id,
-    brand_id: unit.brand_id
+    brand_id: unit.brand_id,
+    ...(entrySource ? { entry_source: entrySource } : {}),
   }));
 
   const { error: upsertError } = await supabase.from('series').upsert(seriesToUpsert, { onConflict: 'serial_number' });
@@ -609,6 +630,7 @@ export async function createServiceOrders(
 
     // 3. Vincular todas las series de esta unidad a la OS
     if (osData) {
+      const entrySource = await resolveReceptionEntrySource(supabase, receptionId);
       const seriesToUpsert = unit.all_series.map(sn => ({
         serial_number: sn,
         current_reception_id: receptionId,
@@ -616,7 +638,8 @@ export async function createServiceOrders(
         sap_transfer_id: sapTransferId || null,
         current_status: 'RECEPCIONADO_BODEGA_GENERAL',
         model_id: unit.model_id,
-        brand_id: unit.brand_id
+        brand_id: unit.brand_id,
+        entry_source: entrySource || 'cac',
       }));
 
       const { data: upsertedSeries } = await supabase
@@ -882,7 +905,9 @@ export async function createPxReceptionWithBoxes(
           current_status: 'in_central_warehouse',
           current_box_id: createdBox.id,
           current_reception_id: recData.id,
-          service_order_id: os.id
+          service_order_id: os.id,
+          entry_source:
+            recData.source === 'px' || recData.source === 'cac' ? recData.source : 'cac',
         });
       }
     }

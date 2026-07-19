@@ -19,6 +19,8 @@ export type DbSeries = {
   current_status: string;
   current_box_id?: string;
   current_reception_id?: string;
+  /** Canal de ingreso original: cac | px (persistido en BD). */
+  entry_source?: 'cac' | 'px' | null;
   updated_at?: string;
 };
 
@@ -232,6 +234,7 @@ export async function searchSeriesDetailed(filters: { os?: string, imei?: string
       received_by_profile:received_by (full_name)
     ),
     boxes:current_box_id (box_code, rack_location),
+    sap_transfer_documents:sap_transfer_id (id, sap_document_number, status),
     service_orders:service_order_id (
       os_label,
       os_number,
@@ -269,12 +272,18 @@ export async function searchSeriesDetailed(filters: { os?: string, imei?: string
         null;
       const sapDoc =
         row.service_orders?.sap_transfer_documents?.sap_document_number ||
-        reception?.sap_document ||
+        row.sap_transfer_documents?.sap_document_number ||
         null;
       return {
         ...row,
+        // Exponer SAP canónico (documento de la OS/serie). No contaminar con reception.sap_document del lote.
+        canonical_sap_document: sapDoc,
         receptions: reception
-          ? { ...reception, sap_document: reception.sap_document || sapDoc }
+          ? {
+              ...reception,
+              // Mantener sap_document del lote solo como fallback si no hay documento de la OS.
+              sap_document: sapDoc || reception.sap_document || null,
+            }
           : null,
       };
     });

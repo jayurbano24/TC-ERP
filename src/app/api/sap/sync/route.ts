@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { rpcInternal } from "@/lib/supabase/rpcInternal";
 import { withErrorHandler } from "@/shared/infrastructure/http/apiHandler";
 import { ROLES_RETURNS_SAP } from "@/shared/authz/roleGuard";
 import { parseJsonBody } from "@/shared/validation/parseRequest";
@@ -43,8 +44,8 @@ export const POST = withErrorHandler(async (request: Request) => {
 
   const supabase = getSupabaseServerClient();
 
-  // TX-01: toda la sincronización corre atómica en sap_sync_tx (rollback total ante error).
-  const { data, error } = await supabase.rpc('sap_sync_tx', {
+  // TX-01: sync atómica en internal.sap_sync_tx (solo service_role).
+  const { data, error } = await rpcInternal(supabase, 'sap_sync_tx', {
     p_file_info: fileInfo,
     p_results: results,
     p_validation_details: validationDetails,

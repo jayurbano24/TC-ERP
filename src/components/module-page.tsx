@@ -32,7 +32,7 @@ export const ModulePage = ({
             {backHref && (
               <Link
                 href={backHref}
-                className="p-2 rounded-xl hover:bg-slate-100 transition-colors text-slate-400 hover:text-slate-900"
+                className="rounded-xl p-2 text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
                 aria-label="Volver"
               >
                 <ErpIcon name="back" className="w-5 h-5" />
@@ -76,19 +76,23 @@ export const ModuleToolbar = ({
   searchValue?: string;
 }) => {
   return (
-    <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-3 mb-6 sm:mb-8 bg-[var(--surface)] p-3 sm:p-4 rounded-2xl border border-[var(--border)]">
+    <div
+      className="mb-6 flex flex-col items-stretch gap-3 rounded-2xl border border-[var(--border)] p-3 sm:mb-8 sm:p-4 lg:flex-row lg:items-center"
+      style={{ backgroundColor: 'var(--surface)', color: 'var(--foreground)' }}
+    >
       {onSearch && (
-        <div className="relative flex-1 min-w-0">
+        <div className="relative min-w-0 flex-1">
           <ErpIcon
             name="search"
-            className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none"
+            className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-[var(--muted)]"
           />
           <input
             type="search"
             placeholder={searchPlaceholder}
             value={searchValue}
             onChange={(e) => onSearch(e.target.value)}
-            className="w-full h-11 sm:h-12 pl-10 pr-4 bg-slate-50 rounded-xl text-sm font-bold outline-none border-2 border-transparent focus:border-[#2ec4f1] transition-colors"
+            className="h-11 w-full rounded-xl border-2 border-[var(--border)] pr-4 pl-10 text-sm font-semibold text-[var(--foreground)] outline-none transition-colors focus:border-[var(--accent)] sm:h-12"
+            style={{ backgroundColor: 'var(--surface-hover)' }}
             aria-label={searchPlaceholder}
           />
         </div>
@@ -100,7 +104,7 @@ export const ModuleToolbar = ({
           <button
             type="button"
             onClick={onFilter}
-            className="inline-flex items-center gap-2 h-11 px-4 rounded-xl border-2 border-slate-200 text-sm font-bold text-slate-700 hover:bg-slate-50"
+            className="inline-flex h-11 items-center gap-2 rounded-xl border-2 border-[var(--border)] px-4 text-sm font-semibold text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
           >
             <ErpIcon name="filter" /> Filtros
           </button>
@@ -109,7 +113,7 @@ export const ModuleToolbar = ({
           <button
             type="button"
             onClick={onExport}
-            className="inline-flex items-center gap-2 h-11 px-4 rounded-xl border-2 border-slate-200 text-sm font-bold text-slate-700 hover:bg-slate-50"
+            className="inline-flex h-11 items-center gap-2 rounded-xl border-2 border-[var(--border)] px-4 text-sm font-semibold text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
           >
             <ErpIcon name="export" /> Exportar
           </button>
@@ -118,7 +122,7 @@ export const ModuleToolbar = ({
           <button
             type="button"
             onClick={onAdd}
-            className="inline-flex items-center gap-2 h-11 px-5 rounded-xl bg-[#181c3a] text-white text-sm font-bold hover:bg-[#252b57]"
+            className="inline-flex h-11 items-center gap-2 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground hover:opacity-90"
           >
             <ErpIcon name="add" /> {addLabel}
           </button>

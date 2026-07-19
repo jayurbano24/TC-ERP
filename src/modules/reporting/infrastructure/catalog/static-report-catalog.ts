@@ -44,4 +44,28 @@ export const STATIC_REPORT_CATALOG = [
     columns: ['Fecha', 'Accesorio', 'Condición', 'Cantidad', 'Destino', 'Usuario'],
     requiresDateRange: true,
   },
+  {
+    code: 'OPERACIONES_MENSUAL_TECNOLOGIA',
+    name: 'Operaciones mensual por tecnología',
+    category: 'Operaciones',
+    description:
+      'Matriz Año/País/Mes/Tecnología: equipos (OS); Reparado = QC+Equipo Listo (sin cola Reparación); origen CAC/PX vía series.entry_source',
+    columns: [
+      'Año',
+      'País',
+      'Mes',
+      'Tecnología',
+      'Ingresado CACs',
+      'Ingresado PX',
+      'Taller CACs',
+      'Taller PX',
+      'Obsoleto CACs',
+      'Obsoleto PX',
+      'Reparado CACs',
+      'Reparado PX',
+      'Reacondicionado CACs',
+      'Reacondicionado PX',
+    ],
+    requiresDateRange: false,
+  },
 ];

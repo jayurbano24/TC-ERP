@@ -5,17 +5,19 @@ interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
 }
 
 export const Badge = ({ className = '', variant = 'default', children, ...props }: BadgeProps) => {
-  const baseStyles = 'inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest';
-  
+  const baseStyles =
+    'inline-flex items-center rounded-full px-3 py-1 text-[10px] font-black tracking-widest uppercase';
+
+  /** Tokens del tema (claro/oscuro) — evita badges blancos en dark mode. */
   const variants = {
-    default: 'bg-slate-100 text-slate-600',
-    outline: 'border border-slate-200 text-slate-500',
-    blue: 'bg-blue-50 text-blue-600 border border-blue-100',
-    green: 'bg-emerald-50 text-emerald-800 border border-emerald-100',
-    red: 'bg-rose-50 text-rose-600 border border-rose-100',
-    yellow: 'bg-amber-50 text-amber-600 border border-amber-100',
-    purple: 'bg-indigo-50 text-indigo-600 border border-indigo-100',
-    slate: 'bg-slate-900 text-white',
+    default: 'border border-border bg-surface-hover text-muted',
+    outline: 'border border-border bg-transparent text-muted',
+    blue: 'border border-accent/30 bg-accent/15 text-accent',
+    green: 'border border-success/30 bg-success/15 text-success',
+    red: 'border border-danger/30 bg-danger/15 text-danger',
+    yellow: 'border border-warning/30 bg-warning/15 text-warning',
+    purple: 'border border-primary/20 bg-primary/10 text-heading',
+    slate: 'border border-border bg-primary text-primary-foreground',
   };
 
   return (

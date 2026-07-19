@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Card, Button, notify } from '@/components/ui';
+import { erpTableHeader, erpTableHeaderText, erpFieldClass, erpLabelClass, erpTab } from '@/lib/design/tokens';
 import { Package, Truck, X, Loader2, Printer } from 'lucide-react';
 import { fetchDespachoBoxItems, type DespachoBoxItem } from '@/lib/api/despachoBoxItems';
 import { dispatchBoxFromWarehouse } from '@/lib/database/warehouse';
@@ -472,31 +473,31 @@ export function DespachoSalidaModal({ boxes, onClose, onDone }: Props) {
 
   return (
     <div className="fixed inset-0 bg-[#0b0e20]/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in">
-      <Card className="w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col bg-white shadow-2xl animate-in zoom-in-95">
-        <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-[#181c3a] text-white">
+      <Card className="w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col bg-[var(--surface)] shadow-2xl animate-in zoom-in-95">
+        <div className="p-5 border-b border-[var(--border)] flex items-center justify-between bg-[var(--surface-hover)] text-[var(--heading)]">
           <div className="flex items-center gap-3">
-            <div className="bg-white/10 p-2 rounded-xl">
-              <Truck className="w-5 h-5 text-[#2ec4f1]" />
+            <div className="bg-[var(--accent)]/10 p-2 rounded-xl">
+              <Truck className="w-5 h-5 text-[var(--accent)]" />
             </div>
             <div>
               <h2 className="text-lg font-bold">Despacho Outbound</h2>
-              <p className="text-white/60 text-xs">Confirme Traslado SAP, Nota de Entrega y cliente PX/CAC</p>
+              <p className="text-[var(--muted)] text-xs">Confirme Traslado SAP, Nota de Entrega y cliente PX/CAC</p>
             </div>
           </div>
-          <button onClick={onClose} className="text-white/60 hover:text-white" disabled={submitting}>
+          <button onClick={onClose} className="text-[var(--muted)] hover:text-[var(--foreground)]" disabled={submitting}>
             <X className="w-5 h-5" />
           </button>
         </div>
 
         <div className="p-5 space-y-5 overflow-y-auto flex-1">
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-            <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
-              <div className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Outbound</div>
-              <div className="text-2xl font-black text-[#181c3a]">{totals.cajas}</div>
+            <div className="bg-[var(--surface-hover)] rounded-xl p-3 border border-[var(--border)]">
+              <div className={`text-[10px] font-black uppercase tracking-widest ${erpTableHeaderText}`}>Outbound</div>
+              <div className="text-2xl font-black text-[var(--heading)]">{totals.cajas}</div>
             </div>
-            <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
-              <div className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Equipos</div>
-              <div className="text-2xl font-black text-[#181c3a]">
+            <div className="bg-[var(--surface-hover)] rounded-xl p-3 border border-[var(--border)]">
+              <div className={`text-[10px] font-black uppercase tracking-widest ${erpTableHeaderText}`}>Equipos</div>
+              <div className="text-2xl font-black text-[var(--heading)]">
                 {loadingDetail ? '…' : totals.equipos}
               </div>
             </div>
@@ -528,31 +529,31 @@ export function DespachoSalidaModal({ boxes, onClose, onDone }: Props) {
 
           <div className="grid sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-500 uppercase">Traslado SAP *</label>
+              <label className={erpLabelClass}>Traslado SAP *</label>
               <input
                 type="text"
                 value={trasladoSap}
                 onChange={(e) => setTrasladoSap(e.target.value)}
                 placeholder="Ej: 4900123456"
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm font-mono font-bold outline-none focus:border-[#2ec4f1]"
+                className={`${erpFieldClass} font-mono`}
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-500 uppercase">Nota de Entrega *</label>
+              <label className={erpLabelClass}>Nota de Entrega *</label>
               <input
                 type="text"
                 value={notaEntrega}
                 onChange={(e) => setNotaEntrega(e.target.value)}
                 placeholder="Ej: NE-000123"
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm font-mono font-bold outline-none focus:border-[#2ec4f1]"
+                className={`${erpFieldClass} font-mono`}
               />
             </div>
           </div>
 
           <div className="grid sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-500 uppercase">Canal *</label>
-              <div className="flex gap-2">
+              <label className={erpLabelClass}>Canal *</label>
+              <div className={`${erpTab.list} w-full`}>
                 {(['PX', 'CAC'] as const).map((c) => (
                   <button
                     key={c}
@@ -561,13 +562,11 @@ export function DespachoSalidaModal({ boxes, onClose, onDone }: Props) {
                       setChannel(c);
                       setClientId('');
                     }}
-                    className={`flex-1 rounded-lg px-3 py-2.5 text-xs font-black uppercase tracking-widest transition-colors ${
-                      channel === c
-                        ? c === 'PX'
-                          ? 'bg-[#2ec4f1] text-[#181c3a]'
-                          : 'bg-[#181c3a] text-white'
-                        : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                    }`}
+                    className={[
+                      erpTab.trigger,
+                      'flex-1 py-2.5 text-xs',
+                      channel === c ? erpTab.triggerActive : erpTab.triggerInactive,
+                    ].join(' ')}
                   >
                     {c}
                   </button>
@@ -575,14 +574,14 @@ export function DespachoSalidaModal({ boxes, onClose, onDone }: Props) {
               </div>
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-500 uppercase">
+              <label className={erpLabelClass}>
                 {channel === 'PX' ? 'Cliente / Proveedor PX *' : 'Cliente / Agencia CAC *'}
               </label>
               <select
                 value={clientId}
                 onChange={(e) => setClientId(e.target.value)}
                 disabled={loadingClients}
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm font-bold outline-none focus:border-[#2ec4f1]"
+                className={erpFieldClass}
               >
                 <option value="">
                   {loadingClients
@@ -608,12 +607,12 @@ export function DespachoSalidaModal({ boxes, onClose, onDone }: Props) {
           <div>
             <div className="flex items-center justify-between gap-3 mb-3">
               <div className="flex items-center gap-2 min-w-0">
-                <Package className="w-4 h-4 text-[#2ec4f1] shrink-0" />
-                <h3 className="text-xs font-black uppercase tracking-widest text-slate-700">
+                <Package className="w-4 h-4 text-[var(--accent)] shrink-0" />
+                <h3 className="text-xs font-black uppercase tracking-widest text-[var(--heading)]">
                   Detalle de Outbound
                 </h3>
                 {numeroSalida ? (
-                  <span className="font-mono text-[11px] font-black text-[#181c3a] bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-lg">
+                  <span className="font-mono text-[11px] font-black text-[var(--heading)] bg-[var(--surface-hover)] border border-[var(--border)] px-2 py-0.5 rounded-lg">
                     {numeroSalida}
                   </span>
                 ) : null}
@@ -632,17 +631,17 @@ export function DespachoSalidaModal({ boxes, onClose, onDone }: Props) {
                 {printing ? 'Imprimiendo…' : 'Imprimir detalle'}
               </Button>
             </div>
-            <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+            <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--surface)]">
               <table className="w-full min-w-[640px] text-left">
                 <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50">
-                    <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wide text-slate-500">Outbound</th>
-                    <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wide text-slate-500">Marca</th>
-                    <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wide text-slate-500">Modelo</th>
-                    <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wide text-slate-500">Tecnologia</th>
-                    <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wide text-slate-500">Cantidad</th>
-                    <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wide text-slate-500">Material</th>
-                    <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wide text-slate-500">Valoracion</th>
+                  <tr className={erpTableHeader}>
+                    <th className={`px-3 py-2 text-[10px] font-black uppercase tracking-wide ${erpTableHeaderText}`}>Outbound</th>
+                    <th className={`px-3 py-2 text-[10px] font-black uppercase tracking-wide ${erpTableHeaderText}`}>Marca</th>
+                    <th className={`px-3 py-2 text-[10px] font-black uppercase tracking-wide ${erpTableHeaderText}`}>Modelo</th>
+                    <th className={`px-3 py-2 text-[10px] font-black uppercase tracking-wide ${erpTableHeaderText}`}>Tecnologia</th>
+                    <th className={`px-3 py-2 text-[10px] font-black uppercase tracking-wide ${erpTableHeaderText}`}>Cantidad</th>
+                    <th className={`px-3 py-2 text-[10px] font-black uppercase tracking-wide ${erpTableHeaderText}`}>Material</th>
+                    <th className={`px-3 py-2 text-[10px] font-black uppercase tracking-wide ${erpTableHeaderText}`}>Valoracion</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -656,19 +655,19 @@ export function DespachoSalidaModal({ boxes, onClose, onDone }: Props) {
                     const outboundNum = outboundDigits.padStart(6, '0');
                     return (
                       <tr key={b.dbId} className="border-b border-slate-50 last:border-0">
-                        <td className="px-3 py-2.5 text-sm font-mono font-bold text-[#181c3a]">{outboundNum}</td>
-                        <td className="px-3 py-2.5 text-sm font-bold text-[#181c3a]">{b.brandName || '—'}</td>
-                        <td className="px-3 py-2.5 text-sm font-bold text-[#181c3a]">{b.modelName || '—'}</td>
-                        <td className="px-3 py-2.5 text-sm font-bold text-[#181c3a]">{b.techName || '—'}</td>
-                        <td className="px-3 py-2.5 text-sm font-bold text-[#181c3a]">
+                        <td className="px-3 py-2.5 text-sm font-mono font-bold text-[var(--heading)]">{outboundNum}</td>
+                        <td className="px-3 py-2.5 text-sm font-bold text-[var(--heading)]">{b.brandName || '—'}</td>
+                        <td className="px-3 py-2.5 text-sm font-bold text-[var(--heading)]">{b.modelName || '—'}</td>
+                        <td className="px-3 py-2.5 text-sm font-bold text-[var(--heading)]">{b.techName || '—'}</td>
+                        <td className="px-3 py-2.5 text-sm font-bold text-[var(--heading)]">
                           {loadingDetail ? '…' : count}
                         </td>
-                        <td className="px-3 py-2.5 text-sm font-mono font-bold text-[#181c3a]">
+                        <td className="px-3 py-2.5 text-sm font-mono font-bold text-[var(--heading)]">
                           {b.material || '—'}
                         </td>
                         <td
                           className={`px-3 py-2.5 text-sm font-bold ${
-                            isVal ? 'text-emerald-700' : isNoVal ? 'text-amber-700' : 'text-[#181c3a]'
+                            isVal ? 'text-emerald-700' : isNoVal ? 'text-amber-700' : 'text-[var(--heading)]'
                           }`}
                         >
                           {valLabel}
@@ -683,13 +682,13 @@ export function DespachoSalidaModal({ boxes, onClose, onDone }: Props) {
 
         </div>
 
-        <div className="p-5 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-slate-50">
-          <label className="inline-flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer select-none">
+        <div className="p-5 border-t border-[var(--border)] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-[var(--surface-hover)]">
+          <label className="inline-flex items-center gap-2 text-xs font-bold text-[var(--muted)] cursor-pointer select-none">
             <input
               type="checkbox"
               checked={printOnDispatch}
               onChange={(e) => setPrintOnDispatch(e.target.checked)}
-              className="rounded border-slate-300 text-[#2ec4f1] focus:ring-[#2ec4f1]"
+              className="rounded border-[var(--border)] accent-[var(--accent)] focus:ring-[var(--accent)]"
             />
             También imprimir etiquetas TSC al despachar
           </label>

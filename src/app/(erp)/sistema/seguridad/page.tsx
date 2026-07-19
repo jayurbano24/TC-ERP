@@ -362,9 +362,9 @@ export default function SeguridadPage() {
   // ==========================================
   const getSeverityBadge = (severity: string) => {
     switch (severity) {
-      case 'CRITICAL': return <Badge className="bg-rose-100 text-rose-700 border-rose-200 font-black"><ShieldAlert size={12} className="mr-1"/> CRITICAL</Badge>;
-      case 'WARNING': return <Badge className="bg-amber-100 text-amber-700 border-amber-200 font-black"><AlertTriangle size={12} className="mr-1"/> WARNING</Badge>;
-      default: return <Badge className="bg-blue-50 text-blue-600 border-blue-100 font-black"><Info size={12} className="mr-1"/> INFO</Badge>;
+      case 'CRITICAL': return <Badge className="bg-[var(--danger)]/15 text-[var(--danger)] border-[var(--danger)]/20 font-black"><ShieldAlert size={12} className="mr-1"/> CRITICAL</Badge>;
+      case 'WARNING': return <Badge className="bg-[var(--warning)]/15 text-[var(--warning)] border-[var(--warning)]/20 font-black"><AlertTriangle size={12} className="mr-1"/> WARNING</Badge>;
+      default: return <Badge className="bg-[var(--accent)]/15 text-[var(--accent)] border-[var(--accent)]/20 font-black"><Info size={12} className="mr-1"/> INFO</Badge>;
     }
   };
 
@@ -383,36 +383,36 @@ export default function SeguridadPage() {
       title="Seguridad Corporativa"
       category="Enterprise Management"
     >
-      <div className="flex items-center gap-4 mb-6 border-b border-slate-100">
+      <div className="flex items-center gap-4 mb-6 border-b border-[var(--border)]">
         <button 
           onClick={() => setActiveTab('users')}
-          className={`pb-4 px-2 text-sm font-black uppercase tracking-widest transition-all relative ${activeTab === 'users' ? 'text-[#181c3a]' : 'text-slate-300 hover:text-slate-400'}`}
+          className={`pb-4 px-2 text-sm font-black uppercase tracking-widest transition-all relative ${activeTab === 'users' ? 'text-[var(--heading)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]'}`}
         >
           <div className="flex items-center gap-2">
             <UserCog className="w-4 h-4" />
             Gestión de Usuarios
           </div>
-          {activeTab === 'users' && <div className="absolute bottom-0 left-0 w-full h-1 bg-[#2ec4f1] rounded-t-full" />}
+          {activeTab === 'users' && <div className="absolute bottom-0 left-0 w-full h-1 bg-[var(--accent)] rounded-t-full" />}
         </button>
         <button 
           onClick={() => setActiveTab('roles')}
-          className={`pb-4 px-2 text-sm font-black uppercase tracking-widest transition-all relative ${activeTab === 'roles' ? 'text-[#181c3a]' : 'text-slate-300 hover:text-slate-400'}`}
+          className={`pb-4 px-2 text-sm font-black uppercase tracking-widest transition-all relative ${activeTab === 'roles' ? 'text-[var(--heading)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]'}`}
         >
           <div className="flex items-center gap-2">
             <Users className="w-4 h-4" />
             Roles y Permisos
           </div>
-          {activeTab === 'roles' && <div className="absolute bottom-0 left-0 w-full h-1 bg-[#2ec4f1] rounded-t-full" />}
+          {activeTab === 'roles' && <div className="absolute bottom-0 left-0 w-full h-1 bg-[var(--accent)] rounded-t-full" />}
         </button>
         <button 
           onClick={() => setActiveTab('audit')}
-          className={`pb-4 px-2 text-sm font-black uppercase tracking-widest transition-all relative ${activeTab === 'audit' ? 'text-[#181c3a]' : 'text-slate-300 hover:text-slate-400'}`}
+          className={`pb-4 px-2 text-sm font-black uppercase tracking-widest transition-all relative ${activeTab === 'audit' ? 'text-[var(--heading)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]'}`}
         >
           <div className="flex items-center gap-2">
             <History className="w-4 h-4" />
             Auditoría Avanzada
           </div>
-          {activeTab === 'audit' && <div className="absolute bottom-0 left-0 w-full h-1 bg-[#2ec4f1] rounded-t-full" />}
+          {activeTab === 'audit' && <div className="absolute bottom-0 left-0 w-full h-1 bg-[var(--accent)] rounded-t-full" />}
         </button>
       </div>
 
@@ -440,23 +440,23 @@ export default function SeguridadPage() {
       {activeTab === 'users' && (
         <div className="space-y-6 animate-rise-in">
           <Card padding="none" className="overflow-hidden shadow-xl shadow-slate-200/50 border-2 border-slate-100 flex flex-col min-h-[600px]">
-            <div className="p-5 border-b border-slate-100 bg-slate-50 flex flex-col md:flex-row justify-between items-center gap-4">
+            <div className="p-5 border-b border-[var(--border)] bg-[var(--surface-hover)] flex flex-col md:flex-row justify-between items-center gap-4">
               <div>
-                <h3 className="font-black text-[#181c3a] text-sm uppercase tracking-widest flex items-center gap-2">
-                  <UserCog size={18} className="text-[#2ec4f1]" />
+                <h3 className="font-black text-[var(--heading)] text-sm uppercase tracking-widest flex items-center gap-2">
+                  <UserCog size={18} className="text-[var(--accent)]" />
                   Directorio de Cuentas
                 </h3>
-                <p className="text-xs text-slate-500 mt-1">Administra accesos, contraseñas y roles del personal.</p>
+                <p className="text-xs text-[var(--muted)] mt-1">Administra accesos, contraseñas y roles del personal.</p>
               </div>
               <div className="flex gap-4 items-center">
                 <div className="relative w-full md:w-72">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--muted)]" />
                   <input 
                     type="text" 
                     placeholder="Buscar por nombre, correo o rol..." 
                     value={userSearch}
                     onChange={e => setUserSearch(e.target.value)}
-                    className="w-full h-10 pl-10 pr-4 bg-white border-2 border-slate-100 rounded-lg text-xs font-bold outline-none focus:border-[#2ec4f1] transition-all"
+                    className="w-full h-10 pl-10 pr-4 bg-[var(--surface)] border-2 border-[var(--border)] rounded-lg text-xs font-bold outline-none focus:border-[var(--accent)] transition-all"
                   />
                 </div>
                 <Button variant="primary" className="gap-2 shrink-0" onClick={handleOpenCreateProfile} disabled={!canEditSeguridad}>
@@ -467,7 +467,7 @@ export default function SeguridadPage() {
 
             <div className="overflow-x-auto flex-1">
               <table className="w-full text-left text-xs whitespace-nowrap">
-                <thead className="bg-slate-200 text-[#181c3a] text-[10px] font-black uppercase tracking-widest sticky top-0 z-10">
+                <thead className="bg-[var(--surface-hover)] text-[var(--muted)] text-[10px] font-black uppercase tracking-widest sticky top-0 z-10">
                   <tr>
                     <th className="px-6 py-4 rounded-tl-xl">Empleado</th>
                     <th className="px-6 py-4">Correo</th>
@@ -478,22 +478,22 @@ export default function SeguridadPage() {
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {filteredUsers.map(user => (
-                    <tr key={user.id} className="hover:bg-slate-50/50 transition-colors">
+                    <tr key={user.id} className="hover:bg-[var(--surface-hover)]/50 transition-colors">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full overflow-hidden bg-slate-100 flex-shrink-0">
+                          <div className="w-8 h-8 rounded-full overflow-hidden bg-[var(--surface-hover)] flex-shrink-0">
                             {user.avatar_url ? (
                               <img src={user.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
                             ) : (
-                              <div className="w-full h-full flex items-center justify-center bg-[#181c3a] text-white text-xs font-black uppercase">
+                              <div className="w-full h-full flex items-center justify-center bg-[var(--heading)] text-[var(--surface)] text-xs font-black uppercase">
                                 {user.full_name ? user.full_name.substring(0, 2) : 'US'}
                               </div>
                             )}
                           </div>
                           <div>
-                            <div className="font-bold text-[#181c3a]">{user.full_name || 'Sin Nombre'}</div>
+                            <div className="font-bold text-[var(--heading)]">{user.full_name || 'Sin Nombre'}</div>
                             {user.employee_code && (
-                              <div className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded inline-block mt-0.5">
+                              <div className="text-[10px] text-[var(--success)] font-bold bg-[var(--success)]/15 px-1.5 py-0.5 rounded inline-block mt-0.5">
                                 RRHH: {user.employee_code}
                               </div>
                             )}
@@ -504,15 +504,15 @@ export default function SeguridadPage() {
                         {user.email}
                       </td>
                       <td className="px-6 py-4 text-center">
-                        <Badge className="bg-slate-100 text-slate-700 border-slate-200">
+                        <Badge className="bg-[var(--surface-hover)] text-[var(--foreground)] border-[var(--border)]">
                           {user.role}
                         </Badge>
                       </td>
                       <td className="px-6 py-4 text-center">
                         {user.status === 'Activo' ? (
-                          <Badge className="bg-emerald-50 text-emerald-600 border-emerald-200"><CheckCircle2 size={12} className="mr-1"/> Activo</Badge>
+                          <Badge className="bg-[var(--success)]/15 text-[var(--success)] border-[var(--success)]/20"><CheckCircle2 size={12} className="mr-1"/> Activo</Badge>
                         ) : (
-                          <Badge className="bg-rose-50 text-rose-600 border-rose-200"><Ban size={12} className="mr-1"/> Suspendido</Badge>
+                          <Badge className="bg-[var(--danger)]/15 text-[var(--danger)] border-[var(--danger)]/20"><Ban size={12} className="mr-1"/> Suspendido</Badge>
                         )}
                       </td>
                       <td className="px-6 py-4 text-center">
@@ -520,7 +520,7 @@ export default function SeguridadPage() {
                           variant="outline" 
                           size="sm"
                           onClick={() => handleOpenProfile(user)}
-                          className="h-8 border-slate-200 text-[#181c3a] hover:bg-[#181c3a] hover:text-white hover:border-[#181c3a]"
+                          className="h-8 border-[var(--border)] text-[var(--heading)] hover:bg-[var(--heading)] hover:text-[var(--surface)] hover:border-[var(--heading)]"
                         >
                           <Edit2 size={14} className="mr-2" /> Editar Perfil
                         </Button>
@@ -546,17 +546,17 @@ export default function SeguridadPage() {
           {/* COLUMNA 1: LISTA DE ROLES */}
           <Card className="w-full lg:w-64 shrink-0 flex flex-col p-4 shadow-xl shadow-slate-200/50 border-2 border-slate-100">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="font-black text-[#181c3a] tracking-tight">ROLES</h3>
-              <Button size="sm" variant="outline" className="h-8 w-8 p-0 border-slate-200 text-[#2ec4f1]"><Plus size={16} /></Button>
+              <h3 className="font-black text-[var(--heading)] tracking-tight">ROLES</h3>
+              <Button size="sm" variant="outline" className="h-8 w-8 p-0 border-[var(--border)] text-[var(--accent)]"><Plus size={16} /></Button>
             </div>
             <div className="relative mb-4">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--muted)]" />
               <input 
                 type="text" 
                 placeholder="Buscar rol..." 
                 value={roleSearch}
                 onChange={e => setRoleSearch(e.target.value)}
-                className="w-full h-9 pl-9 pr-3 bg-slate-50 border border-slate-200 rounded-lg text-xs outline-none focus:border-[#2ec4f1]"
+                className="w-full h-9 pl-9 pr-3 bg-[var(--surface-hover)] border border-[var(--border)] rounded-lg text-xs outline-none focus:border-[var(--accent)]"
               />
             </div>
             <div className="flex-1 overflow-y-auto space-y-2">
@@ -564,13 +564,13 @@ export default function SeguridadPage() {
                 <div 
                   key={role.id}
                   onClick={() => setSelectedRole(role)}
-                  className={`p-3 rounded-xl cursor-pointer border-2 transition-all ${selectedRole?.id === role.id ? 'bg-[#181c3a] border-[#181c3a] text-white shadow-md' : 'bg-white border-transparent hover:border-slate-100 text-slate-600'}`}
+                  className={`p-3 rounded-xl cursor-pointer border-2 transition-all ${selectedRole?.id === role.id ? 'bg-[var(--surface-hover)] border-[var(--accent)] text-[var(--heading)] shadow-md' : 'bg-[var(--surface)] border-transparent hover:border-[var(--border)] text-[var(--foreground)]'}`}
                 >
                   <div className="flex justify-between items-center">
                     <span className="font-bold text-sm">{role.name}</span>
-                    {role.is_system && <ShieldCheck size={14} className={selectedRole?.id === role.id ? "text-[#2ec4f1]" : "text-amber-500"} />}
+                    {role.is_system && <ShieldCheck size={14} className={selectedRole?.id === role.id ? "text-[var(--accent)]" : "text-[var(--warning)]"} />}
                   </div>
-                  <span className={`text-[10px] truncate block mt-1 ${selectedRole?.id === role.id ? 'text-slate-400' : 'text-slate-400'}`}>
+                  <span className="text-[10px] truncate block mt-1 text-[var(--muted)]">
                     {role.description || 'Sin descripción'}
                   </span>
                 </div>
@@ -580,13 +580,13 @@ export default function SeguridadPage() {
 
           {/* COLUMNA 2: MATRIZ DE PERMISOS */}
           <Card padding="none" className="flex-1 flex flex-col shadow-xl shadow-slate-200/50 border-2 border-slate-100 overflow-hidden">
-            <div className="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+            <div className="p-5 border-b border-[var(--border)] bg-[var(--surface-hover)] flex justify-between items-center">
               <div>
-                <h2 className="text-lg font-black text-[#181c3a] flex items-center gap-2">
-                  <Shield size={20} className="text-[#2ec4f1]" />
+                <h2 className="text-lg font-black text-[var(--heading)] flex items-center gap-2">
+                  <Shield size={20} className="text-[var(--accent)]" />
                   Matriz de Permisos: {selectedRole?.name}
                 </h2>
-                <p className="text-xs text-slate-500 mt-1">Habilita o deshabilita accesos a nivel de módulo.</p>
+                <p className="text-xs text-[var(--muted)] mt-1">Habilita o deshabilita accesos a nivel de módulo.</p>
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" className="h-8 border-slate-200 text-slate-600" disabled={!canEditSeguridad}><Copy size={14} className="mr-2" /> Copiar Permisos</Button>
@@ -595,7 +595,7 @@ export default function SeguridadPage() {
             
             <div className="overflow-x-auto p-0 flex-1">
               <table className="w-full text-left text-xs whitespace-nowrap">
-                <thead className="bg-slate-200 text-[#181c3a] text-[10px] font-black uppercase tracking-widest sticky top-0 z-10">
+                <thead className="bg-[var(--surface-hover)] text-[var(--muted)] text-[10px] font-black uppercase tracking-widest sticky top-0 z-10">
                   <tr>
                     <th className="px-6 py-4 rounded-tl-xl">Módulo</th>
                     <th className="px-4 py-4 text-center">Ver</th>
@@ -610,7 +610,7 @@ export default function SeguridadPage() {
                   {MODULES_MATRIX.map(module => {
                     const perm = permissions.find(p => p.module_name === module) || {};
                     return (
-                      <tr key={module} className="hover:bg-slate-50/50 transition-colors">
+                      <tr key={module} className="hover:bg-[var(--surface-hover)]/50 transition-colors">
                         <td className="px-6 py-3 font-bold text-slate-700">{module}</td>
                         {['can_view', 'can_create', 'can_edit', 'can_delete', 'can_approve', 'can_export'].map(field => {
                           const isChecked = !!perm[field];
@@ -625,8 +625,8 @@ export default function SeguridadPage() {
                                   onChange={() => handleTogglePermission(module, field, isChecked)}
                                   disabled={isLoading || !canEditSeguridad}
                                 />
-                                <div className={`w-9 h-5 rounded-full peer peer-focus:ring-4 peer-focus:ring-[#2ec4f1]/20 transition-all ${isChecked ? 'bg-[#10b981]' : 'bg-slate-200'} ${isLoading ? 'opacity-50' : ''}`}></div>
-                                <div className={`absolute left-[2px] top-[2px] bg-white border border-slate-300 w-4 h-4 rounded-full transition-all ${isChecked ? 'translate-x-full border-white' : ''}`}></div>
+                                <div className={`w-9 h-5 rounded-full peer peer-focus:ring-4 peer-focus:ring-[var(--accent)]/20 transition-all ${isChecked ? 'bg-[var(--success)]' : 'bg-[var(--surface-hover)]'} ${isLoading ? 'opacity-50' : ''}`}></div>
+                                <div className={`absolute left-[2px] top-[2px] bg-[var(--surface)] border border-[var(--border)] w-4 h-4 rounded-full transition-all ${isChecked ? 'translate-x-full border-[var(--surface)]' : ''}`}></div>
                               </label>
                             </td>
                           );
@@ -642,23 +642,23 @@ export default function SeguridadPage() {
           {/* COLUMNA 3: USUARIOS Y SEGURIDAD */}
           <div className="w-full lg:w-80 shrink-0 flex flex-col gap-6">
             <Card className="flex-1 shadow-xl shadow-slate-200/50 border-2 border-slate-100 p-0 overflow-hidden flex flex-col">
-              <div className="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
-                <h3 className="font-black text-[#181c3a] text-sm uppercase tracking-widest flex items-center gap-2">
-                  <Users size={16} className="text-[#2ec4f1]" />
+              <div className="p-4 bg-[var(--surface-hover)] border-b border-[var(--border)] flex justify-between items-center">
+                <h3 className="font-black text-[var(--heading)] text-sm uppercase tracking-widest flex items-center gap-2">
+                  <Users size={16} className="text-[var(--accent)]" />
                   Usuarios ({roleUsers.length})
                 </h3>
               </div>
               <div className="p-4 overflow-y-auto space-y-3 flex-1 min-h-[300px]">
                 {roleUsers.length > 0 ? roleUsers.map(user => (
-                  <div key={user.id} className="flex items-center justify-between p-3 border border-slate-100 rounded-xl bg-white hover:border-[#2ec4f1] transition-colors group">
+                  <div key={user.id} className="flex items-center justify-between p-3 border border-[var(--border)] rounded-xl bg-[var(--surface)] hover:border-[var(--accent)] transition-colors group">
                     <div>
-                      <p className="text-xs font-bold text-[#181c3a]">{user.full_name || 'Usuario'}</p>
-                      <p className="text-[10px] text-slate-400">{user.email}</p>
+                      <p className="text-xs font-bold text-[var(--heading)]">{user.full_name || 'Usuario'}</p>
+                      <p className="text-[10px] text-[var(--muted)]">{user.email}</p>
                     </div>
                     {user.status === 'Activo' ? (
-                        <Badge className="bg-emerald-50 text-emerald-600 border-none scale-75 origin-right">Activo</Badge>
+                        <Badge className="bg-[var(--success)]/15 text-[var(--success)] border-none scale-75 origin-right">Activo</Badge>
                     ) : (
-                        <Badge className="bg-rose-50 text-rose-600 border-none scale-75 origin-right">Inactivo</Badge>
+                        <Badge className="bg-[var(--danger)]/15 text-[var(--danger)] border-none scale-75 origin-right">Inactivo</Badge>
                     )}
                   </div>
                 )) : (
@@ -670,24 +670,24 @@ export default function SeguridadPage() {
               </div>
             </Card>
 
-            <Card className="flex flex-col p-5 shadow-xl shadow-slate-200/50 border-2 border-slate-100 bg-[#181c3a] text-white">
-              <h3 className="font-black text-white text-sm uppercase tracking-widest flex items-center gap-2 mb-4">
-                <Lock size={16} className="text-amber-400" />
+            <Card className="flex flex-col p-5 shadow-xl shadow-slate-200/50 border-2 border-[var(--border)] bg-[var(--surface)]">
+              <h3 className="font-black text-[var(--heading)] text-sm uppercase tracking-widest flex items-center gap-2 mb-4 pb-4 border-b border-[var(--border)]">
+                <Lock size={16} className="text-[var(--warning)]" />
                 Políticas
               </h3>
-              <p className="text-[10px] text-slate-400 mb-4 leading-relaxed">Configuraciones de autenticación para miembros de este rol.</p>
+              <p className="text-[10px] text-[var(--muted)] mb-4 leading-relaxed">Configuraciones de autenticación para miembros de este rol.</p>
               
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
-                  <span className="text-xs font-bold text-slate-200">Requerir 2FA</span>
-                  <div className="w-8 h-4 bg-slate-600 rounded-full relative cursor-not-allowed opacity-50">
-                    <div className="absolute left-1 top-0.5 w-3 h-3 bg-slate-400 rounded-full"></div>
+                  <span className="text-xs font-bold text-[var(--foreground)]">Requerir 2FA</span>
+                  <div className="w-8 h-4 bg-[var(--surface-hover)] rounded-full relative cursor-not-allowed opacity-50">
+                    <div className="absolute left-1 top-0.5 w-3 h-3 bg-[var(--muted)] rounded-full"></div>
                   </div>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-xs font-bold text-slate-200">Forzar cambio</span>
-                  <div className="w-8 h-4 bg-slate-600 rounded-full relative cursor-not-allowed opacity-50">
-                    <div className="absolute left-1 top-0.5 w-3 h-3 bg-slate-400 rounded-full"></div>
+                  <span className="text-xs font-bold text-[var(--foreground)]">Forzar cambio</span>
+                  <div className="w-8 h-4 bg-[var(--surface-hover)] rounded-full relative cursor-not-allowed opacity-50">
+                    <div className="absolute left-1 top-0.5 w-3 h-3 bg-[var(--muted)] rounded-full"></div>
                   </div>
                 </div>
               </div>
@@ -700,20 +700,20 @@ export default function SeguridadPage() {
       {activeTab === 'audit' && (
         <div className="space-y-6 animate-rise-in">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <Card className="p-4 border-l-4 border-l-[#181c3a] flex flex-col justify-center">
-              <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Total Eventos</p>
-              <h2 className="text-2xl font-bold text-[#181c3a]">{totalLogs}</h2>
+            <Card className="p-4 border-l-4 border-l-[var(--heading)] flex flex-col justify-center">
+              <p className="text-xs font-black text-[var(--muted)] uppercase tracking-widest">Total Eventos</p>
+              <h2 className="text-2xl font-bold text-[var(--heading)]">{totalLogs}</h2>
             </Card>
-            <Card className="p-4 border-l-4 border-l-rose-500 flex flex-col justify-center">
-              <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Críticos Recientes</p>
-              <h2 className="text-2xl font-bold text-rose-600">{logs.filter(l => l.severity === 'CRITICAL').length}</h2>
+            <Card className="p-4 border-l-4 border-l-[var(--danger)] flex flex-col justify-center">
+              <p className="text-xs font-black text-[var(--muted)] uppercase tracking-widest">Críticos Recientes</p>
+              <h2 className="text-2xl font-bold text-[var(--danger)]">{logs.filter(l => l.severity === 'CRITICAL').length}</h2>
             </Card>
-            <Card className="p-4 border-l-4 border-l-amber-500 flex flex-col justify-center">
-              <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Advertencias</p>
-              <h2 className="text-2xl font-bold text-amber-600">{logs.filter(l => l.severity === 'WARNING').length}</h2>
+            <Card className="p-4 border-l-4 border-l-[var(--warning)] flex flex-col justify-center">
+              <p className="text-xs font-black text-[var(--muted)] uppercase tracking-widest">Advertencias</p>
+              <h2 className="text-2xl font-bold text-[var(--warning)]">{logs.filter(l => l.severity === 'WARNING').length}</h2>
             </Card>
-            <Card className="p-4 border-l-4 border-l-blue-500 flex flex-col justify-center">
-              <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Exportar Datos</p>
+            <Card className="p-4 border-l-4 border-l-[var(--accent)] flex flex-col justify-center">
+              <p className="text-xs font-black text-[var(--muted)] uppercase tracking-widest">Exportar Datos</p>
               <Button onClick={exportToExcel} variant="outline" className="mt-2 w-full h-8 text-xs font-bold border-slate-200">
                 <Download size={14} className="mr-2" />
                 Excel (XLSX)
@@ -722,9 +722,9 @@ export default function SeguridadPage() {
           </div>
 
           <Card padding="none" className="overflow-hidden border-2 border-slate-100 shadow-xl shadow-slate-200/50">
-            <div className="p-5 border-b border-slate-100 bg-slate-50 flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4">
-              <h3 className="text-sm font-black text-[#181c3a] uppercase tracking-widest flex items-center gap-2">
-                <Filter size={18} className="text-[#2ec4f1]" />
+            <div className="p-5 border-b border-[var(--border)] bg-[var(--surface-hover)] flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4">
+              <h3 className="text-sm font-black text-[var(--heading)] uppercase tracking-widest flex items-center gap-2">
+                <Filter size={18} className="text-[var(--accent)]" />
                 Filtros de Auditoría
               </h3>
               
@@ -732,7 +732,7 @@ export default function SeguridadPage() {
                 <select 
                   value={filterSeverity} 
                   onChange={(e) => setFilterSeverity(e.target.value)}
-                  className="h-9 px-3 bg-white border-2 border-slate-100 rounded-lg text-xs font-bold text-[#181c3a] outline-none"
+                  className="h-9 px-3 bg-[var(--surface)] border-2 border-[var(--border)] rounded-lg text-xs font-bold text-[var(--heading)] outline-none"
                 >
                   <option value="">Todas</option>
                   <option value="INFO">INFO</option>
@@ -749,18 +749,18 @@ export default function SeguridadPage() {
                     placeholder="Buscar tabla o registro ID..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full h-9 pl-10 pr-4 bg-white border-2 border-slate-100 rounded-lg text-xs font-bold text-[#181c3a] outline-none focus:border-[#2ec4f1] transition-all"
+                    className="w-full h-9 pl-10 pr-4 bg-[var(--surface)] border-2 border-[var(--border)] rounded-lg text-xs font-bold text-[var(--heading)] outline-none focus:border-[var(--accent)] transition-all"
                   />
                 </div>
               </div>
             </div>
             
             {auditLoading ? (
-              <div className="p-10 text-center text-slate-400 font-bold animate-pulse">Consultando el motor de auditoría...</div>
+              <div className="p-10 text-center text-[var(--muted)] font-bold animate-pulse">Consultando el motor de auditoría...</div>
             ) : (
               <div className="overflow-x-auto min-h-[400px]">
                 <table className="w-full text-left text-xs whitespace-nowrap">
-                  <thead className="bg-slate-200 text-[#181c3a] text-[10px] font-black uppercase tracking-widest">
+                  <thead className="bg-[var(--surface-hover)] text-[var(--muted)] text-[10px] font-black uppercase tracking-widest">
                     <tr>
                       <th className="px-6 py-4">Fecha/Hora</th>
                       <th className="px-6 py-4">Severidad</th>
@@ -774,38 +774,38 @@ export default function SeguridadPage() {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {logs.map(log => (
-                      <tr key={log.id} className="hover:bg-slate-50 transition-colors">
+                      <tr key={log.id} className="hover:bg-[var(--surface-hover)] transition-colors">
                         <td className="px-6 py-3 text-slate-500 font-mono">
                           {new Date(log.created_at).toLocaleString()}
                         </td>
                         <td className="px-6 py-3">
                           {getSeverityBadge(log.severity)}
                         </td>
-                        <td className="px-6 py-3 font-bold text-[#181c3a]">
+                        <td className="px-6 py-3 font-bold text-[var(--heading)]">
                           {log.profiles?.full_name || 'SISTEMA'}
-                          <span className="block text-[9px] text-slate-400">{log.user_role}</span>
+                          <span className="block text-[9px] text-[var(--muted)]">{log.user_role}</span>
                         </td>
-                        <td className="px-6 py-3 font-bold text-slate-600">
+                        <td className="px-6 py-3 font-bold text-[var(--foreground)]">
                           {log.module}
                         </td>
                         <td className="px-6 py-3">
-                          <Badge className="bg-slate-100 text-slate-600 border-none font-bold">
+                          <Badge className="bg-[var(--surface-hover)] text-[var(--foreground)] border-none font-bold">
                             {log.action}
                           </Badge>
                         </td>
-                        <td className="px-6 py-3 font-mono text-slate-600">
+                        <td className="px-6 py-3 font-mono text-[var(--foreground)]">
                           {log.table_name}
                         </td>
                         <td className="px-6 py-3">
-                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-slate-50 border border-slate-200 rounded-md font-mono text-[10px] text-slate-500" title={log.record_id}>
-                            <span className="text-slate-400">#</span>
+                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-[var(--surface-hover)] border border-[var(--border)] rounded-md font-mono text-[10px] text-[var(--muted)]" title={log.record_id}>
+                            <span className="text-[var(--muted)]">#</span>
                             {log.record_id ? (log.record_id.length > 8 ? log.record_id.substring(0, 8) : log.record_id) : 'N/A'}
                           </span>
                         </td>
                         <td className="px-6 py-3 text-center">
                           <button 
                             onClick={() => setSelectedLog(log)}
-                            className="p-1.5 bg-slate-100 text-[#2ec4f1] hover:bg-[#2ec4f1] hover:text-white rounded-md transition-colors"
+                            className="p-1.5 bg-[var(--surface-hover)] text-[var(--accent)] hover:bg-[var(--accent)] hover:text-[var(--surface)] rounded-md transition-colors"
                           >
                             <Eye size={16} />
                           </button>
@@ -817,8 +817,8 @@ export default function SeguridadPage() {
               </div>
             )}
             
-            <div className="p-4 border-t border-slate-100 bg-white flex justify-between items-center">
-              <span className="text-xs font-bold text-slate-400">
+            <div className="p-4 border-t border-[var(--border)] bg-[var(--surface)] flex justify-between items-center">
+              <span className="text-xs font-bold text-[var(--muted)]">
                 Página {page} de {Math.ceil(totalLogs / limit) || 1}
               </span>
               <div className="flex gap-2">
@@ -832,17 +832,17 @@ export default function SeguridadPage() {
 
       {/* Modal Perfil de Usuario */}
       {userProfileModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-[#181c3a]/70 backdrop-blur-sm animate-fade-in p-4">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-[var(--heading)]/70 backdrop-blur-sm animate-fade-in p-4">
           <Card className="w-full max-w-2xl flex flex-col overflow-hidden shadow-2xl p-0">
-            <div className="p-6 bg-[#181c3a] text-white flex justify-between items-center">
+            <div className="p-6 bg-[var(--surface)] border-b border-[var(--border)] flex justify-between items-center">
                <div>
-                  <h3 className="font-black text-xl flex items-center gap-2"><UserCog size={24} className="text-[#2ec4f1]"/> {userProfileModal.isNew ? 'Nuevo Usuario' : 'Editar Perfil'}</h3>
-                  <p className="text-xs text-slate-400 mt-1 font-mono">{userProfileModal.isNew ? 'Nueva cuenta de acceso' : userProfileModal.email}</p>
+                  <h3 className="font-black text-xl text-[var(--heading)] flex items-center gap-2"><UserCog size={24} className="text-[var(--accent)]"/> {userProfileModal.isNew ? 'Nuevo Usuario' : 'Editar Perfil'}</h3>
+                  <p className="text-xs text-[var(--muted)] mt-1 font-mono">{userProfileModal.isNew ? 'Nueva cuenta de acceso' : userProfileModal.email}</p>
                </div>
-               <Button variant="ghost" onClick={() => setUserProfileModal(null)} className="hover:bg-white/10"><XCircle size={24} /></Button>
+               <Button variant="ghost" onClick={() => setUserProfileModal(null)} className="hover:bg-[var(--surface-hover)]"><XCircle size={24} /></Button>
             </div>
             
-            <div className="p-8 flex flex-col md:flex-row gap-8 bg-slate-50">
+            <div className="p-8 flex flex-col md:flex-row gap-8 bg-[var(--surface-hover)]">
                {/* Izquierda: Foto y Estado */}
                <div className="flex flex-col items-center space-y-4 w-full md:w-1/3">
                   <div className="relative group cursor-pointer">
@@ -850,13 +850,13 @@ export default function SeguridadPage() {
                         {profilePreview ? (
                            <img src={profilePreview} alt="Avatar" className="w-full h-full object-cover" />
                         ) : (
-                           <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 bg-slate-100">
+                           <div className="w-full h-full flex flex-col items-center justify-center text-[var(--muted)] bg-[var(--surface-hover)]">
                               <ImageIcon size={40} className="mb-2 opacity-50"/>
                               <span className="text-[10px] font-black uppercase">Sin Foto</span>
                            </div>
                         )}
                      </div>
-                     <label className="absolute inset-0 bg-[#181c3a]/50 rounded-full flex flex-col items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
+                     <label className="absolute inset-0 bg-[var(--heading)]/50 rounded-full flex flex-col items-center justify-center text-[var(--surface)] opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
                         <Camera size={24} className="mb-1"/>
                         <span className="text-[10px] font-black uppercase tracking-widest">Cambiar</span>
                         <input 
@@ -885,7 +885,7 @@ export default function SeguridadPage() {
                               checked={profileData.is_active}
                               onChange={(e) => setProfileData({...profileData, is_active: e.target.checked})}
                            />
-                           <div className="w-11 h-6 bg-rose-500 rounded-full peer peer-focus:ring-4 peer-focus:ring-emerald-300 peer-checked:bg-emerald-500 transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full peer-checked:after:border-white"></div>
+                           <div className="w-11 h-6 bg-[var(--danger)] rounded-full peer peer-focus:ring-4 peer-focus:ring-[var(--success)]/30 peer-checked:bg-[var(--success)] transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-[var(--surface)] after:border-[var(--border)] after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full peer-checked:after:border-[var(--surface)]"></div>
                         </label>
                         <span className={`text-xs font-bold ${profileData.is_active ? 'text-emerald-500' : 'text-slate-400'}`}>Activo</span>
                      </div>
@@ -895,16 +895,16 @@ export default function SeguridadPage() {
                {/* Derecha: Datos y Seguridad */}
                <div className="flex-1 space-y-6">
                   <div>
-                     <label className="text-[10px] font-black text-[#181c3a] uppercase tracking-widest block mb-1">Nombre Completo</label>
+                     <label className="text-[10px] font-black text-[var(--heading)] uppercase tracking-widest block mb-1">Nombre Completo</label>
                      <input 
                         type="text" 
                         value={profileData.full_name}
                         onChange={e => setProfileData({...profileData, full_name: e.target.value})}
-                        className="w-full h-10 px-3 bg-white border-2 border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-[#2ec4f1] transition-all"
+                        className="w-full h-10 px-3 bg-[var(--surface)] border-2 border-[var(--border)] rounded-lg text-sm font-bold outline-none focus:border-[var(--accent)] transition-all"
                      />
                   </div>
                   <div>
-                     <label className="text-[10px] font-black text-[#181c3a] uppercase tracking-widest block mb-1">
+                     <label className="text-[10px] font-black text-[var(--heading)] uppercase tracking-widest block mb-1">
                        Correo Electrónico {userProfileModal.isNew ? '(Obligatorio)' : '(No editable)'}
                      </label>
                      <input 
@@ -912,15 +912,15 @@ export default function SeguridadPage() {
                         value={profileData.email}
                         onChange={e => setProfileData({...profileData, email: e.target.value})}
                         disabled={!userProfileModal.isNew}
-                        className={`w-full h-10 px-3 border-2 border-slate-200 rounded-lg text-sm font-bold outline-none transition-all ${userProfileModal.isNew ? 'bg-white focus:border-[#2ec4f1] text-[#181c3a]' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
+                        className={`w-full h-10 px-3 border-2 border-[var(--border)] rounded-lg text-sm font-bold outline-none transition-all ${userProfileModal.isNew ? 'bg-[var(--surface)] focus:border-[var(--accent)] text-[var(--heading)]' : 'bg-[var(--surface-hover)] text-[var(--muted)] cursor-not-allowed'}`}
                      />
                   </div>
                   <div>
-                     <label className="text-[10px] font-black text-[#181c3a] uppercase tracking-widest block mb-1">Rol en el Sistema</label>
+                     <label className="text-[10px] font-black text-[var(--heading)] uppercase tracking-widest block mb-1">Rol en el Sistema</label>
                      <select 
                         value={profileData.role_id}
                         onChange={e => setProfileData({...profileData, role_id: e.target.value})}
-                        className="w-full h-10 px-3 bg-white border-2 border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-[#2ec4f1] transition-all"
+                        className="w-full h-10 px-3 bg-[var(--surface)] border-2 border-[var(--border)] rounded-lg text-sm font-bold outline-none focus:border-[var(--accent)] transition-all"
                      >
                         <option value="" disabled>Selecciona un rol...</option>
                         {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
@@ -928,7 +928,7 @@ export default function SeguridadPage() {
                   </div>
 
                   <div>
-                     <label className="text-[10px] font-black text-[#181c3a] uppercase tracking-widest block mb-1 flex items-center gap-1"><Users size={12}/> Enlazar a Empleado (RRHH)</label>
+                     <label className="text-[10px] font-black text-[var(--heading)] uppercase tracking-widest block mb-1 flex items-center gap-1"><Users size={12}/> Enlazar a Empleado (RRHH)</label>
                      <select 
                         value={profileData.employee_id || ''}
                         onChange={e => setProfileData({...profileData, employee_id: e.target.value})}
@@ -947,18 +947,18 @@ export default function SeguridadPage() {
                         value={newPassword}
                         onChange={e => setNewPassword(e.target.value)}
                         placeholder="Mínimo 6 caracteres..."
-                        className="w-full h-9 px-3 bg-white border border-amber-200 rounded-md text-sm outline-none focus:border-amber-500 transition-all"
+                        className="w-full h-9 px-3 bg-[var(--surface)] border border-[var(--warning)]/30 rounded-md text-sm outline-none focus:border-[var(--warning)] transition-all"
                      />
                   </div>
                </div>
             </div>
 
-            <div className="p-4 border-t border-slate-200 bg-white flex justify-end gap-3">
+            <div className="p-4 border-t border-[var(--border)] bg-[var(--surface)] flex justify-end gap-3">
                <Button variant="ghost" onClick={() => setUserProfileModal(null)}>Cancelar</Button>
                <Button 
                   onClick={handleSaveProfile} 
                   disabled={actionLoading || !canEditSeguridad}
-                  className="bg-[#181c3a] hover:bg-slate-800 text-white shadow-lg"
+                  className="bg-[var(--heading)] hover:opacity-90 text-[var(--surface)] shadow-lg"
                >
                   {actionLoading ? 'Guardando...' : 'Guardar Cambios'}
                </Button>
@@ -969,13 +969,13 @@ export default function SeguridadPage() {
 
       {/* Modal Diff */}
       {selectedLog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#181c3a]/50 backdrop-blur-sm animate-fade-in p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--heading)]/50 backdrop-blur-sm animate-fade-in p-4">
           <Card className="w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
-            <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+            <div className="p-4 border-b border-[var(--border)] bg-[var(--surface-hover)] flex justify-between items-center">
               <div>
-                <h3 className="font-black text-[#181c3a]">Detalle de Auditoría</h3>
+                <h3 className="font-black text-[var(--heading)]">Detalle de Auditoría</h3>
                 <div className="flex items-center gap-2 mt-1">
-                  <Badge className="bg-slate-100 text-slate-500 border-none font-mono text-[10px]">
+                  <Badge className="bg-[var(--surface-hover)] text-[var(--muted)] border-none font-mono text-[10px]">
                     ID: {selectedLog.id?.substring(0,8)}
                   </Badge>
                   <span className="text-[10px] text-slate-400 font-mono hidden md:inline-block truncate" title={selectedLog.id}>{selectedLog.id}</span>
@@ -986,34 +986,34 @@ export default function SeguridadPage() {
               </Button>
             </div>
             
-            <div className="p-6 overflow-y-auto space-y-6 bg-slate-50/50">
+            <div className="p-6 overflow-y-auto space-y-6 bg-[var(--surface-hover)]/50">
               <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 <div>
-                  <p className="text-[10px] font-black uppercase text-slate-400">Fecha y Hora</p>
-                  <p className="text-sm font-bold text-[#181c3a]">{new Date(selectedLog.created_at).toLocaleString()}</p>
+                  <p className="text-[10px] font-black uppercase text-[var(--muted)]">Fecha y Hora</p>
+                  <p className="text-sm font-bold text-[var(--heading)]">{new Date(selectedLog.created_at).toLocaleString()}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] font-black uppercase text-slate-400">Usuario</p>
-                  <p className="text-sm font-bold text-[#181c3a]">{selectedLog.profiles?.full_name || 'Sistema'}</p>
+                  <p className="text-[10px] font-black uppercase text-[var(--muted)]">Usuario</p>
+                  <p className="text-sm font-bold text-[var(--heading)]">{selectedLog.profiles?.full_name || 'Sistema'}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] font-black uppercase text-slate-400">Dirección IP</p>
-                  <p className="text-sm font-mono text-slate-600">{selectedLog.ip_address || 'No Registrada'}</p>
+                  <p className="text-[10px] font-black uppercase text-[var(--muted)]">Dirección IP</p>
+                  <p className="text-sm font-mono text-[var(--foreground)]">{selectedLog.ip_address || 'No Registrada'}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] font-black uppercase text-slate-400">Tipo de Acción</p>
-                  <p className="text-sm font-bold text-[#2ec4f1]">{selectedLog.action}</p>
+                  <p className="text-[10px] font-black uppercase text-[var(--muted)]">Tipo de Acción</p>
+                  <p className="text-sm font-bold text-[var(--accent)]">{selectedLog.action}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] font-black uppercase text-slate-400">Tabla / Módulo</p>
-                  <p className="text-sm font-mono text-slate-600">{selectedLog.module} <br/> <span className="text-[10px] text-slate-400">{selectedLog.table_name}</span></p>
+                  <p className="text-[10px] font-black uppercase text-[var(--muted)]">Tabla / Módulo</p>
+                  <p className="text-sm font-mono text-[var(--foreground)]">{selectedLog.module} <br/> <span className="text-[10px] text-[var(--muted)]">{selectedLog.table_name}</span></p>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Card padding="none" className="overflow-hidden border border-rose-100">
-                  <div className="bg-rose-50 p-2 border-b border-rose-100 text-xs font-black uppercase text-rose-600 tracking-widest text-center">Valores Anteriores</div>
-                  <div className="p-4 bg-white min-h-[150px] overflow-x-auto">
+                <Card padding="none" className="overflow-hidden border border-[var(--danger)]/20">
+                  <div className="bg-[var(--danger)]/15 p-2 border-b border-[var(--danger)]/20 text-xs font-black uppercase text-[var(--danger)] tracking-widest text-center">Valores Anteriores</div>
+                  <div className="p-4 bg-[var(--surface)] min-h-[150px] overflow-x-auto">
                      {(!selectedLog.old_values || Object.keys(selectedLog.old_values).length === 0) ? (
                         <p className="text-slate-400 italic text-center mt-10 text-xs">Sin valores anteriores registrados</p>
                      ) : (
@@ -1028,9 +1028,9 @@ export default function SeguridadPage() {
                      )}
                   </div>
                 </Card>
-                <Card padding="none" className="overflow-hidden border border-emerald-100">
-                  <div className="bg-emerald-50 p-2 border-b border-emerald-100 text-xs font-black uppercase text-emerald-600 tracking-widest text-center">Valores Nuevos</div>
-                  <div className="p-4 bg-white min-h-[150px] overflow-x-auto">
+                <Card padding="none" className="overflow-hidden border border-[var(--success)]/20">
+                  <div className="bg-[var(--success)]/15 p-2 border-b border-[var(--success)]/20 text-xs font-black uppercase text-[var(--success)] tracking-widest text-center">Valores Nuevos</div>
+                  <div className="p-4 bg-[var(--surface)] min-h-[150px] overflow-x-auto">
                      {(!selectedLog.new_values || Object.keys(selectedLog.new_values).length === 0) ? (
                         <p className="text-slate-400 italic text-center mt-10 text-xs">Sin valores nuevos registrados</p>
                      ) : (
@@ -1050,7 +1050,7 @@ export default function SeguridadPage() {
               {selectedLog.observations && (
                 <div>
                   <p className="text-[10px] font-black uppercase text-slate-400 mb-1">Observaciones</p>
-                  <Card className="p-3 bg-white text-sm text-slate-600 font-mono">{selectedLog.observations}</Card>
+                  <Card className="p-3 bg-[var(--surface)] text-sm text-[var(--foreground)] font-mono">{selectedLog.observations}</Card>
                 </div>
               )}
             </div>

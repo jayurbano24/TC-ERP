@@ -86,7 +86,7 @@ function DataTableComponent<T>({
   className = '',
   rowClassName,
   ariaLabel,
-  headerClassName = 'bg-[var(--surface)] border-b border-[var(--border)]',
+  headerClassName = 'border-b border-[var(--border)] bg-[var(--surface)]',
   headerTextClassName = 'text-[var(--muted)]',
 }: DataTableProps<T>) {
   const parentRef = useRef<HTMLDivElement>(null);
@@ -174,7 +174,7 @@ function DataTableComponent<T>({
                     key={getRowId(row, vItem.index)}
                     role="row"
                     onClick={clickable ? () => onRowClick!(row, vItem.index) : undefined}
-                    className={`grid items-center border-b border-[var(--border)] ${rowText} font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)] group ${clickable ? 'cursor-pointer' : ''} ${rowClassName?.(row, vItem.index) ?? ''}`}
+                    className={`group grid items-center border-b border-[var(--border)] ${rowText} font-medium hover:bg-[var(--surface-hover)] ${clickable ? 'cursor-pointer' : ''} ${rowClassName?.(row, vItem.index) ?? ''}`}
                     style={{
                       position: 'absolute',
                       top: 0,
@@ -183,6 +183,7 @@ function DataTableComponent<T>({
                       height: vItem.size,
                       transform: `translateY(${vItem.start}px)`,
                       gridTemplateColumns,
+                      color: 'var(--foreground)',
                     }}
                   >
                     {renderCells(row, vItem.index)}
@@ -196,8 +197,12 @@ function DataTableComponent<T>({
                 key={getRowId(row, index)}
                 role="row"
                 onClick={clickable ? () => onRowClick!(row, index) : undefined}
-                className={`grid w-full items-center border-b border-[var(--border)] ${rowText} font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)] group ${clickable ? 'cursor-pointer' : ''} ${rowClassName?.(row, index) ?? ''}`}
-                style={{ gridTemplateColumns, minHeight: rowHeight }}
+                className={`group grid w-full items-center border-b border-[var(--border)] ${rowText} font-medium hover:bg-[var(--surface-hover)] ${clickable ? 'cursor-pointer' : ''} ${rowClassName?.(row, index) ?? ''}`}
+                style={{
+                  gridTemplateColumns,
+                  minHeight: rowHeight,
+                  color: 'var(--foreground)',
+                }}
               >
                 {renderCells(row, index)}
               </div>

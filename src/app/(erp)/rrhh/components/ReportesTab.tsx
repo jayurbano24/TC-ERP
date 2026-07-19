@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Card, Button, Spinner, notify } from '@/components/ui';
+import { erpFieldClass } from '@/lib/design/tokens';
 import { EMPLOYEE_REPORT_SELECT, TIME_LOG_REPORT_SELECT } from '@/shared/constants/dbProjections';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { apiFetch } from '@/lib/http/apiFetch';
@@ -390,28 +391,28 @@ export default function ReportesTab() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold">Centro de Reportes</h2>
-        <p className="text-sm text-slate-500">Genera y exporta reportes detallados en formato Excel.</p>
+        <h2 className="text-xl font-bold text-[var(--foreground)]">Centro de Reportes</h2>
+        <p className="text-sm text-[var(--muted)]">Genera y exporta reportes detallados en formato Excel.</p>
       </div>
 
       {/* Rango de Fechas Global */}
-      <Card className="flex items-center gap-4 bg-slate-50 border-slate-200 shadow-sm">
-        <div className="text-sm font-bold text-slate-700 flex items-center gap-2">
-          <CalendarDays className="w-4 h-4 text-slate-400" />
+      <Card className="flex items-center gap-4 bg-[var(--surface)] border-[var(--border)] shadow-sm">
+        <div className="text-sm font-bold text-[var(--foreground)] flex items-center gap-2">
+          <CalendarDays className="w-4 h-4 text-[var(--muted)]" />
           Periodo de Análisis:
         </div>
         <input 
           type="date" 
           value={startDate} 
           onChange={e => setStartDate(e.target.value)}
-          className="h-9 px-3 rounded-md border border-slate-200 outline-none focus:border-[#2ec4f1] text-sm font-medium"
+          className={`${erpFieldClass} h-9 px-3 py-0`}
         />
-        <span className="text-slate-400 font-medium">al</span>
+        <span className="text-[var(--muted)] font-medium">al</span>
         <input 
           type="date" 
           value={endDate} 
           onChange={e => setEndDate(e.target.value)}
-          className="h-9 px-3 rounded-md border border-slate-200 outline-none focus:border-[#2ec4f1] text-sm font-medium"
+          className={`${erpFieldClass} h-9 px-3 py-0`}
         />
       </Card>
 
@@ -504,7 +505,7 @@ export default function ReportesTab() {
         <ReportCard 
           title="Vacaciones y Permisos" 
           desc="Módulo en desarrollo (Fase 3)." 
-          icon={<CalendarDays className="text-slate-300" />} 
+          icon={<CalendarDays className="text-[var(--muted)]" />} 
           onClick={() => {}} 
           loading={false}
           disabled={true}
@@ -512,7 +513,7 @@ export default function ReportesTab() {
         <ReportCard 
           title="Nómina y Salarios" 
           desc="Cálculo salarial en desarrollo (Fase 2)." 
-          icon={<Calculator className="text-slate-300" />} 
+          icon={<Calculator className="text-[var(--muted)]" />} 
           onClick={() => {}} 
           loading={false}
           disabled={true}
@@ -525,18 +526,18 @@ export default function ReportesTab() {
 
 function ReportCard({ title, desc, icon, onClick, loading, disabled = false }: any) {
   return (
-    <Card padding="sm" className={`flex flex-col border-slate-200 hover:border-[#2ec4f1] transition-colors ${disabled ? 'opacity-60 grayscale cursor-not-allowed' : ''}`}>
+    <Card padding="sm" className={`flex flex-col border-[var(--border)] hover:border-[var(--accent)]/50 transition-colors ${disabled ? 'opacity-60 grayscale cursor-not-allowed' : ''}`}>
       <div className="flex items-center gap-3 mb-2">
-        <div className="p-2 bg-slate-50 rounded-lg">
+        <div className="p-2 bg-[var(--surface-hover)] rounded-lg border border-[var(--border)]">
           {icon}
         </div>
-        <h3 className="font-bold text-slate-800 leading-tight">{title}</h3>
+        <h3 className="font-bold text-[var(--foreground)] leading-tight">{title}</h3>
       </div>
-      <p className="text-xs text-slate-500 flex-1 mb-4">{desc}</p>
+      <p className="text-xs text-[var(--muted)] flex-1 mb-4">{desc}</p>
       
       <Button 
         variant="outline" 
-        className="w-full gap-2 text-xs h-8 border-slate-200 text-slate-700 hover:bg-[#2ec4f1] hover:text-white hover:border-[#2ec4f1]" 
+        className="w-full gap-2 text-xs h-8 border-[var(--accent)]/40 text-[var(--accent)] hover:bg-[var(--accent)] hover:text-[var(--primary-foreground)] hover:border-[var(--accent)]" 
         onClick={onClick}
         disabled={loading || disabled}
       >

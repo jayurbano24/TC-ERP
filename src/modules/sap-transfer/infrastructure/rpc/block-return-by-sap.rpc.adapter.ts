@@ -29,24 +29,39 @@ export class BlockReturnBySapRpcAdapter implements IBlockReturnGateway {
         units_count?: number;
         series_updated?: number;
         sap_document_number?: string;
+        sap_base?: string;
+        documents?: string[];
+        documents_count?: number;
       };
+
+      const sapBase = payload.sap_base || payload.sap_document_number || sapTransferId;
 
       await logAdvancedAudit({
         module: 'Logística',
         tableName: 'sap_transfer_documents',
-        recordId: sapTransferId,
+        recordId: String(sapBase),
         action: 'DEVOLUCION_BLOQUE_SAP',
         newValues: {
           status: SAP_TRANSFER_STATUS.DEVUELTO_BLOQUE,
+          sap_base: sapBase,
+          documents: payload.documents || [],
+          documents_count: payload.documents_count ?? 0,
           units_count: payload.units_count ?? 0,
           series_updated: payload.series_updated ?? 0,
           motivo: formData.motivo,
+          guia_salida: formData.guiaSalida,
           atomic: true,
         },
-        observations: `Devolución en bloque atómica por Documento SAP ${payload.sap_document_number || sapTransferId} (${payload.units_count ?? 0} equipos).`,
+        observations: `Devolución Bloque SAP base ${sapBase} · ${payload.documents_count ?? 0} documento(s) · ${payload.units_count ?? 0} equipo(s). Motivo: ${formData.motivo}`,
       });
 
-      return { success: true, unitsCount: payload.units_count ?? 0 };
+      return {
+        success: true,
+        unitsCount: payload.units_count ?? 0,
+        sapBase,
+        documentsCount: payload.documents_count ?? 0,
+        documents: payload.documents || [],
+      };
     } catch (err) {
       return { error: formatSupabaseNetworkError(err, 'Error en devolución en bloque.') };
     }

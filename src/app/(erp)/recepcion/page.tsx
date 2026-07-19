@@ -354,13 +354,13 @@ export default function ReceptionsPage() {
         <div className="flex bg-[var(--surface-hover)] p-1 rounded-xl">
           <button 
             onClick={() => setModuleMode('px')}
-            className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${moduleMode === 'px' ? 'bg-[#181c3a] text-white shadow-lg' : 'text-[var(--muted)] hover:text-[var(--foreground)]'}`}
+            className={`rounded-lg px-4 py-2 text-[10px] font-black tracking-widest uppercase transition-all ${moduleMode === 'px' ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-lg' : 'text-[var(--muted)] hover:text-[var(--foreground)]'}`}
           >
             Módulo PX
           </button>
           <button 
             onClick={() => setModuleMode('cac')}
-            className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${moduleMode === 'cac' ? 'bg-[#181c3a] text-white shadow-lg' : 'text-[var(--muted)] hover:text-[var(--foreground)]'}`}
+            className={`rounded-lg px-4 py-2 text-[10px] font-black tracking-widest uppercase transition-all ${moduleMode === 'cac' ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-lg' : 'text-[var(--muted)] hover:text-[var(--foreground)]'}`}
           >
             Módulo CAC
           </button>

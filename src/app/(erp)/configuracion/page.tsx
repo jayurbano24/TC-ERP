@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card, Badge, Button, notify, confirmDialog } from '@/components/ui';
 import { ModulePage } from '@/components/module-page';
 import { 
@@ -22,8 +22,12 @@ import {
   ClipboardList,
   Truck,
   CheckSquare,
-  Users
+  Users,
+  Palette
 } from 'lucide-react';
+import { useAuthz } from '@/components/authz';
+import { canConfigureThemes } from '@/lib/design/seasonal-presets';
+import { ThemeColorsView } from './components/ThemeColorsView';
 import { 
   getTechnologies, saveTechnology, deleteTechnology,
   getBrands, saveBrand, deleteBrand,
@@ -86,8 +90,35 @@ type Agencia = {
 };
 
 export default function ConfiguracionPage() {
-  const [activeView, setActiveView] = useState<'marcas' | 'modelos' | 'tecnologias' | 'diagnosticos' | 'reparaciones' | 'reacondicionado' | 'agencias' | 'transportes' | 'usuarios' | 'px_providers' | 'razones_devolucion'>('marcas');
+  const { email: authzEmail, roleLabel, isLoading: authzLoading, snapshot } = useAuthz();
+  const [sessionEmail, setSessionEmail] = useState<string | null>(null);
+  const resolvedEmail = authzEmail || snapshot.email || sessionEmail;
+  const canEditThemes = canConfigureThemes(resolvedEmail);
+  const [activeView, setActiveView] = useState<'tema' | 'marcas' | 'modelos' | 'tecnologias' | 'diagnosticos' | 'reparaciones' | 'reacondicionado' | 'agencias' | 'transportes' | 'usuarios' | 'px_providers' | 'razones_devolucion'>('marcas');
   const [showModal, setShowModal] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { getSupabaseBrowserClient } = await import('@/lib/supabase/client');
+        const supabase = getSupabaseBrowserClient();
+        const { data } = await supabase.auth.getUser();
+        if (!cancelled) setSessionEmail(data.user?.email ?? null);
+      } catch {
+        if (!cancelled) setSessionEmail(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!authzLoading && !canEditThemes && activeView === 'tema') {
+      setActiveView('marcas');
+    }
+  }, [authzLoading, canEditThemes, activeView]);
   const [modalType, setModalType] = useState<'marca' | 'modelo' | 'tecnologia' | 'diagnostico' | 'reparacion' | 'reacondicionado' | 'agencia' | 'transporte' | 'usuario' | 'px_provider' | 'razon_devolucion'>('marca');
   const [editingItem, setEditingItem] = useState<any | null>(null);
 
@@ -308,8 +339,15 @@ export default function ConfiguracionPage() {
         await deleteBrand(id);
         setMarcas(marcas.filter(m => m.id !== id));
       } else if (type === 'modelo') {
-        await deleteModel(id);
-        setModelos(modelos.filter(m => m.id !== id));
+        const { error } = await deleteModel(id);
+        if (error) {
+          notify.error('No se pudo eliminar el modelo', {
+            description: typeof error === 'string' ? error : (error as any)?.message || String(error),
+          });
+        } else {
+          setModelos(modelos.filter(m => m.id !== id));
+          notify.success('Modelo eliminado');
+        }
       } else if (type === 'tecnologia') {
         await deleteTechnology(id);
         setTecnologias(tecnologias.filter(t => t.id !== id));
@@ -529,77 +567,91 @@ export default function ConfiguracionPage() {
       <div className="flex flex-col lg:flex-row gap-8">
         {/* Sidebar de Configuración */}
         <div className="lg:w-64 space-y-2">
+          {canEditThemes ? (
+            <div className="pb-2">
+              <p className="mb-2 px-6 text-[9px] font-black tracking-widest text-neutral-800 uppercase">Apariencia</p>
+              <button
+                type="button"
+                onClick={() => setActiveView('tema')}
+                className={`w-full flex items-center gap-3 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all ${activeView === 'tema' ? 'bg-accent text-accent-foreground shadow-xl' : 'text-black hover:bg-neutral-100 dark:hover:bg-white/5'}`}
+                title={roleLabel ? `${roleLabel}` : undefined}
+              >
+                <Palette size={14} /> Tema / Colores
+              </button>
+            </div>
+          ) : null}
+
           <button 
             onClick={() => setActiveView('marcas')}
-            className={`w-full flex items-center gap-3 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all ${activeView === 'marcas' ? 'bg-[#181c3a] text-white shadow-xl' : 'text-slate-400 hover:bg-slate-100'}`}
+            className={`w-full flex items-center gap-3 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all ${activeView === 'marcas' ? 'bg-[#181c3a] text-white shadow-xl' : 'text-black hover:bg-neutral-100'}`}
           >
             <Tag size={14} /> Marcas
           </button>
           <button 
             onClick={() => setActiveView('modelos')}
-            className={`w-full flex items-center gap-3 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all ${activeView === 'modelos' ? 'bg-[#181c3a] text-white shadow-xl' : 'text-slate-400 hover:bg-slate-100'}`}
+            className={`w-full flex items-center gap-3 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all ${activeView === 'modelos' ? 'bg-[#181c3a] text-white shadow-xl' : 'text-black hover:bg-neutral-100'}`}
           >
             <Layers size={14} /> Modelos
           </button>
           <button 
             onClick={() => setActiveView('tecnologias')}
-            className={`w-full flex items-center gap-3 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all ${activeView === 'tecnologias' ? 'bg-[#181c3a] text-white shadow-xl' : 'text-slate-400 hover:bg-slate-100'}`}
+            className={`w-full flex items-center gap-3 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all ${activeView === 'tecnologias' ? 'bg-[#181c3a] text-white shadow-xl' : 'text-black hover:bg-neutral-100'}`}
           >
             <Cpu size={14} /> Tecnologías / Reglas
           </button>
           
           <div className="pt-4 mt-4 border-t border-slate-100">
-            <p className="px-6 text-[9px] font-black uppercase text-slate-400 mb-2 tracking-widest">Soporte Técnico</p>
+            <p className="mb-2 px-6 text-[9px] font-black tracking-widest text-neutral-800 uppercase">Soporte Técnico</p>
             <button 
               onClick={() => setActiveView('diagnosticos')}
-              className={`w-full flex items-center gap-3 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all ${activeView === 'diagnosticos' ? 'bg-[#181c3a] text-white shadow-xl' : 'text-slate-400 hover:bg-slate-100'}`}
+              className={`w-full flex items-center gap-3 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all ${activeView === 'diagnosticos' ? 'bg-[#181c3a] text-white shadow-xl' : 'text-black hover:bg-neutral-100'}`}
             >
               <Stethoscope size={14} /> Falla Diagnóstico
             </button>
             <button 
               onClick={() => setActiveView('reparaciones')}
-              className={`w-full flex items-center gap-3 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all ${activeView === 'reparaciones' ? 'bg-[#181c3a] text-white shadow-xl' : 'text-slate-400 hover:bg-slate-100'}`}
+              className={`w-full flex items-center gap-3 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all ${activeView === 'reparaciones' ? 'bg-[#181c3a] text-white shadow-xl' : 'text-black hover:bg-neutral-100'}`}
             >
               <Wrench size={14} /> Reparaciones
             </button>
             <button 
               onClick={() => setActiveView('reacondicionado')}
-              className={`w-full flex items-center gap-3 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all ${activeView === 'reacondicionado' ? 'bg-[#181c3a] text-white shadow-xl' : 'text-slate-400 hover:bg-slate-100'}`}
+              className={`w-full flex items-center gap-3 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all ${activeView === 'reacondicionado' ? 'bg-[#181c3a] text-white shadow-xl' : 'text-black hover:bg-neutral-100'}`}
             >
               <CheckSquare size={14} /> Reacondicionado
             </button>
           </div>
 
           <div className="pt-4 mt-4 border-t border-slate-100">
-            <p className="px-6 text-[9px] font-black uppercase text-slate-400 mb-2 tracking-widest">Logística</p>
+            <p className="mb-2 px-6 text-[9px] font-black tracking-widest text-neutral-800 uppercase">Logística</p>
             <button 
               onClick={() => setActiveView('agencias')}
-              className={`w-full flex items-center gap-3 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all ${activeView === 'agencias' ? 'bg-[#181c3a] text-white shadow-xl' : 'text-slate-400 hover:bg-slate-100'}`}
+              className={`w-full flex items-center gap-3 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all ${activeView === 'agencias' ? 'bg-[#181c3a] text-white shadow-xl' : 'text-black hover:bg-neutral-100'}`}
             >
               <Truck size={14} /> Agencias CAC
             </button>
             <button 
               onClick={() => setActiveView('transportes')}
-              className={`w-full flex items-center gap-3 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all ${activeView === 'transportes' ? 'bg-[#181c3a] text-white shadow-xl' : 'text-slate-400 hover:bg-slate-100'}`}
+              className={`w-full flex items-center gap-3 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all ${activeView === 'transportes' ? 'bg-[#181c3a] text-white shadow-xl' : 'text-black hover:bg-neutral-100'}`}
             >
               <Truck size={14} /> Empresas Logísticas
             </button>
             <button 
               onClick={() => setActiveView('px_providers')}
-              className={`w-full flex items-center gap-3 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all ${activeView === 'px_providers' ? 'bg-[#181c3a] text-white shadow-xl' : 'text-slate-400 hover:bg-slate-100'}`}
+              className={`w-full flex items-center gap-3 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all ${activeView === 'px_providers' ? 'bg-[#181c3a] text-white shadow-xl' : 'text-black hover:bg-neutral-100'}`}
             >
               <ClipboardList size={14} /> Proveedores PX
             </button>
             <button 
               onClick={() => setActiveView('razones_devolucion')}
-              className={`w-full flex items-center gap-3 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all ${activeView === 'razones_devolucion' ? 'bg-[#181c3a] text-white shadow-xl' : 'text-slate-400 hover:bg-slate-100'}`}
+              className={`w-full flex items-center gap-3 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all ${activeView === 'razones_devolucion' ? 'bg-[#181c3a] text-white shadow-xl' : 'text-black hover:bg-neutral-100'}`}
             >
               <AlertTriangle size={14} /> Razones de Devolución
             </button>
           </div>
 
           <div className="pt-4 mt-4 border-t border-slate-100">
-            <p className="px-6 text-[9px] font-black uppercase text-slate-400 mb-2 tracking-widest">Rendimiento</p>
+            <p className="mb-2 px-6 text-[9px] font-black tracking-widest text-neutral-800 uppercase">Rendimiento</p>
             <a 
               href="/configuracion/metas"
               className="w-full flex items-center gap-3 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all text-[#2ec4f1] hover:bg-[#2ec4f1]/10 bg-white border-2 border-[#2ec4f1]/20"
@@ -611,6 +663,8 @@ export default function ConfiguracionPage() {
 
         {/* Área de Trabajo */}
         <div className="flex-1 space-y-6">
+          {activeView === 'tema' && canEditThemes ? <ThemeColorsView /> : null}
+
           {activeView === 'marcas' && (
             <CatalogTableView
               type="marca"
@@ -811,24 +865,32 @@ export default function ConfiguracionPage() {
                           return (
                             <tr key={mod.id} className="hover:bg-slate-50/50 transition-colors">
                               <td className="px-6 py-4">
-                                <Badge variant="slate" className="bg-slate-100 text-[#181c3a] border-none font-black text-[10px]">{marca?.nombre}</Badge>
+                                <Badge className="border-neutral-200 bg-neutral-100 text-black !text-black">
+                                  {marca?.nombre}
+                                </Badge>
                               </td>
                               <td className="px-6 py-4">
                                 <div className="flex flex-col">
-                                  <span className="text-sm font-bold text-slate-700">{mod.nombre}</span>
-                                  <span className="text-[9px] font-medium text-slate-400 uppercase tracking-widest">{tech?.nombre}</span>
+                                  <span className="text-sm font-bold text-black">{mod.nombre}</span>
+                                  <span className="text-[9px] font-semibold uppercase tracking-widest text-neutral-700">
+                                    {tech?.nombre}
+                                  </span>
                                 </div>
                               </td>
                               <td className="px-6 py-4">
                                 <div className="flex gap-2">
-                                  <Badge variant="blue" className="text-[9px] bg-[#2ec4f1]/10 text-[#2ec4f1] border-none">{mod.seriesCount} Series</Badge>
-                                  <Badge variant="slate" className="text-[9px] bg-slate-100 text-slate-500 border-none">{mod.digitsPerSeries?.join('/')} Dig.</Badge>
+                                  <Badge variant="blue" className="border-none bg-[#2ec4f1]/10 text-[9px] text-[#0e7490]">
+                                    {mod.seriesCount} Series
+                                  </Badge>
+                                  <Badge className="border-neutral-200 bg-neutral-100 text-[9px] text-black !text-black">
+                                    {mod.digitsPerSeries?.join('/')} Dig.
+                                  </Badge>
                                 </div>
                               </td>
                               <td className="px-6 py-4 text-right">
                                 <div className="flex justify-end gap-2">
-                                  <button onClick={() => handleOpenModal('modelo', mod)} className="p-2 text-slate-300 hover:text-[#181c3a]"><Edit3 size={14} /></button>
-                                  <button onClick={() => handleDelete('modelo', mod.id)} className="p-2 text-slate-300 hover:text-rose-500"><Trash2 size={14} /></button>
+                                  <button onClick={() => handleOpenModal('modelo', mod)} className="p-2 text-neutral-600 hover:text-black"><Edit3 size={14} /></button>
+                                  <button onClick={() => handleDelete('modelo', mod.id)} className="p-2 text-neutral-600 hover:text-rose-500"><Trash2 size={14} /></button>
                                 </div>
                               </td>
                             </tr>
@@ -870,18 +932,25 @@ export default function ConfiguracionPage() {
                     {diagnosticos.map(diag => (
                       <tr key={diag.id} className="hover:bg-slate-50 transition-colors group">
                         <td className="px-8 py-5">
-                          <span className="font-black text-[#181c3a] text-sm uppercase block">{diag.nombre}</span>
-                          <span className="font-mono text-[9px] text-slate-400 mt-1">#{diag.id.substring(0, 8)}</span>
+                          <span className="block text-sm font-black uppercase text-black">{diag.nombre}</span>
+                          <span className="mt-1 font-mono text-[9px] text-neutral-700">#{diag.id.substring(0, 8)}</span>
                         </td>
                         <td className="px-8 py-5">
                           <div className="flex flex-wrap gap-1">
                             {diag.reparacionesIds.length > 0 ? (
                               diag.reparacionesIds.map(rid => {
                                 const rep = reparaciones.find(r => r.id === rid);
-                                return <Badge key={rid} variant="slate" className="bg-slate-100 text-slate-600 border-none text-[9px] font-bold px-2 py-0.5 uppercase">{rep?.nombre || 'Desconocida'}</Badge>
+                                return (
+                                  <Badge
+                                    key={rid}
+                                    className="border-neutral-200 bg-neutral-100 px-2 py-0.5 text-[9px] font-bold uppercase text-black !text-black"
+                                  >
+                                    {rep?.nombre || 'Desconocida'}
+                                  </Badge>
+                                );
                               })
                             ) : (
-                              <span className="text-[10px] italic text-slate-300 font-medium">Sin reparaciones</span>
+                              <span className="text-[10px] font-medium italic text-neutral-600">Sin reparaciones</span>
                             )}
                           </div>
                         </td>

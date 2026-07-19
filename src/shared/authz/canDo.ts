@@ -28,6 +28,8 @@ export interface UserAuthz {
   roleLabel: string | null;
   isAdmin: boolean;
   perms: ModulePermission[];
+  /** Email de la sesión (UX: p. ej. gate Tema/Colores). No usar como seguridad. */
+  email?: string | null;
 }
 
 export const ACTION_COLUMN: Record<PermAction, keyof ModulePermission> = {

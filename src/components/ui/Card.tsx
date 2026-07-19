@@ -7,7 +7,18 @@ interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
 }
 
 export const Card = React.forwardRef<HTMLDivElement, CardProps>(
-  ({ className = '', glass, hoverable, padding = 'md', children, ...props }, ref) => {
+  (
+    {
+      className = '',
+      glass,
+      hoverable,
+      padding = 'md',
+      children,
+      style,
+      ...props
+    },
+    ref,
+  ) => {
     const paddings = {
       none: 'p-0',
       sm: 'p-4',
@@ -20,18 +31,25 @@ export const Card = React.forwardRef<HTMLDivElement, CardProps>(
       <div
         ref={ref}
         className={`
-          rounded-3xl border border-[var(--border)] bg-[var(--surface)] shadow-[var(--card-shadow)]
-          ${glass ? 'backdrop-blur-xl bg-[var(--surface)]/80' : ''}
-          ${hoverable ? 'hover:shadow-2xl transition-all duration-300 hover:-translate-y-1' : ''}
+          rounded-3xl border border-border shadow-[var(--card-shadow)]
+          ${glass ? 'backdrop-blur-xl' : ''}
+          ${hoverable ? 'transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl' : ''}
           ${paddings[padding]}
           ${className}
         `}
+        style={{
+          backgroundColor: glass
+            ? 'color-mix(in srgb, var(--surface) 80%, transparent)'
+            : 'var(--surface)',
+          color: 'var(--foreground)',
+          ...style,
+        }}
         {...props}
       >
         {children}
       </div>
     );
-  }
+  },
 );
 
 Card.displayName = 'Card';

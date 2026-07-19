@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react';
 import { Card, Button, Spinner, confirmDialog } from '@/components/ui';
 import { HR_DEPARTMENT_SELECT, HR_EMPLOYEE_TYPE_SELECT, HR_POSITION_SELECT } from '@/shared/constants/dbProjections';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
-import { Plus, Trash2, Edit2 } from 'lucide-react';
+import { erpInputClass } from '@/lib/design/tokens';
+import { Plus, Trash2 } from 'lucide-react';
 
 export default function CatalogosTab() {
   const [activeCatalog, setActiveCatalog] = useState<'departments' | 'positions' | 'employeeTypes'>('departments');
@@ -70,61 +71,62 @@ export default function CatalogosTab() {
     }
   };
 
+  const catalogTabs = [
+    { id: 'departments' as const, label: 'Departamentos' },
+    { id: 'positions' as const, label: 'Cargos / Puestos' },
+    { id: 'employeeTypes' as const, label: 'Categorías de Empleado' },
+  ];
+
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold">Catálogos de Organización</h2>
-        <p className="text-sm text-slate-500">Administra los departamentos, cargos y clasificaciones de tu personal.</p>
+        <h2 className="text-xl font-bold text-[var(--foreground)]">Catálogos de Organización</h2>
+        <p className="text-sm text-[var(--muted)]">Administra los departamentos, cargos y clasificaciones de tu personal.</p>
       </div>
 
-      <div className="flex gap-4 border-b border-slate-200">
-        <button 
-          className={`py-2 px-4 font-bold text-sm ${activeCatalog === 'departments' ? 'border-b-2 border-[#2ec4f1] text-[#2ec4f1]' : 'text-slate-500 hover:text-slate-700'}`}
-          onClick={() => setActiveCatalog('departments')}
-        >
-          Departamentos
-        </button>
-        <button 
-          className={`py-2 px-4 font-bold text-sm ${activeCatalog === 'positions' ? 'border-b-2 border-[#2ec4f1] text-[#2ec4f1]' : 'text-slate-500 hover:text-slate-700'}`}
-          onClick={() => setActiveCatalog('positions')}
-        >
-          Cargos / Puestos
-        </button>
-        <button 
-          className={`py-2 px-4 font-bold text-sm ${activeCatalog === 'employeeTypes' ? 'border-b-2 border-[#2ec4f1] text-[#2ec4f1]' : 'text-slate-500 hover:text-slate-700'}`}
-          onClick={() => setActiveCatalog('employeeTypes')}
-        >
-          Categorías de Empleado
-        </button>
+      <div className="flex gap-4 border-b border-[var(--border)]">
+        {catalogTabs.map((tab) => (
+          <button
+            key={tab.id}
+            className={`py-2 px-4 font-bold text-sm transition-colors ${
+              activeCatalog === tab.id
+                ? 'border-b-2 border-[var(--accent)] text-[var(--accent)]'
+                : 'text-[var(--muted)] hover:text-[var(--foreground)]'
+            }`}
+            onClick={() => setActiveCatalog(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
-      <Card className="max-w-2xl">
+      <Card className="max-w-2xl border border-[var(--border)]">
         <div className="flex gap-3 mb-6">
           <input 
             type="text" 
             placeholder="Añadir nuevo..." 
             value={newItemName}
             onChange={(e) => setNewItemName(e.target.value)}
-            className="flex-1 h-10 px-3 rounded-lg border border-slate-200 bg-slate-50 outline-none focus:border-[#2ec4f1] font-medium text-sm"
+            className={`${erpInputClass} flex-1 h-10`}
           />
           <Button variant="primary" onClick={handleCreate} disabled={!newItemName.trim() || loading}>
             <Plus size={16} className="mr-2"/> Crear
           </Button>
         </div>
 
-        <div className="border border-slate-200 rounded-xl overflow-hidden">
+        <div className="border border-[var(--border)] rounded-xl overflow-hidden">
           <table className="w-full text-left text-sm">
-            <tbody className="divide-y divide-slate-100 bg-white">
+            <tbody className="divide-y divide-[var(--border)] bg-[var(--surface)]">
               {loading && data.length === 0 ? (
-                 <tr><td className="p-4 text-center text-slate-400"><Spinner size="md" className="mx-auto"/></td></tr>
+                 <tr><td className="p-4 text-center text-[var(--muted)]"><Spinner size="md" className="mx-auto"/></td></tr>
               ) : data.length === 0 ? (
-                 <tr><td className="p-4 text-center text-slate-400 font-medium">No hay registros</td></tr>
+                 <tr><td className="p-4 text-center text-[var(--muted)] font-medium">No hay registros</td></tr>
               ) : (
                 data.map(item => (
-                  <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-6 py-4 font-bold text-slate-700">{item.name}</td>
+                  <tr key={item.id} className="hover:bg-[var(--surface-hover)] transition-colors">
+                    <td className="px-6 py-4 font-bold text-[var(--foreground)]">{item.name}</td>
                     <td className="px-6 py-4 text-right">
-                      <Button variant="ghost" size="sm" onClick={() => handleDelete(item.id)} className="text-rose-500 hover:bg-rose-50 p-2">
+                      <Button variant="ghost" size="sm" onClick={() => handleDelete(item.id)} className="text-[var(--danger)] hover:bg-[var(--danger)]/10 p-2">
                         <Trash2 size={16} />
                       </Button>
                     </td>

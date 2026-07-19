@@ -4,6 +4,7 @@ import React, { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { Card, Badge, Button, notify, confirmDialog, DataTable, type DataTableColumn } from '@/components/ui';
+import { erpTab, erpTableHeader, erpTableHeaderText, erpFieldClass, erpLabelClass } from '@/lib/design/tokens';
 import { apiFetch } from '@/lib/http/apiFetch';
 import { sapValidationReader } from '@/modules/sap-integration';
 import * as XLSX from 'xlsx';
@@ -942,12 +943,12 @@ export default function DespachoPage() {
                     value={scanSN}
                     onChange={e => setScanSN(e.target.value)}
                     placeholder="Escanear SN (15 dig)..."
-                    className="w-full bg-slate-50 border-2 border-slate-200 focus:border-[#2ec4f1] rounded-lg px-4 py-3 outline-none transition-colors font-mono font-bold"
+                    className="w-full bg-[var(--surface-hover)] border-2 border-[var(--border)] focus:border-[var(--accent)] rounded-lg px-4 py-3 outline-none transition-colors font-mono font-bold"
                     autoFocus
                   />
                 </div>
 
-                <Button type="submit" variant="primary" className="w-full py-4 text-sm bg-[#181c3a] hover:bg-[#181c3a]/90 text-white">
+                <Button type="submit" variant="primary" className="w-full py-4 text-sm">
                   Registrar Equipo (Enter)
                 </Button>
               </form>
@@ -958,7 +959,7 @@ export default function DespachoPage() {
               <div className="space-y-2 mb-4 text-slate-700">
                 <div className="flex justify-between items-center">
                   <span className="font-bold text-xs uppercase text-slate-400">N° Outbound</span>
-                  <span className="font-black text-sm font-mono text-[#181c3a]">{selectedBox.id}</span>
+                  <span className="font-black text-sm font-mono text-[var(--heading)]">{selectedBox.id}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="font-bold text-xs uppercase text-slate-400">Marca</span>
@@ -1005,15 +1006,15 @@ export default function DespachoPage() {
                 )}
               </div>
               <div className="flex items-end gap-2 mb-3">
-                <span className="text-3xl font-black text-[#181c3a]">{boxItems.length}</span>
+                <span className="text-3xl font-black text-[var(--heading)]">{boxItems.length}</span>
                 <span className="text-sm text-slate-400 font-medium pb-1">/ {selectedBox.unidades} equipos</span>
               </div>
-              <div className="h-4 w-full bg-slate-100 rounded-full overflow-hidden">
+              <div className="h-4 w-full bg-[var(--surface-hover)] rounded-full overflow-hidden">
                 <div 
                   className={`h-full transition-all duration-500 ease-out ${
                     boxItems.length >= selectedBox.unidades && selectedBox.unidades > 0
                       ? 'bg-emerald-600'
-                      : 'bg-[#181c3a]'
+                      : 'bg-[var(--primary)]'
                   }`}
                   style={{ width: `${Math.min(progress, 100)}%` }}
                 />
@@ -1033,21 +1034,21 @@ export default function DespachoPage() {
               </div>
               <div className="flex-1 overflow-y-auto overflow-x-auto custom-scrollbar">
                 <table className="w-full text-left">
-                  <thead className="sticky top-0 bg-white/90 backdrop-blur border-b border-slate-100">
+                  <thead className={`sticky top-0 ${erpTableHeader} backdrop-blur`}>
                     <tr>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">#</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">S1 / SN</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">S2</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">S3</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">S4</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Material</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Valoración</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Acciones</th>
+                      <th className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest ${erpTableHeaderText}`}>#</th>
+                      <th className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest ${erpTableHeaderText}`}>S1 / SN</th>
+                      <th className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest ${erpTableHeaderText}`}>S2</th>
+                      <th className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest ${erpTableHeaderText}`}>S3</th>
+                      <th className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest ${erpTableHeaderText}`}>S4</th>
+                      <th className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest ${erpTableHeaderText}`}>Material</th>
+                      <th className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest ${erpTableHeaderText}`}>Valoración</th>
+                      <th className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest ${erpTableHeaderText} text-right`}>Acciones</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {boxItems.map((item, idx) => (
-                      <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                      <tr key={item.id} className="hover:bg-[var(--surface-hover)] transition-colors">
                         <td className="px-6 py-4 text-xs font-bold text-slate-500">{boxItems.length - idx}</td>
                         <td className="px-6 py-4">
                           <span className="font-mono font-bold text-emerald-600 text-sm">{item.s1 || item.serial_number}</span>
@@ -1096,7 +1097,7 @@ export default function DespachoPage() {
           }}
           onChange={(e) => toggleSelectAll(e.target.checked)}
           onClick={(e) => e.stopPropagation()}
-          className="w-4 h-4 accent-[#181c3a]"
+          className="w-4 h-4 accent-[var(--primary)]"
           title="Seleccionar todos"
         />
       ),
@@ -1110,7 +1111,7 @@ export default function DespachoPage() {
             toggleSelectBox(disp, e.target.checked);
           }}
           onClick={(e) => e.stopPropagation()}
-          className="w-4 h-4 accent-[#181c3a]"
+          className="w-4 h-4 accent-[var(--primary)]"
         />
       ),
     },
@@ -1119,7 +1120,7 @@ export default function DespachoPage() {
       header: 'Outbound',
       width: 'minmax(130px,1fr)',
       cell: (disp: DispatchItem) => (
-        <span className="text-sm font-black text-[#181c3a] font-mono tracking-tight">{disp.id}</span>
+        <span className="text-sm font-black text-[var(--heading)] font-mono tracking-tight">{disp.id}</span>
       ),
     },
     {
@@ -1259,7 +1260,7 @@ export default function DespachoPage() {
           <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600">
             <Truck className="w-4 h-4" />
           </div>
-          <span className="text-sm font-black text-[#181c3a] font-mono">
+          <span className="text-sm font-black text-[var(--heading)] font-mono">
             {hist.guide_number || '—'}
           </span>
         </div>
@@ -1379,33 +1380,31 @@ export default function DespachoPage() {
       }
     >
       <div className="space-y-6">
-        <div className="flex bg-slate-100 p-1 rounded-xl w-fit">
-          <button 
-            onClick={() => setActiveTab('operacion')}
-            className={`px-6 py-2.5 text-sm font-bold rounded-lg transition-colors ${activeTab === 'operacion' ? 'bg-white text-[#181c3a] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-          >
-            Gestión de Outbound
-          </button>
-          <button 
-            onClick={() => setActiveTab('historial')}
-            className={`px-6 py-2.5 text-sm font-bold rounded-lg transition-colors ${activeTab === 'historial' ? 'bg-white text-[#181c3a] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-          >
-            Historial de Despachos
-          </button>
-          <button 
-            onClick={() => setActiveTab('cqrs' as any)}
-            className={`px-6 py-2.5 text-sm font-bold rounded-lg transition-colors flex items-center gap-2 ${(activeTab as any) === 'cqrs' ? 'bg-[#2ec4f1] text-[#181c3a] shadow-sm' : 'text-slate-500 hover:text-[#2ec4f1]'}`}
-          >
-            <Boxes className="w-4 h-4" />
-            Pendientes (CQRS Eventos)
-          </button>
-          <button 
-            onClick={() => setActiveTab('lotes' as any)}
-            className={`px-6 py-2.5 text-sm font-bold rounded-lg transition-colors flex items-center gap-2 ${(activeTab as any) === 'lotes' ? 'bg-white text-[#181c3a] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-          >
-            <Boxes className="w-4 h-4" />
-            Lotes de salida
-          </button>
+        <div className={`${erpTab.list} w-fit flex-wrap`}>
+          {([
+            { id: 'operacion', label: 'Gestión de Outbound' },
+            { id: 'historial', label: 'Historial de Despachos' },
+            { id: 'cqrs', label: 'Pendientes (CQRS Eventos)', icon: Boxes },
+            { id: 'lotes', label: 'Lotes de salida', icon: Boxes },
+          ] as const).map(({ id, label, icon: Icon }) => {
+            const active = (activeTab as string) === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setActiveTab(id as typeof activeTab | 'cqrs' | 'lotes')}
+                className={[
+                  erpTab.trigger,
+                  'px-6 py-2.5 text-sm normal-case tracking-normal',
+                  active ? erpTab.triggerActive : erpTab.triggerInactive,
+                  Icon ? 'flex items-center gap-2' : '',
+                ].filter(Boolean).join(' ')}
+              >
+                {Icon ? <Icon className="w-4 h-4" /> : null}
+                {label}
+              </button>
+            );
+          })}
         </div>
 
         {(activeTab as any) === 'lotes' ? (
@@ -1435,8 +1434,8 @@ export default function DespachoPage() {
                   Exportar Reporte CQRS
                 </Button>
               </div>
-              <div className="py-12 flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-[2rem] bg-slate-50/50">
-                <Truck className="w-16 h-16 text-[#2ec4f1] mb-4 opacity-50" />
+              <div className="py-12 flex flex-col items-center justify-center border-2 border-dashed border-[var(--border)] rounded-[2rem] bg-[var(--surface-hover)]/50">
+                <Truck className="w-16 h-16 text-[var(--accent)] mb-4 opacity-50" />
                 <h4 className="font-bold text-slate-600 mb-2">Módulo en modo Strangler Fig</h4>
                 <p className="text-slate-400 text-sm max-w-md text-center">
                   Las órdenes se están orquestando en segundo plano gracias al Event Bus. Descarga el Excel para visualizar la data segregada (Read Model).
@@ -1449,20 +1448,20 @@ export default function DespachoPage() {
         
         {showUploadSAPModal && (
           <div className="fixed inset-0 bg-[#0b0e20]/80 backdrop-blur-sm z-50 flex items-center justify-center animate-in fade-in">
-            <Card className="w-full max-w-md bg-[#181c3a] border-slate-700/50 shadow-2xl overflow-hidden animate-in zoom-in-95">
-              <div className="p-6 border-b border-slate-700/50 flex items-center justify-between">
-                <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                  <Upload className="w-5 h-5 text-[#2ec4f1]" />
+            <Card className="w-full max-w-md bg-[var(--surface)] border-[var(--border)] shadow-2xl overflow-hidden animate-in zoom-in-95">
+              <div className="p-6 border-b border-[var(--border)] bg-[var(--surface-hover)] flex items-center justify-between">
+                <h2 className="text-xl font-bold text-[var(--heading)] flex items-center gap-2">
+                  <Upload className="w-5 h-5 text-[var(--accent)]" />
                   Cargar Validaciones SAP
                 </h2>
                 <button 
                   onClick={() => setShowUploadSAPModal(false)}
-                  className="text-slate-400 hover:text-white transition-colors"
+                  className="text-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              <div className="p-8 bg-slate-50 flex flex-col items-center justify-center text-center space-y-4">
+              <div className="p-8 bg-[var(--surface-hover)] flex flex-col items-center justify-center text-center space-y-4">
                 <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 mb-2">
                   <FileText className="w-8 h-8" />
                 </div>
@@ -1489,26 +1488,26 @@ export default function DespachoPage() {
 
         {showCreateBoxModal && (
           <div className="fixed inset-0 bg-[#0b0e20]/80 backdrop-blur-sm z-50 flex items-center justify-center animate-in fade-in">
-            <Card className="w-full max-w-lg bg-[#181c3a] border-slate-700/50 shadow-2xl overflow-hidden animate-in zoom-in-95">
-              <div className="p-6 border-b border-slate-700/50 flex items-center justify-between">
-                <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                  <Package className="w-5 h-5 text-[#2ec4f1]" />
+            <Card className="w-full max-w-lg bg-[var(--surface)] border-[var(--border)] shadow-2xl overflow-hidden animate-in zoom-in-95">
+              <div className="p-6 border-b border-[var(--border)] bg-[var(--surface-hover)] flex items-center justify-between">
+                <h2 className="text-xl font-bold text-[var(--heading)] flex items-center gap-2">
+                  <Package className="w-5 h-5 text-[var(--accent)]" />
                   {editBoxId ? 'Editar Outbound' : 'Crear Outbound'}
                 </h2>
                 <button 
                   onClick={() => setShowCreateBoxModal(false)}
-                  className="text-slate-400 hover:text-white transition-colors"
+                  className="text-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
               
-              <div className="p-6 space-y-4 bg-slate-50">
+              <div className="p-6 space-y-4 bg-[var(--surface-hover)]">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-500 uppercase">Tecnología</label>
+                    <label className={erpLabelClass}>Tecnología</label>
                     <select 
-                      className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-500"
+                      className={erpFieldClass}
                       value={boxTech}
                       onChange={e => setBoxTech(e.target.value)}
                     >
@@ -1518,9 +1517,9 @@ export default function DespachoPage() {
                   </div>
                   
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-500 uppercase">Marca</label>
+                    <label className={erpLabelClass}>Marca</label>
                     <select 
-                      className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-500"
+                      className={erpFieldClass}
                       value={boxBrand}
                       onChange={e => setBoxBrand(e.target.value)}
                     >
@@ -1530,9 +1529,9 @@ export default function DespachoPage() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-500 uppercase">Modelo</label>
+                    <label className={erpLabelClass}>Modelo</label>
                     <select 
-                      className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-500"
+                      className={erpFieldClass}
                       value={boxModel}
                       onChange={e => setBoxModel(e.target.value)}
                     >
@@ -1542,33 +1541,33 @@ export default function DespachoPage() {
                   </div>
                   
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-500 uppercase">Cantidad</label>
+                    <label className={erpLabelClass}>Cantidad</label>
                     <input 
                       type="number" 
                       placeholder="Ej: 10"
-                      className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-500"
+                      className={erpFieldClass}
                       value={boxQty}
                       onChange={e => setBoxQty(Number(e.target.value))}
                     />
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-500 uppercase">Material</label>
+                    <label className={erpLabelClass}>Material</label>
                     <input
                       type="text"
                       placeholder="Ej: 4010589"
-                      className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-500 font-mono"
+                      className={`${erpFieldClass} font-mono`}
                       value={boxMaterial}
                       onChange={e => setBoxMaterial(e.target.value)}
                     />
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-500 uppercase">Valoración</label>
+                    <label className={erpLabelClass}>Valoración</label>
                     <input
                       type="text"
                       placeholder="Ej: NOVALORADO"
-                      className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-500 font-mono"
+                      className={`${erpFieldClass} font-mono`}
                       value={boxValuation}
                       onChange={e => setBoxValuation(e.target.value)}
                     />
@@ -1576,7 +1575,7 @@ export default function DespachoPage() {
                 </div>
               </div>
 
-              <div className="p-6 bg-slate-100 border-t border-slate-200 flex justify-end gap-3">
+              <div className="p-6 bg-[var(--surface-hover)] border-t border-[var(--border)] flex justify-end gap-3">
                 <Button variant="outline" onClick={() => {
                   setShowCreateBoxModal(false);
                   setEditBoxId(null);
@@ -1594,15 +1593,15 @@ export default function DespachoPage() {
         )}
 
         {showDispatchForm && (
-          <Card className="border-2 border-[#2ec4f1]/20 p-0 overflow-hidden animate-rise-in">
-            <div className="bg-[#181c3a] p-8 text-white flex justify-between items-center">
+          <Card className="border-2 border-[var(--accent)]/20 p-0 overflow-hidden animate-rise-in">
+            <div className="border-b border-[var(--border)] bg-[var(--surface-hover)] p-8 text-[var(--heading)] flex justify-between items-center">
               <div className="flex items-center gap-4">
-                <div className="bg-white/10 p-3 rounded-2xl">
-                  <Package className="w-6 h-6 text-[#2ec4f1]" />
+                <div className="bg-[var(--accent)]/10 p-3 rounded-2xl">
+                  <Package className="w-6 h-6 text-[var(--accent)]" />
                 </div>
                 <div>
                   <h2 className="text-xl font-bold">Configuración de Salida</h2>
-                  <p className="text-white/60 text-xs font-medium">Defina el tipo de despacho y escanee las unidades</p>
+                  <p className="text-[var(--muted)] text-xs font-medium">Defina el tipo de despacho y escanee las unidades</p>
                 </div>
               </div>
               <div className="flex gap-2">
@@ -1610,7 +1609,7 @@ export default function DespachoPage() {
                   <button 
                     key={type}
                     onClick={() => setDispatchType(type)}
-                    className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${dispatchType === type ? 'bg-[#2ec4f1] text-[#181c3a]' : 'bg-white/5 text-white/40 hover:bg-white/10'}`}
+                    className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${dispatchType === type ? 'bg-[var(--accent)] text-[var(--heading)]' : 'bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--foreground)] border border-[var(--border)]'}`}
                   >
                     {type.replace('_', ' ')}
                   </button>
@@ -1621,19 +1620,19 @@ export default function DespachoPage() {
             <div className="p-8 space-y-8">
               <div className="grid md:grid-cols-3 gap-8">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Destino / Cliente</label>
-                  <input type="text" placeholder="Ej: Bodega Central" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm font-bold outline-none focus:border-[#2ec4f1]" />
+                  <label className={erpLabelClass}>Destino / Cliente</label>
+                  <input type="text" placeholder="Ej: Bodega Central" className={erpFieldClass} />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Transporte / Ruta</label>
-                  <select className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm font-bold outline-none">
+                  <label className={erpLabelClass}>Transporte / Ruta</label>
+                  <select className={erpFieldClass}>
                     <option>Ruta Norte - Piloto A</option>
                     <option>Ruta Sur - Piloto B</option>
                   </select>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Prioridad</label>
-                  <select className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm font-bold outline-none">
+                  <label className={erpLabelClass}>Prioridad</label>
+                  <select className={erpFieldClass}>
                     <option>Normal</option>
                     <option>Urgente (SLA 24h)</option>
                   </select>
@@ -1643,7 +1642,7 @@ export default function DespachoPage() {
               <div className="pt-8 border-t border-slate-100">
                 <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center gap-3">
-                    <QrCode className="w-5 h-5 text-[#2ec4f1]" />
+                    <QrCode className="w-5 h-5 text-[var(--accent)]" />
                     <h3 className="text-sm font-black uppercase tracking-widest text-slate-800">Validación de Salida (Escaneo)</h3>
                   </div>
                   <Badge variant="blue">{itemsToDispatch.length} Items Escaneados</Badge>
@@ -1655,14 +1654,14 @@ export default function DespachoPage() {
                     value={scanInput}
                     onChange={(e) => setScanInput(e.target.value)}
                     placeholder="Escanee Serie o Código de Caja..."
-                    className="flex-1 bg-slate-50 p-5 rounded-2xl border-2 border-slate-100 focus:border-[#2ec4f1] outline-none text-lg font-mono font-bold shadow-sm transition-all"
+                    className="flex-1 bg-[var(--surface-hover)] p-5 rounded-2xl border-2 border-[var(--border)] focus:border-[var(--accent)] outline-none text-lg font-mono font-bold shadow-sm transition-all"
                   />
                   <Button type="submit" className="px-12 rounded-2xl">Validar</Button>
                 </form>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mt-8">
                   {itemsToDispatch.map((item, i) => (
-                    <div key={i} className="bg-slate-50 p-3 rounded-xl text-[10px] font-mono font-bold flex items-center justify-between group border border-slate-200/50">
+                    <div key={i} className="bg-[var(--surface-hover)] p-3 rounded-xl text-[10px] font-mono font-bold flex items-center justify-between group border border-[var(--border)]">
                       <span className="truncate">{item}</span>
                       <button onClick={() => setItemsToDispatch(itemsToDispatch.filter((_, idx) => idx !== i))} className="text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
                     </div>
@@ -1721,7 +1720,8 @@ export default function DespachoPage() {
               rowHeight={64}
               maxBodyHeight={560}
               minWidth={1100}
-              headerClassName="bg-slate-50"
+              headerClassName={erpTableHeader}
+              headerTextClassName={erpTableHeaderText}
               emptyMessage="No hay Outbound registrados."
             />
           </Card>
@@ -1737,7 +1737,8 @@ export default function DespachoPage() {
                 rowHeight={64}
                 maxBodyHeight={560}
                 minWidth={900}
-                headerClassName="bg-slate-50"
+                headerClassName={erpTableHeader}
+                headerTextClassName={erpTableHeaderText}
                 emptyMessage="No hay historial de despachos registrados."
               />
             </Card>

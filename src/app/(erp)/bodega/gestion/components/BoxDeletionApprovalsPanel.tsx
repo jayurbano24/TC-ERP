@@ -36,7 +36,7 @@ export function BoxDeletionApprovalsPanel({ enabled }: Props) {
         </div>
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="text-sm font-black uppercase tracking-widest text-[#181c3a]">
+            <h3 className="text-sm font-black tracking-widest text-[var(--heading)] uppercase">
               Autorizaciones pendientes
             </h3>
             <Badge variant="yellow">{isLoading ? '…' : rows.length}</Badge>

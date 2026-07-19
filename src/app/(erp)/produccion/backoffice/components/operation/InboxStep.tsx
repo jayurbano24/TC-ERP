@@ -10,6 +10,7 @@ import type { OperationContext } from '../../operation/operationContext';
 import { InboxElapsedTimer } from './InboxElapsedTimer';
 import { InboxClassificationProgress } from './InboxClassificationProgress';
 import { getInboxClassificationStats } from '../../operation/classificationGuideUtils';
+import { getReceiverName } from '../../backofficeHelpers';
 
 type Props = { ctx: OperationContext };
 
@@ -194,7 +195,7 @@ export function InboxStep({ ctx }: Props) {
                   <p className={erpTypography.label}>Transportista</p>
                   <p className="text-sm font-black text-[var(--foreground)] leading-tight mt-1">{rec.carrier || '---'}</p>
                   <p className="text-[10px] font-bold text-[#2ec4f1] uppercase mt-1">
-                    Recibido por: {rec.received_by || 'SISTEMA'}
+                    Recibido por: {getReceiverName(rec)}
                   </p>
                 </div>
                 <InboxClassificationProgress rec={rec} />

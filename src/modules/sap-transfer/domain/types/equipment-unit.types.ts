@@ -29,5 +29,8 @@ export type ClassifyBatchResult = {
 export type BlockReturnResult = {
   success?: boolean;
   unitsCount?: number;
+  sapBase?: string;
+  documentsCount?: number;
+  documents?: string[];
   error?: string;
 };

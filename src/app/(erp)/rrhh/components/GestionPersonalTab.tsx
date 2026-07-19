@@ -293,31 +293,61 @@ export default function GestionPersonalTab() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold">Gestión de Personal</h2>
-          <p className="text-sm text-slate-500">Administra los contratos, información y enrolamiento biométrico de tu equipo.</p>
+          <h2 className="text-xl font-bold text-[var(--heading)]">Gestión de Personal</h2>
+          <p className="text-sm text-[var(--muted)]">
+            Administra los contratos, información y enrolamiento biométrico de tu equipo.
+          </p>
         </div>
         <div className="flex gap-2">
           <input type="file" accept=".xlsx, .xls" className="hidden" ref={fileInputRef} onChange={handleImport} />
-          <Button variant="outline" className="gap-2 text-emerald-700 border-emerald-200 hover:bg-emerald-50" onClick={handleExport} disabled={loading}>
-            <Download className="w-4 h-4" /> Exportar Plantilla
+          <Button
+            variant="outline"
+            className="gap-2 border-[var(--success)]/40 text-[var(--success)] hover:bg-[var(--success)]/10"
+            onClick={handleExport}
+            disabled={loading}
+          >
+            <Download className="h-4 w-4" /> Exportar Plantilla
           </Button>
-          <Button variant="outline" className="gap-2 text-emerald-700 border-emerald-200 hover:bg-emerald-50" onClick={() => fileInputRef.current?.click()} disabled={loading}>
-            <Upload className="w-4 h-4" /> Importar Excel
+          <Button
+            variant="outline"
+            className="gap-2 border-[var(--success)]/40 text-[var(--success)] hover:bg-[var(--success)]/10"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={loading}
+          >
+            <Upload className="h-4 w-4" /> Importar Excel
           </Button>
           {selectedIds.length > 0 && (
             <>
-              <Button variant="outline" className="gap-2 text-indigo-600 border-indigo-200 hover:bg-indigo-50 animate-in fade-in" onClick={() => setIsBulkShiftModalOpen(true)} disabled={loading}>
-                <Clock className="w-4 h-4" /> Asignar Horario ({selectedIds.length})
+              <Button
+                variant="outline"
+                className="animate-in fade-in gap-2 border-[var(--accent)]/40 text-[var(--accent)] hover:bg-[var(--accent)]/10"
+                onClick={() => setIsBulkShiftModalOpen(true)}
+                disabled={loading}
+              >
+                <Clock className="h-4 w-4" /> Asignar Horario ({selectedIds.length})
               </Button>
-              <Button variant="outline" className="gap-2 text-rose-600 border-rose-200 hover:bg-rose-50 animate-in fade-in" onClick={handleDeleteSelected} disabled={loading}>
-                <Trash2 className="w-4 h-4" /> Eliminar ({selectedIds.length})
+              <Button
+                variant="outline"
+                className="animate-in fade-in gap-2 border-[var(--danger)]/40 text-[var(--danger)] hover:bg-[var(--danger)]/10"
+                onClick={handleDeleteSelected}
+                disabled={loading}
+              >
+                <Trash2 className="h-4 w-4" /> Eliminar ({selectedIds.length})
               </Button>
             </>
           )}
-          <Button variant="primary" className="gap-2" onClick={() => { setSelectedEmployee(null); setIsModalOpen(true); }} disabled={loading}>
-            <UserPlus className="w-4 h-4" /> Nuevo Empleado
+          <Button
+            variant="primary"
+            className="gap-2"
+            onClick={() => {
+              setSelectedEmployee(null);
+              setIsModalOpen(true);
+            }}
+            disabled={loading}
+          >
+            <UserPlus className="h-4 w-4" /> Nuevo Empleado
           </Button>
         </div>
       </div>
@@ -333,15 +363,15 @@ export default function GestionPersonalTab() {
         employee={selectedEmployee}
       />
 
-      <Card padding="none" className="overflow-hidden border-slate-200">
+      <Card padding="none" className="overflow-hidden border-[var(--border)]">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase font-black text-slate-500 tracking-wider border-b border-slate-100">
+            <thead className="border-b border-[var(--border)] bg-[var(--surface-hover)] text-xs font-black tracking-wider text-[var(--muted)] uppercase">
               <tr>
-                <th className="px-6 py-4 w-10">
-                  <input 
-                    type="checkbox" 
-                    className="rounded text-[#2ec4f1] focus:ring-[#2ec4f1] cursor-pointer"
+                <th className="w-10 px-6 py-4">
+                  <input
+                    type="checkbox"
+                    className="cursor-pointer rounded text-[var(--accent)] focus:ring-[var(--accent)]"
                     checked={employees.length > 0 && selectedIds.length === employees.length}
                     onChange={toggleSelectAll}
                   />
@@ -354,54 +384,83 @@ export default function GestionPersonalTab() {
                 <th className="px-6 py-4 text-right">Acciones</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50">
+            <tbody className="divide-y divide-[var(--border)]">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-10 text-slate-400">
+                  <td colSpan={7} className="py-10 text-center text-[var(--muted)]">
                     <Spinner size="md" className="mx-auto mb-2" /> Cargando...
                   </td>
                 </tr>
               ) : employees.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-10 text-slate-400 font-medium">No hay empleados registrados.</td>
+                  <td colSpan={7} className="py-10 text-center font-medium text-[var(--muted)]">
+                    No hay empleados registrados.
+                  </td>
                 </tr>
               ) : (
-                employees.map(emp => (
-                  <tr key={emp.id} className={`hover:bg-slate-50/50 transition-colors ${selectedIds.includes(emp.id) ? 'bg-slate-50' : ''}`}>
+                employees.map((emp) => (
+                  <tr
+                    key={emp.id}
+                    className={`transition-colors hover:bg-[var(--surface-hover)] ${
+                      selectedIds.includes(emp.id) ? 'bg-[var(--surface-hover)]' : ''
+                    }`}
+                  >
                     <td className="px-6 py-4">
-                      <input 
-                        type="checkbox" 
-                        className="rounded text-[#2ec4f1] focus:ring-[#2ec4f1] cursor-pointer"
+                      <input
+                        type="checkbox"
+                        className="cursor-pointer rounded text-[var(--accent)] focus:ring-[var(--accent)]"
                         checked={selectedIds.includes(emp.id)}
                         onChange={() => toggleSelect(emp.id)}
                       />
                     </td>
-                    <td className="px-6 py-4 font-bold text-slate-700">{emp.codigo_empleado || 'PENDIENTE'}</td>
-                    <td className="px-6 py-4">
-                      <div className="font-bold text-slate-900">{emp.nombre_completo}</div>
-                      <div className="text-xs text-slate-500">{emp.hr_departments?.name || emp.departamento || 'Sin Depto'} - {emp.hr_positions?.name || 'Sin Cargo'}</div>
+                    <td className="px-6 py-4 font-bold text-[var(--foreground)]">
+                      {emp.codigo_empleado || 'PENDIENTE'}
                     </td>
                     <td className="px-6 py-4">
-                      <span className="inline-flex items-center px-2 py-1 rounded-md text-[10px] font-bold bg-slate-100 text-slate-600">
+                      <div className="font-bold text-[var(--heading)]">{emp.nombre_completo}</div>
+                      <div className="text-xs text-[var(--muted)]">
+                        {emp.hr_departments?.name || emp.departamento || 'Sin Depto'} -{' '}
+                        {emp.hr_positions?.name || 'Sin Cargo'}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="inline-flex items-center rounded-md border border-[var(--border)] bg-[var(--surface-hover)] px-2 py-1 text-[10px] font-bold text-[var(--muted)]">
                         {emp.tipo_contrato}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-slate-600 font-medium">{emp.company_shifts?.name || 'No asignado'}</td>
+                    <td className="px-6 py-4 font-medium text-[var(--foreground)]">
+                      {emp.company_shifts?.name || 'No asignado'}
+                    </td>
                     <td className="px-6 py-4">
                       {emp.face_embedding ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-md">
+                        <span className="inline-flex items-center gap-1 rounded-md border border-[var(--success)]/30 bg-[var(--success)]/15 px-2 py-1 text-[10px] font-bold text-[var(--success)]">
                           Enrolado
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded-md">
+                        <span className="inline-flex items-center gap-1 rounded-md border border-[var(--warning)]/30 bg-[var(--warning)]/15 px-2 py-1 text-[10px] font-bold text-[var(--warning)]">
                           Pendiente
                         </span>
                       )}
                     </td>
-                    <td className="px-6 py-4 text-right flex items-center justify-end gap-2">
-                      <Button variant="outline" size="sm" className="text-xs" onClick={() => { setSelectedEmployee(emp); setIsModalOpen(true); }}>Editar</Button>
-                      <Button variant="outline" size="sm" className="text-xs text-rose-500 hover:bg-rose-50 hover:text-rose-600 border-rose-100" onClick={() => handleDeleteIndividual(emp.id, emp.nombre_completo)}>
-                        <Trash2 className="w-3 h-3" />
+                    <td className="flex items-center justify-end gap-2 px-6 py-4 text-right">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-xs"
+                        onClick={() => {
+                          setSelectedEmployee(emp);
+                          setIsModalOpen(true);
+                        }}
+                      >
+                        Editar
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="border-[var(--danger)]/30 text-xs text-[var(--danger)] hover:bg-[var(--danger)]/10"
+                        onClick={() => handleDeleteIndividual(emp.id, emp.nombre_completo)}
+                      >
+                        <Trash2 className="h-3 w-3" />
                       </Button>
                     </td>
                   </tr>
@@ -413,27 +472,37 @@ export default function GestionPersonalTab() {
       </Card>
 
       {isBulkShiftModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white rounded-2xl w-full max-w-md flex flex-col shadow-2xl">
-            <div className="p-6 border-b border-slate-100 bg-slate-50 rounded-t-2xl">
-              <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Clock className="w-5 h-5 text-indigo-600"/> Asignar Horario Masivo</h3>
-              <p className="text-xs text-slate-500 mt-1">Selecciona el horario a asignar para los {selectedIds.length} empleados seleccionados.</p>
+        <div className="fixed inset-0 z-50 flex animate-in items-center justify-center bg-black/50 p-4 fade-in backdrop-blur-sm">
+          <div className="flex w-full max-w-md flex-col rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl">
+            <div className="rounded-t-2xl border-b border-[var(--border)] bg-[var(--surface)] p-6">
+              <h3 className="flex items-center gap-2 text-lg font-bold text-[var(--heading)]">
+                <Clock className="h-5 w-5 text-[var(--accent)]" /> Asignar Horario Masivo
+              </h3>
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                Selecciona el horario a asignar para los {selectedIds.length} empleados seleccionados.
+              </p>
             </div>
-            <div className="p-6 space-y-4">
+            <div className="space-y-4 p-6">
               <div className="space-y-2">
-                <label className="text-xs font-bold uppercase tracking-widest text-slate-500">Horario</label>
-                <select 
-                  value={selectedBulkShift} 
-                  onChange={e => setSelectedBulkShift(e.target.value)} 
-                  className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-slate-50 outline-none focus:border-[#2ec4f1] font-medium text-sm"
+                <label className="text-xs font-bold tracking-widest text-[var(--muted)] uppercase">Horario</label>
+                <select
+                  value={selectedBulkShift}
+                  onChange={(e) => setSelectedBulkShift(e.target.value)}
+                  className="h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-hover)] px-3 text-sm font-medium text-[var(--foreground)] outline-none focus:border-[var(--accent)]"
                 >
                   <option value="">-- Seleccione --</option>
-                  {shifts.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  {shifts.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
-            <div className="p-4 border-t border-slate-100 flex justify-end gap-2 bg-slate-50 rounded-b-2xl">
-              <Button variant="outline" onClick={() => setIsBulkShiftModalOpen(false)} disabled={loading}>Cancelar</Button>
+            <div className="flex justify-end gap-2 rounded-b-2xl border-t border-[var(--border)] bg-[var(--surface-hover)] p-4">
+              <Button variant="outline" onClick={() => setIsBulkShiftModalOpen(false)} disabled={loading}>
+                Cancelar
+              </Button>
               <Button variant="primary" onClick={handleBulkAssignShift} disabled={!selectedBulkShift || loading}>
                 {loading ? 'Asignando...' : 'Asignar a Todos'}
               </Button>

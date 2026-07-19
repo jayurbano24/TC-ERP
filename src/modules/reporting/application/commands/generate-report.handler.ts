@@ -61,12 +61,16 @@ export class GenerateReportHandler {
         };
       }
 
-      const exported = await exporter.export(data.rows, definition.name);
+      const exported = await exporter.export(data.rows, definition.name, {
+        xlsxLayout: data.xlsxLayout,
+      });
       const dateSuffix = params.filters.allData
         ? '_todos'
-        : params.filters.from || params.filters.to
-          ? `_${params.filters.from || 'inicio'}_a_${params.filters.to || 'fin'}`
-          : '';
+        : params.filters.year
+          ? `_${params.filters.year}${params.filters.month ? `_${params.filters.month}` : ''}`
+          : params.filters.from || params.filters.to
+            ? `_${params.filters.from || 'inicio'}_a_${params.filters.to || 'fin'}`
+            : '';
       const filename = `${params.reportCode}${dateSuffix}.${exported.extension}`;
 
       await this.runRepo.recordRun({

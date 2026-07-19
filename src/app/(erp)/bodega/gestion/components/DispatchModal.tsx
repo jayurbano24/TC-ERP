@@ -1,6 +1,6 @@
 'use client';
 
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import { Card, Button, notify } from '@/components/ui';
 import { Truck, QrCode, AlertCircle } from 'lucide-react';
 
@@ -26,6 +26,31 @@ type Props = {
   onConfirm: () => void;
 };
 
+function findSeriesInBox(box: any, scanned: string) {
+  const val = scanned.trim().toUpperCase();
+  if (!val) return null;
+  return (
+    (box.series || []).find((s: any) => {
+      const candidates = [
+        s.serial_number,
+        s.sn,
+        s.s1,
+        s.s2,
+        s.s3,
+        s.s4,
+        ...(Array.isArray(s.allSeries) ? s.allSeries : []),
+      ]
+        .filter(Boolean)
+        .map((x: string) => String(x).trim().toUpperCase());
+      return candidates.includes(val);
+    }) || null
+  );
+}
+
+function seriesPrimarySn(row: any): string {
+  return String(row?.serial_number || row?.sn || row?.s1 || '').trim().toUpperCase();
+}
+
 export const DispatchModal = memo(function DispatchModal({
   box,
   dispatchMode,
@@ -48,6 +73,48 @@ export const DispatchModal = memo(function DispatchModal({
   onConfirm,
 }: Props) {
   const unitCount = box.unitCount ?? box.series?.length ?? 0;
+  const salidaLabel =
+    dispatchAction === 'despacho'
+      ? dispatchDestination || '—'
+      : dispatchArea || '—';
+
+  const selectedRows = useMemo(() => {
+    const bySn = new Map<string, any>();
+    for (const s of box.series || []) {
+      const sn = seriesPrimarySn(s);
+      if (sn) bySn.set(sn, s);
+      for (const extra of [s.s1, s.s2, s.s3, s.s4, ...(s.allSeries || [])]) {
+        const k = String(extra || '').trim().toUpperCase();
+        if (k && !bySn.has(k)) bySn.set(k, s);
+      }
+    }
+    return selectedSeriesForDispatch.map((sn) => {
+      const row = bySn.get(sn.toUpperCase());
+      return {
+        sn,
+        marca:
+          row?.marcaLabel ||
+          box.marcaLabel ||
+          row?.marca ||
+          box.marca ||
+          '—',
+        modelo:
+          row?.modeloLabel ||
+          box.modeloLabel ||
+          row?.modelo ||
+          box.modelo ||
+          '—',
+        tecnologia:
+          row?.tecnologiaLabel ||
+          box.tecnologia ||
+          row?.tecnologia ||
+          '—',
+        salida: salidaLabel,
+        os: row?.ordenServicio || '—',
+      };
+    });
+  }, [box, selectedSeriesForDispatch, salidaLabel]);
+
   const confirmDisabled =
     isDispatching ||
     !dispatchDestination.trim() ||
@@ -55,130 +122,159 @@ export const DispatchModal = memo(function DispatchModal({
     (dispatchMode === 'specific' && selectedSeriesForDispatch.length === 0);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#181c3a]/40 backdrop-blur-sm p-4">
-      <Card className="w-full max-w-md shadow-2xl animate-rise-in p-0 overflow-hidden">
-        <div className="bg-[#181c3a] p-5 text-white flex items-center gap-3">
-          <div className="p-2 bg-emerald-500/20 rounded-lg">
-            <Truck className="w-5 h-5 text-emerald-400" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <Card className="w-full max-w-2xl shadow-2xl animate-rise-in p-0 overflow-hidden max-h-[92vh] flex flex-col">
+        <div className="border-b border-[var(--border)] bg-[var(--surface)] px-5 py-5 flex items-center gap-3 shrink-0">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--accent)]/15">
+            <Truck className="w-5 h-5 text-[var(--accent)]" />
           </div>
           <div>
-            <h3 className="font-black text-lg">Procesar Caja de Inventario</h3>
-            <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest">{box.id}</p>
+            <h3 className="font-black text-lg text-[var(--heading)]">Procesar Caja de Inventario</h3>
+            <p className="text-[10px] text-[var(--accent)] font-bold uppercase tracking-widest">{box.id}</p>
           </div>
         </div>
 
-        <div className="p-6 space-y-4">
+        <div className="p-6 space-y-4 overflow-y-auto">
           {useOutboundDispatchHex && selectedDispatchBatchId && (
             <p className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
               Lote activo: {selectedDispatchBatchNumber || selectedDispatchBatchId}
             </p>
           )}
 
-          <div className="flex bg-slate-100 p-1 rounded-lg">
+          <div className="flex bg-[var(--surface-hover)] p-1 rounded-lg">
             <button
               type="button"
               onClick={() => setDispatchAction('despacho')}
-              className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-colors ${dispatchAction === 'despacho' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500'}`}
+              className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-colors ${dispatchAction === 'despacho' ? 'bg-[var(--surface)] text-emerald-600 shadow-sm' : 'text-[var(--muted)]'}`}
             >
               Despachar (Salida)
             </button>
             <button
               type="button"
               onClick={() => setDispatchAction('traslado')}
-              className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-colors ${dispatchAction === 'traslado' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
+              className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-colors ${dispatchAction === 'traslado' ? 'bg-[var(--surface)] text-indigo-600 shadow-sm' : 'text-[var(--muted)]'}`}
             >
               Trasladar a Área
             </button>
           </div>
 
-          <div className="flex bg-slate-100 p-1 rounded-lg">
+          <div className="flex bg-[var(--surface-hover)] p-1 rounded-lg">
             <button
               type="button"
               onClick={() => setDispatchMode('all')}
-              className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-colors ${dispatchMode === 'all' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+              className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-colors ${dispatchMode === 'all' ? 'bg-[var(--surface)] text-[var(--heading)] shadow-sm' : 'text-[var(--muted)]'}`}
             >
               Toda la caja ({unitCount})
             </button>
             <button
               type="button"
               onClick={() => setDispatchMode('specific')}
-              className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-colors ${dispatchMode === 'specific' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+              className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-colors ${dispatchMode === 'specific' ? 'bg-[var(--surface)] text-[var(--heading)] shadow-sm' : 'text-[var(--muted)]'}`}
             >
               Series específicas
             </button>
           </div>
 
           {loadingSeries && (
-            <p className="text-xs text-slate-500">Cargando series de la caja…</p>
+            <p className="text-xs text-[var(--muted)]">Cargando series de la caja…</p>
           )}
 
           {dispatchMode === 'specific' && (
             <>
-              <p className="text-sm text-slate-600">
+              <p className="text-sm text-[var(--foreground)]">
                 Escanea las series a procesar. La caja conservará las restantes.
               </p>
               <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Pistolear Serie</label>
+                <label className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)]">Pistolear Serie</label>
                 <div className="relative">
                   <QrCode className="absolute left-3 top-2.5 h-4 w-4 text-emerald-500" />
                   <input
                     type="text"
                     placeholder="Escanea la serie aquí..."
                     disabled={loadingSeries}
-                    className="w-full bg-slate-50 pl-9 pr-3 py-2 text-sm border border-emerald-200 focus:border-emerald-500 rounded-lg outline-none transition-colors"
+                    className="w-full bg-[var(--surface-hover)] pl-9 pr-3 py-2 text-sm border border-[var(--border)] focus:border-emerald-500 rounded-lg outline-none transition-colors"
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        const val = e.currentTarget.value.trim().toUpperCase();
-                        if (!val) return;
-                        const exists = box.series?.find(
-                          (s: any) =>
-                            s.serial_number?.toUpperCase() === val ||
-                            s.sn?.toUpperCase() === val ||
-                            s.s1?.toUpperCase() === val
-                        );
-                        if (exists) {
-                          const sn = (exists.serial_number || exists.sn || exists.s1 || '').toUpperCase();
-                          if (sn && !selectedSeriesForDispatch.includes(sn)) {
-                            setSelectedSeriesForDispatch((prev) => [...prev, sn]);
-                          }
-                        } else {
-                          notify.warning(`La serie ${val} no pertenece a esta caja.`);
+                      if (e.key !== 'Enter') return;
+                      e.preventDefault();
+                      const val = e.currentTarget.value.trim().toUpperCase();
+                      if (!val) return;
+                      const exists = findSeriesInBox(box, val);
+                      if (exists) {
+                        const sn = seriesPrimarySn(exists);
+                        if (sn && !selectedSeriesForDispatch.includes(sn)) {
+                          setSelectedSeriesForDispatch((prev) => [...prev, sn]);
+                          const marca = exists.marcaLabel || box.marcaLabel || '—';
+                          const modelo = exists.modeloLabel || box.modeloLabel || '—';
+                          const tech = exists.tecnologiaLabel || box.tecnologia || '—';
+                          notify.success('Serie agregada', {
+                            description: `${sn} · ${marca} / ${modelo} / ${tech} · Salida: ${salidaLabel}`,
+                          });
+                        } else if (sn) {
+                          notify.warning(`La serie ${sn} ya está seleccionada.`);
                         }
-                        e.currentTarget.value = '';
+                      } else {
+                        notify.warning(`La serie ${val} no pertenece a esta caja.`);
                       }
+                      e.currentTarget.value = '';
                     }}
                     autoFocus
                   />
                 </div>
               </div>
 
-              {selectedSeriesForDispatch.length > 0 && (
-                <div className="border border-emerald-100 bg-emerald-50/50 rounded-xl p-3">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Series seleccionadas</span>
+              {selectedRows.length > 0 && (
+                <div className="border border-emerald-100 bg-emerald-50/50 rounded-xl p-3 space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600">
+                      Equipos a despachar
+                    </span>
                     <span className="text-[10px] font-bold bg-emerald-500 text-white px-2 py-0.5 rounded-full">
-                      {selectedSeriesForDispatch.length}
+                      {selectedRows.length}
                     </span>
                   </div>
-                  <div className="flex flex-wrap gap-2 max-h-[120px] overflow-y-auto">
-                    {selectedSeriesForDispatch.map((sn) => (
-                      <div
-                        key={sn}
-                        className="bg-white border border-emerald-200 text-emerald-700 text-xs font-mono font-bold px-2 py-1 rounded-md flex items-center gap-2"
-                      >
-                        {sn}
-                        <button
-                          type="button"
-                          className="text-emerald-300 hover:text-red-500 transition-colors"
-                          onClick={() =>
-                            setSelectedSeriesForDispatch((prev) => prev.filter((item) => item !== sn))
-                          }
-                        >
-                          ×
-                        </button>
-                      </div>
-                    ))}
+                  <div className="overflow-x-auto max-h-[220px] overflow-y-auto rounded-lg border border-emerald-100 bg-[var(--surface)]">
+                    <table className="w-full text-left text-[11px]">
+                      <thead className="sticky top-0 bg-[var(--surface-hover)] border-b border-[var(--border)]">
+                        <tr className="text-[9px] font-black uppercase tracking-wider text-[var(--muted)]">
+                          <th className="px-2 py-2">Serie</th>
+                          <th className="px-2 py-2">Marca</th>
+                          <th className="px-2 py-2">Modelo</th>
+                          <th className="px-2 py-2">Tecnología</th>
+                          <th className="px-2 py-2">Salida</th>
+                          <th className="px-2 py-2 w-8" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedRows.map((row) => (
+                          <tr key={row.sn} className="border-b border-[var(--border)] last:border-0">
+                            <td className="px-2 py-2 font-mono font-bold text-emerald-700 whitespace-nowrap">
+                              {row.sn}
+                              {row.os && row.os !== '—' && (
+                                <div className="text-[9px] font-semibold text-[var(--muted)]">{row.os}</div>
+                              )}
+                            </td>
+                            <td className="px-2 py-2 text-[var(--foreground)] whitespace-nowrap">{row.marca}</td>
+                            <td className="px-2 py-2 text-[var(--foreground)] whitespace-nowrap">{row.modelo}</td>
+                            <td className="px-2 py-2 text-[var(--foreground)] whitespace-nowrap">{row.tecnologia}</td>
+                            <td className="px-2 py-2 font-bold text-[var(--heading)] whitespace-nowrap">{row.salida}</td>
+                            <td className="px-2 py-2">
+                              <button
+                                type="button"
+                                className="text-[var(--muted)] hover:text-red-500 transition-colors text-sm font-bold"
+                                onClick={() =>
+                                  setSelectedSeriesForDispatch((prev) =>
+                                    prev.filter((item) => item !== row.sn)
+                                  )
+                                }
+                                aria-label={`Quitar ${row.sn}`}
+                              >
+                                ×
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               )}
@@ -186,33 +282,51 @@ export const DispatchModal = memo(function DispatchModal({
           )}
 
           {dispatchMode === 'all' && (
-            <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl">
-              <p className="text-sm text-slate-700">
+            <div className="bg-[var(--surface-hover)] border border-[var(--border)] p-3 rounded-xl space-y-2">
+              <p className="text-sm text-[var(--foreground)]">
                 Se procesarán las <strong>{unitCount}</strong> unidades de la caja{' '}
                 <strong>{box.id}</strong> mediante el motor transaccional del servidor.
               </p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                <div className="bg-[var(--surface)] border border-[var(--border)] rounded-lg px-2 py-1.5">
+                  <div className="text-[9px] font-black uppercase text-[var(--muted)]">Marca</div>
+                  <div className="font-bold text-[var(--foreground)]">{box.marcaLabel || box.marca || '—'}</div>
+                </div>
+                <div className="bg-[var(--surface)] border border-[var(--border)] rounded-lg px-2 py-1.5">
+                  <div className="text-[9px] font-black uppercase text-[var(--muted)]">Modelo</div>
+                  <div className="font-bold text-[var(--foreground)]">{box.modeloLabel || box.modelo || '—'}</div>
+                </div>
+                <div className="bg-[var(--surface)] border border-[var(--border)] rounded-lg px-2 py-1.5">
+                  <div className="text-[9px] font-black uppercase text-[var(--muted)]">Tecnología</div>
+                  <div className="font-bold text-[var(--foreground)]">{box.tecnologia || '—'}</div>
+                </div>
+                <div className="bg-[var(--surface)] border border-[var(--border)] rounded-lg px-2 py-1.5">
+                  <div className="text-[9px] font-black uppercase text-[var(--muted)]">Salida</div>
+                  <div className="font-bold text-[var(--foreground)]">{salidaLabel}</div>
+                </div>
+              </div>
             </div>
           )}
 
           {dispatchAction === 'despacho' ? (
             <>
               <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Conduce de Salida *</label>
+                <label className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)]">Conduce de Salida *</label>
                 <input
                   type="text"
                   value={dispatchDestination}
                   readOnly
                   placeholder="Generando código..."
-                  className="w-full bg-slate-100 text-slate-500 p-3 rounded-xl border border-slate-200 font-bold text-sm outline-none cursor-not-allowed"
+                  className="w-full bg-[var(--surface-hover)] text-[var(--muted)] p-3 rounded-xl border border-[var(--border)] font-bold text-sm outline-none cursor-not-allowed"
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Notas Adicionales (Opcional)</label>
+                <label className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)]">Notas Adicionales (Opcional)</label>
                 <textarea
                   value={dispatchNotes}
                   onChange={(e) => setDispatchNotes(e.target.value)}
                   placeholder="Observaciones adicionales sobre el despacho..."
-                  className="w-full bg-slate-50 p-3 rounded-xl border border-slate-200 text-sm outline-none focus:border-emerald-500 transition-colors"
+                  className="w-full bg-[var(--surface-hover)] p-3 rounded-xl border border-[var(--border)] text-sm outline-none focus:border-emerald-500 transition-colors"
                   rows={2}
                 />
               </div>
@@ -228,11 +342,11 @@ export const DispatchModal = memo(function DispatchModal({
           ) : (
             <>
               <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Área de Destino *</label>
+                <label className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)]">Área de Destino *</label>
                 <select
                   value={dispatchArea}
                   onChange={(e) => setDispatchArea(e.target.value)}
-                  className="w-full bg-white text-slate-700 p-3 rounded-xl border border-slate-200 font-bold text-sm outline-none focus:border-indigo-500 transition-colors"
+                  className="w-full bg-[var(--surface)] text-[var(--foreground)] p-3 rounded-xl border border-[var(--border)] font-bold text-sm outline-none focus:border-indigo-500 transition-colors"
                 >
                   <option value="Diagnóstico">Diagnóstico</option>
                   <option value="Reparación">Reparación (Calidad)</option>
@@ -254,7 +368,7 @@ export const DispatchModal = memo(function DispatchModal({
           )}
         </div>
 
-        <div className="p-4 border-t border-slate-100 flex justify-end gap-3 bg-slate-50">
+        <div className="p-4 border-t border-[var(--border)] flex justify-end gap-3 bg-[var(--surface-hover)] shrink-0">
           <Button variant="outline" onClick={onClose} disabled={isDispatching}>
             Cancelar
           </Button>

@@ -6,11 +6,11 @@ import { erpTypography } from '@/lib/design/tokens';
 type StatCardAccent = 'cyan' | 'emerald' | 'amber' | 'slate' | 'rose';
 
 const accentBorder: Record<StatCardAccent, string> = {
-  cyan: 'border-l-[#2ec4f1]',
-  emerald: 'border-l-emerald-500',
-  amber: 'border-l-amber-400',
-  slate: 'border-l-slate-400',
-  rose: 'border-l-rose-400',
+  cyan: 'border-l-[var(--accent)]',
+  emerald: 'border-l-[var(--success)]',
+  amber: 'border-l-[var(--warning)]',
+  slate: 'border-l-[var(--muted)]',
+  rose: 'border-l-[var(--danger)]',
 };
 
 type StatCardProps = {
@@ -32,14 +32,14 @@ export function StatCard({ label, value, hint, icon, accent = 'cyan', className 
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className={erpTypography.label}>{label}</p>
-          <div className="text-2xl sm:text-3xl lg:text-4xl font-black text-[#181c3a] mt-2 truncate">{value}</div>
+          <div className="mt-2 truncate text-2xl font-bold text-heading sm:text-3xl lg:text-4xl">{value}</div>
           {hint && (
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">{hint}</p>
+            <p className="mt-1 text-[10px] font-semibold tracking-wide text-muted uppercase">{hint}</p>
           )}
         </div>
         {icon && (
-          <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center shrink-0">
-            <ErpIcon name={icon} className="w-5 h-5 text-[#2ec4f1]" />
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface-hover">
+            <ErpIcon name={icon} className="h-5 w-5 text-accent" />
           </div>
         )}
       </div>

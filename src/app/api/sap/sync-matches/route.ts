@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
+import { rpcInternal } from '@/lib/supabase/rpcInternal';
 import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
 import { ROLES_RETURNS_SAP } from '@/shared/authz/roleGuard';
 import { parseJsonBody } from '@/shared/validation/parseRequest';
@@ -52,7 +53,7 @@ export const POST = withErrorHandler(async (request: Request) => {
   const body = await parseJsonBody(request, SyncMatchesSchema);
   const supabase = getSupabaseServerClient();
 
-  const { data, error } = await supabase.rpc('sap_sync_matches_tx', {
+  const { data, error } = await rpcInternal(supabase, 'sap_sync_matches_tx', {
     p_file_info: body.fileInfo,
     p_results: body.results,
     p_matched_series: body.matchedSeries,
@@ -62,13 +63,13 @@ export const POST = withErrorHandler(async (request: Request) => {
   });
 
   if (error) {
-    // Fallback si aún no aplicaron migración 098
-    if (/sap_sync_matches_tx|function/i.test(error.message || '')) {
+    // Fallback legacy: internal.sap_sync_tx
+    if (/sap_sync_matches_tx|function|PGRST/i.test(error.message || '')) {
       const seriesUpdates = body.matchedSeries.map((s) => ({
         id: s.id,
         sap_status: 'Validado',
       }));
-      const { data: legacy, error: legacyErr } = await supabase.rpc('sap_sync_tx', {
+      const { data: legacy, error: legacyErr } = await rpcInternal(supabase, 'sap_sync_tx', {
         p_file_info: body.fileInfo,
         p_results: body.results,
         p_validation_details: body.validationDetails,

@@ -23,6 +23,7 @@ const EMPTY_AUTHZ: UserAuthz = {
   roleLabel: null,
   isAdmin: false,
   perms: [],
+  email: null,
 };
 
 export async function fetchAuthzMe(): Promise<UserAuthz> {
@@ -41,6 +42,8 @@ export interface AuthzApi {
   /** Snapshot crudo (no usar para seguridad). */
   snapshot: UserAuthz;
   isAdmin: boolean;
+  /** Email de sesión (UX). */
+  email: string | null;
   /** ¿Puede ejecutar `action` sobre `module`? */
   can: (module: string, action: PermAction) => boolean;
   /** Atajo de lectura (canDo(module,'view')). */
@@ -64,6 +67,8 @@ export function AuthzProvider({
     queryKey: AUTHZ_QUERY_KEY,
     queryFn: fetchAuthzMe,
     initialData: initial ?? undefined,
+    // Si el seed del layout no trae email, forzar refresh (gate Tema/Colores).
+    initialDataUpdatedAt: initial?.email ? undefined : 0,
     staleTime: 60_000,
     gcTime: 5 * 60_000,
   });
@@ -74,6 +79,7 @@ export function AuthzProvider({
     () => ({
       snapshot,
       isAdmin: snapshot.isAdmin,
+      email: snapshot.email ?? null,
       can: (module, action) => pureCanDo(snapshot, module, action),
       canView: (module) => pureCanView(snapshot, module),
       roleLabel: snapshot.roleLabel,

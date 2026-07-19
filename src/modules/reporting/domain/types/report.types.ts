@@ -19,6 +19,11 @@ export type ReportFilterParams = {
   agencyId?: string;
   batchNumber?: string;
   batchId?: string;
+  /** Filtros reporte matriz mensual (OPERACIONES_MENSUAL_TECNOLOGIA). */
+  year?: string;
+  month?: string;
+  country?: string;
+  technology?: string;
 };
 
 export type ReportRow = Record<string, string | number | null>;
@@ -32,9 +37,13 @@ export type ReportDefinitionSummary = {
   requiresDateRange: boolean;
 };
 
+/** Layout Excel con cabeceras agrupadas (Año/País/Mes/Tech + Ingresado/…). */
+export type ReportXlsxLayout = 'default' | 'ops_monthly_tech_matrix';
+
 export type ReportDataResult = {
   rows: ReportRow[];
   truncated?: boolean;
+  xlsxLayout?: ReportXlsxLayout;
 };
 
 export type GenerateReportParams = {

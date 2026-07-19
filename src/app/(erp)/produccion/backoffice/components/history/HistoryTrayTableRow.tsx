@@ -122,7 +122,7 @@ export function HistoryTrayTableRow({
       ))}
       <td className="px-2 py-2 text-right whitespace-nowrap sticky right-0 bg-[var(--surface)] group-hover:bg-[var(--surface-hover)]">
         <div className="flex justify-end gap-0.5">
-          <button type="button" onClick={() => onSapBlockReturn(entry)} className="w-6 h-6 rounded-md bg-rose-500/10 flex items-center justify-center text-rose-500 hover:bg-rose-500 hover:text-white transition-all" title={entry.sapTransferId ? 'Devolver bloque SAP' : 'Devolver lote (recepcion)'}>
+          <button type="button" onClick={() => onSapBlockReturn(entry)} className="w-6 h-6 rounded-md bg-rose-500/10 flex items-center justify-center text-rose-500 hover:bg-rose-500 hover:text-white transition-all" title={entry.sapTransferId ? 'Devolver Bloque SAP' : 'Devolver lote (recepción)'}>
             <RotateCcw size={11} />
           </button>
           {canReturnToPending && (
@@ -130,16 +130,16 @@ export function HistoryTrayTableRow({
               <RefreshCw size={11} />
             </button>
           )}
-          <button type="button" onClick={() => onShowTimeline(rec)} className="w-6 h-6 rounded-md bg-[#2ec4f1]/15 flex items-center justify-center text-[#2ec4f1] hover:bg-[#2ec4f1] hover:text-white transition-all" title="Ver Trazabilidad">
+          <button type="button" onClick={() => onShowTimeline(rec)} className="flex h-6 w-6 items-center justify-center rounded-md bg-[var(--accent)]/15 text-[var(--accent)] transition-all hover:bg-[var(--accent)] hover:text-[var(--accent-foreground)]" title="Ver Trazabilidad">
             <Clock size={11} />
           </button>
-          <button type="button" onClick={() => onOpenHistoryModal(rec)} className="w-6 h-6 rounded-md bg-[var(--surface-hover)] flex items-center justify-center text-[var(--muted)] hover:text-[var(--foreground)] transition-all" title="Ver Detalle">
+          <button type="button" onClick={() => onOpenHistoryModal(rec)} className="flex h-6 w-6 items-center justify-center rounded-md bg-[var(--surface-hover)] text-[var(--muted)] transition-all hover:text-[var(--foreground)]" title="Ver Detalle">
             <Eye size={11} />
           </button>
-          <button type="button" onClick={() => onOpenEditMeta(rec)} className="w-6 h-6 rounded-md bg-[var(--surface-hover)] flex items-center justify-center text-[var(--muted)] hover:text-amber-600 transition-all" title="Editar Metadatos">
+          <button type="button" onClick={() => onOpenEditMeta(rec)} className="flex h-6 w-6 items-center justify-center rounded-md bg-[var(--surface-hover)] text-[var(--muted)] transition-all hover:text-[var(--warning)]" title="Editar Metadatos">
             <Edit2 size={11} />
           </button>
-          <button type="button" onClick={() => onPrintConduce(rec)} className="w-6 h-6 rounded-md bg-[var(--surface-hover)] flex items-center justify-center text-[var(--muted)] hover:text-blue-600 transition-all" title="Imprimir PDF">
+          <button type="button" onClick={() => onPrintConduce(rec)} className="flex h-6 w-6 items-center justify-center rounded-md bg-[var(--surface-hover)] text-[var(--muted)] transition-all hover:text-[var(--accent)]" title="Imprimir PDF">
             <Printer size={11} />
           </button>
         </div>

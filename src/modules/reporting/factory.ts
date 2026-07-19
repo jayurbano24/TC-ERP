@@ -46,6 +46,10 @@ export function parseReportFilters(body: Record<string, unknown>): ReportFilterP
     agencyId: str('agencyId'),
     batchNumber: str('batchNumber'),
     batchId: str('batchId'),
+    year: str('year'),
+    month: str('month'),
+    country: str('country'),
+    technology: str('technology'),
   };
 }
 

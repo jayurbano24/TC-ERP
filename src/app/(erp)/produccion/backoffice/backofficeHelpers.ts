@@ -64,21 +64,41 @@ export const compressImage = (file: File): Promise<string> => {
 
 export const getReceiverName = (rec: any) => {
   if (!rec) return 'SISTEMA';
-  const cacReceiverMatch = rec.notes?.split('Recibido Por: ')?.[1]?.split('\n')?.[0]?.trim();
-  const cacReceiver = cacReceiverMatch ? cacReceiverMatch.split('@')[0].toUpperCase() : null;
 
-  const backofficeReceiversMatch = rec.notes?.match(/Por:\s*([^\n]+)/g);
-  let backofficeReceivers: string[] = [];
-  if (backofficeReceiversMatch) {
-    backofficeReceivers = Array.from(
-      new Set(backofficeReceiversMatch.map((m: string) => m.replace('Por:', '').trim().toUpperCase()))
-    );
+  const looksLikeUuid = (value: string) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.trim());
+
+  const profileName =
+    rec.received_by_profile?.full_name ||
+    (Array.isArray(rec.received_by_profile) ? rec.received_by_profile[0]?.full_name : null);
+  if (profileName && String(profileName).trim()) {
+    return String(profileName).trim().split('@')[0];
   }
 
-  if (backofficeReceivers.length > 0) return backofficeReceivers.join(' / ');
-  if (cacReceiver) return cacReceiver;
-  if (rec.received_by) return rec.received_by.split('@')[0].toUpperCase();
-  if (rec.usuario) return rec.usuario.split('@')[0].toUpperCase();
+  const cacReceiverMatch = rec.notes?.split('Recibido Por: ')?.[1]?.split('\n')?.[0]?.trim();
+  const cacReceiver = cacReceiverMatch ? cacReceiverMatch.split('@')[0].trim() : null;
+  if (cacReceiver && !looksLikeUuid(cacReceiver)) return cacReceiver;
+
+  const backofficeReceiversMatch = rec.notes?.match(/Por:\s*([^\n]+)/g);
+  if (backofficeReceiversMatch) {
+    const names = Array.from(
+      new Set(
+        backofficeReceiversMatch
+          .map((m: string) => m.replace(/^Por:\s*/i, '').trim().split('@')[0])
+          .filter((n: string) => n && !looksLikeUuid(n))
+      )
+    );
+    if (names.length > 0) return names.join(' / ');
+  }
+
+  if (rec.usuario && !looksLikeUuid(String(rec.usuario))) {
+    return String(rec.usuario).split('@')[0];
+  }
+
+  // received_by es FK (uuid): no mostrarlo crudo
+  if (rec.received_by && !looksLikeUuid(String(rec.received_by))) {
+    return String(rec.received_by).split('@')[0];
+  }
 
   return 'SISTEMA';
 };

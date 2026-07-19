@@ -250,23 +250,102 @@ export async function saveModel(model: any) {
     digits_per_series: payload.digitsPerSeries
   };
 
+  if (!dbModel.brand_id) {
+    return { error: 'Debe seleccionar una marca para el modelo.' };
+  }
+  if (!dbModel.name?.trim()) {
+    return { error: 'El nombre del modelo es obligatorio.' };
+  }
+
   if (id && id.length > 10) {
     const { data, error } = await supabase.from('models').update(dbModel).eq('id', id).select().single();
-    if (!error) invalidateReferenceCatalogCache();
-    return { data, error };
-  } else {
-    const { data, error } = await supabase.from('models').insert([dbModel]).select().single();
-    if (!error) invalidateReferenceCatalogCache();
-    return { data, error };
+    if (error) {
+      if (error.code === '23505') {
+        return { error: `Ya existe un modelo con el código "${dbModel.code}" para esa marca.` };
+      }
+      return { data, error: error.message };
+    }
+    invalidateReferenceCatalogCache();
+    return { data, error: null };
   }
+
+  // Evitar choque con unique (brand_id, code): si ya existe, actualizar ese registro
+  const { data: existing } = await supabase
+    .from('models')
+    .select('id')
+    .eq('brand_id', dbModel.brand_id)
+    .eq('code', dbModel.code)
+    .maybeSingle();
+
+  if (existing?.id) {
+    const { data, error } = await supabase
+      .from('models')
+      .update(dbModel)
+      .eq('id', existing.id)
+      .select()
+      .single();
+    if (error) {
+      if (error.code === '23505') {
+        return { error: `Ya existe un modelo con el código "${dbModel.code}" para esa marca.` };
+      }
+      return { data, error: error.message };
+    }
+    invalidateReferenceCatalogCache();
+    return { data, error: null };
+  }
+
+  const { data, error } = await supabase.from('models').insert([dbModel]).select().single();
+  if (error) {
+    if (error.code === '23505') {
+      return { error: `Ya existe un modelo con el código "${dbModel.code}" para esa marca.` };
+    }
+    return { data, error: error.message };
+  }
+  invalidateReferenceCatalogCache();
+  return { data, error: null };
 }
 
 export async function deleteModel(id: string) {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: "Supabase not configured" };
+
+  const { count, error: countErr } = await supabase
+    .from('series')
+    .select('id', { count: 'exact', head: true })
+    .eq('model_id', id);
+
+  if (countErr) {
+    return { error: countErr.message };
+  }
+
+  if ((count || 0) > 0) {
+    return {
+      error: `No se puede eliminar: hay ${count} serie(s) vinculadas a este modelo. Reasigne o archive el modelo antes de borrarlo.`,
+    };
+  }
+
+  const { count: osCount, error: osErr } = await supabase
+    .from('service_orders')
+    .select('id', { count: 'exact', head: true })
+    .eq('model_id', id);
+
+  if (!osErr && (osCount || 0) > 0) {
+    return {
+      error: `No se puede eliminar: hay ${osCount} orden(es) de servicio vinculadas a este modelo.`,
+    };
+  }
+
   const { error } = await supabase.from('models').delete().eq('id', id);
-  if (!error) invalidateReferenceCatalogCache();
-  return { error };
+  if (error) {
+    if (error.code === '23503') {
+      return {
+        error: 'No se puede eliminar: el modelo está en uso por equipos o series del sistema.',
+      };
+    }
+    return { error: error.message };
+  }
+  invalidateReferenceCatalogCache();
+  return { error: null };
 }
 
 // --- AGENCIAS ---

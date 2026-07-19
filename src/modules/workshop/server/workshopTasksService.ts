@@ -8,6 +8,7 @@ import {
   parseWorkshopSearchTokens,
   sanitizeWorkshopSearchToken,
 } from '@/modules/workshop/shared/workshopSearch';
+import { resolveEntrySource } from '@/modules/workshop/shared/entrySource';
 
 export type WorkshopTabId =
   | 'diagnostico'
@@ -69,6 +70,7 @@ const WORKSHOP_SERIES_SELECT = `
   updated_at,
   brand_id,
   model_id,
+  entry_source,
   models (
     id,
     name,
@@ -81,8 +83,7 @@ const WORKSHOP_SERIES_SELECT = `
     os_label,
     reception_guide_id,
     sap_transfer_id,
-    reception_guides ( guide_number, agency ),
-    sap_transfer_documents ( agency )
+    reception_guides ( guide_number, agency )
   ),
   receptions:current_reception_id (
     guide_number,
@@ -311,12 +312,35 @@ function serialFingerprint(sns: string[]): string {
   return [...sns].map((s) => s.toUpperCase()).sort().join('|');
 }
 
+function resolveSeriesEntrySource(row: {
+  entry_source?: string | null;
+  receptions?: { source?: string | null; guide_number?: string | null } | null;
+  series_entry_map?: Record<string, string> | null;
+  serial_number?: string | null;
+}): 'cac' | 'px' | null {
+  return resolveEntrySource({
+    entry_source: row.entry_source,
+    receptions: row.receptions,
+    series_entry_map: row.series_entry_map,
+    serial: row.serial_number,
+    guide: row.receptions?.guide_number,
+  });
+}
+
 function mergeWorkshopGroup(target: any, source: any) {
   for (const id of source.all_dbIds || [source.id]) {
     if (id && !target.all_dbIds.includes(id)) target.all_dbIds.push(id);
   }
   for (const sn of source.all_sns || (source.serial_number ? [source.serial_number] : [])) {
     if (sn && !target.all_sns.includes(sn)) target.all_sns.push(sn);
+  }
+  if (!target.series_entry_map) target.series_entry_map = {};
+  const srcMap = source.series_entry_map || {};
+  for (const [sn, src] of Object.entries(srcMap)) {
+    if (sn && src && !target.series_entry_map[sn]) target.series_entry_map[sn] = src;
+  }
+  if (!target.entry_source && source.entry_source) {
+    target.entry_source = source.entry_source;
   }
   if (!target.source_box_code && source.source_box_code) {
     target.source_box_code = source.source_box_code;
@@ -382,11 +406,18 @@ function groupWorkshopSeriesRows(rows: any[]) {
   for (const row of rows) {
     const groupKey = workshopGroupKey(row);
 
+    const entrySource = resolveSeriesEntrySource(row);
+    const sn = row.serial_number ? String(row.serial_number) : '';
+    const seriesEntryMap = sn && entrySource ? { [sn]: entrySource } : {};
+
     if (!groupedMap.has(groupKey)) {
       groupedMap.set(groupKey, {
         ...row,
+        // No pisar entry_source de la fila con null
+        entry_source: entrySource ?? row.entry_source ?? null,
+        series_entry_map: seriesEntryMap,
         all_dbIds: [row.id],
-        all_sns: row.serial_number ? [row.serial_number] : [],
+        all_sns: sn ? [sn] : [],
         source_box_code: row.source_box_code ?? null,
       });
       continue;
@@ -395,12 +426,25 @@ function groupWorkshopSeriesRows(rows: any[]) {
     const existing = groupedMap.get(groupKey)!;
     mergeWorkshopGroup(existing, {
       ...row,
+      entry_source: entrySource ?? row.entry_source ?? null,
+      series_entry_map: seriesEntryMap,
       all_dbIds: [row.id],
-      all_sns: row.serial_number ? [row.serial_number] : [],
+      all_sns: sn ? [sn] : [],
     });
   }
 
-  return dedupeWorkshopGroups([...groupedMap.values()]);
+  const groups = dedupeWorkshopGroups([...groupedMap.values()]);
+  for (const g of groups) {
+    if (!g.entry_source) {
+      g.entry_source = resolveEntrySource({
+        entry_source: g.entry_source,
+        receptions: g.receptions,
+        series_entry_map: g.series_entry_map,
+        guide: g.receptions?.guide_number,
+      });
+    }
+  }
+  return groups;
 }
 
 function isWorkshopReadyInCentral(series: {

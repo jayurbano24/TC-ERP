@@ -67,7 +67,7 @@ type Props = {
 };
 
 /**
- * C1: vista "Despacho Taller" extraída del monolito produccion/taller y memoizada.
+ * C1: vista "Retornar a Bodega" (antes Despacho Taller) extraída del monolito y memoizada.
  * Todo el estado desp* vive en el padre; aquí se reciben valores + setters + helpers.
  */
 export const DespachoView = memo(function DespachoView({
@@ -132,7 +132,7 @@ export const DespachoView = memo(function DespachoView({
               </div>
               <div>
                 <p className="text-[9px] font-black uppercase tracking-[0.3em] text-white/60 mb-1">Taller · Producción</p>
-                <h2 className="text-2xl font-black">Despacho Taller</h2>
+                <h2 className="text-2xl font-black">Retornar a Bodega</h2>
                 <p className="text-[11px] text-white/70 mt-0.5">Gestión de Movimientos y Cajas</p>
               </div>
             </div>
@@ -387,7 +387,7 @@ export const DespachoView = memo(function DespachoView({
                 <Send className="w-5 h-5" />
               </div>
               <div>
-                <p className="text-[9px] font-black uppercase tracking-[0.3em] text-white/60">Despacho Taller</p>
+                <p className="text-[9px] font-black uppercase tracking-[0.3em] text-white/60">Retornar a Bodega</p>
                 <h2 className="text-xl font-black">{origenDef.label}<span className="mx-2 text-white/40">→</span>{destinoDef.label}</h2>
                 <div className="flex items-center gap-3 mt-1">
                   <p className="text-[10px] text-white/70">{despTasks.length} disponibles · {despScannedItems.length} seleccionado(s)</p>

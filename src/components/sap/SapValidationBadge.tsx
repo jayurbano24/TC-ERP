@@ -33,7 +33,7 @@ export function SeriesSapValidationDots({ statuses }: SeriesProps) {
     const t = String(raw ?? '').trim();
     return t.length > 0 && t !== '—';
   });
-  if (!visible.length) return <span className="text-[10px] text-slate-300">—</span>;
+  if (!visible.length) return <span className="text-[10px] text-[var(--muted)]">—</span>;
 
   return (
     <div className="flex flex-wrap gap-1">

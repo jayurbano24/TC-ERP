@@ -13,12 +13,15 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     const baseStyles = 'inline-flex items-center justify-center rounded-xl font-bold transition-all duration-200 active:scale-95 disabled:opacity-50 disabled:pointer-events-none disabled:active:scale-100';
     
     const variants = {
-      primary: 'bg-[#181c3a] text-white shadow-lg shadow-[#181c3a]/20 hover:bg-[#10121e] hover:shadow-[#181c3a]/30 dark:bg-[#2ec4f1] dark:text-[#030712] dark:hover:bg-[#5dd4f7]',
+      primary:
+        'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-lg hover:opacity-90',
       secondary: 'bg-[var(--surface-hover)] text-[var(--foreground)] hover:opacity-90',
-      outline: 'border-2 border-[var(--border)] bg-transparent hover:bg-[var(--surface-hover)] hover:border-[var(--muted)] text-[var(--foreground)]',
-      ghost: 'bg-transparent hover:bg-[var(--surface-hover)] text-[var(--muted)] hover:text-[var(--foreground)]',
-      danger: 'bg-rose-500 text-white shadow-lg shadow-rose-500/20 hover:bg-rose-600',
-      success: 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20 hover:bg-emerald-600',
+      outline:
+        'border-2 border-[var(--border)] bg-transparent text-[var(--foreground)] hover:bg-[var(--surface-hover)] hover:border-[var(--muted)]',
+      ghost:
+        'bg-transparent text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]',
+      danger: 'bg-[var(--danger)] text-white shadow-lg hover:opacity-90',
+      success: 'bg-[var(--success)] text-white shadow-lg hover:opacity-90',
     };
 
     const sizes = {

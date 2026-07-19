@@ -18,15 +18,15 @@ export function DeleteBoxAuthorizationModal({ boxLabel, submitting, onSubmit, on
   const canSubmit = reason.trim().length >= 5 && !submitting;
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-[#181c3a]/45 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
       <Card className="w-full max-w-lg p-0 overflow-hidden shadow-2xl animate-rise-in">
-        <div className="bg-[#181c3a] px-6 py-4 text-white flex items-center gap-3">
+        <div className="border-b border-[var(--border)] bg-[var(--surface)] px-6 py-4 flex items-center gap-3">
           <div className="bg-rose-500/20 p-2 rounded-xl">
-            <Trash2 className="w-5 h-5 text-rose-300" />
+            <Trash2 className="w-5 h-5 text-rose-500" />
           </div>
           <div>
-            <h3 className="text-lg font-bold">Solicitar eliminación</h3>
-            <p className="text-[11px] text-white/60 font-medium">{boxLabel}</p>
+            <h3 className="text-lg font-bold text-[var(--heading)]">Solicitar eliminación</h3>
+            <p className="text-[11px] text-[var(--muted)] font-medium">{boxLabel}</p>
           </div>
         </div>
 
@@ -43,11 +43,11 @@ export function DeleteBoxAuthorizationModal({ boxLabel, submitting, onSubmit, on
           </div>
 
           <div className="space-y-2">
-            <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+            <label className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)]">
               Motivo de eliminación <span className="text-rose-500">*</span>
             </label>
             <textarea
-              className="w-full min-h-[88px] rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-medium outline-none focus:border-[#2ec4f1] focus:bg-white"
+              className="w-full min-h-[88px] rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] p-3 text-sm font-medium outline-none focus:border-[var(--accent)] focus:bg-[var(--surface)]"
               placeholder="Explique por qué debe eliminarse esta caja…"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
@@ -56,11 +56,11 @@ export function DeleteBoxAuthorizationModal({ boxLabel, submitting, onSubmit, on
           </div>
 
           <div className="space-y-2">
-            <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+            <label className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)]">
               Observaciones
             </label>
             <textarea
-              className="w-full min-h-[72px] rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-medium outline-none focus:border-[#2ec4f1] focus:bg-white"
+              className="w-full min-h-[72px] rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] p-3 text-sm font-medium outline-none focus:border-[var(--accent)] focus:bg-[var(--surface)]"
               placeholder="Detalle adicional (opcional)"
               value={observations}
               onChange={(e) => setObservations(e.target.value)}

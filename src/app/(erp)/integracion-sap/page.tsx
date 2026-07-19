@@ -6,6 +6,7 @@ import {
   Search, ArrowRightLeft, FileWarning, CheckCircle2, AlertTriangle, Loader2
 } from 'lucide-react';
 import { Card, Button, Badge, DataTable, type DataTableColumn } from '@/components/ui';
+import { erpTab, erpSoftStat, erpInputClass } from '@/lib/design/tokens';
 import { apiFetch } from '@/lib/http/apiFetch';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -28,14 +29,14 @@ const SAP_HISTORY_COLUMNS: DataTableColumn<any>[] = [
     id: 'encontrados',
     header: 'Validados',
     align: 'right',
-    cellClassName: 'text-emerald-600',
+    cellClassName: 'text-[var(--success)]',
     cell: (h) => h.encontrados,
   },
   {
     id: 'errores',
     header: 'Error / Inconsistencia',
     align: 'right',
-    cellClassName: 'text-rose-500',
+    cellClassName: 'text-[var(--danger)]',
     cell: (h) => h.no_encontrados + h.inconsistencias,
   },
   {
@@ -43,7 +44,7 @@ const SAP_HISTORY_COLUMNS: DataTableColumn<any>[] = [
     header: 'Estado',
     align: 'center',
     cell: (h) => (
-      <Badge className="bg-emerald-100 text-emerald-700 border-none uppercase text-[9px] font-black tracking-widest">
+      <Badge className="bg-[var(--success)]/15 text-[var(--success)] border-none uppercase text-[9px] font-black tracking-widest">
         {h.estado}
       </Badge>
     ),
@@ -337,8 +338,8 @@ export default function IntegracionSapPage() {
     if (isLoadingDashboard) {
       return (
         <div className="flex flex-col items-center justify-center min-h-[400px]">
-          <Loader2 className="w-12 h-12 text-[#2ec4f1] animate-spin" />
-          <p className="mt-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Cargando métricas...</p>
+          <Loader2 className="w-12 h-12 text-[var(--accent)] animate-spin" />
+          <p className="mt-4 text-xs font-bold text-[var(--muted)] uppercase tracking-widest">Cargando métricas...</p>
         </div>
       );
     }
@@ -353,63 +354,63 @@ export default function IntegracionSapPage() {
     return (
       <div className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          <Card className="p-5 border-none shadow-sm rounded-3xl bg-white flex flex-col justify-between h-32">
+          <Card className="p-5 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)] flex flex-col justify-between h-32">
             <div className="flex justify-between items-start">
               <div>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Equipos TC (OS)</p>
-                <h3 className="text-2xl font-black text-[#181c3a]">{(kpis?.totalTC ?? 0).toLocaleString()}</h3>
+                <p className="text-[10px] font-black text-[var(--muted)] uppercase tracking-widest mb-1">Equipos TC (OS)</p>
+                <h3 className="text-2xl font-black text-[var(--heading)]">{(kpis?.totalTC ?? 0).toLocaleString()}</h3>
               </div>
-              <div className="w-10 h-10 rounded-2xl bg-blue-50 flex items-center justify-center">
-                <Database className="w-5 h-5 text-blue-500" />
+              <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${erpSoftStat.accent}`}>
+                <Database className="w-5 h-5" />
               </div>
             </div>
-            <p className="text-[10px] font-bold text-slate-400">
+            <p className="text-[10px] font-bold text-[var(--muted)]">
               {(kpis?.totalSeries ?? 0).toLocaleString()} series ligadas · 1 OS = 1 equipo
             </p>
           </Card>
 
-          <Card className="p-5 border-none shadow-sm rounded-3xl bg-white flex flex-col justify-between h-32">
+          <Card className="p-5 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)] flex flex-col justify-between h-32">
             <div className="flex justify-between items-start">
               <div>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Equipos validados SAP</p>
-                <h3 className="text-2xl font-black text-emerald-600">{(kpis?.validados ?? 0).toLocaleString()}</h3>
+                <p className="text-[10px] font-black text-[var(--muted)] uppercase tracking-widest mb-1">Equipos validados SAP</p>
+                <h3 className="text-2xl font-black text-[var(--success)]">{(kpis?.validados ?? 0).toLocaleString()}</h3>
               </div>
-              <div className="w-10 h-10 rounded-2xl bg-emerald-50 flex items-center justify-center">
-                <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+              <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${erpSoftStat.success}`}>
+                <CheckCircle2 className="w-5 h-5" />
               </div>
             </div>
-            <div className="w-full bg-slate-100 rounded-full h-1.5 mt-2">
-              <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: `${validadosPct}%` }} />
+            <div className="w-full bg-[var(--surface-hover)] rounded-full h-1.5 mt-2">
+              <div className="bg-[var(--success)] h-1.5 rounded-full" style={{ width: `${validadosPct}%` }} />
             </div>
-            <p className="text-[10px] font-bold text-slate-400 mt-1">
+            <p className="text-[10px] font-bold text-[var(--muted)] mt-1">
               {(kpis?.seriesValidadas ?? 0).toLocaleString()} series OK ({seriesValPct}% series)
             </p>
           </Card>
 
-          <Card className="p-5 border-none shadow-sm rounded-3xl bg-white flex flex-col justify-between h-32">
+          <Card className="p-5 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)] flex flex-col justify-between h-32">
             <div className="flex justify-between items-start">
               <div>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Equipos pendientes</p>
-                <h3 className="text-2xl font-black text-amber-500">{(kpis?.pendientes ?? 0).toLocaleString()}</h3>
+                <p className="text-[10px] font-black text-[var(--muted)] uppercase tracking-widest mb-1">Equipos pendientes</p>
+                <h3 className="text-2xl font-black text-[var(--warning)]">{(kpis?.pendientes ?? 0).toLocaleString()}</h3>
               </div>
-              <div className="w-10 h-10 rounded-2xl bg-amber-50 flex items-center justify-center">
-                <Activity className="w-5 h-5 text-amber-500" />
+              <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${erpSoftStat.warning}`}>
+                <Activity className="w-5 h-5" />
               </div>
             </div>
-            <p className="text-[10px] font-bold text-slate-400">Sin sync o sin serie ligada</p>
+            <p className="text-[10px] font-bold text-[var(--muted)]">Sin sync o sin serie ligada</p>
           </Card>
 
-          <Card className="p-5 border-none shadow-sm rounded-3xl bg-white flex flex-col justify-between h-32">
+          <Card className="p-5 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)] flex flex-col justify-between h-32">
             <div className="flex justify-between items-start">
               <div>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Sin coincidencia</p>
-                <h3 className="text-2xl font-black text-rose-500">{(kpis?.sinCoincidencia ?? 0).toLocaleString()}</h3>
+                <p className="text-[10px] font-black text-[var(--muted)] uppercase tracking-widest mb-1">Sin coincidencia</p>
+                <h3 className="text-2xl font-black text-[var(--danger)]">{(kpis?.sinCoincidencia ?? 0).toLocaleString()}</h3>
               </div>
-              <div className="w-10 h-10 rounded-2xl bg-rose-50 flex items-center justify-center">
-                <AlertTriangle className="w-5 h-5 text-rose-500" />
+              <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${erpSoftStat.danger}`}>
+                <AlertTriangle className="w-5 h-5" />
               </div>
             </div>
-            <p className="text-[10px] font-bold text-slate-400">
+            <p className="text-[10px] font-bold text-[var(--muted)]">
               {(kpis?.seriesSinMatch ?? 0).toLocaleString()} series ·{' '}
               {equiposBase ? Math.round((kpis.sinCoincidencia / equiposBase) * 100) : 0}% equipos
             </p>
@@ -417,63 +418,63 @@ export default function IntegracionSapPage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Card className="p-6 border-none shadow-sm rounded-3xl bg-white">
-            <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-6">Última Sincronización</h3>
+          <Card className="p-6 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)]">
+            <h3 className="text-xs font-black uppercase tracking-widest text-[var(--muted)] mb-6">Última Sincronización</h3>
             {lastUpload ? (
               <div className="space-y-4">
-                <div className="flex items-center gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-100">
-                  <div className="w-12 h-12 rounded-xl bg-[#181c3a] flex items-center justify-center shrink-0">
-                    <FileSpreadsheet className="w-6 h-6 text-white" />
+                <div className="flex items-center gap-4 p-4 rounded-2xl bg-[var(--surface-hover)] border border-[var(--border)]">
+                  <div className="w-12 h-12 rounded-xl bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center shrink-0">
+                    <FileSpreadsheet className="w-6 h-6 text-[var(--accent)]" />
                   </div>
                   <div className="flex-1">
-                    <h4 className="text-sm font-black text-[#181c3a]">{lastUpload.archivo}</h4>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
+                    <h4 className="text-sm font-black text-[var(--heading)]">{lastUpload.archivo}</h4>
+                    <p className="text-[10px] font-bold text-[var(--muted)] uppercase tracking-widest mt-1">
                       {new Date(lastUpload.fecha).toLocaleString()} • {lastUpload.usuario}
                     </p>
                   </div>
-                  <Badge className="bg-emerald-100 text-emerald-700 border-none uppercase text-[9px] font-black tracking-widest px-3 py-1">
+                  <Badge className="bg-[var(--success)]/15 text-[var(--success)] border-none uppercase text-[9px] font-black tracking-widest px-3 py-1">
                     {lastUpload.estado}
                   </Badge>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
-                  <div className="p-3 bg-white border border-slate-100 rounded-xl text-center">
-                    <p className="text-xl font-black text-[#181c3a]">{lastUpload.registros > 1000 ? Math.round(lastUpload.registros/1000) + 'K' : lastUpload.registros}</p>
-                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-1">Líneas Leídas</p>
+                  <div className="p-3 bg-[var(--surface-hover)] border border-[var(--border)] rounded-xl text-center">
+                    <p className="text-xl font-black text-[var(--heading)]">{lastUpload.registros > 1000 ? Math.round(lastUpload.registros/1000) + 'K' : lastUpload.registros}</p>
+                    <p className="text-[8px] font-black text-[var(--muted)] uppercase tracking-widest mt-1">Líneas Leídas</p>
                   </div>
-                  <div className="p-3 bg-white border border-slate-100 rounded-xl text-center">
-                    <p className="text-xl font-black text-[#181c3a]">{lastUpload.encontrados > 1000 ? Math.round(lastUpload.encontrados/1000) + 'K' : lastUpload.encontrados}</p>
-                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-1">Match TC</p>
+                  <div className="p-3 bg-[var(--surface-hover)] border border-[var(--border)] rounded-xl text-center">
+                    <p className="text-xl font-black text-[var(--heading)]">{lastUpload.encontrados > 1000 ? Math.round(lastUpload.encontrados/1000) + 'K' : lastUpload.encontrados}</p>
+                    <p className="text-[8px] font-black text-[var(--muted)] uppercase tracking-widest mt-1">Match TC</p>
                   </div>
-                  <div className="p-3 bg-white border border-slate-100 rounded-xl text-center">
-                    <p className="text-xl font-black text-[#181c3a]">{lastUpload.tiempo_proceso || 'N/A'}</p>
-                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-1">Tiempo</p>
+                  <div className="p-3 bg-[var(--surface-hover)] border border-[var(--border)] rounded-xl text-center">
+                    <p className="text-xl font-black text-[var(--heading)]">{lastUpload.tiempo_proceso || 'N/A'}</p>
+                    <p className="text-[8px] font-black text-[var(--muted)] uppercase tracking-widest mt-1">Tiempo</p>
                   </div>
                 </div>
               </div>
             ) : (
-              <p className="text-slate-400 text-sm font-bold text-center py-8">No hay cargas registradas.</p>
+              <p className="text-[var(--muted)] text-sm font-bold text-center py-8">No hay cargas registradas.</p>
             )}
           </Card>
 
-          <Card className="p-6 border-none shadow-sm rounded-3xl bg-white">
-            <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-6">Calidad de Coincidencia (KPI)</h3>
+          <Card className="p-6 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)]">
+            <h3 className="text-xs font-black uppercase tracking-widest text-[var(--muted)] mb-6">Calidad de Coincidencia (KPI)</h3>
             <div className="space-y-4">
               <div>
                 <div className="flex justify-between text-xs font-bold mb-1">
-                  <span className="text-[#181c3a]">Coincidencia Completa / SAP Validado</span>
-                  <span className="text-emerald-500">{validadosPct}%</span>
+                  <span className="text-[var(--heading)]">Coincidencia Completa / SAP Validado</span>
+                  <span className="text-[var(--success)]">{validadosPct}%</span>
                 </div>
-                <div className="w-full bg-slate-100 rounded-full h-2">
-                  <div className="bg-emerald-500 h-2 rounded-full" style={{ width: `${validadosPct}%` }}></div>
+                <div className="w-full bg-[var(--surface-hover)] rounded-full h-2">
+                  <div className="bg-[var(--success)] h-2 rounded-full" style={{ width: `${validadosPct}%` }}></div>
                 </div>
               </div>
               <div>
                 <div className="flex justify-between text-xs font-bold mb-1">
-                  <span className="text-[#181c3a]">Material Diferente (Inconsistencia)</span>
-                  <span className="text-amber-500">{parcialPct}%</span>
+                  <span className="text-[var(--heading)]">Material Diferente (Inconsistencia)</span>
+                  <span className="text-[var(--warning)]">{parcialPct}%</span>
                 </div>
-                <div className="w-full bg-slate-100 rounded-full h-2">
-                  <div className="bg-amber-500 h-2 rounded-full" style={{ width: `${parcialPct}%` }}></div>
+                <div className="w-full bg-[var(--surface-hover)] rounded-full h-2">
+                  <div className="bg-[var(--warning)] h-2 rounded-full" style={{ width: `${parcialPct}%` }}></div>
                 </div>
               </div>
             </div>
@@ -492,31 +493,33 @@ export default function IntegracionSapPage() {
     ];
 
     return (
-      <div className="flex overflow-x-auto hide-scrollbar gap-2 mb-6 p-1 bg-slate-100 rounded-2xl w-fit">
-        {tabs.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
-              activeTab === tab.id 
-                ? 'bg-white text-[#2ec4f1] shadow-sm' 
-                : 'text-slate-400 hover:text-[#181c3a] hover:bg-slate-200/50'
-            }`}
-          >
-            {tab.icon}
-            {tab.label}
-          </button>
-        ))}
+      <div className={`${erpTab.list} mb-6 w-fit max-w-full overflow-x-auto hide-scrollbar`} role="tablist">
+        {tabs.map((tab) => {
+          const active = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => setActiveTab(tab.id as typeof activeTab)}
+              className={`flex items-center gap-2 ${erpTab.trigger} ${active ? erpTab.triggerActive : erpTab.triggerInactive}`}
+            >
+              {tab.icon}
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
     );
   };
 
   const renderHistory = () => {
     return (
-      <Card className="p-6 border-none shadow-sm rounded-3xl bg-white">
-        <h3 className="text-xl font-black text-[#181c3a] uppercase tracking-tight mb-6">Historial de Validaciones</h3>
+      <Card className="p-6 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)]">
+        <h3 className="text-xl font-black text-[var(--heading)] uppercase tracking-tight mb-6">Historial de Validaciones</h3>
         {isLoadingHistory ? (
-          <div className="flex justify-center items-center py-12"><Loader2 className="w-8 h-8 animate-spin text-[#2ec4f1]" /></div>
+          <div className="flex justify-center items-center py-12"><Loader2 className="w-8 h-8 animate-spin text-[var(--accent)]" /></div>
         ) : (
           <DataTable
             columns={SAP_HISTORY_COLUMNS}
@@ -533,23 +536,23 @@ export default function IntegracionSapPage() {
 
   const renderQuery = () => {
     return (
-      <Card className="p-6 border-none shadow-sm rounded-3xl bg-white min-h-[400px]">
-        <h3 className="text-xl font-black text-[#181c3a] uppercase tracking-tight mb-6">Consulta Forense</h3>
+      <Card className="p-6 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)] min-h-[400px]">
+        <h3 className="text-xl font-black text-[var(--heading)] uppercase tracking-tight mb-6">Consulta Forense</h3>
         <form onSubmit={handleQuery} className="flex gap-4 mb-8">
           <input 
             type="text" 
             placeholder="Ingrese Número de Serie (SN, S1...)" 
             value={queryInput}
             onChange={(e) => setQueryInput(e.target.value)}
-            className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold uppercase"
+            className={`flex-1 ${erpInputClass} uppercase`}
           />
-          <Button type="submit" disabled={isQuerying} className="bg-[#181c3a] hover:bg-[#181c3a]/90 text-white rounded-xl px-8 shadow-md">
+          <Button type="submit" disabled={isQuerying} variant="primary" className="rounded-xl px-8 shadow-md">
             {isQuerying ? <Loader2 className="w-5 h-5 animate-spin" /> : <Search className="w-5 h-5" />}
           </Button>
         </form>
 
         {queryError && (
-          <div className="bg-rose-50 text-rose-600 p-4 rounded-xl flex items-center gap-3 mb-6 font-bold text-sm">
+          <div className={`${erpSoftStat.danger} p-4 rounded-xl flex items-center gap-3 mb-6 font-bold text-sm`}>
             <AlertTriangle className="w-5 h-5" />
             {queryError}
           </div>
@@ -558,30 +561,30 @@ export default function IntegracionSapPage() {
         {queryResult && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="bg-slate-50 border border-slate-100 p-5 rounded-2xl">
-                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Información TC-Multimedia</h4>
-                <div className="space-y-2 text-sm font-bold text-[#181c3a]">
-                  <p>Serie: <span className="text-[#2ec4f1]">{queryResult.series.serial_number}</span></p>
+              <div className="bg-[var(--surface-hover)] border border-[var(--border)] p-5 rounded-2xl">
+                <h4 className="text-[10px] font-black text-[var(--muted)] uppercase tracking-widest mb-4">Información TC-Multimedia</h4>
+                <div className="space-y-2 text-sm font-bold text-[var(--heading)]">
+                  <p>Serie: <span className="text-[var(--accent)]">{queryResult.series.serial_number}</span></p>
                   <p>Orden (OS): {queryResult.series.service_orders?.os_label || 'S/OS'}</p>
                   <p>Estatus Actual: {queryResult.series.sap_status || 'N/A'}</p>
                   <p>Integración General (Equipo): {queryResult.series.service_orders?.sap_integration_status || 'N/A'}</p>
                 </div>
               </div>
               
-              <div className="bg-emerald-50 border border-emerald-100 p-5 rounded-2xl">
-                <h4 className="text-[10px] font-black text-emerald-600/70 uppercase tracking-widest mb-4">Últimas Validaciones SAP</h4>
+              <div className={`${erpSoftStat.success} p-5 rounded-2xl`}>
+                <h4 className="text-[10px] font-black uppercase tracking-widest mb-4 opacity-80">Últimas Validaciones SAP</h4>
                 {queryResult.validations && queryResult.validations.length > 0 ? (
                   <div className="space-y-3">
                     {queryResult.validations.map((v: any) => (
-                      <div key={v.id} className="text-xs font-bold border-b border-emerald-100 pb-2">
-                        <p className="text-emerald-700">{v.coincidencia ? 'MATCH' : 'SIN COINCIDENCIA'} - {v.tipo_serie}</p>
-                        <p className="text-emerald-800/80">Material: {v.material || 'N/A'} - Lote: {v.lote || 'N/A'}</p>
-                        <p className="text-[9px] uppercase tracking-widest text-emerald-600/50 mt-1">Sesión: {new Date(v.sap_validation_sessions?.fecha_fin).toLocaleString()}</p>
+                      <div key={v.id} className="text-xs font-bold border-b border-[var(--success)]/20 pb-2">
+                        <p>{v.coincidencia ? 'MATCH' : 'SIN COINCIDENCIA'} - {v.tipo_serie}</p>
+                        <p className="opacity-80">Material: {v.material || 'N/A'} - Lote: {v.lote || 'N/A'}</p>
+                        <p className="text-[9px] uppercase tracking-widest opacity-60 mt-1">Sesión: {new Date(v.sap_validation_sessions?.fecha_fin).toLocaleString()}</p>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="text-xs font-bold text-emerald-700">No hay validaciones registradas para este equipo.</p>
+                  <p className="text-xs font-bold">No hay validaciones registradas para este equipo.</p>
                 )}
               </div>
             </div>
@@ -592,14 +595,14 @@ export default function IntegracionSapPage() {
   };
 
   return (
-    <div className="p-4 md:p-8 max-w-[1600px] mx-auto min-h-screen bg-[#fafafa]">
+    <div className="p-4 md:p-8 max-w-[1600px] mx-auto min-h-screen bg-[var(--background)]">
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
         <div>
-          <h1 className="text-3xl font-black text-[#181c3a] uppercase tracking-tight flex items-center gap-3">
+          <h1 className="text-3xl font-black text-[var(--heading)] uppercase tracking-tight flex items-center gap-3">
             Centro de Integración SAP
-            <Badge className="bg-[#2ec4f1]/10 text-[#2ec4f1] border-none px-3 py-1 text-[10px] tracking-widest">NÚCLEO</Badge>
+            <Badge className="bg-[var(--accent)]/15 text-[var(--accent)] border-none px-3 py-1 text-[10px] tracking-widest">NÚCLEO</Badge>
           </h1>
-          <p className="text-slate-400 text-sm font-bold uppercase tracking-widest mt-1">
+          <p className="text-[var(--muted)] text-sm font-bold uppercase tracking-widest mt-1">
             Validación y Sincronización Maestra
           </p>
         </div>
@@ -612,12 +615,12 @@ export default function IntegracionSapPage() {
         
         {activeTab === 'cargar' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <Card className="p-12 border-none shadow-sm rounded-3xl bg-white text-center flex flex-col items-center justify-center min-h-[500px]">
+            <Card className="p-12 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)] text-center flex flex-col items-center justify-center min-h-[500px]">
               {uploadStatus === 'idle' || uploadStatus === 'done' || uploadStatus === 'error' ? (
                 <>
-                  <UploadCloud className="w-16 h-16 text-slate-200 mb-4" />
-                  <h3 className="text-xl font-black text-[#181c3a] uppercase tracking-tight mb-2">Cargar Archivo SAP</h3>
-                  <p className="text-sm font-bold text-slate-400 max-w-sm mb-8">
+                  <UploadCloud className="w-16 h-16 text-[var(--muted)]/40 mb-4" />
+                  <h3 className="text-xl font-black text-[var(--heading)] uppercase tracking-tight mb-2">Cargar Archivo SAP</h3>
+                  <p className="text-sm font-bold text-[var(--muted)] max-w-sm mb-8">
                     Arrastra y suelta el archivo Excel (.xlsx) o CSV exportado de SAP. El sistema validará su estructura y ejecutará el motor en cascada.
                   </p>
                   
@@ -630,30 +633,30 @@ export default function IntegracionSapPage() {
                   />
                   <Button 
                     onClick={() => fileInputRef.current?.click()}
-                    className="bg-[#2ec4f1] hover:bg-[#2ec4f1]/90 text-white rounded-xl font-black uppercase text-xs tracking-widest px-8 py-6 shadow-[0_0_20px_rgba(46,196,241,0.3)]"
+                    className="bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white rounded-xl font-black uppercase text-xs tracking-widest px-8 py-6 shadow-[0_0_20px_color-mix(in_srgb,var(--accent)_30%,transparent)]"
                   >
                     Seleccionar Excel / CSV SAP
                   </Button>
 
                   {uploadStatus === 'done' && (
-                    <div className="mt-8 flex items-center gap-2 text-emerald-600 bg-emerald-50 px-4 py-2 rounded-xl">
+                    <div className={`mt-8 flex items-center gap-2 px-4 py-2 rounded-xl ${erpSoftStat.success}`}>
                       <CheckCircle2 className="w-5 h-5" />
                       <span className="text-xs font-black uppercase tracking-widest">Sincronización Finalizada</span>
                     </div>
                   )}
 
                   {errorMsg && (
-                    <div className="mt-8 flex items-center gap-2 text-rose-600 bg-rose-50 px-4 py-2 rounded-xl text-left">
+                    <div className={`mt-8 flex items-center gap-2 px-4 py-2 rounded-xl text-left ${erpSoftStat.danger}`}>
                       <AlertTriangle className="w-5 h-5 shrink-0" />
                       <span className="text-xs font-bold">{errorMsg}</span>
                     </div>
                   )}
 
-                  <div className="mt-12 bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3 max-w-md text-left">
-                    <FileWarning className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                  <div className={`mt-12 rounded-2xl p-4 flex items-start gap-3 max-w-md text-left ${erpSoftStat.warning}`}>
+                    <FileWarning className="w-5 h-5 shrink-0 mt-0.5" />
                     <div>
-                      <p className="text-[10px] font-black text-amber-800 uppercase tracking-widest mb-1">Columnas Obligatorias</p>
-                      <p className="text-[9px] font-bold text-amber-700/80 leading-relaxed">
+                      <p className="text-[10px] font-black uppercase tracking-widest mb-1">Columnas Obligatorias</p>
+                      <p className="text-[9px] font-bold opacity-80 leading-relaxed">
                         Material, Texto breve de material, Número de serie, Centro, Almacén,
                         Lote (VALORADO/NOVALORAD), Status del sistema (ALMA), Lote de stock.
                       </p>
@@ -663,14 +666,14 @@ export default function IntegracionSapPage() {
               ) : (
                 <div className="flex flex-col items-center justify-center space-y-6">
                   <div className="relative">
-                    <div className="absolute inset-0 bg-[#2ec4f1]/20 rounded-full blur-xl animate-pulse"></div>
-                    <div className="w-24 h-24 bg-white border border-slate-100 rounded-3xl shadow-xl flex items-center justify-center relative z-10">
-                      <Loader2 className="w-10 h-10 text-[#2ec4f1] animate-spin" />
+                    <div className="absolute inset-0 bg-[var(--accent)]/20 rounded-full blur-xl animate-pulse"></div>
+                    <div className="w-24 h-24 bg-[var(--surface)] border border-[var(--border)] rounded-3xl shadow-xl flex items-center justify-center relative z-10">
+                      <Loader2 className="w-10 h-10 text-[var(--accent)] animate-spin" />
                     </div>
                   </div>
                   <div>
-                    <h3 className="text-lg font-black text-[#181c3a] uppercase tracking-tight">Procesando Validación</h3>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">
+                    <h3 className="text-lg font-black text-[var(--heading)] uppercase tracking-tight">Procesando Validación</h3>
+                    <p className="text-[10px] font-black text-[var(--muted)] uppercase tracking-widest mt-1">
                       {uploadStatus === 'parsing' && "Analizando Estructura y Filas..."}
                       {uploadStatus === 'hashing' && "Calculando Huella del Archivo..."}
                       {uploadStatus === 'fetching' && "Obteniendo Base de TC-Multimedia..."}
@@ -683,17 +686,17 @@ export default function IntegracionSapPage() {
             </Card>
 
             {/* Bitacora / Audit Log live view */}
-            <Card className="p-6 border-none shadow-sm rounded-3xl bg-[#181c3a] flex flex-col h-full overflow-hidden">
-              <div className="flex items-center gap-2 mb-4 shrink-0 border-b border-white/10 pb-4">
-                <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
-                <h3 className="text-xs font-black text-white uppercase tracking-widest">Bitácora de Procesamiento en Vivo</h3>
+            <Card className="p-6 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)] flex flex-col h-full overflow-hidden">
+              <div className="flex items-center gap-2 mb-4 shrink-0 border-b border-[var(--border)] pb-4">
+                <div className="w-2 h-2 rounded-full bg-[var(--success)] animate-pulse"></div>
+                <h3 className="text-xs font-black text-[var(--heading)] uppercase tracking-widest">Bitácora de Procesamiento en Vivo</h3>
               </div>
               <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar pr-2 font-mono text-[10px]">
                 {progressLog.length === 0 ? (
-                  <div className="text-white/30 text-center mt-10">Esperando carga de archivo...</div>
+                  <div className="text-[var(--muted)] text-center mt-10">Esperando carga de archivo...</div>
                 ) : (
                   progressLog.map((log, i) => (
-                    <div key={i} className="text-white/80 animate-in fade-in slide-in-from-left-2">{log}</div>
+                    <div key={i} className="text-[var(--foreground)] animate-in fade-in slide-in-from-left-2">{log}</div>
                   ))
                 )}
               </div>

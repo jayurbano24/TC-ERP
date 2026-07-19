@@ -3,6 +3,12 @@
 import { memo } from 'react';
 import { Card, Badge } from '@/components/ui';
 import { Box, XCircle } from 'lucide-react';
+import {
+  entrySourceLabel,
+  normalizeEntrySource,
+  resolveEntrySource,
+  type EntrySourceLabel,
+} from '@/modules/workshop/shared/entrySource';
 
 type Props = {
   item: any;
@@ -10,11 +16,42 @@ type Props = {
   onClose: () => void;
 };
 
+function tipoIngresoBadgeClass(tipo: string) {
+  const t = String(tipo || '').toUpperCase();
+  if (t === 'PX') return 'bg-[var(--accent)]/15 text-[var(--accent)] border-[var(--accent)]/30';
+  if (t === 'CAC') return 'bg-[var(--success)]/15 text-[var(--success)] border-[var(--success)]/30';
+  return 'bg-[var(--surface-hover)] text-[var(--muted)] border-[var(--border)]';
+}
+
+function resolveSeriesTipo(item: any, sn: string): EntrySourceLabel | null {
+  const fromMap = entrySourceLabel(normalizeEntrySource(item.series_entry_map?.[sn]));
+  if (fromMap) return fromMap;
+  return entrySourceLabel(
+    resolveEntrySource({
+      entry_source: item.tipo_ingreso,
+      series_entry_map: item.series_entry_map,
+      guide: item.guide,
+      serial: sn,
+    })
+  );
+}
+
 /**
  * C1: modal de detalle de equipo extraído del monolito produccion/taller y memoizado.
  * Es read-only: solo recibe el item, el tab activo (color) y onClose.
  */
 export const ItemDetailModal = memo(function ItemDetailModal({ item, activeTab, onClose }: Props) {
+  const tipoIngreso =
+    entrySourceLabel(
+      resolveEntrySource({
+        entry_source: item.tipo_ingreso,
+        series_entry_map: item.series_entry_map,
+        guide: item.guide,
+        serial: item.sn,
+      })
+    ) || resolveSeriesTipo(item, item.sn);
+  const courierName = item.courier_name || String(item.courier || '').split(/[–-]/).slice(1).join('-').trim() || '';
+
   return (
     <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-[#181c3a]/80 backdrop-blur-sm p-0 sm:p-4 overflow-y-auto">
       <Card className="w-full max-w-2xl max-h-[92dvh] sm:max-h-[90vh] bg-[var(--surface)] text-[var(--foreground)] rounded-t-[1.75rem] sm:rounded-[2rem] shadow-2xl border border-[var(--border)] overflow-hidden animate-rise-in p-0 flex flex-col my-0 sm:my-4">
@@ -84,8 +121,21 @@ export const ItemDetailModal = memo(function ItemDetailModal({ item, activeTab, 
               <p className="text-sm font-medium text-[var(--foreground)]">{item.total_series}</p>
             </div>
             <div className="bg-[var(--surface-hover)] p-3 sm:p-4 rounded-2xl border border-[var(--border)] min-w-0">
-              <p className="text-[10px] font-medium text-[var(--muted)] uppercase tracking-widest mb-1">Canal de Ingreso</p>
-              <p className="text-sm font-medium text-[var(--foreground)] uppercase break-words">{item.courier}</p>
+              <p className="text-[10px] font-medium text-[var(--muted)] uppercase tracking-widest mb-1">
+                Tipo de ingreso
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <span
+                  className={`inline-flex items-center px-2.5 py-1 rounded-lg border text-xs font-black uppercase tracking-widest ${tipoIngresoBadgeClass(tipoIngreso || '')}`}
+                >
+                  {tipoIngreso === 'CAC' || tipoIngreso === 'PX' ? tipoIngreso : 'Sin dato'}
+                </span>
+                {courierName ? (
+                  <span className="text-sm font-medium text-[var(--muted)] uppercase break-words">
+                    {courierName}
+                  </span>
+                ) : null}
+              </div>
             </div>
             <div className="bg-[var(--surface-hover)] p-3 sm:p-4 rounded-2xl border border-[var(--border)] min-w-0">
               <p className="text-[10px] font-medium text-[var(--muted)] uppercase tracking-widest mb-1">Sucursal / Agencia</p>
@@ -103,17 +153,27 @@ export const ItemDetailModal = memo(function ItemDetailModal({ item, activeTab, 
                 Series del equipo (S1, S2…)
               </h4>
               <div className="flex flex-col gap-2">
-                {item.all_sns.map((s: string, i: number) => (
-                  <div
-                    key={i}
-                    className="flex items-center gap-2 px-3 py-2.5 bg-[var(--surface-hover)] border border-[var(--border)] rounded-lg min-w-0"
-                  >
-                    <span className="text-[10px] font-medium text-[var(--foreground)] bg-[var(--surface)] px-2 py-0.5 rounded border border-[var(--border)] shrink-0">
-                      S{i + 1}
-                    </span>
-                    <span className="text-sm font-medium text-[var(--foreground)] break-all min-w-0">{s}</span>
-                  </div>
-                ))}
+                {item.all_sns.map((s: string, i: number) => {
+                  const serieTipo = resolveSeriesTipo(item, s);
+                  return (
+                    <div
+                      key={i}
+                      className="flex items-center gap-2 px-3 py-2.5 bg-[var(--surface-hover)] border border-[var(--border)] rounded-lg min-w-0"
+                    >
+                      <span className="text-[10px] font-medium text-[var(--foreground)] bg-[var(--surface)] px-2 py-0.5 rounded border border-[var(--border)] shrink-0">
+                        S{i + 1}
+                      </span>
+                      <span className="text-sm font-medium text-[var(--foreground)] break-all min-w-0 flex-1">
+                        {s}
+                      </span>
+                      <span
+                        className={`shrink-0 inline-flex items-center px-2 py-0.5 rounded border text-[10px] font-black uppercase tracking-widest ${tipoIngresoBadgeClass(serieTipo || '')}`}
+                      >
+                        {serieTipo === 'CAC' || serieTipo === 'PX' ? serieTipo : '—'}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

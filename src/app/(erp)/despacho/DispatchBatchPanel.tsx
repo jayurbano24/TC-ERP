@@ -13,6 +13,7 @@ import type {
   DispatchBatchStatus,
   DispatchBatchSummary,
 } from '@/modules/outbound-dispatch/domain/types/dispatch-batch.types';
+import { erpTableHeader, erpTableHeaderText, erpFieldClass, erpLabelClass } from '@/lib/design/tokens';
 
 const BATCHES_QUERY_KEY = ['dispatch-batches', 'open'] as const;
 
@@ -102,7 +103,7 @@ export function DispatchBatchPanel() {
       <Card className="p-6">
         <div className="flex flex-wrap justify-between items-center gap-3 mb-6">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-[#181c3a]/5 text-[#181c3a] rounded-lg">
+            <div className="p-2 bg-[var(--primary)]/5 text-[var(--heading)] rounded-lg">
               <Boxes className="w-5 h-5" />
             </div>
             <div>
@@ -131,32 +132,32 @@ export function DispatchBatchPanel() {
         </div>
 
         {showForm && (
-          <div className="mb-6 p-4 rounded-xl border border-slate-200 bg-slate-50 grid grid-cols-1 md:grid-cols-3 gap-4 animate-in fade-in">
+          <div className="mb-6 p-4 rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] grid grid-cols-1 md:grid-cols-3 gap-4 animate-in fade-in">
             <div className="flex flex-col gap-1">
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Destino</label>
+              <label className={erpLabelClass}>Destino</label>
               <input
                 value={destination}
                 onChange={(e) => setDestination(e.target.value)}
                 placeholder="Agencia / CAC destino"
-                className="px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#2ec4f1]/40"
+                className={erpFieldClass}
               />
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Guía de salida</label>
+              <label className={erpLabelClass}>Guía de salida</label>
               <input
                 value={guideOutbound}
                 onChange={(e) => setGuideOutbound(e.target.value)}
                 placeholder="Número de guía (opcional)"
-                className="px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#2ec4f1]/40"
+                className={erpFieldClass}
               />
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Notas</label>
+              <label className={erpLabelClass}>Notas</label>
               <input
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Observaciones (opcional)"
-                className="px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#2ec4f1]/40"
+                className={erpFieldClass}
               />
             </div>
             <div className="md:col-span-3 flex justify-end">
@@ -179,29 +180,29 @@ export function DispatchBatchPanel() {
             <p className="text-amber-600 text-sm max-w-md text-center">{apiError}</p>
           </div>
         ) : batches.length === 0 ? (
-          <div className="py-12 flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50/50">
-            <Truck className="w-14 h-14 text-[#2ec4f1] mb-3 opacity-50" />
+          <div className="py-12 flex flex-col items-center justify-center border-2 border-dashed border-[var(--border)] rounded-2xl bg-[var(--surface-hover)]/50">
+            <Truck className="w-14 h-14 text-[var(--accent)] mb-3 opacity-50" />
             <h4 className="font-bold text-slate-600 mb-1">No hay lotes abiertos</h4>
             <p className="text-slate-400 text-sm">Abre un lote para empezar a consolidar despachos.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-slate-200">
+          <div className="overflow-x-auto rounded-xl border border-[var(--border)]">
             <table className="w-full min-w-[820px] text-left border-collapse text-sm">
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-[11px] uppercase tracking-wider text-slate-500">
-                  <th className="p-3 font-black">Lote</th>
-                  <th className="p-3 font-black">Estado</th>
-                  <th className="p-3 font-black">Destino</th>
-                  <th className="p-3 font-black">Guía</th>
-                  <th className="p-3 font-black">Abierto por</th>
-                  <th className="p-3 font-black">Creado</th>
-                  <th className="p-3 font-black text-right">Acciones</th>
+                <tr className={`${erpTableHeader} text-[11px] uppercase tracking-wider`}>
+                  <th className={`p-3 font-black ${erpTableHeaderText}`}>Lote</th>
+                  <th className={`p-3 font-black ${erpTableHeaderText}`}>Estado</th>
+                  <th className={`p-3 font-black ${erpTableHeaderText}`}>Destino</th>
+                  <th className={`p-3 font-black ${erpTableHeaderText}`}>Guía</th>
+                  <th className={`p-3 font-black ${erpTableHeaderText}`}>Abierto por</th>
+                  <th className={`p-3 font-black ${erpTableHeaderText}`}>Creado</th>
+                  <th className={`p-3 font-black ${erpTableHeaderText} text-right`}>Acciones</th>
                 </tr>
               </thead>
               <tbody>
                 {batches.map((batch) => (
-                  <tr key={batch.id} className="border-b border-slate-50 hover:bg-slate-50/80 transition-colors">
-                    <td className="p-3 font-bold text-[#181c3a]">{batch.batchNumber}</td>
+                  <tr key={batch.id} className="border-b border-[var(--border)] hover:bg-[var(--surface-hover)]/80 transition-colors">
+                    <td className="p-3 font-bold text-[var(--heading)]">{batch.batchNumber}</td>
                     <td className="p-3">
                       <Badge className={`${STATUS_STYLES[batch.status]} font-bold px-3 py-0.5`}>
                         {batch.status}

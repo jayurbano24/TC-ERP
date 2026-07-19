@@ -21,7 +21,11 @@ export default async function ErpLayout({ children }: { children: React.ReactNod
     // Snapshot de permisos calculado en servidor → siembra el cache del cliente
     // y evita "permission flicker" en el primer render.
     try {
-      initialAuthz = await loadUserAuthz(data.user.id);
+      const authz = await loadUserAuthz(data.user.id);
+      initialAuthz = {
+        ...authz,
+        email: data.user.email ?? null,
+      };
     } catch {
       initialAuthz = null;
     }

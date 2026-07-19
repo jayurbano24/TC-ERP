@@ -36,53 +36,52 @@ export default function InventarioDetallePage() {
   const items = inventoryQuery.data ?? EMPTY_ITEMS;
   const loading = inventoryQuery.isLoading;
 
-  const exportToExcel = () => {
-    const headers = [
-      'Fecha / Hora', 'No. Guía', 'Orden Servicio', 'Val. SAP',
-      'S-1 (SAP)', 'S-2', 'S-3', 'S-4', 'Material', 'Valoración',
-      'Estatus', 'Caja', 'Tecnología', 'Marca', 'Modelo',
-      'Piloto', 'Courier', 'Recibió', 'Ingreso', 'Origen', 'Agencia / Proveedor'
-    ];
-
-    const csvContent = [
-      headers.join(','),
-      ...filteredItems.map(i => {
-        const r = i.receptions || {};
-        return [
-          i.created_at ? new Date(i.created_at).toLocaleString() : 'N/A',
-          r.guide_number || 'PX',
-          i.service_orders?.os_label || 'TC-00012',
-          i.unitSapValidationStatus || 'Pendiente Validación',
-          i.s1 || i.serial_number || '',
-          i.s2 || '---',
-          i.s3 || '---',
-          i.s4 || '---',
-          i.material || '---',
-          i.valuation || '---',
-          resolveWarehouseStatusLabel(i.current_status),
-          i.boxes?.box_code || i.boxes?.id || 'SIN CAJA',
-          i.models?.technologies?.name || extractField(r.notes, 'Backoffice_Tech') || 'N/A',
-          i.brands?.name || extractField(r.notes, 'Backoffice_Brand') || 'N/A',
-          i.models?.name || extractField(r.notes, 'Backoffice_Model') || 'N/A',
-          extractField(r.notes, 'Piloto') || 'N/A',
-          r.carrier || extractField(r.notes, 'Courier') || 'REDESIS',
-          extractField(r.notes, 'Recibido Por') || r.received_by || 'SISTEMA',
-          i.service_orders?.reentry_count ? `${i.service_orders.reentry_count}° Ingreso` : '1° Ingreso',
-          r.source === 'cac' ? 'CAC' : 'PX',
+  const exportToExcel = async () => {
+    const rows = filteredItems.map((i) => {
+      const r = i.receptions || {};
+      return {
+        'Fecha / Hora': i.created_at ? new Date(i.created_at).toLocaleString() : 'N/A',
+        'No. Guía': r.guide_number || 'PX',
+        'Orden Servicio': i.service_orders?.os_label || '---',
+        'Val. SAP': i.unitSapValidationStatus || 'Pendiente Validación',
+        'S-1 (SAP)': i.s1 || i.serial_number || '',
+        'S-2': i.s2 || '---',
+        'S-3': i.s3 || '---',
+        'S-4': i.s4 || '---',
+        Material: i.material || '---',
+        Valoración: i.valuation || '---',
+        Estatus: resolveWarehouseStatusLabel(i.current_status),
+        Caja: i.boxes?.box_code || i.boxes?.id || 'SIN CAJA',
+        Tecnología: i.models?.technologies?.name || extractField(r.notes, 'Backoffice_Tech') || 'N/A',
+        Marca: i.brands?.name || extractField(r.notes, 'Backoffice_Brand') || 'N/A',
+        Modelo: i.models?.name || extractField(r.notes, 'Backoffice_Model') || 'N/A',
+        Piloto: extractField(r.notes, 'Piloto') || 'N/A',
+        Courier: r.carrier || extractField(r.notes, 'Courier') || 'REDESIS',
+        Recibió: extractField(r.notes, 'Recibido Por') || r.received_by || 'SISTEMA',
+        Ingreso: i.service_orders?.reentry_count ? `${i.service_orders.reentry_count}° Ingreso` : '1° Ingreso',
+        Origen: r.source === 'cac' ? 'CAC' : 'PX',
+        'Agencia / Proveedor':
           extractField(r.notes, 'Backoffice_Agency') || extractField(r.notes, 'Agencia') || r.carrier || '---',
-        ].map(v => '"' + v + '"').join(',');
-      })
-    ].join('\n');
+      };
+    });
 
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', 'detalle_inventario.csv');
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    try {
+      const XLSX = await import('xlsx');
+      const ws = XLSX.utils.json_to_sheet(rows);
+      ws['!cols'] = [
+        { wch: 20 }, { wch: 14 }, { wch: 14 }, { wch: 18 },
+        { wch: 20 }, { wch: 16 }, { wch: 16 }, { wch: 16 },
+        { wch: 12 }, { wch: 12 }, { wch: 22 }, { wch: 14 },
+        { wch: 12 }, { wch: 12 }, { wch: 22 }, { wch: 14 },
+        { wch: 12 }, { wch: 16 }, { wch: 12 }, { wch: 8 }, { wch: 22 },
+      ];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Detalle Inventario');
+      const today = new Date().toISOString().slice(0, 10);
+      XLSX.writeFile(wb, `detalle_inventario_${today}.xlsx`);
+    } catch (err) {
+      console.error('Error generando Excel de inventario:', err);
+    }
   };
 
   const groupedItems = React.useMemo(() => {
@@ -433,15 +432,15 @@ export default function InventarioDetallePage() {
           </div>
         </div>
 
-        <div className="flex justify-between items-center bg-white p-4 rounded-xl border-2 border-slate-100 shadow-sm">
-          <div className="flex-1 max-w-md relative">
-            <Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        <div className="flex items-center justify-between rounded-xl border-2 border-border bg-surface p-4 shadow-sm">
+          <div className="relative max-w-md flex-1">
+            <Search className="absolute top-1/2 left-3 h-5 w-5 -translate-y-1/2 text-muted" />
             <input
               type="text"
               placeholder="Buscar por serie, OS, caja, material..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-[#2ec4f1] outline-none text-sm font-medium"
+              className="w-full rounded-lg border border-border bg-surface-hover py-2 pr-4 pl-10 text-sm font-medium text-foreground outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
             />
           </div>
           <div className="flex items-center gap-3">
@@ -457,21 +456,21 @@ export default function InventarioDetallePage() {
           return (
             <div className="flex gap-4 overflow-x-auto pb-4 custom-scrollbar">
               {technologies.map(tech => (
-                <Card key={tech} className="min-w-[130px] p-6 text-center border-2 border-slate-50 hover:border-slate-100 shadow-sm rounded-[2rem] bg-white flex-shrink-0 transition-all">
-                  <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">{tech}</p>
-                  <h3 className="text-4xl font-black text-[#181c3a] my-3">{techCounts[tech] || 0}</h3>
-                  <p className="text-[8px] font-bold text-slate-300 uppercase tracking-[0.2em]">Equipos</p>
+                <Card key={tech} className="min-w-[130px] shrink-0 rounded-2xl border-2 border-border p-6 text-center shadow-sm transition-all hover:border-accent/40">
+                  <p className="mb-1 text-[10px] font-semibold tracking-wide text-muted uppercase">{tech}</p>
+                  <h3 className="my-3 text-4xl font-bold text-heading">{techCounts[tech] || 0}</h3>
+                  <p className="text-[8px] font-semibold tracking-widest text-muted uppercase">Equipos</p>
                 </Card>
               ))}
-              <Card className="min-w-[140px] p-6 text-center border-2 border-[#2ec4f1]/20 bg-white shadow-sm rounded-[2rem] flex-shrink-0 transition-all">
-                <p className="text-[10px] font-black uppercase text-[#2ec4f1] tracking-widest mb-1">Total Global</p>
-                <h3 className="text-4xl font-black text-[#181c3a] my-3">{filteredItems.length}</h3>
-                <p className="text-[8px] font-bold text-slate-300 uppercase tracking-[0.2em]">Equipos TC</p>
+              <Card className="min-w-[140px] shrink-0 rounded-2xl border-2 border-accent/30 p-6 text-center shadow-sm transition-all">
+                <p className="mb-1 text-[10px] font-semibold tracking-wide text-accent uppercase">Total Global</p>
+                <h3 className="my-3 text-4xl font-bold text-heading">{filteredItems.length}</h3>
+                <p className="text-[8px] font-semibold tracking-widest text-muted uppercase">Equipos TC</p>
               </Card>
-              <Card className="min-w-[140px] p-6 text-center border-2 border-slate-50 bg-white shadow-sm rounded-[2rem] flex-shrink-0 transition-all">
-                <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Órdenes (OS)</p>
-                <h3 className="text-4xl font-black text-[#181c3a] my-3">{uniqueOs}</h3>
-                <p className="text-[8px] font-bold text-slate-300 uppercase tracking-[0.2em]">Generadas</p>
+              <Card className="min-w-[140px] shrink-0 rounded-2xl border-2 border-border p-6 text-center shadow-sm transition-all">
+                <p className="mb-1 text-[10px] font-semibold tracking-wide text-muted uppercase">Órdenes (OS)</p>
+                <h3 className="my-3 text-4xl font-bold text-heading">{uniqueOs}</h3>
+                <p className="text-[8px] font-semibold tracking-widest text-muted uppercase">Generadas</p>
               </Card>
             </div>
           );

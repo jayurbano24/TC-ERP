@@ -17,7 +17,10 @@ export async function GET(req: Request) {
   if (auth instanceof NextResponse) return auth;
 
   const authz = await loadUserAuthz(auth.user.id);
-  return NextResponse.json(authz, {
-    headers: { 'Cache-Control': 'private, max-age=0, must-revalidate' },
-  });
+  return NextResponse.json(
+    { ...authz, email: auth.user.email ?? null },
+    {
+      headers: { 'Cache-Control': 'private, max-age=0, must-revalidate' },
+    }
+  );
 }

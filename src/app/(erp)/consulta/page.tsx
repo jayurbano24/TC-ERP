@@ -78,6 +78,15 @@ export default function ConsultaPage() {
       }
     }
 
+    // OS históricas desde ciclos (aunque la serie ya no apunte a ellas)
+    const { data: cycleLinks } = await supabase
+      .from('service_order_serial_cycles')
+      .select('service_order_id')
+      .in('serial_number', cleaned);
+    for (const row of cycleLinks || []) {
+      if (row.service_order_id) osIds.add(row.service_order_id);
+    }
+
     const idList = [...osIds];
     if (!idList.length) return [];
 
@@ -93,19 +102,35 @@ export default function ConsultaPage() {
         created_at,
         closed_at,
         reception_id,
+        sap_transfer_id,
+        reception_guide_id,
         receptions:reception_id (
           source,
           guide_number,
           sap_document
+        ),
+        sap_transfer_documents:sap_transfer_id (
+          sap_document_number
+        ),
+        reception_guides:reception_guide_id (
+          guide_number
         )
       `
       )
       .in('id', idList)
       .order('created_at', { ascending: true });
 
+    const { data: trayRows } = await supabase
+      .from('cac_tray_units')
+      .select('service_order_id, guide_number, sap_document_number, reentry_count')
+      .in('service_order_id', idList);
+    const trayByOs = new Map(
+      (trayRows || []).map((t) => [String(t.service_order_id), t])
+    );
+
     const { data: linkedSeries } = await supabase
       .from('series')
-      .select('service_order_id, serial_number, created_at')
+      .select('service_order_id, serial_number, created_at, sap_transfer_id')
       .in('service_order_id', idList)
       .order('created_at', { ascending: true });
 
@@ -148,6 +173,11 @@ export default function ConsultaPage() {
 
     const cycles = (osRows || []).map((os: any, idx: number, arr: any[]) => {
       const rec = Array.isArray(os.receptions) ? os.receptions[0] : os.receptions;
+      const sapDoc = Array.isArray(os.sap_transfer_documents)
+        ? os.sap_transfer_documents[0]
+        : os.sap_transfer_documents;
+      const rg = Array.isArray(os.reception_guides) ? os.reception_guides[0] : os.reception_guides;
+      const tray = trayByOs.get(String(os.id));
       const linked = serialsByOs.get(String(os.id)) || [];
       const serialsForRow =
         linked.length > 0
@@ -175,17 +205,41 @@ export default function ConsultaPage() {
         closedAt = candidates[0] || null;
       }
 
+      // Fuente canónica: SAP del documento vinculado a la OS/serie (no el sap_document del lote).
+      const canonicalSap =
+        sapDoc?.sap_document_number ||
+        tray?.sap_document_number ||
+        null;
+
+      // Guía: tray / reception_guide de la OS; evitar guide_number del lote si parece un SAP ajeno.
+      const lotGuide = String(rec?.guide_number || '').trim();
+      const lotGuideLooksLikeForeignSap =
+        Boolean(canonicalSap) &&
+        lotGuide.length > 0 &&
+        lotGuide !== String(canonicalSap) &&
+        /^\d{6,}(-\d+)?$/.test(lotGuide);
+      const canonicalGuide =
+        tray?.guide_number ||
+        rg?.guide_number ||
+        (lotGuideLooksLikeForeignSap ? null : lotGuide) ||
+        null;
+
+      const reentry =
+        Number(tray?.reentry_count) ||
+        Number(os.reentry_count) ||
+        idx + 1;
+
       return {
         id: os.id,
         os_label: os.os_label || null,
         main_serial: os.main_serial || null,
-        reentry_count: Number(os.reentry_count) || 1,
+        reentry_count: reentry,
         status: os.status || null,
         created_at: os.created_at || null,
         closed_at: closedAt,
         reception_source: rec?.source || null,
-        reception_guide: rec?.guide_number || null,
-        sap_document: rec?.sap_document || null,
+        reception_guide: canonicalGuide,
+        sap_document: canonicalSap,
         serials: serialsForRow as string[],
       } satisfies IngresoCycle;
     });
@@ -557,76 +611,76 @@ export default function ConsultaPage() {
       
       {/* Header */}
       <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold tracking-tight text-white flex items-center gap-3">
-          <Activity className="h-8 w-8 text-blue-500" />
+        <h1 className="text-3xl font-bold tracking-tight text-[var(--heading)] flex items-center gap-3">
+          <Activity className="h-8 w-8 text-[var(--accent)]" />
           Consulta y Trazabilidad de Equipos
         </h1>
-        <p className="text-slate-400 text-lg">
+        <p className="text-[var(--muted)] text-lg">
           Busca un equipo utilizando múltiples criterios para rastrear todos sus movimientos, responsables y bitácora de estados.
         </p>
       </div>
 
       {/* Buscador Avanzado */}
-      <div className="bg-[#0f172a] rounded-2xl border border-slate-800 shadow-xl overflow-hidden">
-        <div className="p-4 bg-slate-900/50 border-b border-slate-800 font-bold text-slate-300 flex items-center gap-2 text-sm">
-          <Search className="w-4 h-4 text-slate-400" /> CONSULTAR ORDEN.
+      <div className="bg-[var(--surface)] rounded-2xl border border-[var(--border)] shadow-xl overflow-hidden">
+        <div className="p-4 bg-[var(--surface-hover)] border-b border-[var(--border)] font-bold text-[var(--foreground)] flex items-center gap-2 text-sm">
+          <Search className="w-4 h-4 text-[var(--muted)]" /> CONSULTAR ORDEN.
         </div>
         <form onSubmit={handleSearch} className="p-6">
           <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
             <div className="space-y-1">
-              <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">ORDEN DE SERVICIOS</label>
+              <label className="text-[10px] uppercase font-bold text-[var(--muted)] tracking-wider">ORDEN DE SERVICIOS</label>
               <input
                 type="text"
                 value={filters.os}
                 onChange={(e) => setFilters(prev => ({ ...prev, os: e.target.value.toUpperCase() }))}
-                className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                className="w-full bg-[var(--surface-hover)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--foreground)] focus:outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)] transition-all"
                 placeholder="Ej. TC-0001"
               />
             </div>
             <div className="space-y-1">
-              <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">S.N. / IMEI / S2 / S3 / S4</label>
+              <label className="text-[10px] uppercase font-bold text-[var(--muted)] tracking-wider">S.N. / IMEI / S2 / S3 / S4</label>
               <input
                 type="text"
                 value={filters.imei}
                 onChange={(e) => setFilters(prev => ({ ...prev, imei: e.target.value.toUpperCase() }))}
-                className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                className="w-full bg-[var(--surface-hover)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--foreground)] focus:outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)] transition-all"
                 placeholder="Ej. IMEI..."
               />
             </div>
             <div className="space-y-1">
-              <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">CLIENTE / AGENCIA</label>
+              <label className="text-[10px] uppercase font-bold text-[var(--muted)] tracking-wider">CLIENTE / AGENCIA</label>
               <input
                 type="text"
                 value={filters.cliente}
                 onChange={(e) => setFilters(prev => ({ ...prev, cliente: e.target.value.toUpperCase() }))}
-                className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                className="w-full bg-[var(--surface-hover)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--foreground)] focus:outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)] transition-all"
               />
             </div>
             <div className="space-y-1">
-              <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">TICKET (SAP)</label>
+              <label className="text-[10px] uppercase font-bold text-[var(--muted)] tracking-wider">TICKET (SAP)</label>
               <input
                 type="text"
                 value={filters.ticket}
                 onChange={(e) => setFilters(prev => ({ ...prev, ticket: e.target.value.toUpperCase() }))}
-                className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                className="w-full bg-[var(--surface-hover)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--foreground)] focus:outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)] transition-all"
               />
             </div>
             <div className="space-y-1">
-              <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">NO. TRACKING / GUÍA</label>
+              <label className="text-[10px] uppercase font-bold text-[var(--muted)] tracking-wider">NO. TRACKING / GUÍA</label>
               <input
                 type="text"
                 value={filters.tracking}
                 onChange={(e) => setFilters(prev => ({ ...prev, tracking: e.target.value.toUpperCase() }))}
-                className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                className="w-full bg-[var(--surface-hover)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--foreground)] focus:outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)] transition-all"
               />
             </div>
             <div className="space-y-1">
-              <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">NÚMERO DE CAJA (BOX)</label>
+              <label className="text-[10px] uppercase font-bold text-[var(--muted)] tracking-wider">NÚMERO DE CAJA (BOX)</label>
               <input
                 type="text"
                 value={filters.box}
                 onChange={(e) => setFilters(prev => ({ ...prev, box: e.target.value.toUpperCase() }))}
-                className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                className="w-full bg-[var(--surface-hover)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--foreground)] focus:outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)] transition-all"
                 placeholder="Ej. TCW-BOX-045 o BOX-45"
               />
             </div>
@@ -635,7 +689,7 @@ export default function ConsultaPage() {
             <button
               type="button"
               onClick={clearFilters}
-              className="px-6 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm font-semibold transition-colors flex items-center gap-2 border border-slate-700"
+              className="px-6 py-2 bg-[var(--surface-hover)] hover:bg-[var(--border)] text-[var(--foreground)] rounded-lg text-sm font-semibold transition-colors flex items-center gap-2 border border-[var(--border)]"
             >
               <Eraser className="w-4 h-4" />
               Limpiar
@@ -643,7 +697,7 @@ export default function ConsultaPage() {
             <button
               type="submit"
               disabled={loading || (!filters.os && !filters.imei && !filters.cliente && !filters.ticket && !filters.tracking && !filters.box)}
-              className="px-6 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-lg text-sm font-semibold transition-colors flex items-center gap-2"
+              className="px-6 py-2 bg-[var(--accent)] hover:opacity-90 disabled:bg-[var(--surface-hover)] disabled:text-[var(--muted)] text-[var(--accent-foreground)] rounded-lg text-sm font-semibold transition-colors flex items-center gap-2"
             >
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
               Buscar Equipo
@@ -665,94 +719,94 @@ export default function ConsultaPage() {
           
           {/* Detalles del Equipo */}
           <div className="lg:col-span-1 space-y-6">
-            <div className="bg-[#0f172a] rounded-2xl border border-slate-800 shadow-xl overflow-hidden">
-              <div className="p-4 bg-slate-900/50 border-b border-slate-800 flex items-center gap-3">
-                <Package className="h-5 w-5 text-blue-400" />
-                <h2 className="text-lg font-bold text-white">Detalles del Equipo</h2>
+            <div className="bg-[var(--surface)] rounded-2xl border border-[var(--border)] shadow-xl overflow-hidden">
+              <div className="p-4 bg-[var(--surface-hover)] border-b border-[var(--border)] flex items-center gap-3">
+                <Package className="h-5 w-5 text-[var(--accent)]" />
+                <h2 className="text-lg font-bold text-[var(--heading)]">Detalles del Equipo</h2>
               </div>
               <div className="p-6 space-y-6">
                 
                 {/* Hardware Info Banner */}
-                <div className="bg-[#1e293b] rounded-xl overflow-hidden border border-slate-700 shadow-inner">
+                <div className="bg-[var(--surface-hover)] rounded-xl overflow-hidden border border-[var(--border)] shadow-inner">
                   <table className="w-full text-center whitespace-nowrap">
-                    <thead className="bg-[#0f172a] text-[10px] uppercase font-black tracking-widest text-white border-b border-slate-700">
+                    <thead className="bg-[var(--primary)] text-[10px] uppercase font-black tracking-widest text-[var(--primary-foreground)] border-b border-[var(--border)]">
                       <tr>
                         <th className="px-2 py-2">Tecnología</th>
                         <th className="px-2 py-2">Marca</th>
                         <th className="px-2 py-2">Modelo</th>
                       </tr>
                     </thead>
-                    <tbody className="bg-slate-800/50">
+                    <tbody className="bg-[var(--surface)]">
                       <tr>
                         <td className="px-2 py-3 text-cyan-400 font-bold text-xs uppercase">{seriesData.models?.technologies?.name || 'N/A'}</td>
                         <td className="px-2 py-3 text-orange-400 font-bold text-xs uppercase">{seriesData.brands?.name || 'N/A'}</td>
-                        <td className="px-2 py-3 text-blue-400 font-bold text-xs uppercase">{seriesData.models?.name || 'N/A'}</td>
+                        <td className="px-2 py-3 text-[var(--accent)] font-bold text-xs uppercase">{seriesData.models?.name || 'N/A'}</td>
                       </tr>
                     </tbody>
                   </table>
                 </div>
 
                 <div>
-                  <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-2">Estatus Actual</p>
+                  <p className="text-xs text-[var(--muted)] uppercase tracking-wider font-semibold mb-2">Estatus Actual</p>
                   <span className={`px-3 py-1.5 rounded border text-xs font-bold tracking-wide ${getStatusColor(seriesData.current_status)}`}>
                     {getStatusLabel(seriesData.current_status)}
                   </span>
                 </div>
 
                 <div className="space-y-3">
-                  <p className="text-xs text-slate-500 uppercase font-semibold">Series / Identificadores</p>
-                  <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-800 space-y-2">
+                  <p className="text-xs text-[var(--muted)] uppercase font-semibold">Series / Identificadores</p>
+                  <div className="bg-[var(--surface-hover)] p-3 rounded-xl border border-[var(--border)] space-y-2">
                     <div className="flex justify-between items-center text-sm">
-                      <span className="text-slate-500">S.N. / IMEI 1:</span>
-                      <span className="font-mono text-white font-bold">{siblingSeries[0]?.serial_number || seriesData.serial_number || 'N/A'}</span>
+                      <span className="text-[var(--muted)]">S.N. / IMEI 1:</span>
+                      <span className="font-mono text-[var(--foreground)] font-bold">{siblingSeries[0]?.serial_number || seriesData.serial_number || 'N/A'}</span>
                     </div>
                     <div className="flex justify-between items-center text-sm">
-                      <span className="text-slate-500">Serie 2:</span>
-                      <span className="font-mono text-white font-medium">{siblingSeries[1]?.serial_number || seriesData.s2 || 'N/A'}</span>
+                      <span className="text-[var(--muted)]">Serie 2:</span>
+                      <span className="font-mono text-[var(--foreground)] font-medium">{siblingSeries[1]?.serial_number || seriesData.s2 || 'N/A'}</span>
                     </div>
                     <div className="flex justify-between items-center text-sm">
-                      <span className="text-slate-500">Serie 3:</span>
-                      <span className="font-mono text-white font-medium">{siblingSeries[2]?.serial_number || seriesData.s3 || 'N/A'}</span>
+                      <span className="text-[var(--muted)]">Serie 3:</span>
+                      <span className="font-mono text-[var(--foreground)] font-medium">{siblingSeries[2]?.serial_number || seriesData.s3 || 'N/A'}</span>
                     </div>
                     <div className="flex justify-between items-center text-sm">
-                      <span className="text-slate-500">Serie 4:</span>
-                      <span className="font-mono text-white font-medium">{siblingSeries[3]?.serial_number || seriesData.s4 || 'N/A'}</span>
+                      <span className="text-[var(--muted)]">Serie 4:</span>
+                      <span className="font-mono text-[var(--foreground)] font-medium">{siblingSeries[3]?.serial_number || seriesData.s4 || 'N/A'}</span>
                     </div>
-                    <div className="flex justify-between items-center text-sm border-t border-slate-700/50 pt-2 mt-2">
-                      <span className="text-slate-500">O.S.:</span>
-                      <span className="font-mono text-blue-400 font-bold">{seriesData.service_orders?.os_label || 'N/A'}</span>
+                    <div className="flex justify-between items-center text-sm border-t border-[var(--border)] pt-2 mt-2">
+                      <span className="text-[var(--muted)]">O.S.:</span>
+                      <span className="font-mono text-[var(--accent)] font-bold">{seriesData.service_orders?.os_label || 'N/A'}</span>
                     </div>
                   </div>
                 </div>
 
                 <div className="space-y-3">
-                  <p className="text-xs text-slate-500 uppercase font-semibold">Ingreso y Logística</p>
-                  <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-800 space-y-2">
+                  <p className="text-xs text-[var(--muted)] uppercase font-semibold">Ingreso y Logística</p>
+                  <div className="bg-[var(--surface-hover)] p-3 rounded-xl border border-[var(--border)] space-y-2">
                     <div className="flex justify-between items-center text-sm">
-                      <span className="text-slate-500">Origen:</span>
-                      <span className="text-slate-200 font-bold uppercase">{seriesData.receptions?.source || 'N/A'}</span>
+                      <span className="text-[var(--muted)]">Origen:</span>
+                      <span className="text-[var(--foreground)] font-bold uppercase">{seriesData.receptions?.source || 'N/A'}</span>
                     </div>
                     <div className="flex justify-between items-center text-sm">
-                      <span className="text-slate-500">{isPxReception ? 'Proveedor PX:' : 'Agencia:'}</span>
-                      <span className="text-slate-200 uppercase text-right max-w-[180px] break-words whitespace-normal">{extractAgency(seriesData.receptions)}</span>
+                      <span className="text-[var(--muted)]">{isPxReception ? 'Proveedor PX:' : 'Agencia:'}</span>
+                      <span className="text-[var(--foreground)] uppercase text-right max-w-[180px] break-words whitespace-normal">{extractAgency(seriesData.receptions)}</span>
                     </div>
                     <div className="flex justify-between items-center text-sm">
-                      <span className="text-slate-500">Número de Guías:</span>
-                      <span className="text-slate-200 max-w-[150px] text-right break-words">
+                      <span className="text-[var(--muted)]">Número de Guías:</span>
+                      <span className="text-[var(--foreground)] max-w-[150px] text-right break-words">
                         {inferGuideFromNotes(seriesData)}
                       </span>
                     </div>
                     <div className="flex justify-between items-center text-sm">
-                      <span className="text-slate-500">Traslado SAP:</span>
-                      <span className="text-slate-200 truncate max-w-[120px]">
-                        {seriesData.receptions?.sap_document ||
-                          seriesData.service_orders?.sap_transfer_documents?.sap_document_number ||
+                      <span className="text-[var(--muted)]">Traslado SAP:</span>
+                      <span className="text-[var(--foreground)] truncate max-w-[120px]">
+                        {seriesData.service_orders?.sap_transfer_documents?.sap_document_number ||
                           trayCtx?.sap_document_number ||
+                          seriesData.receptions?.sap_document ||
                           'N/A'}
                       </span>
                     </div>
-                    <div className="flex justify-between items-center text-sm border-t border-slate-700/50 pt-2 mt-2">
-                      <span className="text-slate-500">Ubicación:</span>
+                    <div className="flex justify-between items-center text-sm border-t border-[var(--border)] pt-2 mt-2">
+                      <span className="text-[var(--muted)]">Ubicación:</span>
                       <span className="text-amber-400 font-bold">{seriesData.boxes ? seriesData.boxes.box_code : 'Sin Caja'}</span>
                     </div>
                   </div>
@@ -760,37 +814,37 @@ export default function ConsultaPage() {
 
                 {/* Personal Involucrado */}
                 <div className="space-y-3">
-                  <p className="text-xs text-slate-500 uppercase font-semibold">Responsables Iniciales</p>
-                  <div className="bg-slate-900/50 rounded-xl border border-slate-800 divide-y divide-slate-800">
+                  <p className="text-xs text-[var(--muted)] uppercase font-semibold">Responsables Iniciales</p>
+                  <div className="bg-[var(--surface-hover)] rounded-xl border border-[var(--border)] divide-y divide-[var(--border)]">
                     <div className="p-3">
                       <div className="flex justify-between items-center mb-1">
-                        <span className="text-[10px] uppercase font-bold text-slate-500">Recepcionó</span>
-                        <span className="text-[10px] text-slate-400">{recepcionFecha}</span>
+                        <span className="text-[10px] uppercase font-bold text-[var(--muted)]">Recepcionó</span>
+                        <span className="text-[10px] text-[var(--muted)]">{recepcionFecha}</span>
                       </div>
-                      <div className="text-sm text-slate-200 truncate">
+                      <div className="text-sm text-[var(--foreground)] truncate">
                         {recepcionNombre}
                       </div>
                       {recepcionGuia && recepcionGuia !== 'N/A' && (
-                        <div className="text-[10px] text-slate-400 mt-1 font-mono truncate">
+                        <div className="text-[10px] text-[var(--muted)] mt-1 font-mono truncate">
                           Guía: {recepcionGuia}
                         </div>
                       )}
                     </div>
                     <div className="p-3">
                       <div className="flex justify-between items-center mb-1">
-                        <span className="text-[10px] uppercase font-bold text-slate-500">Backoffice</span>
-                        <span className="text-[10px] text-slate-400">{backofficeFecha}</span>
+                        <span className="text-[10px] uppercase font-bold text-[var(--muted)]">Backoffice</span>
+                        <span className="text-[10px] text-[var(--muted)]">{backofficeFecha}</span>
                       </div>
-                      <div className="text-sm text-slate-200 truncate">
+                      <div className="text-sm text-[var(--foreground)] truncate">
                         {backofficeNombre}
                       </div>
                     </div>
                     <div className="p-3">
                       <div className="flex justify-between items-center mb-1">
-                        <span className="text-[10px] uppercase font-bold text-slate-500">Bodega</span>
-                        <span className="text-[10px] text-slate-400">{bodegaFecha}</span>
+                        <span className="text-[10px] uppercase font-bold text-[var(--muted)]">Bodega</span>
+                        <span className="text-[10px] text-[var(--muted)]">{bodegaFecha}</span>
                       </div>
-                      <div className="text-sm text-slate-200 truncate">
+                      <div className="text-sm text-[var(--foreground)] truncate">
                         {bodegaNombre}
                       </div>
                     </div>
@@ -803,15 +857,15 @@ export default function ConsultaPage() {
 
           {/* Bitácora / Historial Ingresos */}
           <div className="lg:col-span-3">
-            <div className="bg-[#0f172a] rounded-2xl border border-slate-800 shadow-xl overflow-hidden h-full flex flex-col">
-              <div className="p-2 bg-slate-900/50 border-b border-slate-800 flex items-center gap-1">
+            <div className="bg-[var(--surface)] rounded-2xl border border-[var(--border)] shadow-xl overflow-hidden h-full flex flex-col">
+              <div className="p-2 bg-[var(--surface-hover)] border-b border-[var(--border)] flex items-center gap-1">
                 <button
                   type="button"
                   onClick={() => setDetailTab('bitacora')}
                   className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold uppercase tracking-wide transition-colors ${
                     detailTab === 'bitacora'
-                      ? 'bg-slate-800 text-emerald-400'
-                      : 'text-slate-500 hover:text-slate-300'
+                      ? 'bg-[var(--surface)] text-emerald-400'
+                      : 'text-[var(--muted)] hover:text-[var(--foreground)]'
                   }`}
                 >
                   <MapPin className="h-4 w-4" />
@@ -822,8 +876,8 @@ export default function ConsultaPage() {
                   onClick={() => setDetailTab('ingresos')}
                   className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold uppercase tracking-wide transition-colors ${
                     detailTab === 'ingresos'
-                      ? 'bg-slate-800 text-amber-400'
-                      : 'text-slate-500 hover:text-slate-300'
+                      ? 'bg-[var(--surface)] text-amber-400'
+                      : 'text-[var(--muted)] hover:text-[var(--foreground)]'
                   }`}
                 >
                   <History className="h-4 w-4" />
@@ -846,7 +900,7 @@ export default function ConsultaPage() {
                             Bitácora · {formatIngresoLabel(bitacoraCycle.reentry_count)}
                           </span>
                           <span className="mx-2 text-amber-500/60">·</span>
-                          <span className="font-mono font-bold text-blue-300">
+                          <span className="font-mono font-bold text-[var(--accent)]">
                             {bitacoraCycle.os_label || 'OS'}
                           </span>
                         </div>
@@ -861,17 +915,17 @@ export default function ConsultaPage() {
                     )}
                   {filteredHistory.length === 0 ? (
                     <div className="text-center py-12">
-                      <Activity className="h-12 w-12 text-slate-600 mx-auto mb-4" />
-                      <p className="text-slate-400 text-lg">
+                      <Activity className="h-12 w-12 text-[var(--muted)] mx-auto mb-4" />
+                      <p className="text-[var(--muted)] text-lg">
                         {bitacoraCycle
                           ? 'No hay eventos en la bitácora para este ingreso.'
                           : 'No hay historial de movimientos registrado para este equipo.'}
                       </p>
                     </div>
                   ) : (
-                    <div className="border border-slate-700 rounded-xl overflow-hidden">
-                      <table className="w-full text-left text-sm text-slate-300">
-                        <thead className="bg-[#1e293b] text-xs uppercase font-bold text-slate-400 border-b border-slate-700">
+                    <div className="border border-[var(--border)] rounded-xl overflow-hidden">
+                      <table className="w-full text-left text-sm text-[var(--foreground)]">
+                        <thead className="bg-[var(--surface-hover)] text-xs uppercase font-bold text-[var(--muted)] border-b border-[var(--border)]">
                           <tr>
                             <th className="px-4 py-3">Fecha / Hora</th>
                             <th className="px-4 py-3">Estado</th>
@@ -880,12 +934,12 @@ export default function ConsultaPage() {
                             <th className="px-4 py-3 w-full">Comentario</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-800/50 bg-slate-900/20">
+                        <tbody className="divide-y divide-[var(--border)] bg-[var(--surface)]">
                           {filteredHistory.map((event) => (
-                              <tr key={event.id} className="hover:bg-slate-800/50 transition-colors">
+                              <tr key={event.id} className="hover:bg-[var(--surface-hover)] transition-colors">
                                 <td className="px-4 py-3 text-xs whitespace-nowrap">
                                   <div>{formatDate(event.changed_at)}</div>
-                                  <div className="text-slate-500">{formatTime(event.changed_at)}</div>
+                                  <div className="text-[var(--muted)]">{formatTime(event.changed_at)}</div>
                                 </td>
                                 <td className="px-4 py-3 whitespace-nowrap">
                                     <span className={`px-2 py-1 rounded text-[10px] font-bold tracking-wider ${getStatusColor(event.status)}`}>
@@ -895,10 +949,10 @@ export default function ConsultaPage() {
                                 <td className="px-4 py-3 font-medium whitespace-nowrap">
                                   {event.actorName === 'SISTEMA' ? 'Enviado por sistema' : event.actorName}
                                 </td>
-                                <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">
+                                <td className="px-4 py-3 text-xs text-[var(--muted)] whitespace-nowrap">
                                   {event.module}
                                 </td>
-                                <td className="px-4 py-3 text-xs text-slate-400 whitespace-normal min-w-[250px]">
+                                <td className="px-4 py-3 text-xs text-[var(--muted)] whitespace-normal min-w-[250px]">
                                   {event.comment}
                                 </td>
                               </tr>
@@ -910,28 +964,28 @@ export default function ConsultaPage() {
                   </>
                 ) : ingresoHistory.length === 0 ? (
                   <div className="text-center py-12">
-                    <History className="h-12 w-12 text-slate-600 mx-auto mb-4" />
-                    <p className="text-slate-400 text-lg">No hay ciclos de ingreso registrados para estas series.</p>
+                    <History className="h-12 w-12 text-[var(--muted)] mx-auto mb-4" />
+                    <p className="text-[var(--muted)] text-lg">No hay ciclos de ingreso registrados para estas series.</p>
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">
+                    <p className="text-xs text-[var(--muted)] uppercase tracking-wider font-semibold">
                       Series del equipo consultado
                     </p>
                     <div className="flex flex-wrap gap-2 mb-2">
                       {(siblingSeries.length ? siblingSeries : [seriesData]).map((s: any, i: number) => (
                         <span
                           key={`${s.serial_number || i}`}
-                          className="font-mono text-[11px] font-bold px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 border border-slate-700"
+                          className="font-mono text-[11px] font-bold px-2.5 py-1 rounded-lg bg-[var(--surface-hover)] text-[var(--foreground)] border border-[var(--border)]"
                         >
                           S{i + 1}: {s.serial_number || '—'}
                         </span>
                       ))}
                     </div>
 
-                    <div className="border border-slate-700 rounded-xl overflow-hidden">
-                      <table className="w-full text-left text-sm text-slate-300">
-                        <thead className="bg-[#1e293b] text-xs uppercase font-bold text-slate-400 border-b border-slate-700">
+                    <div className="border border-[var(--border)] rounded-xl overflow-hidden">
+                      <table className="w-full text-left text-sm text-[var(--foreground)]">
+                        <thead className="bg-[var(--surface-hover)] text-xs uppercase font-bold text-[var(--muted)] border-b border-[var(--border)]">
                           <tr>
                             <th className="px-4 py-3">Ingreso</th>
                             <th className="px-4 py-3">Fecha ingreso</th>
@@ -944,15 +998,15 @@ export default function ConsultaPage() {
                             <th className="px-4 py-3 text-right">Acción</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-800/50 bg-slate-900/20">
+                        <tbody className="divide-y divide-[var(--border)] bg-[var(--surface)]">
                           {ingresoHistory.map((cycle) => (
-                            <tr key={cycle.id} className="hover:bg-slate-800/50 transition-colors align-top">
+                            <tr key={cycle.id} className="hover:bg-[var(--surface-hover)] transition-colors align-top">
                               <td className="px-4 py-3 whitespace-nowrap">
                                 <span
                                   className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-full border ${
                                     cycle.reentry_count > 1
                                       ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                                      : 'bg-slate-800 text-slate-400 border-slate-700'
+                                      : 'bg-[var(--surface-hover)] text-[var(--muted)] border-[var(--border)]'
                                   }`}
                                 >
                                   {formatIngresoLabel(cycle.reentry_count)}
@@ -960,13 +1014,13 @@ export default function ConsultaPage() {
                               </td>
                               <td className="px-4 py-3 text-xs whitespace-nowrap">
                                 <div>{formatDate(cycle.created_at || '')}</div>
-                                <div className="text-slate-500">{formatTime(cycle.created_at || '')}</div>
+                                <div className="text-[var(--muted)]">{formatTime(cycle.created_at || '')}</div>
                               </td>
                               <td className="px-4 py-3 text-xs whitespace-nowrap">
                                 {cycle.closed_at ? (
                                   <>
                                     <div>{formatDate(cycle.closed_at)}</div>
-                                    <div className="text-slate-500">{formatTime(cycle.closed_at)}</div>
+                                    <div className="text-[var(--muted)]">{formatTime(cycle.closed_at)}</div>
                                   </>
                                 ) : (
                                   <span className="text-amber-400/80 text-[10px] font-bold uppercase tracking-widest">
@@ -974,10 +1028,10 @@ export default function ConsultaPage() {
                                   </span>
                                 )}
                               </td>
-                              <td className="px-4 py-3 font-mono font-bold text-blue-400 whitespace-nowrap">
+                              <td className="px-4 py-3 font-mono font-bold text-[var(--accent)] whitespace-nowrap">
                                 {cycle.os_label || '—'}
                               </td>
-                              <td className="px-4 py-3 text-xs uppercase font-bold text-slate-300 whitespace-nowrap">
+                              <td className="px-4 py-3 text-xs uppercase font-bold text-[var(--foreground)] whitespace-nowrap">
                                 {cycle.reception_source || '—'}
                               </td>
                               <td className="px-4 py-3 whitespace-nowrap">
@@ -988,20 +1042,20 @@ export default function ConsultaPage() {
                               <td className="px-4 py-3">
                                 <div className="flex flex-col gap-1 min-w-[160px]">
                                   {cycle.serials.length === 0 ? (
-                                    <span className="text-slate-500 text-xs">{cycle.main_serial || '—'}</span>
+                                    <span className="text-[var(--muted)] text-xs">{cycle.main_serial || '—'}</span>
                                   ) : (
                                     cycle.serials.map((sn, i) => (
-                                      <span key={`${cycle.id}-${sn}`} className="font-mono text-[11px] text-slate-200">
-                                        <span className="text-slate-500 mr-1">S{i + 1}</span>
+                                      <span key={`${cycle.id}-${sn}`} className="font-mono text-[11px] text-[var(--foreground)]">
+                                        <span className="text-[var(--muted)] mr-1">S{i + 1}</span>
                                         {sn}
                                       </span>
                                     ))
                                   )}
                                 </div>
                               </td>
-                              <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">
+                              <td className="px-4 py-3 text-xs text-[var(--muted)] whitespace-nowrap">
                                 <div>{cycle.reception_guide || '—'}</div>
-                                <div className="text-slate-500">{cycle.sap_document || ''}</div>
+                                <div className="text-[var(--muted)]">{cycle.sap_document || ''}</div>
                               </td>
                               <td className="px-4 py-3 text-right whitespace-nowrap">
                                 <button

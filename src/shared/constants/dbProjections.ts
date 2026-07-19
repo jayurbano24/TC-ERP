@@ -113,6 +113,9 @@ export const RRHH_ASISTENCIA_SELECT =
 export const TIME_LOG_KIOSK_SELECT =
   'id, employee_id, timestamp, evento_detectado, minutos_retraso_entrada, minutos_exceso_almuerzo, minutos_salida_anticipada, minutos_extra, es_dia_extra, attendance_session_id';
 
+export const EMPLOYEE_CURRENT_STATUS_SELECT =
+  'employee_id, estado_actual, ultimo_evento, llego_tarde_hoy, fecha_estado, updated_at, attendance_session_id';
+
 export const EMPLOYEE_PAYROLL_OBLIGATIONS_SELECT =
   'id, codigo_empleado, nombre_completo, sueldo_mensual_base, bono_metas, hr_departments(name)';
 

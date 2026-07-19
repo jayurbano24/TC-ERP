@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from 'react';
-import { Camera, CheckCircle2, AlertCircle, Loader2, LogIn, Coffee, Utensils, LogOut, ShieldAlert, User, Info, ScanFace, Hash, ArrowLeft } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import {
   COMPANY_SHIFT_KIOSK_SELECT,
   EMPLOYEE_KIOSK_VERIFY_SELECT,
@@ -11,7 +11,24 @@ import {
 } from '@/shared/constants/dbProjections';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { notify } from '@/components/ui';
-import { useAttendanceState, AllowedAction, isWithinPermissionWindow } from '@/hooks/useAttendanceState';
+import {
+  KioskActionBar,
+  KioskCodePad,
+  KioskEnrollmentOverlay,
+  KioskEntryMenu,
+  KioskFaceGuide,
+  KioskIntentConfirm,
+  KioskJustificationPanel,
+  KioskStatusBanner,
+} from '@/components/kiosk';
+import {
+  evaluatePunch,
+  isWithinPermissionWindow,
+  specialMarcajeOptions,
+  type EvaluatePunchResult,
+  type IntentOption,
+  type PunchEvent,
+} from '@/lib/attendance-engine';
 import {
   ENROLLMENT_POSES,
   POSE_INSTRUCTIONS,
@@ -21,6 +38,12 @@ import {
   getKioskBiometricPin,
   type EnrollmentCapture,
 } from '@/lib/face-recognition';
+
+type PunchSession = {
+  employee: any;
+  shift: any;
+  logs: any[];
+};
 
 const getShortName = (fullName: string) => {
   if (!fullName) return '';
@@ -40,6 +63,14 @@ const getShortName = (fullName: string) => {
   }
 };
 
+const formatPolicyHm = (value: string | undefined, fallback: string) => {
+  if (!value) return fallback;
+  return String(value).slice(0, 5);
+};
+
+const permissionWindowLabel = (policies: { horario_permiso_inicio?: string; horario_permiso_fin?: string } | null | undefined) =>
+  `${formatPolicyHm(policies?.horario_permiso_inicio, '00:00')} – ${formatPolicyHm(policies?.horario_permiso_fin, '23:59')}`;
+
 export function BiometricKiosk() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -54,7 +85,11 @@ export function BiometricKiosk() {
   const cooldownRef = useRef(false);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  const [pendingActionSelect, setPendingActionSelect] = useState<any>(null);
+  const [pendingSession, setPendingSession] = useState<PunchSession | null>(null);
+  const [pendingIntent, setPendingIntent] = useState<{
+    session: PunchSession;
+    decision: EvaluatePunchResult;
+  } | null>(null);
   const [pendingJustification, setPendingJustification] = useState<any>(null);
   const [selectedReason, setSelectedReason] = useState('');
   const [otherReason, setOtherReason] = useState('');
@@ -74,17 +109,12 @@ export function BiometricKiosk() {
   const [enrollmentCaptures, setEnrollmentCaptures] = useState<EnrollmentCapture[]>([]);
   const [enrollmentPoseIndex, setEnrollmentPoseIndex] = useState(0);
 
-  const { currentState, allowedActions, calculatePunches } = useAttendanceState({
-    logs: pendingActionSelect?.logs || [],
-    shift: pendingActionSelect?.shift || null,
-    policies: policies
-  });
-
   const stateRefs = useRef({
     isRegistering,
     registerStep,
     selectedRegisterEmp,
-    pendingActionSelect,
+    pendingSession,
+    pendingIntent,
     pendingJustification,
     employeeToVerify,
     entryMode,
@@ -97,14 +127,15 @@ export function BiometricKiosk() {
       isRegistering,
       registerStep,
       selectedRegisterEmp,
-      pendingActionSelect,
+      pendingSession,
+      pendingIntent,
       pendingJustification,
       employeeToVerify,
       entryMode,
       enrollmentCaptures,
       enrollmentPoseIndex,
     };
-  }, [isRegistering, registerStep, selectedRegisterEmp, pendingActionSelect, pendingJustification, employeeToVerify, entryMode, enrollmentCaptures, enrollmentPoseIndex]);
+  }, [isRegistering, registerStep, selectedRegisterEmp, pendingSession, pendingIntent, pendingJustification, employeeToVerify, entryMode, enrollmentCaptures, enrollmentPoseIndex]);
 
   useEffect(() => {
     loadModels();
@@ -264,7 +295,7 @@ export function BiometricKiosk() {
 
     intervalRef.current = setInterval(async () => {
       const refs = stateRefs.current;
-      if (busy || cooldownRef.current || refs.pendingActionSelect || refs.pendingJustification) return;
+      if (busy || cooldownRef.current || refs.pendingSession || refs.pendingIntent || refs.pendingJustification) return;
       if (!videoRef.current || videoRef.current.readyState < 4) return;
 
       busy = true;
@@ -330,7 +361,7 @@ export function BiometricKiosk() {
         if (match?.matched) {
           setFaceStatus('ready');
           if (useOneToOne) {
-            prepareActionSelect(refs.employeeToVerify);
+            processSmartPunch(refs.employeeToVerify);
           } else if (match.employeeId) {
             const emp = await fetchEmployeeById(match.employeeId);
             if (!emp) {
@@ -338,7 +369,7 @@ export function BiometricKiosk() {
               setStatusMessage('Empleado reconocido pero no encontrado en RRHH');
               return;
             }
-            prepareActionSelect(emp);
+            processSmartPunch(emp);
           }
         } else {
           setFaceStatus('unknown');
@@ -358,118 +389,150 @@ export function BiometricKiosk() {
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, [isCameraActive, isModelLoaded]);
 
-  const prepareActionSelect = async (employee: any) => {
+  const greetingForNow = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Buenos días';
+    if (hour < 18) return 'Buenas tardes';
+    return 'Buenas noches';
+  };
+
+  const applyDecision = (session: PunchSession, decision: EvaluatePunchResult) => {
+    setPendingSession(null);
+    setPendingIntent(null);
+
+    if (decision.needsIntent) {
+      setPendingIntent({ session, decision });
+      setMatchStatus('idle');
+      setStatusMessage('');
+      return;
+    }
+
+    if (!decision.evento) {
+      showError('No se pudo determinar el tipo de marcaje.');
+      return;
+    }
+
+    // Marcaje especial desde intención: pedir dirección + motivo
+    if (decision.evento === 'MARCAJE_ESPECIAL') {
+      setPendingJustification({
+        action: 'MARCAJE_ESPECIAL',
+        data: { ...session, ...decision.metrics },
+        options: decision.justificacionOptions.length
+          ? decision.justificacionOptions
+          : specialMarcajeOptions(policies),
+        prompt: 'Marcaje especial: indique dirección y motivo.',
+      });
+      setMatchStatus('idle');
+      return;
+    }
+
+    const punchData = {
+      employee: session.employee,
+      shift: session.shift,
+      logs: session.logs,
+      action: decision.evento,
+      ...decision.metrics,
+      justificacion_tipo: decision.justificacionTipo || undefined,
+    };
+
+    if (decision.requiereJustificacion) {
+      setPendingJustification({
+        action: decision.evento,
+        data: punchData,
+        options: decision.justificacionOptions,
+        prompt:
+          decision.justificacionTipo === 'MARCAJE_ESPECIAL'
+            ? 'Detectamos marcaje fuera de jornada. Seleccione el motivo:'
+            : 'El sistema ha detectado una excepción. Indique el motivo:',
+        justificacion_tipo: decision.justificacionTipo,
+      });
+      setMatchStatus('idle');
+      return;
+    }
+
+    submitPunchFinal({ ...punchData, razon: null });
+  };
+
+  const processSmartPunch = async (employee: any) => {
     cooldownRef.current = true;
     stopVideo();
+    const shortName = getShortName(employee.nombre_completo);
     setMatchStatus('verifying');
-    setStatusMessage('Autenticando...');
+    setStatusMessage(`${greetingForNow()}, ${shortName}. Procesando marcaje...`);
 
     try {
       const supabase = getSupabaseBrowserClient();
       if (!supabase) return;
-      
-      const { data: shift } = await supabase.from('company_shifts').select(COMPANY_SHIFT_KIOSK_SELECT).eq('id', employee.shift_id).single();
-      if (!shift) { showError(`Horario no asignado para ${employee.nombre_completo}`); return; }
+
+      const { data: shift } = await supabase
+        .from('company_shifts')
+        .select(COMPANY_SHIFT_KIOSK_SELECT)
+        .eq('id', employee.shift_id)
+        .single();
+      if (!shift) {
+        showError(`Horario no asignado para ${employee.nombre_completo}`);
+        return;
+      }
 
       const localMidnight = new Date(new Date().setHours(0, 0, 0, 0));
-      const { data: logs } = await supabase.from('time_logs')
+      const { data: logs } = await supabase
+        .from('time_logs')
         .select(TIME_LOG_KIOSK_SELECT)
         .eq('employee_id', employee.id)
         .gte('timestamp', localMidnight.toISOString())
         .order('timestamp', { ascending: false });
 
-      setMatchStatus('idle');
-      setStatusMessage('');
-      
+      const session: PunchSession = { employee, shift, logs: logs || [] };
+
       if (specialMode) {
         if (!policies?.permitir_marcaje_especial || !isWithinPermissionWindow(policies)) {
           setSpecialMode(false);
-          showError('Marcaje especial fuera del horario de permisos.');
+          notify.warning('Fuera de horario de permisos', {
+            description: `Marcaje especial solo entre ${permissionWindowLabel(policies)}.`,
+          });
+          resetCooldown(100);
           return;
         }
+        setSpecialMode(false);
         setPendingJustification({
           action: 'MARCAJE_ESPECIAL',
-          data: { employee, shift, logs },
-          options: policies?.justificaciones_marcaje_especial || ["Reingreso a Laborar", "Trabajo Extraordinario", "Capacitación", "Emergencia", "Comisión Externa", "Otros"]
+          data: session,
+          options: specialMarcajeOptions(policies),
+          prompt: 'Marcaje especial: indique dirección y motivo.',
         });
-        setSpecialMode(false);
+        setMatchStatus('idle');
+        setStatusMessage('');
         return;
       }
 
-      setPendingActionSelect({ employee, shift, logs });
+      setPendingSession(session);
+      const decision = evaluatePunch({
+        shift,
+        logs: logs || [],
+        policies,
+        now: new Date(),
+      });
+      applyDecision(session, decision);
     } catch (err) {
+      console.error(err);
       showError('Error de conexión.');
     }
   };
 
-  /** Marcaje especial desde la pantalla de acciones (tras reconocer al empleado). */
-  const openSpecialMarcajeFromActions = () => {
-    if (!pendingActionSelect) return;
-    if (!policies?.permitir_marcaje_especial || !isWithinPermissionWindow(policies)) {
-      showError('Marcaje especial fuera del horario de permisos.');
-      return;
-    }
-    const { employee, shift, logs } = pendingActionSelect;
-    setPendingActionSelect(null);
-    setSpecialMode(false);
-    setPendingJustification({
-      action: 'MARCAJE_ESPECIAL',
-      data: { employee, shift, logs },
-      options: policies?.justificaciones_marcaje_especial || [
-        'Reingreso a Laborar',
-        'Trabajo Extraordinario',
-        'Capacitación',
-        'Emergencia',
-        'Comisión Externa',
-        'Otros',
-      ],
+  const handleIntentSelect = (option: IntentOption) => {
+    if (!pendingIntent) return;
+    const { session } = pendingIntent;
+    setPendingIntent(null);
+    setMatchStatus('verifying');
+    setStatusMessage('Procesando marcaje...');
+    const decision = evaluatePunch({
+      shift: session.shift,
+      logs: session.logs,
+      policies,
+      now: new Date(),
+      forcedEvent: option.evento as PunchEvent,
     });
-  };
-
-  const handleActionSelect = (action: AllowedAction) => {
-    const { employee, shift, logs } = pendingActionSelect;
-    
-    const lastLog = logs && logs.length > 0 ? logs[0] : null;
-    if (lastLog && lastLog.evento_detectado === action) {
-       showError('Ya existe una marcación registrada para este evento.');
-       setPendingActionSelect(null);
-       return;
-    }
-
-    const punchData = {
-      employee,
-      shift,
-      action,
-      ...calculatePunches(action)
-    };
-
-    setPendingActionSelect(null);
-    stopVideo();
-
-    const pedirJustifReceso = policies?.regla_solicitar_justificacion_receso !== false;
-
-    if (action === 'INGRESO' && (punchData.tardanza_segundos > 0 || punchData.minRetraso > 0)) {
-      setPendingJustification({ action, data: punchData, options: policies?.justificaciones_llegada_tarde || ["Tráfico", "Transporte público", "Cita médica", "Emergencia familiar", "Otros"] });
-      return;
-    }
-    if (pedirJustifReceso && (action === 'REGRESO_REFACCION' || action === 'DESAYUNO_FIN')) {
-      if (punchData.exceso_desayuno_segundos > 0 || punchData.minExcesoBreak > 0) {
-        setPendingJustification({ action, data: punchData, options: policies?.justificaciones_exceso_desayuno || ["Atención a cliente", "Reunión", "Demora en servicio", "Problema operativo", "Otros"] });
-        return;
-      }
-    }
-    if (pedirJustifReceso && (action === 'REGRESO_ALMUERZO' || action === 'ALMUERZO_FIN')) {
-      if (punchData.exceso_almuerzo_segundos > 0 || punchData.minExcesoAlm > 0) {
-        setPendingJustification({ action, data: punchData, options: policies?.justificaciones_exceso_almuerzo || ["Atención a cliente", "Reunión", "Demora en servicio", "Problema operativo", "Otros"] });
-        return;
-      }
-    }
-    if (action === 'SALIDA_FINAL' && (punchData.salida_anticipada_segundos > 0 || punchData.minSalidaAnt > 0)) {
-      setPendingJustification({ action, data: punchData, options: policies?.justificaciones_salida_anticipada || ["Salud", "Emergencia", "Permiso autorizado", "Comisión laboral", "Otros"] });
-      return;
-    }
-
-    submitPunchFinal({ ...punchData, razon: null });
+    applyDecision(session, decision);
   };
 
   const submitJustification = () => {
@@ -481,12 +544,16 @@ export function BiometricKiosk() {
     const finalReason = selectedReason === 'Otros' ? otherReason : selectedReason;
     const isSpecial = pendingJustification.action === 'MARCAJE_ESPECIAL';
     const action = isSpecial ? specialDirection : pendingJustification.action;
-    
+
     submitPunchFinal({
       ...pendingJustification.data,
+      employee: pendingJustification.data.employee,
+      shift: pendingJustification.data.shift,
       action,
       razon: finalReason,
-      justificacion_tipo: isSpecial ? 'MARCAJE_ESPECIAL' : undefined,
+      justificacion_tipo:
+        pendingJustification.justificacion_tipo ||
+        (isSpecial ? 'MARCAJE_ESPECIAL' : undefined),
     });
   };
 
@@ -641,341 +708,232 @@ export function BiometricKiosk() {
   const showError = (msg: string) => { setMatchStatus('error'); setStatusMessage(msg); resetCooldown(4000); };
   const resetCooldown = (ms: number = 3000) => {
     setTimeout(() => {
-      setMatchStatus('idle'); setStatusMessage(''); setPendingActionSelect(null); setPendingJustification(null);
-      setSelectedReason(''); setOtherReason(''); setSpecialMode(false); setSpecialDirection('INGRESO');
-      setFaceStatus('searching'); setEmployeeInput(''); setEmployeeToVerify(null);
+      setMatchStatus('idle');
+      setStatusMessage('');
+      setPendingSession(null);
+      setPendingIntent(null);
+      setPendingJustification(null);
+      setSelectedReason('');
+      setOtherReason('');
+      setSpecialMode(false);
+      setSpecialDirection('INGRESO');
+      setFaceStatus('searching');
+      setEmployeeInput('');
+      setEmployeeToVerify(null);
       setEntryMode('menu');
-      setEnrollmentCaptures([]); setEnrollmentPoseIndex(0);
-      cooldownRef.current = false; stopVideo();
+      setEnrollmentCaptures([]);
+      setEnrollmentPoseIndex(0);
+      cooldownRef.current = false;
+      stopVideo();
     }, ms);
   };
 
   if (!isModelLoaded) {
     return (
-      <div className="flex flex-col items-center justify-center h-96 text-slate-400 animate-pulse">
-        <Loader2 className="w-12 h-12 mb-4 animate-spin text-[#2ec4f1]" />
-        <p className="font-bold uppercase tracking-widest text-xs">{loadingMsg}</p>
+      <div className="flex h-96 flex-col items-center justify-center text-neutral-500 animate-pulse">
+        <Loader2 className="mb-4 h-12 w-12 animate-spin text-accent" />
+        <p className="text-xs font-bold uppercase tracking-wide text-neutral-700">{loadingMsg}</p>
       </div>
     );
   }
 
+  const bannerTitle =
+    matchStatus === 'idle'
+      ? isCameraActive
+        ? 'Reconocimiento Facial'
+        : 'Sistema en Espera'
+      : matchStatus;
+
+  const bannerSubtitle =
+    matchStatus === 'idle'
+      ? isCameraActive
+        ? statusMessage ||
+          (employeeToVerify
+            ? `Confirme rostro · ${getShortName(employeeToVerify.nombre_completo)}`
+            : 'Ubique su rostro dentro del círculo')
+        : 'Seleccione reconocimiento facial o código'
+      : statusMessage;
+
+  const welcomeMessage =
+    policies?.kiosko_mensaje_bienvenida || 'Bienvenido a Tech Corps Guatemala';
+
+  const specialWindowLabel = permissionWindowLabel(policies);
+  const specialOutsideWindow = !isWithinPermissionWindow(policies);
+
   return (
-    <div className="relative w-full overflow-hidden rounded-[2rem] bg-black shadow-2xl flex flex-col items-center">
-      {policies?.permitir_marcaje_especial !== false && (
-        <button
-          onClick={() => {
-            if (!isWithinPermissionWindow(policies)) {
-              showError('Marcaje especial solo entre el horario de permisos configurado.');
-              return;
-            }
-            setSpecialMode(true);
-            if (!isCameraActive) startFacePunch();
-          }}
-          className={`absolute top-4 right-4 z-30 flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider transition-all ${specialMode ? 'bg-[#2ec4f1] text-white shadow-[0_0_15px_rgba(46,196,241,0.5)]' : 'bg-white/10 text-white/50 hover:bg-white/20'}`}
-        >
-          <ShieldAlert className="w-3 h-3" /> Marcaje Especial
-        </button>
-      )}
+    <div className="relative flex w-full flex-col items-center overflow-hidden rounded-2xl border border-white/40 bg-white/35 shadow-2xl backdrop-blur-md">
+      <KioskActionBar
+        showSpecial={policies?.permitir_marcaje_especial !== false}
+        specialActive={specialMode}
+        specialOutsideWindow={specialOutsideWindow}
+        specialTitle={
+          specialOutsideWindow
+            ? `Disponible solo entre ${specialWindowLabel}`
+            : 'Activar marcaje especial'
+        }
+        showEnroll={!isCameraActive && !isRegistering && entryMode === 'menu'}
+        showCloseCamera={isCameraActive && !isRegistering}
+        onSpecial={() => {
+          if (specialOutsideWindow) {
+            notify.warning('Fuera de horario de permisos', {
+              description: `Marcaje especial solo entre ${specialWindowLabel}. Ajústelo en RRHH → Políticas → Permisos Especiales.`,
+            });
+            return;
+          }
+          setSpecialMode(true);
+          if (!isCameraActive) startFacePunch();
+        }}
+        onEnroll={() => {
+          setIsRegistering(true);
+          setRegisterStep('pin');
+          setPinCode('');
+        }}
+        onCloseCamera={backToMenu}
+      />
 
-      {!isCameraActive && !isRegistering && entryMode === 'menu' && (
-        <button onClick={() => { setIsRegistering(true); setRegisterStep('pin'); setPinCode(''); }} className="absolute top-4 left-4 z-30 flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider transition-all bg-white/10 text-white/50 hover:bg-white/20">
-          <Camera className="w-3 h-3" /> Registrar Rostro
-        </button>
-      )}
-
-      {isCameraActive && !isRegistering && (
-        <button onClick={backToMenu} className="absolute top-4 left-4 z-30 flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider transition-all bg-rose-500/20 text-rose-400 hover:bg-rose-500/40">
-          <AlertCircle className="w-3 h-3" /> Cerrar Cámara
-        </button>
-      )}
-
-      <div className="w-full min-h-[650px] bg-slate-900 relative flex items-center justify-center py-12">
+      <div className="relative flex min-h-[650px] w-full items-center justify-center bg-white/10 py-12">
         {!isCameraActive ? (
-           <div className="flex flex-col items-center justify-center p-4 text-center animate-in fade-in zoom-in-95 duration-500 w-full h-full">
-              <div className="w-full max-w-md bg-slate-800/80 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-md shadow-2xl flex flex-col items-center">
-                 <div className="text-center mb-3">
-                   <p className="text-white font-black text-xl tracking-wide uppercase drop-shadow-md">
-                     {policies?.kiosko_mensaje_bienvenida || 'Bienvenido a Tech Corps Guatemala'}
-                   </p>
-                 </div>
+          <div className="flex h-full w-full flex-col items-center justify-center p-4 text-center animate-in fade-in zoom-in-95 duration-500">
+            <div className="flex w-full max-w-md flex-col items-center rounded-2xl border border-white/50 bg-white/45 p-6 shadow-xl backdrop-blur-sm">
+              {entryMode === 'menu' && (
+                <KioskEntryMenu
+                  welcomeMessage={welcomeMessage}
+                  onFacePunch={startFacePunch}
+                  onCodeEntry={() => {
+                    setEntryMode('code');
+                    setEmployeeInput('');
+                    setStatusMessage('');
+                  }}
+                />
+              )}
 
-                 {entryMode === 'menu' && (
-                   <>
-                     <p className="text-slate-300 text-xs font-medium leading-relaxed text-center mb-6">
-                       Elija cómo desea <strong className="text-white">marcar su asistencia</strong>.
-                     </p>
-                     <button
-                       onClick={startFacePunch}
-                       className="w-full py-5 mb-3 bg-[#2ec4f1] hover:bg-[#2ec4f1]/80 text-slate-950 font-black text-lg tracking-wide rounded-xl transition-all transform hover:scale-[1.02] active:scale-95 shadow-[0_0_20px_rgba(46,196,241,0.35)] flex items-center justify-center gap-3"
-                     >
-                       <ScanFace className="w-7 h-7" />
-                       Reconocimiento Facial
-                     </button>
-                     <button
-                       onClick={() => { setEntryMode('code'); setEmployeeInput(''); setStatusMessage(''); }}
-                       className="w-full py-4 bg-slate-700/80 hover:bg-slate-600 text-white font-bold text-sm tracking-wide rounded-xl transition-all border border-slate-600 flex items-center justify-center gap-2"
-                     >
-                       <Hash className="w-5 h-5 text-[#2ec4f1]" />
-                       Usar código de empleado
-                     </button>
-                   </>
-                 )}
+              {entryMode === 'code' && (
+                <KioskCodePad
+                  value={employeeInput}
+                  statusMessage={statusMessage}
+                  isError={matchStatus === 'error'}
+                  isVerifying={matchStatus === 'verifying'}
+                  onChange={setEmployeeInput}
+                  onBack={() => {
+                    setEntryMode('menu');
+                    setEmployeeInput('');
+                    setStatusMessage('');
+                  }}
+                  onSubmit={handleVerifyCode}
+                />
+              )}
 
-                 {entryMode === 'code' && (
-                   <>
-                     <button
-                       onClick={() => { setEntryMode('menu'); setEmployeeInput(''); setStatusMessage(''); }}
-                       className="self-start mb-3 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-slate-400 hover:text-white transition-colors"
-                     >
-                       <ArrowLeft className="w-3.5 h-3.5" /> Volver
-                     </button>
-                     <p className="text-slate-300 text-xs font-medium leading-relaxed text-center mb-4">
-                       Ingrese su <strong className="text-white">Código de Empleado</strong> y luego confirme con su rostro.
-                     </p>
-
-                     <div className="w-full relative mb-4">
-                       <input
-                         type="text"
-                         value={employeeInput}
-                         onChange={(e) => setEmployeeInput(e.target.value)}
-                         onKeyDown={(e) => e.key === 'Enter' && handleVerifyCode()}
-                         placeholder="Código"
-                         className="w-full bg-slate-900 border-2 border-[#2ec4f1]/50 focus:border-[#2ec4f1] text-white text-center text-3xl font-black tracking-widest py-3 rounded-xl outline-none shadow-inner transition-colors"
-                         autoFocus
-                       />
-                     </div>
-
-                     <div className="grid grid-cols-3 gap-2 w-full mb-4">
-                        {[1,2,3,4,5,6,7,8,9].map(num => (
-                          <button key={num} onClick={() => setEmployeeInput(prev => prev + num)} className="bg-slate-700 hover:bg-slate-600 text-white font-black text-xl py-3 rounded-lg transition-colors shadow-sm">
-                            {num}
-                          </button>
-                        ))}
-                        <button onClick={() => setEmployeeInput('')} className="bg-rose-500/20 hover:bg-rose-500/40 text-rose-400 font-bold text-xs uppercase py-3 rounded-lg transition-colors">
-                          Borrar
-                        </button>
-                        <button onClick={() => setEmployeeInput(prev => prev + '0')} className="bg-slate-700 hover:bg-slate-600 text-white font-black text-xl py-3 rounded-lg transition-colors shadow-sm">
-                          0
-                        </button>
-                        <button onClick={() => setEmployeeInput(prev => prev.slice(0, -1))} className="bg-slate-700 hover:bg-slate-600 text-white font-bold text-sm uppercase py-3 rounded-lg transition-colors flex items-center justify-center">
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M3 12l6.414 6.414a2 2 0 001.414.586H19a2 2 0 002-2V7a2 2 0 00-2-2h-8.172a2 2 0 00-1.414.586L3 12z" /></svg>
-                        </button>
-                     </div>
-
-                     <button onClick={handleVerifyCode} disabled={!employeeInput || matchStatus === 'verifying'} className="w-full py-4 bg-[#2ec4f1] hover:bg-[#2ec4f1]/80 text-slate-950 font-black text-lg tracking-widest rounded-xl transition-all transform hover:scale-[1.02] active:scale-95 shadow-[0_0_15px_rgba(46,196,241,0.3)] disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2">
-                       {matchStatus === 'verifying' ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Siguiente'}
-                     </button>
-                   </>
-                 )}
-
-                 {statusMessage && entryMode !== 'face' && (
-                   <p className={`mt-3 text-xs font-bold ${matchStatus === 'error' ? 'text-rose-400' : 'text-[#2ec4f1]'}`}>{statusMessage}</p>
-                 )}
-              </div>
-           </div>
+              {statusMessage && entryMode === 'menu' ? (
+                <p
+                  className={`mt-3 text-xs font-semibold ${
+                    matchStatus === 'error' ? 'text-danger' : 'text-accent'
+                  }`}
+                >
+                  {statusMessage}
+                </p>
+              ) : null}
+            </div>
+          </div>
         ) : (
           <>
-            <video ref={videoRef} autoPlay muted className="absolute inset-0 w-full h-full object-cover scale-x-[-1]" />
-            <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
-            
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-               <div className={`w-72 h-72 rounded-full border-[6px] transition-colors duration-300 flex flex-col items-center justify-end pb-6 gap-2 ${faceStatus === 'searching' ? 'border-rose-500 shadow-[0_0_30px_rgba(244,63,94,0.5)]' : faceStatus === 'adjusting' ? 'border-amber-400 shadow-[0_0_30px_rgba(251,191,36,0.5)]' : faceStatus === 'unknown' ? 'border-purple-500 shadow-[0_0_30px_rgba(168,85,247,0.5)]' : 'border-emerald-500 shadow-[0_0_30px_rgba(16,185,129,0.5)]'}`}>
-                  <span className={`px-4 py-1 rounded-full text-xs font-black uppercase tracking-widest backdrop-blur-md ${faceStatus === 'searching' ? 'bg-rose-500/80 text-white' : faceStatus === 'adjusting' ? 'bg-amber-400/80 text-black' : faceStatus === 'unknown' ? 'bg-purple-500/80 text-white' : 'bg-emerald-500/80 text-white'}`}>
-                    {faceStatus === 'searching' && 'Buscando rostro'}
-                    {faceStatus === 'adjusting' && 'Ajustando captura'}
-                    {faceStatus === 'unknown' && 'Rostro desconocido'}
-                    {faceStatus === 'ready' && 'Rostro listo'}
-                    {faceStatus === 'capturing' && 'Capturando...'}
-                  </span>
-                  {isCameraActive && !isRegistering && statusMessage && faceStatus !== 'ready' && (
-                    <span className="max-w-[16rem] px-3 py-1 rounded-lg bg-black/70 text-white text-[11px] font-semibold leading-snug text-center backdrop-blur-sm">
-                      {statusMessage}
-                    </span>
-                  )}
-               </div>
-            </div>
-            
-            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#2ec4f1]/10 to-transparent w-full h-1/4 animate-scan-line pointer-events-none" />
-            
-            {isRegistering && registerStatusMsg && (
-              <div className="absolute top-8 left-1/2 -translate-x-1/2 bg-emerald-500 text-white font-black px-6 py-3 rounded-full shadow-2xl animate-in slide-in-from-top">
-                 {registerStatusMsg}
+            <video
+              ref={videoRef}
+              autoPlay
+              muted
+              playsInline
+              className="absolute inset-0 h-full w-full scale-x-[-1] object-cover"
+            />
+            <canvas
+              ref={canvasRef}
+              className="pointer-events-none absolute inset-0 h-full w-full"
+            />
+
+            <KioskFaceGuide
+              faceStatus={faceStatus}
+              statusMessage={statusMessage}
+              showStatusMessage={isCameraActive && !isRegistering}
+            />
+
+            {isRegistering && registerStatusMsg ? (
+              <div className="absolute top-8 left-1/2 z-20 -translate-x-1/2 rounded-xl bg-success px-6 py-3 font-bold text-white shadow-xl animate-in slide-in-from-top">
+                {registerStatusMsg}
               </div>
-            )}
+            ) : null}
           </>
         )}
 
-        {isRegistering && !isCameraActive && (
-          <div className="absolute inset-0 z-50 bg-slate-900/95 backdrop-blur-md flex flex-col items-center justify-center p-6 animate-in zoom-in-95">
-             {registerStep === 'pin' && (
-               <div className="w-full max-w-sm">
-                  <h2 className="text-2xl font-black text-white text-center mb-4">Autorización Kiosko</h2>
-                  <input type="password" value={pinCode} onChange={(e) => setPinCode(e.target.value)} placeholder="PIN Admin" className="w-full h-14 bg-slate-800 rounded-xl px-4 text-center text-2xl tracking-widest text-white mb-4 outline-none focus:border-[#2ec4f1] border-2 border-slate-700" autoFocus/>
-                  <div className="flex gap-4">
-                     <button onClick={() => { setIsRegistering(false); setPinCode(''); }} className="flex-1 bg-slate-800 text-white py-3 rounded-xl font-bold hover:bg-slate-700 transition-colors">Cancelar</button>
-                     <button onClick={() => { if (pinCode === '1234') { setRegisterStep('select'); fetchEmployeesForRegistration(); } else { notify.error('PIN Incorrecto'); } }} className="flex-1 bg-[#2ec4f1] text-slate-900 py-3 rounded-xl font-black hover:bg-[#2ec4f1]/80 transition-colors">Verificar</button>
-                  </div>
-               </div>
-             )}
-             {registerStep === 'select' && (
-               <div className="w-full max-w-md">
-                  <h2 className="text-xl font-black text-white text-center mb-4">Seleccionar Empleado a Registrar</h2>
-                  <div className="max-h-72 overflow-y-auto bg-slate-800 rounded-xl mb-4 border border-slate-700 p-2">
-                     {registerEmployees.length > 0 ? registerEmployees.map(emp => (
-                        <button key={emp.id} onClick={() => {
-                          setSelectedRegisterEmp(emp);
-                          setEnrollmentCaptures([]);
-                          setEnrollmentPoseIndex(0);
-                          setRegisterStep('capture');
-                          setRegisterStatusMsg(POSE_INSTRUCTIONS.FRONT);
-                          startVideo();
-                        }} className="w-full text-left px-4 py-3 border-b border-slate-700/50 text-white hover:bg-[#2ec4f1]/20 hover:text-[#2ec4f1] font-bold rounded-lg transition-colors">
-                           {emp.nombre_completo}
-                        </button>
-                     )) : <p className="text-center text-slate-400 py-4">Cargando empleados...</p>}
-                  </div>
-                  <button onClick={() => { setIsRegistering(false); setRegisterStep('pin'); setPinCode(''); }} className="w-full bg-slate-800 text-white py-3 rounded-xl font-bold hover:bg-slate-700 transition-colors">Cancelar Registro</button>
-               </div>
-             )}
-          </div>
-        )}
+        {isRegistering && !isCameraActive ? (
+          <KioskEnrollmentOverlay
+            step={registerStep}
+            pinCode={pinCode}
+            employees={registerEmployees}
+            onPinChange={setPinCode}
+            onCancel={() => {
+              setIsRegistering(false);
+              setRegisterStep('pin');
+              setPinCode('');
+            }}
+            onVerifyPin={() => {
+              if (pinCode === '1234') {
+                setRegisterStep('select');
+                fetchEmployeesForRegistration();
+              } else {
+                notify.error('PIN Incorrecto');
+              }
+            }}
+            onSelectEmployee={(emp) => {
+              setSelectedRegisterEmp(emp);
+              setEnrollmentCaptures([]);
+              setEnrollmentPoseIndex(0);
+              setRegisterStep('capture');
+              setRegisterStatusMsg(POSE_INSTRUCTIONS.FRONT);
+              startVideo();
+            }}
+          />
+        ) : null}
 
-        {pendingActionSelect && (
-          <div className="absolute inset-0 z-40 bg-slate-900/95 backdrop-blur-md flex flex-col items-center justify-center p-6 animate-in fade-in zoom-in-95">
-            <div className="bg-slate-800 border border-slate-700 rounded-3xl p-6 w-full max-w-md flex flex-col items-center mb-6 shadow-xl">
-               <div className="w-20 h-20 bg-slate-700 rounded-full flex items-center justify-center mb-4">
-                 <User className="w-10 h-10 text-slate-400" />
-               </div>
-               <h2 className="text-2xl font-black text-white text-center capitalize">{getShortName(pendingActionSelect.employee.nombre_completo).toLowerCase()}</h2>
-               <div className="flex gap-2 mt-2">
-                 <span className="bg-[#2ec4f1]/20 text-[#2ec4f1] px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
-                   Estado Actual: {currentState.replace(/_/g, ' ')}
-                 </span>
-               </div>
-            </div>
+        {pendingIntent ? (
+          <KioskIntentConfirm
+            employeeName={getShortName(
+              pendingIntent.session.employee.nombre_completo,
+            ).toLowerCase()}
+            prompt={pendingIntent.decision.intentPrompt || '¿Motivo del marcaje?'}
+            options={pendingIntent.decision.intentOptions}
+            onSelect={handleIntentSelect}
+            onCancel={() => resetCooldown(100)}
+          />
+        ) : null}
 
-            {/* Opciones Disponibles (Solo las permitidas por la máquina de estados) */}
-            <div className="grid grid-cols-2 gap-3 w-full max-w-md">
-              {allowedActions.includes('INGRESO') && (
-                <button onClick={() => handleActionSelect('INGRESO')} className="flex flex-col items-center justify-center gap-2 p-5 bg-emerald-500/20 hover:bg-emerald-500/40 border border-emerald-500/30 rounded-2xl text-white transition-colors col-span-2">
-                  <LogIn className="w-8 h-8 text-emerald-400" />
-                  <span className="text-base font-bold">Ingresar a Laborar</span>
-                </button>
-              )}
-              
-              {(allowedActions.includes('DESAYUNO_INICIO') || allowedActions.includes('SALIDA_REFACCION')) && (
-                <button onClick={() => handleActionSelect(allowedActions.includes('DESAYUNO_INICIO') ? 'DESAYUNO_INICIO' : 'SALIDA_REFACCION')} className="flex flex-col items-center justify-center gap-2 p-4 bg-amber-500/20 hover:bg-amber-500/40 border border-amber-500/30 rounded-2xl text-white transition-colors">
-                  <Coffee size={32} />
-                  <span className="font-semibold text-sm">Inicio Desayuno</span>
-                </button>
-              )}
-              
-              {(allowedActions.includes('DESAYUNO_FIN') || allowedActions.includes('REGRESO_REFACCION')) && (
-                <button onClick={() => handleActionSelect(allowedActions.includes('DESAYUNO_FIN') ? 'DESAYUNO_FIN' : 'REGRESO_REFACCION')} className="flex flex-col items-center justify-center gap-2 p-5 bg-amber-500/20 hover:bg-amber-500/40 border border-amber-500/30 rounded-2xl text-white transition-colors col-span-2">
-                  <CheckCircle2 size={36} />
-                  <span className="font-semibold">Fin Desayuno</span>
-                </button>
-              )}
-
-              {(allowedActions.includes('ALMUERZO_INICIO') || allowedActions.includes('SALIDA_ALMUERZO')) && (
-                <button onClick={() => handleActionSelect(allowedActions.includes('ALMUERZO_INICIO') ? 'ALMUERZO_INICIO' : 'SALIDA_ALMUERZO')} className="flex flex-col items-center justify-center gap-2 p-4 bg-blue-500/20 hover:bg-blue-500/40 border border-blue-500/30 rounded-2xl text-white transition-colors">
-                  <Utensils size={32} />
-                  <span className="font-semibold text-sm">Inicio Almuerzo</span>
-                </button>
-              )}
-              
-              {(allowedActions.includes('ALMUERZO_FIN') || allowedActions.includes('REGRESO_ALMUERZO')) && (
-                <button onClick={() => handleActionSelect(allowedActions.includes('ALMUERZO_FIN') ? 'ALMUERZO_FIN' : 'REGRESO_ALMUERZO')} className="flex flex-col items-center justify-center gap-2 p-5 bg-blue-500/20 hover:bg-blue-500/40 border border-blue-500/30 rounded-2xl text-white transition-colors col-span-2">
-                  <CheckCircle2 size={36} />
-                  <span className="font-semibold">Fin Almuerzo</span>
-                </button>
-              )}
-
-              {allowedActions.includes('SALIDA_FINAL') && (
-                <button onClick={() => handleActionSelect('SALIDA_FINAL')} className={`flex flex-col items-center justify-center gap-2 p-4 bg-rose-500/20 hover:bg-rose-500/40 border border-rose-500/30 rounded-2xl text-white transition-colors ${allowedActions.length <= 2 ? 'col-span-2 p-5' : ''}`}>
-                  <LogOut className="w-6 h-6 text-rose-400" />
-                  <span className="text-sm font-bold">Finalizar Turno</span>
-                </button>
-              )}
-
-              {allowedActions.includes('MARCAJE_ESPECIAL') && (
-                <button
-                  onClick={openSpecialMarcajeFromActions}
-                  className="flex flex-col items-center justify-center gap-2 p-4 bg-purple-500/20 hover:bg-purple-500/40 border border-purple-500/30 rounded-2xl text-white transition-colors col-span-2"
-                >
-                  <ShieldAlert className="w-6 h-6 text-purple-300" />
-                  <span className="text-sm font-bold">Marcaje Especial</span>
-                </button>
-              )}
-            </div>
-
-            <button onClick={() => resetCooldown(100)} className="mt-8 text-slate-400 hover:text-white text-xs font-bold uppercase tracking-widest underline transition-colors">
-              Cancelar y Cerrar
-            </button>
-          </div>
-        )}
-
-        {/* MODAL JUSTIFICACIONES */}
-        {pendingJustification && (
-          <div className="absolute inset-0 z-50 bg-slate-900/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center animate-in zoom-in-95">
-            <Info className="w-16 h-16 text-amber-500 mb-4" />
-            <h2 className="text-2xl font-black text-white mb-2">Justificación Requerida</h2>
-            <p className="text-sm text-slate-300 mb-8 max-w-md">
-               El sistema ha detectado una excepción en sus tiempos de marcaje. Para continuar, por favor indique el motivo de la demora.
-            </p>
-
-            <div className="w-full max-w-md space-y-4 mb-8">
-              {pendingJustification.action === 'MARCAJE_ESPECIAL' && (
-                <select value={specialDirection} onChange={e => setSpecialDirection(e.target.value)} className="w-full h-14 bg-slate-800 border-2 border-purple-500/50 rounded-xl px-4 text-white font-bold outline-none">
-                  <option value="INGRESO">Registrar como: Entrada (Ingreso)</option>
-                  <option value="SALIDA_FINAL">Registrar como: Retiro (Salida)</option>
-                </select>
-              )}
-
-              <select value={selectedReason} onChange={e => setSelectedReason(e.target.value)} className="w-full h-14 bg-slate-800 border-2 border-slate-700 rounded-xl px-4 text-white font-bold outline-none focus:border-amber-500">
-                <option value="" disabled>Seleccione una justificación...</option>
-                {Array.from(new Set((pendingJustification.options || []) as string[])).map((opt) => (
-                  <option key={opt} value={opt}>{opt}</option>
-                ))}
-              </select>
-
-              {selectedReason === 'Otros' && (
-                <input type="text" value={otherReason} onChange={e => setOtherReason(e.target.value)} placeholder="Escriba el motivo brevemente..." className="w-full h-14 bg-slate-800 border-2 border-slate-700 rounded-xl px-4 text-white font-medium outline-none focus:border-amber-500" maxLength={80} />
-              )}
-            </div>
-
-            <div className="flex gap-4 w-full max-w-md">
-              <button onClick={() => resetCooldown(100)} className="flex-1 h-14 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl transition-colors">Cancelar</button>
-              <button onClick={submitJustification} className="flex-1 h-14 bg-amber-500 hover:bg-amber-400 text-slate-900 font-black rounded-xl transition-colors">Registrar</button>
-            </div>
-          </div>
-        )}
+        {pendingJustification ? (
+          <KioskJustificationPanel
+            employeeName={
+              pendingJustification.data?.employee?.nombre_completo
+                ? getShortName(pendingJustification.data.employee.nombre_completo)
+                : undefined
+            }
+            prompt={
+              pendingJustification.prompt ||
+              'El sistema ha detectado una excepción en sus tiempos de marcaje. Para continuar, por favor indique el motivo.'
+            }
+            action={pendingJustification.action}
+            specialDirection={specialDirection}
+            selectedReason={selectedReason}
+            otherReason={otherReason}
+            options={Array.from(new Set((pendingJustification.options || []) as string[]))}
+            onSpecialDirectionChange={setSpecialDirection}
+            onReasonChange={setSelectedReason}
+            onOtherReasonChange={setOtherReason}
+            onCancel={() => resetCooldown(100)}
+            onSubmit={submitJustification}
+          />
+        ) : null}
       </div>
-      
-      {/* BANNER DE ESTADO */}
-      <div className={`absolute bottom-0 left-0 w-full p-6 backdrop-blur-xl border-t transition-all duration-300 flex items-center gap-4 ${matchStatus === 'idle' ? 'bg-black/60 border-white/10' : ''} ${matchStatus === 'success' ? 'bg-emerald-500/90 border-emerald-400 text-white' : ''} ${matchStatus === 'error' ? 'bg-rose-500/90 border-rose-400 text-white' : ''} ${matchStatus === 'verifying' ? 'bg-[#2ec4f1]/90 border-[#2ec4f1] text-white' : ''}`}>
-        {matchStatus === 'idle' && <Camera className="w-8 h-8 text-white/50" />}
-        {matchStatus === 'verifying' && <Loader2 className="w-8 h-8 animate-spin" />}
-        {matchStatus === 'success' && <CheckCircle2 className="w-8 h-8" />}
-        {matchStatus === 'error' && <AlertCircle className="w-8 h-8" />}
-        <div className="flex-1">
-          <p className="text-xs font-black uppercase tracking-widest opacity-70">
-            {matchStatus === 'idle'
-              ? (isCameraActive ? 'Reconocimiento Facial' : 'Sistema en Espera')
-              : matchStatus}
-          </p>
-          <h3 className="text-lg font-bold leading-tight">
-            {matchStatus === 'idle'
-              ? (isCameraActive
-                  ? (statusMessage
-                      || (employeeToVerify
-                        ? `Confirme rostro · ${getShortName(employeeToVerify.nombre_completo)}`
-                        : 'Ubique su rostro dentro del círculo'))
-                  : 'Seleccione reconocimiento facial o código')
-              : statusMessage}
-          </h3>
-        </div>
-      </div>
+
+      <KioskStatusBanner
+        matchStatus={matchStatus}
+        title={bannerTitle}
+        subtitle={bannerSubtitle}
+      />
     </div>
   );
 }

@@ -68,7 +68,7 @@ export function HistoryToolbar({
         <label className="flex items-center gap-2 h-11 px-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] cursor-pointer select-none shadow-sm">
           <input
             type="checkbox"
-            className="w-3.5 h-3.5 rounded border-[var(--border)] text-[#2ec4f1] focus:ring-[#2ec4f1]"
+            className="h-3.5 w-3.5 rounded border-[var(--border)] text-[var(--accent)] focus:ring-[var(--accent)]"
             checked={exportAllData}
             onChange={(e) => setExportAllData(e.target.checked)}
           />
@@ -80,14 +80,14 @@ export function HistoryToolbar({
         <button
           type="button"
           onClick={() => onExportReport({ allData: exportAllData })}
-          className="flex items-center gap-2 px-4 h-11 bg-[#2ec4f1] text-[#181c3a] rounded-2xl text-[9px] font-semibold uppercase tracking-wider hover:bg-[#181c3a] hover:text-white transition-all shadow-md active:scale-95"
+          className="flex h-11 items-center gap-2 rounded-2xl bg-[var(--accent)] px-4 text-[9px] font-semibold tracking-wider text-[var(--accent-foreground)] uppercase shadow-md transition-all hover:opacity-90 active:scale-95"
         >
           <Download size={14} /> Generar Reporte
         </button>
         <button
           type="button"
           onClick={onOpenMassTransfer}
-          className="flex items-center gap-2 px-4 h-11 bg-amber-500 text-[#181c3a] rounded-2xl text-[9px] font-semibold uppercase tracking-wider hover:bg-amber-600 transition-all shadow-md active:scale-95"
+          className="flex h-11 items-center gap-2 rounded-2xl bg-[var(--warning)] px-4 text-[9px] font-semibold tracking-wider text-[var(--accent-foreground)] uppercase shadow-md transition-all hover:opacity-90 active:scale-95"
         >
           <Stethoscope size={14} /> Trasladar a Taller
         </button>

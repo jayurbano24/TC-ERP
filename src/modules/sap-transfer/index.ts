@@ -18,6 +18,8 @@ export {
 
 export type { SapTransferStatus } from './domain/enums/sap-transfer-status.enum';
 
+export { sapDocumentBase } from './domain/sap-document-base';
+
 export { ClassifyEquipmentBatchHandler } from './application/commands/classify-equipment-batch.handler';
 export { BlockReturnBySapHandler } from './application/commands/block-return-by-sap.handler';
 

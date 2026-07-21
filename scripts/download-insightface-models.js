@@ -133,11 +133,21 @@ async function main() {
     ensureDir(tmpDir);
     const zipPath = path.join(tmpDir, 'buffalo_sc.zip');
     console.log('Downloading buffalo_sc.zip ...');
-    await download(ZIP_URL, zipPath);
-    console.log('Extracting...');
-    extractZip(zipPath, tmpDir);
-    findAndCopyModels(tmpDir);
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    try {
+      await download(ZIP_URL, zipPath);
+      console.log('Extracting...');
+      extractZip(zipPath, tmpDir);
+      findAndCopyModels(tmpDir);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // GitHub Releases a veces responde 5xx; no tumbar el build de ERP/cron.
+      console.warn('[insightface] download failed:', msg);
+      console.warn(
+        '[insightface] continuing build without models (kiosco facial degradado hasta reintento)',
+      );
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   }
   await copyOrtWasm();
   console.log('Done.');

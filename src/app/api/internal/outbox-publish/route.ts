@@ -1,16 +1,23 @@
 /**
- * Cron: drena outbox_event → EventBus local (Fase 3.5 mínimo).
+ * Cron: drena outbox_event (Fase 3.5 mínimo / observe-only).
  * Protegido por CRON_SECRET. Usa service_role vía getSupabaseServerClient.
+ * Sin tsyringe/DI: evita reflect-metadata en el entrypoint serverless.
  */
 import { NextResponse } from 'next/server';
 import { recordCronHeartbeat } from '@/lib/cron/recordCronHeartbeat';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
-import { EventBus } from '@/shared/events/EventBus';
+import type { IEventBus } from '@/shared/events/IEventBus';
 import { OutboxPublisherWorker } from '@/workers/OutboxPublisherWorker';
-import '@/shared/di/container';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
+
+/** Observe-only: marca COMPLETED sin handlers de dominio. */
+const observeOnlyBus: IEventBus = {
+  async emit() {
+    /* no-op */
+  },
+};
 
 function assertCronAuth(req: Request): NextResponse | null {
   const secret =
@@ -39,7 +46,7 @@ async function handle(req: Request) {
   );
 
   const supabase = getSupabaseServerClient();
-  const worker = new OutboxPublisherWorker(supabase, new EventBus(), batchSize);
+  const worker = new OutboxPublisherWorker(supabase, observeOnlyBus, batchSize);
 
   try {
     const result = await worker.processUntil({

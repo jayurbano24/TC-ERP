@@ -12,12 +12,14 @@ type Props = {
 function statusTone(status: ExternalServiceStatus | 'ok' | 'error') {
   if (status === 'ok') return erpSoftStat.success;
   if (status === 'error') return erpSoftStat.danger;
+  if (status === 'degraded') return erpSoftStat.warning;
   return erpSoftStat.muted;
 }
 
 function statusLabel(status: ExternalServiceStatus | 'ok' | 'error') {
   if (status === 'ok') return 'OK';
   if (status === 'error') return 'ERROR';
+  if (status === 'degraded') return 'DEGRADED';
   return 'NO CONFIG';
 }
 

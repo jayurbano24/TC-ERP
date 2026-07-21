@@ -7,15 +7,35 @@ import {
   type CronJobHealth,
   type CronJobStatus,
   type HealthErrorSample,
-  type HealthOverall,
   type SystemHealthReport,
 } from '../types';
+import { buildIntegrations, probePlatform } from './platformProbes';
+import {
+  buildAlerts,
+  buildDiagnosis,
+  buildSemaphore,
+  computeHealthScore,
+  resolveOverallFromScore,
+  riskFromScore,
+  scoreComponentApi,
+  scoreComponentCrons,
+  scoreComponentDb,
+  scoreComponentIntegrations,
+  scoreComponentQueue,
+  scoreComponentSessions,
+} from './scoreAndAlerts';
+import {
+  loadAvailability,
+  loadLatencyStats,
+  loadPeakRpm,
+  loadSparks,
+  recordHealthSample,
+} from './telemetry';
 
 type CronJobDef = {
   path: string;
   schedule: string;
   label: string;
-  /** Heartbeat dedicado en sync_process_config / sync_run_log. */
   processIds: string[];
 };
 
@@ -82,23 +102,6 @@ async function countExact(
   }
 }
 
-function resolveOverall(input: {
-  apiOk: boolean;
-  dbOk: boolean;
-  outboxPending: number | null;
-  outboxFailed: number | null;
-  syncFailures24h: number;
-}): HealthOverall {
-  if (!input.apiOk || !input.dbOk) return 'down';
-  const pendingHigh =
-    typeof input.outboxPending === 'number' &&
-    input.outboxPending >= OUTBOX_PENDING_DEGRADED_THRESHOLD;
-  if ((input.outboxFailed ?? 0) > 0 || input.syncFailures24h > 0 || pendingHigh) {
-    return 'degraded';
-  }
-  return 'ok';
-}
-
 function cronStatusFrom(
   lastSuccessAt: string | null,
   lastErrorAt: string | null,
@@ -136,6 +139,18 @@ function resolveAppBaseUrl(): string {
   return 'http://127.0.0.1:3000';
 }
 
+function deployMeta(version: string, checkedAt: string) {
+  const sha = process.env.VERCEL_GIT_COMMIT_SHA || process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA || null;
+  return {
+    version,
+    commitSha: sha,
+    commitShort: sha ? sha.slice(0, 7) : null,
+    branch: process.env.VERCEL_GIT_COMMIT_REF || process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_REF || null,
+    environment: process.env.VERCEL_ENV || process.env.NODE_ENV || 'development',
+    checkedAt,
+  };
+}
+
 async function probeApiHealth(): Promise<{ status: 'ok' | 'error'; latencyMs: number }> {
   const started = Date.now();
   const controller = new AbortController();
@@ -150,7 +165,6 @@ async function probeApiHealth(): Promise<{ status: 'ok' | 'error'; latencyMs: nu
       latencyMs: Date.now() - started,
     };
   } catch {
-    // Self-fetch puede fallar en algunos runtimes; marcar OK in-process.
     return { status: 'ok', latencyMs: Date.now() - started };
   } finally {
     clearTimeout(timer);
@@ -164,9 +178,50 @@ function baseDownReport(
   msg: string,
   apiProbe: { status: 'ok' | 'error'; latencyMs: number }
 ): SystemHealthReport {
-  return {
-    overall: 'down',
+  const crons = emptyCrons();
+  const scoreBreakdown = {
+    api: scoreComponentApi(apiProbe.status === 'ok', apiProbe.latencyMs),
+    database: 0,
+    queue: 50,
+    crons: 50,
+    sessions: 50,
+    integrations: 0,
+  };
+  const healthScore = computeHealthScore(scoreBreakdown);
+  const overall = 'down' as const;
+  const alerts = buildAlerts({
     checkedAt,
+    apiOk: apiProbe.status === 'ok',
+    dbOk: false,
+    apiLatencyMs: apiProbe.latencyMs,
+    outboxPending: null,
+    outboxFailed: null,
+    syncFailures24h: 0,
+    crons,
+  });
+
+  return {
+    overall,
+    checkedAt,
+    healthScore,
+    scoreBreakdown,
+    riskLabel: riskFromScore(healthScore, overall),
+    intervene: true,
+    alerts,
+    semaphore: buildSemaphore({
+      apiOk: apiProbe.status === 'ok',
+      apiLatencyMs: apiProbe.latencyMs,
+      dbOk: false,
+      dbLatencyMs: 0,
+      authStatus: 'error',
+      storageStatus: 'error',
+      outboxPending: null,
+      outboxFailed: null,
+      crons,
+      cacheStatus: 'not_configured',
+    }),
+    deploy: deployMeta(version, checkedAt),
+    diagnosis: buildDiagnosis({ overall, alerts, connectedUsers: null }),
     api: {
       status: apiProbe.status,
       latencyMs: apiProbe.latencyMs,
@@ -176,6 +231,14 @@ function baseDownReport(
     },
     database: { status: 'error', latencyMs: 0, error: msg },
     supabase: { reachable: false, latencyMs: 0, schema: 'public', error: msg },
+    platform: {
+      auth: { status: 'error', latencyMs: null, note: msg },
+      storage: { status: 'error', latencyMs: null, note: msg },
+      rest: { status: 'error', latencyMs: null, note: msg },
+      realtime: { status: 'not_configured', latencyMs: null },
+      edgeFunctions: { status: 'not_configured', latencyMs: null },
+      postgres: { activeConnections: null, note: msg },
+    },
     redis: {
       status: 'not_configured',
       latencyMs: null,
@@ -190,19 +253,50 @@ function baseDownReport(
     },
     traffic: {
       requestsPerMinute: null,
+      requestsPerSecond: null,
+      requestsPerHour: null,
       avgResponseMs: apiProbe.latencyMs,
-      note: 'RPM vía proxy erp_audit_logs (último minuto)',
+      peakRpm24h: null,
+      note: 'RPM vía proxy erp_audit_logs',
+    },
+    latency: {
+      avgMs: apiProbe.latencyMs,
+      p95Ms: null,
+      p99Ms: null,
+      maxMs: null,
+      sampleCount: 0,
+      note: 'Sin telemetría',
+    },
+    availability: { todayPct: null, d7Pct: null, d30Pct: null, note: 'N/D' },
+    httpStatus: {
+      buckets: [],
+      note: 'Sin APM HTTP; instrumentación futura vía middleware',
     },
     users: {
       connected: null,
       sessions: null,
       idleMinutes: SESSION_IDLE_MINUTES,
-      note: `Activos con last_seen < ${SESSION_IDLE_MINUTES} min`,
+      note: msg,
       connectedUsers: [],
     },
     queues: { outboxPending: null, outboxFailed: null, kpiInvalidationPending: null },
+    queueDeep: {
+      pending: null,
+      processing: null,
+      failed: null,
+      deadLetter: null,
+      note: msg,
+    },
+    integrations: [],
+    security: { loginFailures24h: null, note: msg },
+    backups: {
+      status: 'not_configured',
+      lastBackupAt: null,
+      note: 'Gestionado en Supabase Dashboard / PITR',
+    },
+    performanceSparks: { rpm: [], latency: [] },
     errors24h: { syncFailures: 0, outboxFailed: 0, samples: [] },
-    crons: emptyCrons(),
+    crons,
     host: {
       cpu: null,
       ram: null,
@@ -235,6 +329,7 @@ export async function aggregateSystemHealth(): Promise<SystemHealthReport> {
   const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const since1m = new Date(Date.now() - 60 * 1000).toISOString();
+  const since1h = new Date(Date.now() - 60 * 60 * 1000).toISOString();
 
   const dbStarted = Date.now();
   let dbOk = false;
@@ -257,19 +352,39 @@ export async function aggregateSystemHealth(): Promise<SystemHealthReport> {
   const [
     outboxPending,
     outboxFailed,
+    outboxProcessing,
+    outboxDeadLetter,
     kpiInvalidationPending,
     receptions24h,
     auditLogs24h,
     auditLastMinute,
+    auditLastHour,
     connectedSessions,
+    loginFailures24h,
   ] = await Promise.all([
     countExact(supabase, 'outbox_event', (q) => q.eq('status', 'PENDING')),
     countExact(supabase, 'outbox_event', (q) => q.eq('status', 'FAILED')),
+    countExact(supabase, 'outbox_event', (q) => q.eq('status', 'PROCESSING')),
+    countExact(supabase, 'outbox_event', (q) =>
+      q.eq('status', 'FAILED').gte('attempts', 3)
+    ),
     countExact(supabase, 'kpi_invalidation_queue', (q) => q.eq('status', 'pending')),
     countExact(supabase, 'receptions', (q) => q.gte('created_at', since24h)),
     countExact(supabase, 'erp_audit_logs', (q) => q.gte('created_at', since24h)),
     countExact(supabase, 'erp_audit_logs', (q) => q.gte('created_at', since1m)),
+    countExact(supabase, 'erp_audit_logs', (q) => q.gte('created_at', since1h)),
     countExact(supabase, 'user_sessions', (q) => q.gte('last_seen', idleCutoff)),
+    countExact(supabase, 'erp_audit_logs', (q) =>
+      q.gte('created_at', since24h).ilike('action', '%login%fail%')
+    ),
+  ]);
+
+  // Telemetría (best-effort)
+  await Promise.all([
+    recordHealthSample(supabase, 'api_latency_ms', apiProbe.latencyMs),
+    recordHealthSample(supabase, 'api_up', apiProbe.status === 'ok' ? 1 : 0),
+    recordHealthSample(supabase, 'db_latency_ms', dbLatency),
+    recordHealthSample(supabase, 'rpm', auditLastMinute ?? 0),
   ]);
 
   let connectedUsers: ConnectedUserPresence[] = [];
@@ -283,7 +398,6 @@ export async function aggregateSystemHealth(): Promise<SystemHealthReport> {
 
     const rows = sessionRows ?? [];
     const userIds = [...new Set(rows.map((r) => r.user_id as string).filter(Boolean))];
-
     const profileById = new Map<
       string,
       { full_name: string | null; email: string | null; role: string | null }
@@ -456,7 +570,6 @@ export async function aggregateSystemHealth(): Promise<SystemHealthReport> {
       }
     }
 
-    // * * * * * → 1 min; */N → N min
     const everyMin = job.schedule.startsWith('* *')
       ? 1
       : Number(job.schedule.match(/^\*\/(\d+)/)?.[1] || interval);
@@ -471,6 +584,17 @@ export async function aggregateSystemHealth(): Promise<SystemHealthReport> {
     };
   });
 
+  const [platform, integrations, latency, availability, peakRpm24h, sparkRpm, sparkLatency] =
+    await Promise.all([
+      probePlatform(supabase),
+      buildIntegrations(supabase, dbOk, dbLatency),
+      loadLatencyStats(supabase, since24h),
+      loadAvailability(supabase),
+      loadPeakRpm(supabase, since24h),
+      loadSparks(supabase, 'rpm', 24),
+      loadSparks(supabase, 'api_latency_ms', 24),
+    ]);
+
   const aggregateMs = Date.now() - apiStarted;
   const outboxBacklog =
     outboxPending == null && outboxFailed == null
@@ -478,17 +602,64 @@ export async function aggregateSystemHealth(): Promise<SystemHealthReport> {
       : (outboxPending ?? 0) + (outboxFailed ?? 0);
 
   const apiOk = apiProbe.status === 'ok';
-  const overall = resolveOverall({
+  const scoreBreakdown = {
+    api: scoreComponentApi(apiOk, apiProbe.latencyMs),
+    database: scoreComponentDb(dbOk, dbLatency),
+    queue: scoreComponentQueue(outboxPending, outboxFailed),
+    crons: scoreComponentCrons(crons),
+    sessions: scoreComponentSessions(connectedSessions),
+    integrations: scoreComponentIntegrations(integrations),
+  };
+  const healthScore = computeHealthScore(scoreBreakdown);
+  const overall = resolveOverallFromScore(healthScore, apiOk, dbOk);
+
+  const alerts = buildAlerts({
+    checkedAt,
     apiOk,
     dbOk,
+    apiLatencyMs: apiProbe.latencyMs,
     outboxPending,
     outboxFailed,
     syncFailures24h,
+    crons,
   });
+
+  const semaphore = buildSemaphore({
+    apiOk,
+    apiLatencyMs: apiProbe.latencyMs,
+    dbOk,
+    dbLatencyMs: dbLatency,
+    authStatus: platform.auth.status,
+    storageStatus: platform.storage.status,
+    outboxPending,
+    outboxFailed,
+    crons,
+    cacheStatus: 'not_configured',
+  });
+
+  const rpm = auditLastMinute;
+  const latencyMerged = {
+    ...latency,
+    avgMs: latency.avgMs ?? apiProbe.latencyMs,
+    maxMs: latency.maxMs ?? apiProbe.latencyMs,
+    sampleCount: latency.sampleCount || 1,
+  };
 
   return {
     overall,
     checkedAt,
+    healthScore,
+    scoreBreakdown,
+    riskLabel: riskFromScore(healthScore, overall),
+    intervene: alerts.some((a) => a.severity === 'critical') || overall === 'down',
+    alerts,
+    semaphore,
+    deploy: deployMeta(version, checkedAt),
+    diagnosis: buildDiagnosis({
+      overall,
+      alerts,
+      connectedUsers: connectedSessions,
+    }),
     api: {
       status: apiProbe.status,
       latencyMs: apiProbe.latencyMs,
@@ -507,6 +678,7 @@ export async function aggregateSystemHealth(): Promise<SystemHealthReport> {
       schema: 'public',
       error: dbError,
     },
+    platform,
     redis: {
       status: 'not_configured',
       latencyMs: null,
@@ -520,21 +692,55 @@ export async function aggregateSystemHealth(): Promise<SystemHealthReport> {
       queueBacklog: outboxBacklog,
     },
     traffic: {
-      requestsPerMinute: auditLastMinute,
+      requestsPerMinute: rpm,
+      requestsPerSecond: rpm == null ? null : Math.round((rpm / 60) * 100) / 100,
+      requestsPerHour: auditLastHour,
       avgResponseMs: apiProbe.latencyMs,
-      note: 'RPM = eventos erp_audit_logs del último minuto (proxy de actividad). Latencia = probe /api/health.',
+      peakRpm24h,
+      note: 'RPM/hora = proxy erp_audit_logs. Pico desde health_metric_samples.',
+    },
+    latency: latencyMerged,
+    availability,
+    httpStatus: {
+      buckets: [
+        { code: '2xx', count: 0, pct: 0 },
+        { code: '4xx', count: 0, pct: 0 },
+        { code: '5xx', count: syncFailures24h, pct: 0 },
+      ],
+      note: 'Sin APM de status HTTP aún; 5xx aproximado vía sync failures.',
     },
     users: {
       connected: connectedSessions,
       sessions: connectedSessions,
       idleMinutes: SESSION_IDLE_MINUTES,
-      note: `Conectados = last_seen en los últimos ${SESSION_IDLE_MINUTES} min. Idle mayor → expulsión (cron + shell).`,
+      note: `Conectados = last_seen en los últimos ${SESSION_IDLE_MINUTES} min.`,
       connectedUsers,
     },
     queues: {
       outboxPending,
       outboxFailed,
       kpiInvalidationPending,
+    },
+    queueDeep: {
+      pending: outboxPending,
+      processing: outboxProcessing,
+      failed: outboxFailed,
+      deadLetter: outboxDeadLetter,
+      note: 'DLQ proxy = FAILED con attempts ≥ 3. Motor: outbox_event.',
+    },
+    integrations,
+    security: {
+      loginFailures24h,
+      note: 'Proxy ilike action login/fail en erp_audit_logs (puede ser 0 si no se audita así).',
+    },
+    backups: {
+      status: 'not_configured',
+      lastBackupAt: null,
+      note: 'Backups/PITR se gestionan en Supabase Dashboard (no expuesto vía Data API).',
+    },
+    performanceSparks: {
+      rpm: sparkRpm,
+      latency: sparkLatency,
     },
     errors24h: {
       syncFailures: syncFailures24h,
@@ -556,3 +762,5 @@ export async function aggregateSystemHealth(): Promise<SystemHealthReport> {
     },
   };
 }
+
+export { OUTBOX_PENDING_DEGRADED_THRESHOLD };

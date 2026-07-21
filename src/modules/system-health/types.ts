@@ -2,9 +2,13 @@ export type HealthOverall = 'ok' | 'degraded' | 'down';
 
 export type HealthProbeStatus = 'ok' | 'error';
 
-export type ExternalServiceStatus = 'ok' | 'error' | 'not_configured';
+export type ExternalServiceStatus = 'ok' | 'error' | 'not_configured' | 'degraded';
 
 export type CronJobStatus = 'ok' | 'error' | 'unknown' | 'stale';
+
+export type SemaphoreTone = 'ok' | 'warn' | 'error' | 'unknown' | 'not_configured';
+
+export type AlertSeverity = 'critical' | 'warning' | 'info';
 
 export type HealthErrorSample = {
   source: 'sync_run_log' | 'outbox_event';
@@ -40,14 +44,132 @@ export type ConnectedUserPresence = {
   lastSeenAt: string;
 };
 
+export type HealthAlert = {
+  id: string;
+  severity: AlertSeverity;
+  title: string;
+  detail: string;
+  service: string;
+  at: string;
+  actionHint: string;
+};
+
+export type ServiceSemaphoreItem = {
+  id: string;
+  label: string;
+  tone: SemaphoreTone;
+  detail: string;
+  latencyMs: number | null;
+};
+
+export type HealthScoreBreakdown = {
+  api: number;
+  database: number;
+  queue: number;
+  crons: number;
+  sessions: number;
+  integrations: number;
+};
+
+export type DeployMeta = {
+  version: string;
+  commitSha: string | null;
+  commitShort: string | null;
+  branch: string | null;
+  environment: string;
+  checkedAt: string;
+};
+
+export type LatencyStats = {
+  avgMs: number | null;
+  p95Ms: number | null;
+  p99Ms: number | null;
+  maxMs: number | null;
+  sampleCount: number;
+  note: string;
+};
+
+export type AvailabilityStats = {
+  todayPct: number | null;
+  d7Pct: number | null;
+  d30Pct: number | null;
+  note: string;
+};
+
+export type HttpStatusBucket = {
+  code: string;
+  count: number;
+  pct: number;
+};
+
+export type IntegrationHealth = {
+  id: string;
+  label: string;
+  status: ExternalServiceStatus;
+  lastPingAt: string | null;
+  latencyMs: number | null;
+  lastError: string | null;
+  note: string;
+};
+
+export type PostgresDeepHealth = {
+  activeConnections: number | null;
+  note: string;
+};
+
+export type PlatformProbes = {
+  auth: ServiceProbe;
+  storage: ServiceProbe;
+  rest: ServiceProbe;
+  realtime: ServiceProbe;
+  edgeFunctions: ServiceProbe;
+  postgres: PostgresDeepHealth;
+};
+
+export type QueueDeep = {
+  pending: number | null;
+  processing: number | null;
+  failed: number | null;
+  deadLetter: number | null;
+  note: string;
+};
+
+export type SecuritySnapshot = {
+  loginFailures24h: number | null;
+  note: string;
+};
+
+export type BackupSnapshot = {
+  status: ExternalServiceStatus;
+  lastBackupAt: string | null;
+  note: string;
+};
+
+export type DiagnosisHint = {
+  needsIntervention: boolean;
+  severity: AlertSeverity | 'none';
+  summary: string;
+  affectedUsers: number | null;
+  failedService: string | null;
+  recommendedAction: string;
+};
+
+export type SparkPoint = { t: string; v: number };
+
 export type SystemHealthReport = {
   overall: HealthOverall;
   checkedAt: string;
+  healthScore: number;
+  scoreBreakdown: HealthScoreBreakdown;
+  riskLabel: 'Bajo' | 'Medio' | 'Alto' | 'Crítico';
+  intervene: boolean;
+  alerts: HealthAlert[];
+  semaphore: ServiceSemaphoreItem[];
+  deploy: DeployMeta;
+  diagnosis: DiagnosisHint;
   api: {
     status: HealthProbeStatus;
-    /** Latencia del probe /api/health (no del agregador completo). */
     latencyMs: number;
-    /** Tiempo total del agregador de salud. */
     aggregateMs: number;
     version: string;
     service: string;
@@ -63,21 +185,24 @@ export type SystemHealthReport = {
     schema: string;
     error?: string;
   };
-  /** Redis no está en el stack actual. */
+  platform: PlatformProbes;
   redis: ServiceProbe;
-  /**
-   * BullMQ no está en el stack; las colas viven en Postgres (outbox / KPI).
-   * `queueBacklog` refleja trabajo pendiente equivalente.
-   */
   bullmq: ServiceProbe & {
     queueEngine: 'postgres_outbox';
     queueBacklog: number | null;
   };
   traffic: {
-    /** Proxy: eventos erp_audit_logs en el último minuto. */
     requestsPerMinute: number | null;
-    /** Latencia del probe API (ms). */
+    requestsPerSecond: number | null;
+    requestsPerHour: number | null;
     avgResponseMs: number | null;
+    peakRpm24h: number | null;
+    note: string;
+  };
+  latency: LatencyStats;
+  availability: AvailabilityStats;
+  httpStatus: {
+    buckets: HttpStatusBucket[];
     note: string;
   };
   users: {
@@ -91,6 +216,14 @@ export type SystemHealthReport = {
     outboxPending: number | null;
     outboxFailed: number | null;
     kpiInvalidationPending: number | null;
+  };
+  queueDeep: QueueDeep;
+  integrations: IntegrationHealth[];
+  security: SecuritySnapshot;
+  backups: BackupSnapshot;
+  performanceSparks: {
+    rpm: SparkPoint[];
+    latency: SparkPoint[];
   };
   errors24h: {
     syncFailures: number;
@@ -113,3 +246,4 @@ export type SystemHealthReport = {
 };
 
 export const OUTBOX_PENDING_DEGRADED_THRESHOLD = 100;
+export const OUTBOX_PENDING_CRITICAL_THRESHOLD = 2000;

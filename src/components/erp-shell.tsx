@@ -26,6 +26,7 @@ import {
   CircleDollarSign,
   ShieldCheck,
   Activity,
+  HeartPulse,
   Users,
   FileSpreadsheet,
   Boxes,
@@ -40,7 +41,7 @@ import {
 
 const ICON_MAP: Record<string, React.ElementType> = {
   LayoutDashboard, PackageSearch, Undo2, Laptop, Wrench, Warehouse, Truck,
-  TrendingUp, CircleDollarSign, ShieldCheck, Activity, Users,
+  TrendingUp, CircleDollarSign, ShieldCheck, Activity, HeartPulse, Users,
   FileSpreadsheet, Boxes, Database,
 };
 

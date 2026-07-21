@@ -33,6 +33,7 @@ export const erpModules: ErpModule[] = [
 
   // SISTEMA
   { id: 14, categoria: 'Sistema', nombre: "Seguridad & Logs", descripcion: "Control de acceso (RBAC) y auditoría Supabase.", ruta: "/sistema/seguridad" },
+  { id: 19, categoria: 'Sistema', nombre: "Salud del Sistema", descripcion: "Estado de API, Supabase, colas, crons y consumos estimados.", ruta: "/sistema/salud" },
 ];
 
 export type NavigationItem = {
@@ -80,6 +81,7 @@ export const navigationGroups = [
       { label: "Productividad", href: "/gestion/bi", descripcion: "Métricas y KPIs", icon: "TrendingUp" },
       { label: "Costos", href: "/gestion/costos", descripcion: "Análisis financiero", icon: "CircleDollarSign" },
       { label: "Seguridad", href: "/sistema/seguridad", descripcion: "Auditoría & Roles", icon: "ShieldCheck" },
+      { label: "Salud", href: "/sistema/salud", descripcion: "Estado del sistema", icon: "HeartPulse", permissionKey: "Salud" },
     ]
   }
 ];

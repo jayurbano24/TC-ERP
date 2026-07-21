@@ -21,30 +21,30 @@ const TONE_STYLES: Record<
   success: {
     icon: CheckCircle2,
     accent: 'bg-emerald-500',
-    iconBg: 'bg-emerald-50',
+    iconBg: 'bg-emerald-500/15',
     iconColor: 'text-emerald-500',
     ring: 'focus-visible:ring-emerald-400',
   },
   error: {
     icon: XCircle,
     accent: 'bg-rose-500',
-    iconBg: 'bg-rose-50',
+    iconBg: 'bg-rose-500/15',
     iconColor: 'text-rose-500',
     ring: 'focus-visible:ring-rose-400',
   },
   warning: {
     icon: AlertTriangle,
     accent: 'bg-amber-500',
-    iconBg: 'bg-amber-50',
+    iconBg: 'bg-amber-500/15',
     iconColor: 'text-amber-500',
     ring: 'focus-visible:ring-amber-400',
   },
   info: {
     icon: Info,
-    accent: 'bg-[#2ec4f1]',
-    iconBg: 'bg-sky-50',
-    iconColor: 'text-[#2ec4f1]',
-    ring: 'focus-visible:ring-sky-400',
+    accent: 'bg-[var(--accent)]',
+    iconBg: 'bg-[var(--accent)]/15',
+    iconColor: 'text-[var(--accent)]',
+    ring: 'focus-visible:ring-[var(--accent)]',
   },
 };
 
@@ -52,7 +52,7 @@ const CONFIRM_BTN_TONE: Record<MessageTone, string> = {
   success: 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/30',
   error: 'bg-rose-500 hover:bg-rose-600 shadow-rose-500/30',
   warning: 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/30',
-  info: 'bg-[#181c3a] hover:bg-[#10121e] shadow-[#181c3a]/30',
+  info: 'bg-[var(--primary)] hover:opacity-90 shadow-black/20',
 };
 
 function ToastCard({ toast }: { toast: ToastItem }) {
@@ -61,16 +61,16 @@ function ToastCard({ toast }: { toast: ToastItem }) {
   return (
     <div
       role="status"
-      className="msg-toast-in pointer-events-auto relative flex w-[22rem] max-w-[calc(100vw-2rem)] gap-3 overflow-hidden rounded-2xl border border-slate-100 bg-white p-4 pl-5 shadow-2xl shadow-slate-900/10"
+      className="msg-toast-in pointer-events-auto relative flex w-[22rem] max-w-[calc(100vw-2rem)] gap-3 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 pl-5 shadow-2xl"
     >
       <span className={`absolute inset-y-0 left-0 w-1.5 ${styles.accent}`} aria-hidden />
       <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${styles.iconBg}`}>
         <Icon className={`h-5 w-5 ${styles.iconColor}`} />
       </div>
       <div className="min-w-0 flex-1 pt-0.5">
-        <p className="text-sm font-black leading-tight text-[#181c3a]">{toast.title}</p>
+        <p className="text-sm font-black leading-tight text-[var(--heading)]">{toast.title}</p>
         {toast.description && (
-          <p className="mt-1 whitespace-pre-line break-words text-xs font-medium leading-relaxed text-slate-500">
+          <p className="mt-1 whitespace-pre-line break-words text-xs font-medium leading-relaxed text-[var(--muted)]">
             {toast.description}
           </p>
         )}
@@ -78,7 +78,7 @@ function ToastCard({ toast }: { toast: ToastItem }) {
       <button
         type="button"
         onClick={() => dismissToast(toast.id)}
-        className="-mr-1 -mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-slate-300 transition-colors hover:bg-slate-50 hover:text-slate-500"
+        className="-mr-1 -mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--heading)]"
         aria-label="Cerrar notificación"
       >
         <X className="h-4 w-4" />
@@ -139,7 +139,7 @@ function DialogCard({ dialog }: { dialog: DialogItem }) {
         if (e.target === e.currentTarget && dialog.kind !== 'prompt') onCancel();
       }}
     >
-      <div className="msg-dialog-in w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl">
+      <div className="msg-dialog-in w-full max-w-md overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl">
         <div className="flex items-start gap-4 p-6">
           <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${styles.iconBg}`}>
             <Icon className={`h-6 w-6 ${styles.iconColor}`} />
@@ -147,12 +147,12 @@ function DialogCard({ dialog }: { dialog: DialogItem }) {
           <div className="min-w-0 flex-1 pt-1">
             <h3
               id={`msg-dialog-title-${dialog.id}`}
-              className="text-lg font-black leading-tight tracking-tight text-[#181c3a]"
+              className="text-lg font-black leading-tight tracking-tight text-[var(--heading)]"
             >
               {dialog.title}
             </h3>
             {dialog.message && (
-              <p className="mt-2 whitespace-pre-line break-words text-sm font-medium leading-relaxed text-slate-500">
+              <p className="mt-2 whitespace-pre-line break-words text-sm font-medium leading-relaxed text-[var(--muted)]">
                 {dialog.message}
               </p>
             )}
@@ -164,7 +164,7 @@ function DialogCard({ dialog }: { dialog: DialogItem }) {
                   onChange={(e) => setValue(e.target.value)}
                   placeholder={dialog.prompt?.placeholder}
                   rows={3}
-                  className="mt-4 w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm font-medium text-[#181c3a] outline-none transition-all focus:border-[#2ec4f1] focus:bg-white"
+                  className="mt-4 w-full resize-none rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] px-3.5 py-2.5 text-sm font-medium text-[var(--foreground)] outline-none transition-all focus:border-[var(--accent)] focus:bg-[var(--surface)]"
                 />
               ) : (
                 <input
@@ -172,17 +172,17 @@ function DialogCard({ dialog }: { dialog: DialogItem }) {
                   value={value}
                   onChange={(e) => setValue(e.target.value)}
                   placeholder={dialog.prompt?.placeholder}
-                  className="mt-4 w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm font-medium text-[#181c3a] outline-none transition-all focus:border-[#2ec4f1] focus:bg-white"
+                  className="mt-4 w-full rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] px-3.5 py-2.5 text-sm font-medium text-[var(--foreground)] outline-none transition-all focus:border-[var(--accent)] focus:bg-[var(--surface)]"
                 />
               ))}
           </div>
         </div>
-        <div className="flex justify-end gap-2 border-t border-slate-100 bg-slate-50/60 px-6 py-4">
+        <div className="flex justify-end gap-2 border-t border-[var(--border)] bg-[var(--surface-hover)] px-6 py-4">
           {showCancel && (
             <button
               type="button"
               onClick={onCancel}
-              className="rounded-xl px-5 py-2.5 text-[11px] font-black uppercase tracking-widest text-slate-500 transition-colors hover:bg-slate-200/60"
+              className="rounded-xl px-5 py-2.5 text-[11px] font-black uppercase tracking-widest text-[var(--muted)] transition-colors hover:bg-[var(--border)]/40"
             >
               {dialog.cancelText}
             </button>

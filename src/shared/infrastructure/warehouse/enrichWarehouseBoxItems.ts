@@ -68,6 +68,8 @@ function isGenericActorName(name?: string | null): boolean {
   if (n.includes('backfill')) return true;
   if (n.startsWith('sistema (')) return true;
   if (n.startsWith('sistema —') || n.startsWith('sistema -')) return true;
+  // Placeholders de RPC antiguos: "Operador (Recepción)", "Operador (Pistoleo en vacío)"
+  if (n.startsWith('operador (')) return true;
   if (UUID_RE.test(n)) return true;
   return false;
 }

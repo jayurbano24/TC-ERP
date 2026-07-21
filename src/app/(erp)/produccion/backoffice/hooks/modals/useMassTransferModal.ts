@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { notify } from '@/components/ui/messaging/messageStore';
-import { apiFetch } from '@/lib/http/apiFetch';
+import { apiFetch, isAuthErrorMessage, readApiJson, haltForLoginRedirect } from '@/lib/http/apiFetch';
 import type { MassTransferForm } from '../../components/modals/MassTransferModal';
 import type { CatalogBrand, CatalogModel } from '../../types';
 
@@ -68,10 +68,9 @@ export function useMassTransferModal({
       const res = await apiFetch(`/api/backoffice/cac-history/transfer-eligible?${params}`, {
         cache: 'no-store',
       });
-      const payload = await res.json();
-      if (!res.ok) throw new Error(payload?.error || 'Error al consultar equipos');
+      const payload = await readApiJson<{ items?: Array<{ seriesIds: string[]; sn: string }> }>(res);
 
-      const eligibleSeriesList = (payload.items || []).map((item: { seriesIds: string[]; sn: string }) => ({
+      const eligibleSeriesList = (payload.items || []).map((item) => ({
         allIds: item.seriesIds,
         sn: item.sn,
       }));
@@ -89,7 +88,11 @@ export function useMassTransferModal({
       setIsScanningForTransfer(true);
       setShowMassTransferModal(false);
     } catch (err) {
-      console.error(err);
+      if (isAuthErrorMessage(err)) {
+        void haltForLoginRedirect();
+        return;
+      }
+      console.warn(err);
       notify.error(err instanceof Error ? err.message : 'Error al preparar traslado.');
     }
   }, [massTransferData]);

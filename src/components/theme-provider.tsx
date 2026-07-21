@@ -209,20 +209,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     [theme, accentId, fontId, sidebarId, inkId, seasonId],
   );
 
-  // DOM tokens: sync antes del paint (evita flash). No setState aquí — rompería la hidratación.
+  // DOM + estado React: el boot script ya puso data-theme; aquí reaplicamos
+  // acento/sidebar/ink y sincronizamos el contexto antes del paint.
   useLayoutEffect(() => {
-    applyAppearancePrefs({
-      theme: resolveTheme(),
-      accentId: resolveStoredId(ACCENT_STORAGE_KEY, isAccentPresetId, DEFAULT_ACCENT_ID),
-      fontId: resolveStoredId(FONT_STORAGE_KEY, isFontPresetId, DEFAULT_FONT_ID),
-      sidebarId: resolveStoredId(SIDEBAR_STORAGE_KEY, isSidebarPresetId, DEFAULT_SIDEBAR_ID),
-      inkId: resolveStoredId(INK_STORAGE_KEY, isInkPresetId, DEFAULT_INK_ID),
-      seasonId: resolveStoredId(SEASON_STORAGE_KEY, isSeasonPresetId, DEFAULT_SEASON_ID),
-    });
-  }, []);
-
-  // Estado React: después de hidratar, para que SSR y primer paint del cliente coincidan.
-  useEffect(() => {
     const next: AppearancePrefs = {
       theme: resolveTheme(),
       accentId: resolveStoredId(ACCENT_STORAGE_KEY, isAccentPresetId, DEFAULT_ACCENT_ID),
@@ -231,12 +220,47 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       inkId: resolveStoredId(INK_STORAGE_KEY, isInkPresetId, DEFAULT_INK_ID),
       seasonId: resolveStoredId(SEASON_STORAGE_KEY, isSeasonPresetId, DEFAULT_SEASON_ID),
     };
+    applyAppearancePrefs(next);
     setThemeState(next.theme);
     setAccentIdState(next.accentId);
     setFontIdState(next.fontId);
     setSidebarIdState(next.sidebarId);
     setInkIdState(next.inkId);
     setSeasonIdState(next.seasonId);
+  }, []);
+
+  // Multi-pestaña: si cambian el tema en otra ventana, reaplicar aquí.
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (
+        event.key &&
+        event.key !== "theme" &&
+        event.key !== ACCENT_STORAGE_KEY &&
+        event.key !== FONT_STORAGE_KEY &&
+        event.key !== SIDEBAR_STORAGE_KEY &&
+        event.key !== INK_STORAGE_KEY &&
+        event.key !== SEASON_STORAGE_KEY
+      ) {
+        return;
+      }
+      const next: AppearancePrefs = {
+        theme: resolveTheme(),
+        accentId: resolveStoredId(ACCENT_STORAGE_KEY, isAccentPresetId, DEFAULT_ACCENT_ID),
+        fontId: resolveStoredId(FONT_STORAGE_KEY, isFontPresetId, DEFAULT_FONT_ID),
+        sidebarId: resolveStoredId(SIDEBAR_STORAGE_KEY, isSidebarPresetId, DEFAULT_SIDEBAR_ID),
+        inkId: resolveStoredId(INK_STORAGE_KEY, isInkPresetId, DEFAULT_INK_ID),
+        seasonId: resolveStoredId(SEASON_STORAGE_KEY, isSeasonPresetId, DEFAULT_SEASON_ID),
+      };
+      setThemeState(next.theme);
+      setAccentIdState(next.accentId);
+      setFontIdState(next.fontId);
+      setSidebarIdState(next.sidebarId);
+      setInkIdState(next.inkId);
+      setSeasonIdState(next.seasonId);
+      applyAppearancePrefs(next);
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, []);
 
   const persistAppearance = (prefs: AppearancePrefs) => {
@@ -289,7 +313,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   );
 
   const toggleTheme = useCallback(() => {
-    setTheme(theme === "light" ? "dark" : "light");
+    // Preferir DOM (boot script / preview) sobre estado React aún no sincronizado.
+    const fromDom = document.documentElement.getAttribute("data-theme");
+    const current: Theme =
+      fromDom === "dark" || fromDom === "light" ? fromDom : theme;
+    setTheme(current === "light" ? "dark" : "light");
   }, [setTheme, theme]);
 
   const setAccentId = useCallback(

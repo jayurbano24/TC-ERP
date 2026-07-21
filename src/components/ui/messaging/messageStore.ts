@@ -136,11 +136,33 @@ type NotifyFn = ((message: string, opts?: ToastOptions) => string) & {
   info: (message: string, opts?: ToastOptions) => string;
 };
 
+function isSessionExpiredToast(message: string, opts?: ToastOptions): boolean {
+  const blob = [message, opts?.title, opts?.description].filter(Boolean).join(' ');
+  return /no autenticado|not authenticated|session[_ ]?expired/i.test(blob);
+}
+
+function redirectToLoginFromToast(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.removeItem('tcerp_session_id');
+  } catch {
+    /* ignore */
+  }
+  window.location.assign('/');
+}
+
 export const notify: NotifyFn = Object.assign(
   (message: string, opts?: ToastOptions) => pushToast(opts?.tone ?? 'info', message, opts),
   {
     success: (message: string, opts?: ToastOptions) => pushToast('success', message, opts),
-    error: (message: string, opts?: ToastOptions) => pushToast('error', message, opts),
+    error: (message: string, opts?: ToastOptions) => {
+      // Evita spam "API Error / No autenticado" cuando la sesión ya caducó.
+      if (isSessionExpiredToast(message, opts)) {
+        redirectToLoginFromToast();
+        return '';
+      }
+      return pushToast('error', message, opts);
+    },
     warning: (message: string, opts?: ToastOptions) => pushToast('warning', message, opts),
     info: (message: string, opts?: ToastOptions) => pushToast('info', message, opts),
   }

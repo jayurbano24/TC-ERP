@@ -40,6 +40,7 @@ import { isBodegaOperationalRack } from '@/lib/database/warehouse';
 import { DispatchBatchSelector } from '@/modules/outbound-dispatch/components/DispatchBatchSelector';
 import { isHexagonalOutboundDispatchEnabled } from '@/modules/outbound-dispatch';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { apiFetch, haltForLoginRedirect, isApiAuthFailure, readApiJson } from '@/lib/http/apiFetch';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useReferenceCatalogs } from '@/hooks/useReferenceCatalogs';
 import { useAuthz } from '@/components/authz/AuthzProvider';
@@ -112,11 +113,15 @@ export default function BodegaGestionV2({
       if (debouncedSearch) url.searchParams.set('search', debouncedSearch);
       if (fillStatusParam) url.searchParams.set('fillStatus', fillStatusParam);
 
-      const res = await fetch(url.toString(), {
-        credentials: 'same-origin'
-      });
-      const data = await res.json();
+      const res = await apiFetch(url.toString());
+      if (isApiAuthFailure(res.status, null)) {
+        await haltForLoginRedirect();
+      }
+      const data = await res.json().catch(() => ({}));
       if (!res.ok || data.error) {
+        if (isApiAuthFailure(res.status, data)) {
+          await haltForLoginRedirect();
+        }
         const errMsg = String(data.error || 'Fetch failed');
         if (isWarehouseSummaryMissingError(errMsg)) {
           onRequireMigration?.();
@@ -409,15 +414,8 @@ export default function BodegaGestionV2({
   const { data: statsData } = useQuery({
     queryKey: ['warehouse-stats'],
     queryFn: async () => {
-      const res = await fetch('/api/v1/warehouse/stats', {
-        credentials: 'same-origin',
-      });
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        notify.error('API Error', { description: JSON.stringify(data.error || 'Fetch stats failed') });
-        throw new Error(data.error || 'Failed to fetch stats');
-      }
-      return data as {
+      const res = await apiFetch('/api/v1/warehouse/stats');
+      return readApiJson<{
         stats: Array<{ technology_id: string; tech_name?: string; total_boxes: number; total_units: number }>;
         totals?: {
           total_boxes: number;
@@ -426,7 +424,7 @@ export default function BodegaGestionV2({
           cajas_parciales: number;
         };
         unit?: string;
-      };
+      }>(res);
     },
   });
 

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import {
   DM_Sans,
   IBM_Plex_Mono,
@@ -16,6 +17,9 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { MessageCenter } from "@/components/ui/messaging/MessageCenter";
 import { QueryProvider } from "@/components/providers/QueryProvider";
 import { WebVitalsReporter } from "@/components/observability/WebVitalsReporter";
+import { ClipboardFocusGuard } from "@/components/observability/ClipboardFocusGuard";
+import { THEME_BOOT_SCRIPT } from "@/lib/design/theme-boot-script";
+import { CLIPBOARD_BOOT_SCRIPT } from "@/lib/design/clipboard-boot-script";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -86,9 +90,16 @@ export default function RootLayout({
       ].join(" ")}
     >
       <body suppressHydrationWarning className="flex min-h-full flex-col">
+        <Script id="tcerp-theme-boot" strategy="beforeInteractive">
+          {THEME_BOOT_SCRIPT}
+        </Script>
+        <Script id="tcerp-clipboard-boot" strategy="beforeInteractive">
+          {CLIPBOARD_BOOT_SCRIPT}
+        </Script>
         <ThemeProvider>
           <QueryProvider>
             <WebVitalsReporter />
+            <ClipboardFocusGuard />
             {children}
             <ThemeToggle />
             <MessageCenter />

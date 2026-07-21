@@ -4,7 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CacTrayQueryParams, CacTrayStatsResponse, CacTrayUnitRow } from '@/lib/backoffice/cacTrayTypes';
 import { trayRowsToHistoryEntries } from '@/lib/backoffice/trayRowAdapter';
 import { buildTrayQueryString } from '@/modules/recepcion/client/cacTray';
-import { apiFetch } from '@/lib/http/apiFetch';
+import {
+  apiFetch,
+  haltForLoginRedirect,
+  isAuthErrorMessage,
+  readApiJson,
+} from '@/lib/http/apiFetch';
 import {
   EMPTY_HISTORY_TRAY_FILTERS,
   HISTORY_TRAY_PAGE_SIZE,
@@ -50,24 +55,20 @@ function buildQueryParams(
 async function fetchTrayPage(params: CacTrayQueryParams, includeSap = true) {
   const qs = buildTrayQueryString({ ...params, includeSap: includeSap ? undefined : false });
   const res = await apiFetch(`/api/backoffice/cac-history/tray?${qs}`, { cache: 'no-store' });
-  const payload = await res.json();
-  if (!res.ok) throw new Error(payload?.error || 'Error al cargar bandeja CAC');
-  return payload as {
+  return readApiJson<{
     rows: unknown[];
     totalCount: number;
     page: number;
     limit: number;
     totalPages: number;
-  };
+  }>(res);
 }
 
 async function fetchTrayStats(params: CacTrayQueryParams): Promise<CacTrayStatsResponse> {
   const { page: _p, limit: _l, ...statsParams } = params;
   const qs = buildTrayQueryString(statsParams);
   const res = await apiFetch(`/api/backoffice/cac-history/stats?${qs}`, { cache: 'no-store' });
-  const payload = await res.json();
-  if (!res.ok) throw new Error(payload?.error || 'Error al cargar estadísticas');
-  return payload as CacTrayStatsResponse;
+  return readApiJson<CacTrayStatsResponse>(res);
 }
 
 export function useBackofficeHistory(
@@ -120,7 +121,11 @@ export function useBackofficeHistory(
             setTrayEntries(trayRowsToHistoryEntries(enriched.rows as CacTrayUnitRow[]));
           })
           .catch((error: unknown) => {
-            console.error('Error enriching CAC tray SAP validation:', error);
+            if (isAuthErrorMessage(error)) {
+              void haltForLoginRedirect();
+              return;
+            }
+            console.warn('Error enriching CAC tray SAP validation:', error);
           });
 
         setHistoryStatsLoading(true);
@@ -131,14 +136,22 @@ export function useBackofficeHistory(
           })
           .catch((error: unknown) => {
             if (fetchId !== historyFetchIdRef.current) return;
-            console.error('Error fetching CAC tray stats:', error);
+            if (isAuthErrorMessage(error)) {
+              void haltForLoginRedirect();
+              return;
+            }
+            console.warn('Error fetching CAC tray stats:', error);
           })
           .finally(() => {
             if (fetchId === historyFetchIdRef.current) setHistoryStatsLoading(false);
           });
       } catch (error: unknown) {
         if (fetchId !== historyFetchIdRef.current) return;
-        console.error('Error fetching CAC tray:', error);
+        if (isAuthErrorMessage(error)) {
+          void haltForLoginRedirect();
+          return;
+        }
+        console.warn('Error fetching CAC tray:', error);
         setHistoryLoadError(error instanceof Error ? error.message : 'No se pudo cargar el historial.');
       } finally {
         if (fetchId === historyFetchIdRef.current) setHistoryLoading(false);
@@ -188,12 +201,11 @@ export function useBackofficeHistory(
     }
     const qs = buildTrayQueryString(exportParams);
     const res = await apiFetch(`/api/backoffice/cac-history/export?${qs}`, { cache: 'no-store' });
-    const payload = await res.json();
-    if (!res.ok) throw new Error(payload?.error || 'Error al exportar');
+    const payload = await readApiJson<{ entries: HistoryUnitEntry[]; truncated?: boolean }>(res);
     if (payload.truncated) {
       console.warn('Export truncado a 10.000 filas — refine filtros para export completo.');
     }
-    return payload.entries as HistoryUnitEntry[];
+    return payload.entries;
   }, [queryParams]);
 
   return {

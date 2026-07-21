@@ -108,7 +108,12 @@ function DataTableComponent<T>({
 
   const stickyEndClass = (col: DataTableColumn<T>, isHeader = false) =>
     col.sticky === 'end'
-      ? `sticky right-0 z-20 shadow-[-6px_0_10px_-6px_rgba(0,0,0,0.12)] ${isHeader ? 'bg-inherit' : 'bg-[var(--surface)] group-hover:bg-[var(--surface-hover)]'}`
+      ? `sticky right-0 z-20 shadow-[-6px_0_10px_-6px_rgba(0,0,0,0.12)] ${
+          isHeader
+            ? // Hereda el fondo de cabecera (primary / surface); evita tapa blanca en dark.
+              'bg-[inherit]'
+            : 'bg-[var(--surface)] group-hover:bg-[var(--surface-hover)]'
+        }`
       : '';
 
   const minWidthStyle =

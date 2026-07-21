@@ -98,6 +98,32 @@ export default function GeneralDashboardPage() {
     if (msiTotal > 0 && msi) return msi;
     return live ?? msi ?? null;
   }, [pipelineProjection, workshopOsQuery.data]);
+
+  /** Estado Operativo: unidad = OS. Backoffice/Bodega priorizan engine live si ya cargó. */
+  const estadoOperativo = React.useMemo(() => {
+    const pipe = pipelineProjection;
+    const live = bespokeData?.estadoOperativo as
+      | {
+          recepcion: number;
+          backoffice: number;
+          taller: number;
+          bodega: number;
+          despacho: number;
+        }
+      | undefined
+      | null;
+    if (!pipe && !live) return null;
+    if (!live) return pipe;
+    if (!pipe) return live;
+    return {
+      recepcion: pipe.recepcion,
+      taller: pipe.taller,
+      despacho: pipe.despacho,
+      backoffice: live.backoffice,
+      bodega: live.bodega,
+    };
+  }, [pipelineProjection, bespokeData]);
+
   const biData = biQuery.data ?? EMPTY_BI;
   const storageData = storageQuery.data ?? DEFAULT_STORAGE;
 
@@ -558,25 +584,43 @@ export default function GeneralDashboardPage() {
 
         {activeTab === 'kpi' && bespokeData && (
           <div className="flex flex-col gap-8 animate-rise-in max-w-7xl mx-auto">
-            {/* Estado Operativo Banner */}
-            {(pipelineProjection || bespokeData?.estadoOperativo) && (
-              <div className="mx-4 mb-4 mt-2 px-4 py-3 bg-[var(--surface)] border border-[var(--border)] shadow-sm rounded-xl flex items-center justify-between">
+            {/* Estado Operativo Banner — unidad: OS (1 OS ≈ 1 equipo), no series */}
+            {estadoOperativo && (
+              <div className="mx-4 mb-4 mt-2 flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 shadow-sm">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-[var(--muted)] uppercase">Estado Operativo</span>
-                  {pipelineProjection && (
-                    <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">MSI</span>
-                  )}
+                  <span
+                    className="rounded bg-emerald-50 px-2 py-0.5 text-[9px] font-bold text-emerald-600"
+                    title="Órdenes de servicio (equipos). No cuenta series S1–S4 por separado."
+                  >
+                    OS
+                  </span>
                 </div>
                 <div className="flex items-center gap-4 text-sm font-bold text-[var(--heading)]">
-                  <div className="flex flex-col items-center"><span className="text-xl text-blue-600">{(pipelineProjection ?? bespokeData.estadoOperativo).recepcion}</span><span className="text-[10px] text-[var(--muted)]">Recepción</span></div>
+                  <div className="flex flex-col items-center">
+                    <span className="text-xl text-blue-600">{estadoOperativo.recepcion}</span>
+                    <span className="text-[10px] text-[var(--muted)]">Recepción</span>
+                  </div>
                   <span className="text-[var(--border)]">→</span>
-                  <div className="flex flex-col items-center"><span className="text-xl text-indigo-600">{(pipelineProjection ?? bespokeData.estadoOperativo).backoffice}</span><span className="text-[10px] text-[var(--muted)]">Backoffice</span></div>
+                  <div className="flex flex-col items-center">
+                    <span className="text-xl text-indigo-600">{estadoOperativo.backoffice}</span>
+                    <span className="text-[10px] text-[var(--muted)]">Backoffice</span>
+                  </div>
                   <span className="text-[var(--border)]">→</span>
-                  <div className="flex flex-col items-center"><span className="text-xl text-purple-600">{(pipelineProjection ?? bespokeData.estadoOperativo).taller}</span><span className="text-[10px] text-[var(--muted)]">Taller</span></div>
+                  <div className="flex flex-col items-center">
+                    <span className="text-xl text-purple-600">{estadoOperativo.taller}</span>
+                    <span className="text-[10px] text-[var(--muted)]">Taller</span>
+                  </div>
                   <span className="text-[var(--border)]">→</span>
-                  <div className="flex flex-col items-center"><span className="text-xl text-emerald-600">{(pipelineProjection ?? bespokeData.estadoOperativo).bodega}</span><span className="text-[10px] text-[var(--muted)]">Bodega</span></div>
+                  <div className="flex flex-col items-center" title="Misma base que Inv. Disponible / Detalle de Inventario">
+                    <span className="text-xl text-emerald-600">{estadoOperativo.bodega}</span>
+                    <span className="text-[10px] text-[var(--muted)]">Bodega</span>
+                  </div>
                   <span className="text-[var(--border)]">→</span>
-                  <div className="flex flex-col items-center"><span className="text-xl text-orange-600">{(pipelineProjection ?? bespokeData.estadoOperativo).despacho}</span><span className="text-[10px] text-[var(--muted)]">Despacho</span></div>
+                  <div className="flex flex-col items-center">
+                    <span className="text-xl text-orange-600">{estadoOperativo.despacho}</span>
+                    <span className="text-[10px] text-[var(--muted)]">Despacho</span>
+                  </div>
                 </div>
               </div>
             )}

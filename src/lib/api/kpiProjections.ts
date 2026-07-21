@@ -1,5 +1,12 @@
-import { apiFetch } from '@/lib/http/apiFetch';
+import { apiFetch, isApiAuthFailure, redirectToLogin } from '@/lib/http/apiFetch';
 import type { DashboardMetrics } from '@/lib/database/kpi';
+
+async function handleKpiResponse(res: Response): Promise<Response> {
+  if (!isApiAuthFailure(res.status, null)) return res;
+  redirectToLogin();
+  await new Promise(() => {});
+  return res;
+}
 
 export type WorkshopOsByStage = {
   diagnostico: number;
@@ -23,8 +30,10 @@ export type KpiPipelineSnapshot = {
 export async function fetchDashboardMetricsFromApi(
   timeRange: string
 ): Promise<{ metrics: DashboardMetrics; source: string }> {
-  const res = await apiFetch(
-    `/api/v1/kpi/dashboard-metrics?timeRange=${encodeURIComponent(timeRange)}`
+  const res = await handleKpiResponse(
+    await apiFetch(
+      `/api/v1/kpi/dashboard-metrics?timeRange=${encodeURIComponent(timeRange)}`
+    )
   );
   if (!res.ok) {
     throw new Error(`KPI metrics API ${res.status}`);
@@ -37,7 +46,7 @@ export async function fetchPipelineFromApi(): Promise<{
   pipeline: KpiPipelineSnapshot | null;
   source: string;
 }> {
-  const res = await apiFetch('/api/v1/kpi/pipeline');
+  const res = await handleKpiResponse(await apiFetch('/api/v1/kpi/pipeline'));
   if (!res.ok) {
     throw new Error(`KPI pipeline API ${res.status}`);
   }

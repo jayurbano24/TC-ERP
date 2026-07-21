@@ -2,8 +2,10 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { isSessionIdle } from '@/lib/session/idlePolicy';
+import { getClientIpFromHeaders } from '@/lib/http/clientIp';
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 /** SEC-04: el body solo debe contener un `userId` no vacío. */
 const CreateSchema = z.object({ userId: z.string().trim().min(1, 'Missing userId').max(200) });
@@ -40,8 +42,7 @@ export async function POST(request: Request) {
     }
     const { userId } = parsed.data;
 
-    const forwardedFor = request.headers.get('x-forwarded-for');
-    const ip = forwardedFor ? forwardedFor.split(',')[0] : 'unknown';
+    const ip = getClientIpFromHeaders(request.headers);
     const now = new Date().toISOString();
 
     await supabase.from('user_sessions').delete().eq('user_id', userId);
@@ -112,9 +113,10 @@ export async function PATCH(request: Request) {
     }
 
     const now = new Date().toISOString();
+    const ip = getClientIpFromHeaders(request.headers);
     const { error: updError } = await supabase
       .from('user_sessions')
-      .update({ last_seen: now })
+      .update({ last_seen: now, ip_address: ip })
       .eq('id', sessionId);
 
     if (updError) {

@@ -23,7 +23,7 @@ export function BackofficeKpiView({ data, timeRange = 'Hoy' }: { data: any, time
       <div className="mx-4 mt-2 px-4 py-3 bg-[#f3efe6] border border-[#e8dfc8] rounded-lg flex items-center gap-3">
         <AlertTriangle className="text-[#a48e58] w-5 h-5" />
         <span className="text-sm font-semibold text-[#665a3d]">
-          Devoluciones pendientes de retornar: <span className="font-black text-[#181c3a]">{data.devolucionesPendientesRetornar}</span> | Sin ingresar a bodega: <span className="font-black text-[#181c3a]">{data.sinIngresarBodega}</span>
+          Devoluciones pendientes de retornar: <span className="font-black text-[#181c3a]">{data.devolucionesPendientesRetornar}</span> | Sin ingresar a bodega (OS): <span className="font-black text-[#181c3a]">{data.sinIngresarBodega}</span>
         </span>
       </div>
 
@@ -38,8 +38,13 @@ export function BackofficeKpiView({ data, timeRange = 'Hoy' }: { data: any, time
           <p className="text-3xl font-black text-[#86754d]">{data.devolucionesPendientes}</p>
         </Card>
         <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100 border-l-[3px] border-l-emerald-600">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Ingresadas a bodega</p>
-          <p className="text-3xl font-black text-emerald-600">{data.ingresadasBodega}</p>
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+            OS por canal ({timeLabel})
+          </p>
+          <p className="text-3xl font-black text-emerald-600">{data.osViaPx ?? 0}</p>
+          <p className="text-[10px] font-semibold text-slate-400 mt-1">
+            vía PX · CAC {data.osViaCac ?? 0} OS
+          </p>
         </Card>
       </div>
 
@@ -110,27 +115,30 @@ export function BackofficeKpiView({ data, timeRange = 'Hoy' }: { data: any, time
             </table>
           </div>
 
-          {/* Totales (PX, CAC) */}
+          {/* Partición del mismo total OS: PX + CAC = OS del mes */}
           <div className="flex flex-col">
-            <div className="flex items-center p-2 bg-white">
-              <span className="text-xs font-bold text-white select-none">.</span>
+            <div className="flex flex-col gap-0.5 p-2 bg-white">
+              <span className="text-xs font-bold text-[#181c3a]">OS por canal</span>
+              <span className="text-[10px] text-slate-400">
+                Un usuario = un canal · CAC bandeja · PX solo ingreso PX
+              </span>
             </div>
             <table className="w-full text-xs text-left">
               <thead className="text-slate-800 border-b border-slate-200 bg-white">
                 <tr>
                   <th className="p-2 font-bold">Usuario</th>
-                  <th className="p-2 font-bold text-center">Registradas ({timeLabel})</th>
-                  <th className="p-2 font-bold text-center">PX</th>
-                  <th className="p-2 font-bold text-center">CAC</th>
+                  <th className="p-2 font-bold text-center">OS ({timeLabel})</th>
+                  <th className="p-2 font-bold text-center">OS PX</th>
+                  <th className="p-2 font-bold text-center">OS CAC</th>
                 </tr>
               </thead>
               <tbody>
-                {(data.tables.totales || [{usuario: 'N/A'}]).map((r:any, i:number) => (
+                {(data.tables.totales || data.tables.metas || [{ usuario: 'N/A' }]).map((r: any, i: number) => (
                   <tr key={i} className="border-b border-slate-50 last:border-0">
                     <td className="p-2 font-medium text-slate-600">{r.usuario}</td>
-                    <td className="p-2 text-center font-medium text-slate-600">{r.registradas || '-'}</td>
-                    <td className="p-2 text-center font-medium text-slate-600">{r.px || '-'}</td>
-                    <td className="p-2 text-center font-medium text-slate-600">{r.cac || '-'}</td>
+                    <td className="p-2 text-center font-medium text-slate-600">{r.registradas ?? 0}</td>
+                    <td className="p-2 text-center font-medium text-slate-600">{r.px ?? 0}</td>
+                    <td className="p-2 text-center font-medium text-slate-600">{r.cac ?? 0}</td>
                   </tr>
                 ))}
               </tbody>
@@ -142,14 +150,17 @@ export function BackofficeKpiView({ data, timeRange = 'Hoy' }: { data: any, time
         <div className="flex flex-col">
           <table className="w-full text-xs text-left border-collapse">
             <thead className="text-slate-800 border-b border-slate-200 bg-white">
-              <tr>
-                <th className="p-2 font-bold">Tecnología</th>
-                <th className="p-2 font-bold text-center">Ingresada ({timeLabel})</th>
-                <th className="p-2 font-bold text-center">Acumulada Esta Semana</th>
-                <th className="p-2 font-bold text-center">Acumulada este mes</th>
-              </tr>
-            </thead>
-            <tbody>
+                <tr>
+                  <th className="p-2 font-bold">
+                    Tecnología{' '}
+                    <span className="font-normal text-slate-400">(equipos/OS · Backoffice)</span>
+                  </th>
+                  <th className="p-2 font-bold text-center">OS ({timeLabel})</th>
+                  <th className="p-2 font-bold text-center">OS Esta Semana</th>
+                  <th className="p-2 font-bold text-center">OS este mes</th>
+                </tr>
+              </thead>
+              <tbody>
               {(data.tables.tecnologia || []).map((r:any, i:number) => (
                 <tr key={i} className="border-b border-slate-50 last:border-0">
                   <td className="p-2 font-medium text-slate-800">{r.tecnologia}</td>

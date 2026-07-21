@@ -61,14 +61,14 @@ function namesLikelyMatch(a: string, b: string): boolean {
   if (!ta.length || !tb.length) return false;
   if (ta.join(' ') === tb.join(' ')) return true;
 
-  const setA = new Set(ta);
+  // Exige ≥2 tokens en común. Con 1 token (p. ej. un apellido corto) el match
+  // era demasiado laxo y podía atribuir el mismo lote a varias personas.
   const setB = new Set(tb);
-  const [small, large] = setA.size <= setB.size ? [setA, setB] : [setB, setA];
   let overlap = 0;
-  for (const token of small) {
-    if (large.has(token)) overlap += 1;
+  for (const token of ta) {
+    if (setB.has(token)) overlap += 1;
   }
-  return overlap >= Math.min(2, small.size);
+  return overlap >= 2;
 }
 
 function buildUserIdResolver(usersData: ProfileRow[]) {
@@ -117,7 +117,7 @@ function buildUserIdResolver(usersData: ProfileRow[]) {
 function progressLabelForRole(role: string): string {
   const r = role.toUpperCase();
   if (r.includes('BACKOFFICE') || r.includes('GERENTE') || r === 'ADMIN' || r.includes('SUPERVISOR')) {
-    return 'equipos/guías clasificados';
+    return 'equipos (OS) clasificados';
   }
   if (r.includes('RECEPTOR') || r.includes('RECEPCION')) return 'unidades recibidas';
   if (r.includes('BODEGA')) return 'movimientos de bodega';
@@ -241,22 +241,36 @@ export async function getDailyKPIs(timeRange: string = 'Hoy'): Promise<UserKPI[]
     if (j.technician_id) bump(j.technician_id, 'taller', 1);
   });
 
-  classifiedGuides?.forEach((g: { classified_by?: string }) => {
-    bump(resolveUserId(g.classified_by), 'backoffice', 1);
-  });
-
-  const trayCounted = new Set<string>();
-  const trayUsersWithCredit = new Set<string>();
-  trayUnits?.forEach((row: { received_by_name?: string; service_order_id?: string }) => {
+  /**
+   * Backoffice — fuente de verdad = OS distintos en bandeja CAC (`cac_tray_units`),
+   * alineado con kpi-engine. Antes se sumaban guías + bandeja + CLASSIFY_BATCH.units_count
+   * y varias personas podían heredar el mismo total del lote (p. ej. 244/244).
+   */
+  const trayOsByUser = new Map<string, Set<string>>();
+  trayUnits?.forEach((row: { received_by_name?: string; service_order_id?: string }, idx: number) => {
     const userId = resolveUserId(row.received_by_name);
     if (!userId) return;
-    const dedupeKey = row.service_order_id || `${userId}-${row.received_by_name}`;
-    if (trayCounted.has(dedupeKey)) return;
-    trayCounted.add(dedupeKey);
-    trayUsersWithCredit.add(userId);
+    let osSet = trayOsByUser.get(userId);
+    if (!osSet) {
+      osSet = new Set<string>();
+      trayOsByUser.set(userId, osSet);
+    }
+    const osKey = row.service_order_id?.trim() || `__anon_${userId}_${idx}`;
+    osSet.add(osKey);
+  });
+  for (const [userId, osSet] of trayOsByUser) {
+    bump(userId, 'backoffice', osSet.size);
+  }
+  const usersWithTrayCredit = new Set(trayOsByUser.keys());
+
+  // Guías: solo clasificadores sin filas en bandeja (evita doble conteo del mismo trabajo).
+  classifiedGuides?.forEach((g: { classified_by?: string }) => {
+    const userId = resolveUserId(g.classified_by);
+    if (!userId || usersWithTrayCredit.has(userId)) return;
     bump(userId, 'backoffice', 1);
   });
 
+  // Audit: fallback 1 evento; NUNCA sumar units_count del lote (duplicaba totales del equipo).
   auditLogs?.forEach((log: { user_id?: string; action?: string; new_values?: Record<string, unknown> }) => {
     const payload = log.new_values || {};
     const registeredBy =
@@ -267,16 +281,9 @@ export async function getDailyKPIs(timeRange: string = 'Hoy'): Promise<UserKPI[]
           : null;
 
     const userId = log.user_id || resolveUserId(registeredBy);
-    if (!userId) return;
-
-    if (log.action === 'CLASSIFY_BATCH') {
-      if (trayUsersWithCredit.has(userId)) return;
-      const units = Number(payload.units_count) || 1;
-      bump(userId, 'backoffice', units);
-      return;
-    }
+    if (!userId || usersWithTrayCredit.has(userId)) return;
     if (log.action === 'SERIES_CLASSIFIED') return;
-    if (!trayUsersWithCredit.has(userId)) bump(userId, 'backoffice', 1);
+    bump(userId, 'backoffice', 1);
   });
 
   const kpis: UserKPI[] = usersData
@@ -287,12 +294,11 @@ export async function getDailyKPIs(timeRange: string = 'Hoy'): Promise<UserKPI[]
       const sources = progressBySource[u.id] || { reception: 0, backoffice: 0, bodega: 0, taller: 0 };
 
       let progress = 0;
-      if (roleCountsBackoffice(roleStr)) progress += sources.backoffice;
-      if (roleCountsReception(roleStr)) progress += sources.reception;
-      if (roleCountsBodega(roleStr)) progress += sources.bodega;
-      if (roleCountsTaller(roleStr)) progress += sources.taller;
-
-      if (progress === 0) {
+      if (roleCountsBackoffice(roleStr)) progress = sources.backoffice;
+      else if (roleCountsReception(roleStr)) progress = sources.reception;
+      else if (roleCountsBodega(roleStr)) progress = sources.bodega;
+      else if (roleCountsTaller(roleStr)) progress = sources.taller;
+      else {
         progress =
           sources.backoffice + sources.reception + sources.bodega + sources.taller;
       }

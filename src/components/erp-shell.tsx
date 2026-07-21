@@ -93,18 +93,34 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
   const authz = useAuthz();
 
   const handleLogout = async () => {
-    const supabase = getSupabaseBrowserClient();
-    if (supabase) {
-      const localSessionId = localStorage.getItem('tcerp_session_id');
-      if (localSessionId && currentUser?.id !== 'dev-user') {
-        await supabase.from('user_sessions').delete().eq('id', localSessionId);
+    try {
+      const supabase = getSupabaseBrowserClient();
+      if (supabase) {
+        const localSessionId = localStorage.getItem('tcerp_session_id');
+        if (localSessionId && currentUser?.id !== 'dev-user') {
+          try {
+            await supabase.from('user_sessions').delete().eq('id', localSessionId);
+          } catch {
+            /* sesión ya inválida / red */
+          }
+        }
+        try {
+          await supabase.auth.signOut();
+        } catch {
+          /* ignore */
+        }
       }
-      await supabase.auth.signOut();
+    } finally {
+      localStorage.removeItem('tcerp_session_id');
+      localStorage.removeItem('tcerp_dev_session');
+      localStorage.removeItem(LAST_USER_KEY);
+      // Hard navigate: evita "Failed to fetch" del App Router tras sesión caducada.
+      if (typeof window !== 'undefined') {
+        window.location.assign('/');
+      } else {
+        router.push('/');
+      }
     }
-    localStorage.removeItem('tcerp_session_id');
-    localStorage.removeItem('tcerp_dev_session');
-    localStorage.removeItem(LAST_USER_KEY);
-    router.push('/');
   };
 
   useEffect(() => {

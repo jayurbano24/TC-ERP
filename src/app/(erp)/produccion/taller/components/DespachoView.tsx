@@ -479,35 +479,56 @@ export const DespachoView = memo(function DespachoView({
             {/* RIGHT: Tabla */}
             <div className="flex flex-col">
               <h3 className="text-sm font-black text-[#181c3a] mb-3">Contenido del Despacho</h3>
-              <div className="flex-1 bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+              <div className="flex-1 overflow-hidden border border-slate-200 bg-white shadow-sm">
                 {despScannedItems.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-52 text-center">
-                    <ScanLine className="w-10 h-10 text-indigo-200 mb-3" />
-                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Registra equipos con el escáner</p>
+                  <div className="flex h-52 flex-col items-center justify-center text-center">
+                    <ScanLine className="mb-3 h-10 w-10 text-slate-200" />
+                    <p className="text-[10px] font-semibold tracking-widest text-slate-400 uppercase">
+                      Registra equipos con el escáner
+                    </p>
                   </div>
                 ) : (
-                  <div className="overflow-x-auto overflow-y-auto max-h-[380px] custom-scrollbar">
-                    <table className="w-full text-xs">
-                      <thead className="sticky top-0 bg-white border-b border-slate-100 z-10">
+                  <div className="custom-scrollbar max-h-[380px] overflow-x-auto overflow-y-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="sticky top-0 z-10 border-b border-slate-700 bg-[#181c3a]">
                         <tr>
-                          <th className="px-3 py-3 text-left text-[9px] font-black uppercase tracking-widest text-slate-400">#</th>
-                          <th className="px-3 py-3 text-left text-[9px] font-black uppercase tracking-widest text-slate-400">OS</th>
-                          <th className="px-3 py-3 text-left text-[9px] font-black uppercase tracking-widest text-slate-400">SN</th>
-                          <th className="px-3 py-3 text-left text-[9px] font-black uppercase tracking-widest text-slate-400">Modelo</th>
-                          <th className="w-8" />
+                          {['#', 'OS', 'SN', 'Modelo', ''].map((h, hi) => (
+                            <th
+                              key={hi}
+                              className="px-3 py-2.5 text-[9px] font-semibold tracking-widest text-white/90 uppercase"
+                            >
+                              {h}
+                            </th>
+                          ))}
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-50">
+                      <tbody className="divide-y divide-slate-100">
                         {[...despScannedItems].reverse().map((sc, i) => (
-                          <tr key={i} className="hover:bg-slate-50 transition-colors">
-                            <td className="px-3 py-3"><span className="text-[10px] font-black text-slate-400">{despScannedItems.length - i}</span></td>
-                            <td className="px-3 py-3"><span className="text-[10px] font-black text-[#181c3a] bg-slate-100 px-1.5 py-0.5 rounded">{sc.os}</span></td>
-                            <td className="px-3 py-3"><span className="text-xs font-black text-indigo-600 font-mono">{sc.sn}</span></td>
-                            <td className="px-3 py-3"><span className="text-[10px] text-slate-500">{sc.marca} {sc.modelo}</span></td>
-                            <td className="px-3 py-3">
-                              <button onClick={() => setDespScannedItems((prev: any[]) => prev.filter((_, idx) => idx !== (despScannedItems.length - 1 - i)))}
-                                className="text-slate-300 hover:text-rose-400 transition-colors p-1 rounded-lg hover:bg-rose-50">
-                                <Trash2 className="w-3.5 h-3.5" />
+                          <tr key={i} className="hover:bg-slate-50">
+                            <td className="px-3 py-2.5 text-xs font-medium text-slate-400">
+                              {despScannedItems.length - i}
+                            </td>
+                            <td className="px-3 py-2.5 text-xs font-medium whitespace-nowrap text-slate-700">
+                              {sc.os}
+                            </td>
+                            <td className="px-3 py-2.5 font-mono text-xs font-medium whitespace-nowrap text-slate-700">
+                              {sc.sn}
+                            </td>
+                            <td className="px-3 py-2.5 text-xs font-medium text-slate-600">
+                              {sc.marca} {sc.modelo}
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setDespScannedItems((prev: any[]) =>
+                                    prev.filter((_, idx) => idx !== despScannedItems.length - 1 - i)
+                                  )
+                                }
+                                className="rounded border border-transparent p-1 text-slate-400 transition-colors hover:border-slate-200 hover:bg-slate-50 hover:text-slate-700"
+                                aria-label="Quitar equipo"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
                               </button>
                             </td>
                           </tr>

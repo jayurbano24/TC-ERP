@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
+import { getClientIpFromHeaders } from '@/lib/http/clientIp';
 import { checkRateLimit, type RateLimitResult } from '@/lib/security/rateLimit';
 import { fireHttpStatusSample } from '@/modules/system-health/server/httpTelemetry';
 
@@ -81,9 +82,7 @@ function applyCorrelationHeaders(res: NextResponse, correlationId: string): Next
 
 /** IP del cliente a partir de las cabeceras de proxy habituales. */
 function getClientIp(req: NextRequest): string {
-  const forwarded = req.headers.get('x-forwarded-for');
-  if (forwarded) return forwarded.split(',')[0]!.trim();
-  return req.headers.get('x-real-ip')?.trim() || 'unknown';
+  return getClientIpFromHeaders(req.headers);
 }
 
 /** Aplica las cabeceras de rate limit a una respuesta. */

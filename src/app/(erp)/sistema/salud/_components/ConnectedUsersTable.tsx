@@ -2,6 +2,7 @@
 
 import { Badge, Card } from '@/components/ui';
 import type { ConnectedUserPresence } from '@/modules/system-health/types';
+import { formatClientIpForDisplay } from '@/lib/http/clientIp';
 
 type Props = {
   users: ConnectedUserPresence[];
@@ -72,8 +73,11 @@ export function ConnectedUsersTable({ users, idleMinutes, connected }: Props) {
                     <p className="font-mono text-[10px] text-[var(--muted)]">{u.email || u.userId}</p>
                   </td>
                   <td className="px-4 py-3 text-xs text-[var(--muted)]">{u.role || '—'}</td>
-                  <td className="whitespace-nowrap px-4 py-3 font-mono text-[11px] text-[var(--muted)]">
-                    {u.ipAddress || '—'}
+                  <td
+                    className="whitespace-nowrap px-4 py-3 font-mono text-[11px] text-[var(--muted)]"
+                    title={u.ipAddress || undefined}
+                  >
+                    {formatClientIpForDisplay(u.ipAddress)}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-xs text-[var(--muted)]">
                     {fmt(u.connectedAt)}

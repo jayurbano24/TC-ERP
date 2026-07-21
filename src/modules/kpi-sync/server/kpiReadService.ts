@@ -1,5 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { DashboardMetrics } from '@/lib/database/kpi';
+import {
+  countCacTrayOsInStatuses,
+  countInventoryDetailOs,
+} from './countDistinctOs';
 import { fechasEnRango, resolveTimeRangeBounds } from './timeRange';
 
 export type WorkshopOsByStage = {
@@ -131,6 +135,8 @@ export async function readPipelineFromKpi(supabase: SupabaseClient): Promise<Pip
     day: '2-digit',
   }).format(new Date());
 
+  // Lectura rápida desde proyección (el sync escribe OS; Bodega = Detalle Inventario).
+  // No pagear series aquí: provoca input delay / renders largos en el dashboard.
   const { data, error } = await supabase
     .from('kpi_proceso')
     .select('metrica, valor, refreshed_at')
@@ -145,11 +151,25 @@ export async function readPipelineFromKpi(supabase: SupabaseClient): Promise<Pip
     return max;
   }, null);
 
+  // Bodega + Backoffice en vivo (OS). Evita wip_* stale/inflado en kpi_proceso.
+  let bodegaOs = map.wip_bodega ?? 0;
+  let backofficeOs = map.wip_backoffice ?? 0;
+  try {
+    const [bodegaLive, backofficeLive] = await Promise.all([
+      countInventoryDetailOs(supabase),
+      countCacTrayOsInStatuses(supabase, ['RECEPCIONADO_BODEGA_GENERAL']),
+    ]);
+    bodegaOs = bodegaLive;
+    backofficeOs = backofficeLive;
+  } catch {
+    /* conservar proyección */
+  }
+
   return {
     recepcion: map.wip_recepcion ?? 0,
-    backoffice: map.wip_backoffice ?? 0,
+    backoffice: backofficeOs,
     taller: map.wip_taller ?? 0,
-    bodega: map.wip_bodega ?? 0,
+    bodega: bodegaOs,
     despacho: map.wip_despacho ?? 0,
     workshopOs: readWorkshopOsFromMap(map),
     refreshedAt,

@@ -2,6 +2,11 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { rpcInternal } from '@/lib/supabase/rpcInternal';
 import { fechaEnGuatemala } from './timeRange';
 import type { SyncRunResult } from './types';
+import {
+  countCacTrayOsInStatuses,
+  countDistinctOsByStatus,
+  countInventoryDetailOs,
+} from './countDistinctOs';
 
 const PROCESS_ID = 'kpi_pipeline_wip';
 
@@ -22,6 +27,10 @@ async function upsertProcesoMetric(
   );
 }
 
+/**
+ * Pipeline WIP: wip_* = OS distintos.
+ * Bodega = count_inventory_detail_os (misma regla que Detalle de Inventario).
+ */
 export async function runKpiPipelineWipSync(supabase: SupabaseClient): Promise<SyncRunResult> {
   const fecha = fechaEnGuatemala(new Date().toISOString());
 
@@ -38,25 +47,19 @@ export async function runKpiPipelineWipSync(supabase: SupabaseClient): Promise<S
 
   const { data: mv, error: mvError } = await supabase
     .from('mv_dashboard')
-    .select(
-      'bodega_series, taller_diagnostico_os, taller_reparacion_os, recepciones_hoy, series_movidas_hoy'
-    )
+    .select('taller_diagnostico_os, taller_reparacion_os, series_movidas_hoy')
     .eq('snapshot_id', 1)
     .maybeSingle();
 
   if (mvError && mvError.code !== 'PGRST116') {
-    return { processId: PROCESS_ID, status: 'error', rowsRead: 0, rowsAffected: 0, error: mvError.message };
+    return {
+      processId: PROCESS_ID,
+      status: 'error',
+      rowsRead: 0,
+      rowsAffected: 0,
+      error: mvError.message,
+    };
   }
-
-  const { count: dispatchedCount } = await supabase
-    .from('series')
-    .select('id', { count: 'exact', head: true })
-    .eq('current_status', 'dispatched');
-
-  const { count: backofficePending } = await supabase
-    .from('series')
-    .select('id', { count: 'exact', head: true })
-    .eq('current_status', 'RECEPCIONADO_BODEGA_GENERAL');
 
   const { data: workshopRows } = await supabase.from('mv_workshop').select('status, os_count');
 
@@ -64,7 +67,6 @@ export async function runKpiPipelineWipSync(supabase: SupabaseClient): Promise<S
     'in_workshop',
     'in_qc',
     'in_validation',
-    'in_control_warehouse',
     'ready_to_dispatch',
     'irreparable',
     'scrapped',
@@ -81,12 +83,21 @@ export async function runKpiPipelineWipSync(supabase: SupabaseClient): Promise<S
       ? tallerFromMv
       : Number(mv?.taller_diagnostico_os ?? 0) + Number(mv?.taller_reparacion_os ?? 0);
 
+  // Backoffice = OS en bandeja pendientes de ingreso bodega.
+  // No incluir `in_validation` (eso es QC de Taller).
+  const [recepcionOs, backofficeOs, bodegaOs, despachoOs] = await Promise.all([
+    countDistinctOsByStatus(supabase, 'INGRESADO'),
+    countCacTrayOsInStatuses(supabase, ['RECEPCIONADO_BODEGA_GENERAL']),
+    countInventoryDetailOs(supabase),
+    countDistinctOsByStatus(supabase, 'dispatched'),
+  ]);
+
   const metrics: Array<[string, number]> = [
-    ['wip_recepcion', Number(mv?.recepciones_hoy ?? 0)],
-    ['wip_backoffice', backofficePending ?? 0],
+    ['wip_recepcion', recepcionOs],
+    ['wip_backoffice', backofficeOs],
     ['wip_taller', tallerWip],
-    ['wip_bodega', Number(mv?.bodega_series ?? 0)],
-    ['wip_despacho', dispatchedCount ?? 0],
+    ['wip_bodega', bodegaOs],
+    ['wip_despacho', despachoOs],
     ['series_movidas_hoy', Number(mv?.series_movidas_hoy ?? 0)],
   ];
 
@@ -120,6 +131,11 @@ export async function runKpiPipelineWipSync(supabase: SupabaseClient): Promise<S
     status: 'success',
     rowsRead: metrics.length,
     rowsAffected: metrics.length,
-    metadata: { fecha, metrics: Object.fromEntries(metrics) },
+    metadata: {
+      fecha,
+      metrics: Object.fromEntries(metrics),
+      unit: 'os',
+      bodegaSource: 'inventory_detail',
+    },
   };
 }

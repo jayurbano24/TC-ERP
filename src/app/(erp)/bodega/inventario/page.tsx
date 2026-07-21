@@ -1,29 +1,142 @@
 "use client";
 
-import React, { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Card, Badge, Button, DataTable, type DataTableColumn } from '@/components/ui';
+import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import {
+  Card,
+  Badge,
+  Button,
+  DataTable,
+  TablePagination,
+  type DataTableColumn,
+} from '@/components/ui';
 import { ModulePage } from '@/components/module-page';
-import { SapValidationBadge, SeriesSapValidationDots } from '@/components/sap/SapValidationBadge';
 import { Search, Download, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { getInventoryDetails, resolveWarehouseStatusLabel } from '@/modules/inventario/client/inventoryQueries';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { resolveUnitSapStatus } from '@/lib/sap/sapValidationStatus';
+import { sanitizeCacAgencyRaw } from '@/lib/cacAgencyUtils';
+import { InventoryTableToolbar } from './_components/InventoryTableToolbar';
+import { InventoryTableSkeleton } from './_components/InventoryTableSkeleton';
 
 const EMPTY_ITEMS: any[] = [];
+const PAGE_SIZE = 25;
+
+type TableDensity = 'compact' | 'normal' | 'comfortable';
+
+const DENSITY_CONFIG: Record<
+  TableDensity,
+  { rowHeight: number; baseBodyHeight: number; compact: boolean; label: string }
+> = {
+  compact: { rowHeight: 36, baseBodyHeight: 480, compact: true, label: 'Compacto' },
+  normal: { rowHeight: 40, baseBodyHeight: 520, compact: true, label: 'Normal' },
+  comfortable: { rowHeight: 44, baseBodyHeight: 560, compact: false, label: 'Amplio' },
+};
+
+function plainCell(value: string, muted = false) {
+  return (
+    <span
+      className={`block truncate whitespace-nowrap text-xs font-medium ${muted ? 'text-slate-400' : 'text-slate-700'}`}
+      title={value}
+    >
+      {value}
+    </span>
+  );
+}
 
 function extractField(notes: string, fieldKey: string) {
   if (!notes) return '';
   const normalizedNotes = notes.replace(/\\n/g, '\n');
-  const regex = new RegExp(fieldKey + ':\\s*(.*?)(?=\\s+[A-Za-z_]+:|\\s*---|\\s*$)', 'i');
+  // Solo valor de la línea (evita tragarse Backoffice_Category / otros keys)
+  const lineRe = new RegExp(`(?:^|\\n)\\s*${fieldKey}:\\s*([^\\n]+)`, 'i');
+  const lineMatch = normalizedNotes.match(lineRe);
+  if (lineMatch?.[1]) return lineMatch[1].trim();
+  const regex = new RegExp(
+    fieldKey + ':\\s*(.*?)(?=\\s+[A-Za-z_][A-Za-z0-9_]*:|\\s*---|\\s*$)',
+    'i'
+  );
   const match = normalizedNotes.match(regex);
   return match ? match[1].trim() : '';
+}
+
+function isBogusAgencyValue(value: string): boolean {
+  const v = value.trim().toLowerCase();
+  if (!v) return true;
+  return (
+    v.includes('backoffice_categor') ||
+    v.includes('backoffice_tech') ||
+    v.includes('backoffice_brand') ||
+    v.includes('backoffice_model') ||
+    /^(tel[eé]fono|accesorio|equipo|m[oó]vil|movil)s?$/.test(v)
+  );
+}
+
+/** Agencia CAC de ingreso: guía → notes Backoffice_Agency → serie. Nunca categoría ni courier. */
+function resolveAgencyLabel(item: {
+  notes?: string | null;
+  receptions?: {
+    notes?: string | null;
+    carrier?: string | null;
+    source?: string | null;
+    reception_guides?: { agency?: string | null } | { agency?: string | null }[] | null;
+  } | null;
+}): string {
+  const r = item.receptions || {};
+  const carrier = r.carrier || null;
+  const guides = Array.isArray(r.reception_guides)
+    ? r.reception_guides
+    : r.reception_guides
+      ? [r.reception_guides]
+      : [];
+
+  for (const g of guides) {
+    const fromGuide = sanitizeCacAgencyRaw(g?.agency, carrier);
+    if (fromGuide && !isBogusAgencyValue(fromGuide)) return fromGuide;
+  }
+
+  const fromBackoffice = sanitizeCacAgencyRaw(
+    extractField(r.notes || '', 'Backoffice_Agency'),
+    carrier
+  );
+  if (fromBackoffice && !isBogusAgencyValue(fromBackoffice)) return fromBackoffice;
+
+  const seriesNotes = String(item.notes || '').replace(/\\n/g, '\n');
+  const fromSeries = sanitizeCacAgencyRaw(
+    seriesNotes.split('Agencia: ')[1]?.split('|')[0]?.split('\n')[0]?.trim(),
+    carrier
+  );
+  if (fromSeries && !isBogusAgencyValue(fromSeries)) return fromSeries;
+
+  const fromAgencia = sanitizeCacAgencyRaw(extractField(r.notes || '', 'Agencia'), carrier);
+  if (fromAgencia && !isBogusAgencyValue(fromAgencia)) return fromAgencia;
+
+  return '---';
 }
 
 export default function InventarioDetallePage() {
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearch = useDebouncedValue(searchTerm, 250);
+  const [density, setDensity] = useState<TableDensity>('normal');
+  const [tableExpanded, setTableExpanded] = useState(false);
+  const [page, setPage] = useState(1);
+  const hScrollRef = useRef<HTMLDivElement>(null);
+
+  const scrollHorizontal = useCallback((dir: -1 | 1) => {
+    hScrollRef.current?.scrollBy({ left: dir * 380, behavior: 'smooth' });
+  }, []);
+
+  const cycleDensity = useCallback((dir: -1 | 1) => {
+    const order: TableDensity[] = ['compact', 'normal', 'comfortable'];
+    setDensity((prev) => {
+      const idx = order.indexOf(prev);
+      const next = Math.min(order.length - 1, Math.max(0, idx + dir));
+      return order[next]!;
+    });
+  }, []);
+
+  const densityCfg = DENSITY_CONFIG[density];
+  const maxBodyHeight = tableExpanded ? 820 : densityCfg.baseBodyHeight;
 
   const inventoryQuery = useQuery({
     queryKey: ['inventory-details'],
@@ -32,9 +145,14 @@ export default function InventarioDetallePage() {
       if (result?.error) throw new Error(result.error);
       return (result?.data ?? []) as any[];
     },
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
+    placeholderData: keepPreviousData,
+    refetchOnWindowFocus: false,
   });
   const items = inventoryQuery.data ?? EMPTY_ITEMS;
-  const loading = inventoryQuery.isLoading;
+  const showSkeleton = inventoryQuery.isLoading && !inventoryQuery.data;
+  const isFetching = inventoryQuery.isFetching && !!inventoryQuery.data;
 
   const exportToExcel = async () => {
     const rows = filteredItems.map((i) => {
@@ -60,8 +178,7 @@ export default function InventarioDetallePage() {
         Recibió: extractField(r.notes, 'Recibido Por') || r.received_by || 'SISTEMA',
         Ingreso: i.service_orders?.reentry_count ? `${i.service_orders.reentry_count}° Ingreso` : '1° Ingreso',
         Origen: r.source === 'cac' ? 'CAC' : 'PX',
-        'Agencia / Proveedor':
-          extractField(r.notes, 'Backoffice_Agency') || extractField(r.notes, 'Agencia') || r.carrier || '---',
+        'Agencia / Proveedor': resolveAgencyLabel(i),
       };
     });
 
@@ -197,167 +314,163 @@ export default function InventarioDetallePage() {
     });
   }, [groupedItems, debouncedSearch]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch]);
+
+  const totalCount = filteredItems.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE) || 1);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  const safePage = Math.min(page, totalPages);
+  const startItem = totalCount === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1;
+  const endItem = Math.min(safePage * PAGE_SIZE, totalCount);
+  const pageItems = useMemo(() => {
+    const start = (safePage - 1) * PAGE_SIZE;
+    return filteredItems.slice(start, start + PAGE_SIZE);
+  }, [filteredItems, safePage]);
+
   const inventarioColumns = useMemo<DataTableColumn<any>[]>(() => [
     {
       id: 'fecha',
       header: 'Fecha / Hora',
-      width: '140px',
-      cellClassName: 'whitespace-nowrap',
-      cell: (item: any) => (item.created_at ? new Date(item.created_at).toLocaleString() : 'N/A'),
+      width: '132px',
+      cell: (item: any) =>
+        plainCell(item.created_at ? new Date(item.created_at).toLocaleString() : 'N/A'),
     },
     {
       id: 'guia',
       header: 'No. Guía',
-      width: '95px',
-      cellClassName: 'font-black text-[#181c3a]',
-      cell: (item: any) => (item.receptions || {}).guide_number || 'PX',
+      width: '100px',
+      cell: (item: any) => plainCell((item.receptions || {}).guide_number || 'PX'),
     },
     {
       id: 'os',
       header: 'Orden Servicio',
-      width: '110px',
-      cellClassName: 'font-black',
-      cell: (item: any) => item.service_orders?.os_label || 'TC-00012',
+      width: '100px',
+      cell: (item: any) =>
+        plainCell(item.service_orders?.os_label || '---'),
     },
     {
       id: 'val_sap',
       header: 'Val. SAP',
-      width: '140px',
-      cell: (item: any) => (
-        <div className="flex flex-col gap-0.5 items-start">
-          <SapValidationBadge status={item.unitSapValidationStatus || 'Pendiente Validación'} />
-          <SeriesSapValidationDots statuses={item.seriesSapStatuses || []} />
-        </div>
-      ),
+      width: '120px',
+      cell: (item: any) => {
+        const status = String(item.unitSapValidationStatus || 'Pendiente Validación');
+        const dots = Array.isArray(item.seriesSapStatuses)
+          ? item.seriesSapStatuses
+              .map((s: string, i: number) => {
+                const ok = /validado/i.test(String(s || ''));
+                return `S${i + 1}:${ok ? 'OK' : 'Pend'}`;
+              })
+              .slice(0, 4)
+              .join(' ')
+          : '';
+        const label = dots ? `${status} · ${dots}` : status;
+        return plainCell(label);
+      },
     },
     {
       id: 's1',
       header: 'S-1 (SAP)',
-      width: '130px',
-      cellClassName: 'font-mono font-medium text-[#181c3a]',
-      cell: (item: any) => item.s1 || item.serial_number,
+      width: '120px',
+      cell: (item: any) => plainCell(String(item.s1 || item.serial_number || '---')),
     },
     {
       id: 's2',
       header: 'S-2',
-      width: '110px',
-      cellClassName: 'font-mono font-medium text-[#181c3a]',
-      cell: (item: any) => item.s2 || '---',
+      width: '100px',
+      cell: (item: any) => plainCell(String(item.s2 || '---'), !item.s2 || item.s2 === '---'),
     },
     {
       id: 's3',
       header: 'S-3',
-      width: '110px',
-      cellClassName: 'font-mono font-medium text-[#181c3a]',
-      cell: (item: any) => item.s3 || '---',
+      width: '100px',
+      cell: (item: any) => plainCell(String(item.s3 || '---'), !item.s3 || item.s3 === '---'),
     },
     {
       id: 's4',
       header: 'S-4',
-      width: '110px',
-      cellClassName: 'font-mono font-medium text-[#181c3a]',
-      cell: (item: any) => item.s4 || '---',
+      width: '100px',
+      cell: (item: any) => plainCell(String(item.s4 || '---'), !item.s4 || item.s4 === '---'),
     },
     {
       id: 'material',
       header: 'Material',
-      width: '120px',
-      cellClassName: 'font-bold',
-      cell: (item: any) =>
-        item.material ? (
-          <span className="text-[#181c3a]">{item.material}</span>
-        ) : (
-          <span className="text-slate-300">Sin material</span>
-        ),
+      width: '110px',
+      cell: (item: any) => plainCell(item.material ? String(item.material) : 'Sin material', !item.material),
     },
     {
       id: 'valoracion',
       header: 'Valoración',
-      width: '150px',
+      width: '110px',
       cell: (item: any) => {
         const raw = String(item.valuation || '').trim();
-        if (!raw) {
-          return (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide bg-slate-100 text-slate-500 border border-slate-200">
-              Sin dato SAP
-            </span>
-          );
-        }
+        if (!raw) return plainCell('Sin dato SAP', true);
         const isValorado = /valorado/i.test(raw) && !/novalorad|no\s*valorad/i.test(raw);
         const isNoValorado = /novalorad|no\s*valorad/i.test(raw);
-        if (isValorado) {
-          return (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide bg-emerald-50 text-emerald-700 border border-emerald-100">
-              Valorado
-            </span>
-          );
-        }
-        if (isNoValorado) {
-          return (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide bg-amber-50 text-amber-700 border border-amber-100">
-              No valorado
-            </span>
-          );
-        }
-        return <span className="text-[10px] font-medium text-slate-600">{raw}</span>;
+        if (isValorado) return plainCell('Valorado');
+        if (isNoValorado) return plainCell('No valorado');
+        return plainCell(raw);
       },
     },
     {
       id: 'estatus',
       header: 'Estatus',
-      width: '130px',
-      cell: (item: any) => {
-        const statusLabel = resolveWarehouseStatusLabel(item.current_status);
-        const statusVariant = item.current_status === 'in_central_warehouse' ? 'green' : 'purple';
-        return <Badge variant={statusVariant}>{statusLabel}</Badge>;
-      },
+      width: '120px',
+      cell: (item: any) => plainCell(resolveWarehouseStatusLabel(item.current_status)),
     },
     {
       id: 'caja',
       header: 'Caja',
-      width: '100px',
-      cellClassName: 'font-black text-amber-500',
-      cell: (item: any) => item.boxes?.box_code || item.boxes?.id || 'SIN CAJA',
+      width: '90px',
+      cell: (item: any) => plainCell(item.boxes?.box_code || item.boxes?.id || 'SIN CAJA'),
     },
     {
       id: 'tecnologia',
       header: 'Tecnología',
-      width: '100px',
-      cellClassName: 'uppercase',
+      width: '90px',
       cell: (item: any) =>
-        item.models?.technologies?.name || extractField((item.receptions || {}).notes, 'Backoffice_Tech') || 'N/A',
+        plainCell(
+          item.models?.technologies?.name ||
+            extractField((item.receptions || {}).notes, 'Backoffice_Tech') ||
+            'N/A'
+        ),
     },
     {
       id: 'marca',
       header: 'Marca',
-      width: '100px',
-      cellClassName: 'uppercase',
+      width: '90px',
       cell: (item: any) =>
-        item.brands?.name || extractField((item.receptions || {}).notes, 'Backoffice_Brand') || 'N/A',
+        plainCell(
+          item.brands?.name || extractField((item.receptions || {}).notes, 'Backoffice_Brand') || 'N/A'
+        ),
     },
     {
       id: 'modelo',
       header: 'Modelo',
       width: '120px',
-      cellClassName: 'uppercase',
       cell: (item: any) =>
-        item.models?.name || extractField((item.receptions || {}).notes, 'Backoffice_Model') || 'N/A',
+        plainCell(
+          item.models?.name || extractField((item.receptions || {}).notes, 'Backoffice_Model') || 'N/A'
+        ),
     },
     {
       id: 'piloto',
       header: 'Piloto',
-      width: '110px',
-      cellClassName: 'uppercase',
-      cell: (item: any) => extractField((item.receptions || {}).notes, 'Piloto') || 'N/A',
+      width: '100px',
+      cell: (item: any) => plainCell(extractField((item.receptions || {}).notes, 'Piloto') || 'N/A'),
     },
     {
       id: 'courier',
       header: 'Courier',
       width: '110px',
-      cellClassName: 'uppercase',
       cell: (item: any) => {
         const r = item.receptions || {};
-        return r.carrier || extractField(r.notes, 'Courier') || 'REDESIS';
+        return plainCell(r.carrier || extractField(r.notes, 'Courier') || 'REDESIS');
       },
     },
     {
@@ -366,34 +479,32 @@ export default function InventarioDetallePage() {
       width: '140px',
       cell: (item: any) => {
         const r = item.receptions || {};
-        return extractField(r.notes, 'Recibido Por') || r.received_by || 'SISTEMA';
+        const name = extractField(r.notes, 'Recibido Por') || r.received_by || 'SISTEMA';
+        return plainCell(String(name));
       },
     },
     {
       id: 'ingreso',
       header: 'Ingreso',
-      width: '90px',
+      width: '80px',
       cell: (item: any) =>
-        item.service_orders?.reentry_count
-          ? `${item.service_orders.reentry_count}° Ingreso`
-          : '1° Ingreso',
+        plainCell(
+          item.service_orders?.reentry_count
+            ? `${item.service_orders.reentry_count}° Ingreso`
+            : '1° Ingreso'
+        ),
     },
     {
       id: 'origen',
       header: 'Origen',
-      width: '70px',
-      cellClassName: 'font-bold text-slate-600',
-      cell: (item: any) => ((item.receptions || {}).source === 'cac' ? 'CAC' : 'PX'),
+      width: '60px',
+      cell: (item: any) => plainCell((item.receptions || {}).source === 'cac' ? 'CAC' : 'PX'),
     },
     {
       id: 'agencia',
       header: 'Agencia / Proveedor',
-      width: '140px',
-      cellClassName: 'uppercase',
-      cell: (item: any) => {
-        const r = item.receptions || {};
-        return extractField(r.notes, 'Backoffice_Agency') || extractField(r.notes, 'Agencia') || r.carrier || '---';
-      },
+      width: '150px',
+      cell: (item: any) => plainCell(resolveAgencyLabel(item)),
     },
   ], []);
 
@@ -416,8 +527,8 @@ export default function InventarioDetallePage() {
       subtitle=""
       category="Bodega"
     >
-      <div className="p-8 flex flex-col gap-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+      <div className="flex flex-col gap-4 p-4 md:gap-6 md:p-6 lg:p-8">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-2 md:mb-4">
           <div>
             <div className="flex items-center gap-3 mb-2">
               <Link href="/bodega/gestion">
@@ -432,8 +543,8 @@ export default function InventarioDetallePage() {
           </div>
         </div>
 
-        <div className="flex items-center justify-between rounded-xl border-2 border-border bg-surface p-4 shadow-sm">
-          <div className="relative max-w-md flex-1">
+        <div className="flex flex-col gap-3 rounded-xl border-2 border-border bg-surface p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-4">
+          <div className="relative max-w-md flex-1 w-full">
             <Search className="absolute top-1/2 left-3 h-5 w-5 -translate-y-1/2 text-muted" />
             <input
               type="text"
@@ -443,7 +554,7 @@ export default function InventarioDetallePage() {
               className="w-full rounded-lg border border-border bg-surface-hover py-2 pr-4 pl-10 text-sm font-medium text-foreground outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
             />
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 shrink-0">
             <Button onClick={exportToExcel} className="bg-emerald-500 hover:bg-emerald-600 text-white border-none rounded-xl px-4 py-2 text-xs font-black uppercase tracking-wider">
               <Download className="w-4 h-4 mr-2" /> Exportar a Excel
             </Button>
@@ -476,23 +587,64 @@ export default function InventarioDetallePage() {
           );
         })()}
 
-        <Card className="border-2 border-slate-100 shadow-sm overflow-visible">
-          {loading ? (
-            <div className="p-8 text-center text-slate-400">Cargando inventario...</div>
-          ) : (
-            <div className="w-full overflow-x-scroll overflow-y-hidden custom-scrollbar">
-              <DataTable
-                columns={inventarioColumns}
-                data={filteredItems}
-                getRowId={(_item: any, index: number) => index}
-                rowHeight={64}
-                maxBodyHeight={620}
-                minWidth={2800}
-                headerClassName="bg-[#181c3a]"
-                headerTextClassName="text-white/90"
-                emptyMessage="No se encontraron unidades"
-              />
+        <Card className="overflow-hidden border border-slate-200 shadow-sm">
+          <InventoryTableToolbar
+            densityLabel={densityCfg.label}
+            density={density}
+            tableExpanded={tableExpanded}
+            isFetching={isFetching}
+            onScrollLeft={() => scrollHorizontal(-1)}
+            onScrollRight={() => scrollHorizontal(1)}
+            onZoomOut={() => cycleDensity(-1)}
+            onZoomIn={() => cycleDensity(1)}
+            onToggleExpand={() => setTableExpanded((v) => !v)}
+          />
+
+          {showSkeleton ? (
+            <InventoryTableSkeleton />
+          ) : inventoryQuery.isError ? (
+            <div className="flex flex-col items-center gap-3 p-10 text-center">
+              <p className="text-sm font-semibold text-slate-700">No se pudo cargar el inventario</p>
+              <p className="text-xs text-slate-500">
+                {(inventoryQuery.error as Error)?.message || 'Error de red'}
+              </p>
+              <Button variant="outline" size="sm" onClick={() => inventoryQuery.refetch()}>
+                Reintentar
+              </Button>
             </div>
+          ) : (
+            <>
+              <div
+                ref={hScrollRef}
+                className="w-full overflow-x-auto overflow-y-hidden [scrollbar-gutter:stable] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:bg-slate-100"
+              >
+                <DataTable
+                  columns={inventarioColumns}
+                  data={pageItems}
+                  getRowId={(item: any, index: number) =>
+                    item.service_order_id || item.id || `${safePage}-${index}`
+                  }
+                  rowHeight={densityCfg.rowHeight}
+                  maxBodyHeight={maxBodyHeight}
+                  minWidth={2800}
+                  compact={densityCfg.compact}
+                  virtualizeThreshold={50}
+                  headerClassName="bg-[#181c3a]"
+                  headerTextClassName="text-white/90"
+                  emptyMessage="No se encontraron unidades"
+                />
+              </div>
+              <TablePagination
+                totalCount={totalCount}
+                page={safePage}
+                totalPages={totalPages}
+                startItem={startItem}
+                endItem={endItem}
+                pageSize={PAGE_SIZE}
+                onPageChange={setPage}
+                itemLabel="equipos (OS)"
+              />
+            </>
           )}
         </Card>
       </div>

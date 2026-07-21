@@ -797,6 +797,19 @@ export async function createBoxWithSeries(boxData: any, seriesNumbers: string[])
     linked.map((row) => row.id)
   );
 
+  try {
+    const { logAudit } = await import('@/lib/database/audit');
+    for (const row of linked) {
+      await logAudit('series', row.id, 'INGRESO BODEGA', {
+        status: 'in_central_warehouse',
+        box_id: box.id,
+        source: 'createBoxWithSeries',
+      });
+    }
+  } catch {
+    /* no bloquear ingreso si falla auditoría */
+  }
+
   return { data: box };
 }
 

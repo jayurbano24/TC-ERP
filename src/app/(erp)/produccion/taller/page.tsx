@@ -46,6 +46,23 @@ import { OperationDrawer } from './components/OperationDrawer';
 
 type TabType = 'diagnostico' | 'reparacion' | 'reacondicionado' | 'qc' | 'l3' | 'scraps' | 'listo' | 'despacho' | 'po';
 
+const TALLER_TABLE_HEADER = 'bg-[var(--primary)]';
+const TALLER_TABLE_HEADER_TEXT = 'text-[var(--primary-foreground)]';
+
+/** Celda plana ERP: sin chips/cards; colores vía tokens de tema. */
+function plainCell(value: string, muted = false) {
+  return (
+    <span
+      className={`block truncate whitespace-nowrap text-xs font-medium ${
+        muted ? 'text-[var(--muted)]' : 'text-[var(--foreground)]'
+      }`}
+      title={value}
+    >
+      {value}
+    </span>
+  );
+}
+
 export default function TallerPage() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<TabType>('diagnostico');
@@ -835,28 +852,28 @@ ${funcNotes || 'Ninguno evaluado'}
         {/* NEW CQRS DASHBOARD (Strangler Fig) */}
         {useNewDashboard && dashboardKpis && (
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 animate-rise-in">
-            <Card className="p-4 bg-[#181c3a] text-white border-2 border-[#2ec4f1] rounded-2xl">
-              <h3 className="text-[10px] font-black uppercase tracking-widest opacity-80">Diagnósticos Pendientes</h3>
-              <p className="text-3xl font-black text-[#2ec4f1] mt-2">{dashboardKpis.diagnosticosPendientes}</p>
+            <Card className="rounded-2xl border-2 border-[var(--accent)] bg-[var(--primary)] p-4 text-[var(--primary-foreground)]">
+              <h3 className="text-[10px] font-black tracking-widest uppercase opacity-80">Diagnósticos Pendientes</h3>
+              <p className="mt-2 text-3xl font-black text-[var(--accent)]">{dashboardKpis.diagnosticosPendientes}</p>
             </Card>
-            <Card className="p-4 bg-white border-2 border-slate-100 rounded-2xl">
-              <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Diag. En Proceso</h3>
-              <p className="text-3xl font-black text-amber-500 mt-2">{dashboardKpis.diagnosticosEnProceso}</p>
+            <Card className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
+              <h3 className="text-[10px] font-black tracking-widest text-[var(--muted)] uppercase">Diag. En Proceso</h3>
+              <p className="mt-2 text-3xl font-black text-amber-500">{dashboardKpis.diagnosticosEnProceso}</p>
             </Card>
-            <Card className="p-4 bg-white border-2 border-slate-100 rounded-2xl">
-              <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Reparaciones en Espera</h3>
-              <p className="text-3xl font-black text-blue-500 mt-2">{dashboardKpis.reparacionesEnEspera}</p>
+            <Card className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
+              <h3 className="text-[10px] font-black tracking-widest text-[var(--muted)] uppercase">Reparaciones en Espera</h3>
+              <p className="mt-2 text-3xl font-black text-blue-500">{dashboardKpis.reparacionesEnEspera}</p>
             </Card>
-            <Card className="p-4 bg-white border-2 border-slate-100 rounded-2xl">
-              <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Reparaciones Activas</h3>
-              <p className="text-3xl font-black text-emerald-500 mt-2">{dashboardKpis.reparacionesActivas}</p>
+            <Card className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
+              <h3 className="text-[10px] font-black tracking-widest text-[var(--muted)] uppercase">Reparaciones Activas</h3>
+              <p className="mt-2 text-3xl font-black text-emerald-500">{dashboardKpis.reparacionesActivas}</p>
             </Card>
           </div>
         )}
 
         {/* Navigation Tabs - scroll horizontal en pantallas medianas */}
-        <div className="overflow-x-auto custom-scrollbar -mx-1 px-1 pb-1">
-          <div className="flex flex-wrap gap-2 p-2 bg-slate-100/50 rounded-3xl border border-slate-100 min-w-0 w-full">
+        <div className="custom-scrollbar -mx-1 overflow-x-auto px-1 pb-1">
+          <div className="flex w-full min-w-0 flex-wrap gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface-hover)] p-2">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -864,18 +881,22 @@ ${funcNotes || 'Ninguno evaluado'}
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as TabType)}
-                className={`flex items-center gap-2 sm:gap-3 px-3 sm:px-4 lg:px-5 py-3 sm:py-3.5 rounded-2xl font-black uppercase tracking-widest text-[9px] sm:text-[10px] transition-all shrink-0 ${
-                  isActive 
-                  ? 'bg-[#181c3a] text-white shadow-xl lg:scale-105' 
-                  : 'text-slate-400 hover:bg-white hover:text-slate-600'
+                className={`flex shrink-0 items-center gap-2 rounded-xl px-3 py-3 text-[9px] font-black tracking-widest uppercase transition-all sm:gap-3 sm:px-4 sm:text-[10px] lg:px-5 sm:py-3.5 ${
+                  isActive
+                    ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-md'
+                    : 'text-[var(--muted)] hover:bg-[var(--surface)] hover:text-[var(--heading)]'
                 }`}
               >
-                <Icon size={16} className={isActive ? 'text-[#2ec4f1]' : tab.color} />
-                <span className="flex items-center gap-1.5 sm:gap-2 whitespace-nowrap">
+                <Icon size={16} className={isActive ? 'text-[var(--accent)]' : tab.color} />
+                <span className="flex items-center gap-1.5 whitespace-nowrap sm:gap-2">
                   {tab.label}
-                  <span className={`px-1.5 sm:px-2 py-0.5 rounded-full text-[8px] sm:text-[9px] font-black ${
-                    isActive ? 'bg-[#2ec4f1]/20 text-[#2ec4f1]' : 'bg-slate-200 text-slate-500'
-                  }`}>
+                  <span
+                    className={`rounded-full px-1.5 py-0.5 text-[8px] font-black sm:px-2 sm:text-[9px] ${
+                      isActive
+                        ? 'bg-[var(--accent)]/20 text-[var(--accent)]'
+                        : 'bg-[var(--border)] text-[var(--muted)]'
+                    }`}
+                  >
                     {tabCounts[tab.id] || 0}
                   </span>
                 </span>
@@ -893,17 +914,6 @@ ${funcNotes || 'Ninguno evaluado'}
             const currentTab = tabs.find(t => t.id === activeTab) || tabs[0];
             const TabIcon = currentTab.icon;
 
-            // C3: color de cabecera por pestaña (se conserva el look original).
-            const headerBg =
-              activeTab === 'diagnostico' ? 'bg-amber-500' :
-              activeTab === 'reparacion' ? 'bg-blue-500' :
-              activeTab === 'reacondicionado' ? 'bg-emerald-500' :
-              activeTab === 'qc' ? 'bg-purple-500' :
-              activeTab === 'l3' ? 'bg-orange-500' :
-              activeTab === 'scraps' ? 'bg-rose-500' :
-              activeTab === 'listo' ? 'bg-teal-500' :
-              'bg-amber-500';
-
             const tallerColumns: DataTableColumn<any>[] = [
               {
                 id: 'select',
@@ -912,7 +922,7 @@ ${funcNotes || 'Ninguno evaluado'}
                 header: (
                   <input
                     type="checkbox"
-                    className="w-3.5 h-3.5 rounded text-blue-500 focus:ring-blue-500 border-slate-300"
+                    className="h-3.5 w-3.5 rounded border-[var(--border)] text-[var(--accent)] focus:ring-[var(--accent)]"
                     checked={tasks.length > 0 && selectedRows.length === tasks.length}
                     onChange={(e) => {
                       if (e.target.checked) setSelectedRows(tasks.map((t: any) => t.dbId));
@@ -923,7 +933,7 @@ ${funcNotes || 'Ninguno evaluado'}
                 cell: (item: any) => (
                   <input
                     type="checkbox"
-                    className="w-3.5 h-3.5 rounded text-blue-500 focus:ring-blue-500 border-slate-300"
+                    className="h-3.5 w-3.5 rounded border-[var(--border)] text-[var(--accent)] focus:ring-[var(--accent)]"
                     checked={selectedRows.includes(item.dbId)}
                     onChange={(e) => {
                       if (e.target.checked) setSelectedRows([...selectedRows, item.dbId]);
@@ -936,26 +946,21 @@ ${funcNotes || 'Ninguno evaluado'}
                 id: 'orden',
                 header: 'OS',
                 width: 'minmax(0,0.7fr)',
-                cell: (item: any) => (
-                  <span className="text-[9px] font-medium text-[var(--foreground)] bg-[var(--surface-hover)] px-1 py-0.5 rounded truncate block">{item.id}</span>
-                ),
+                cell: (item: any) => plainCell(String(item.id || '—')),
               },
               ...Array.from({ length: WORKSHOP_SERIES_SLOTS }, (_, i) => ({
                 id: `s${i + 1}`,
                 header: `S${i + 1}`,
                 width: 'minmax(90px, 0.85fr)',
-                cellClassName: 'text-[9px] font-medium text-[var(--foreground)] truncate',
                 cell: (item: any) => {
                   const serial = seriesAt(item, i);
-                  if (!serial) {
-                    return <span className="text-[var(--muted)]">—</span>;
-                  }
+                  if (!serial) return plainCell('—', true);
                   return (
                     <button
                       type="button"
                       onClick={() => setShowItemDetail(item)}
                       title={serial}
-                      className="text-[9px] font-medium text-[var(--foreground)] truncate hover:underline text-left w-full min-w-0 leading-tight"
+                      className="block w-full min-w-0 truncate text-left text-xs font-medium whitespace-nowrap text-[var(--foreground)] hover:text-[var(--heading)] hover:underline"
                     >
                       {serial}
                     </button>
@@ -967,47 +972,37 @@ ${funcNotes || 'Ninguno evaluado'}
                     id: 'tecnologia',
                     header: 'Tec.',
                     width: 'minmax(0,0.5fr)',
-                    cellClassName: 'text-[9px] font-medium text-[var(--foreground)] uppercase truncate',
-                    cell: (item: any) => item.tecnologia,
+                    cell: (item: any) => plainCell(String(item.tecnologia || '—').toUpperCase()),
                   } as DataTableColumn<any>]
                 : []),
               {
                 id: 'modelo',
                 header: 'Modelo',
                 width: 'minmax(0,0.8fr)',
-                cellClassName: 'text-[9px] font-medium text-[var(--foreground)] uppercase truncate',
-                cell: (item: any) => `${item.marca} ${item.modelo}`,
+                cell: (item: any) =>
+                  plainCell(`${item.marca || ''} ${item.modelo || ''}`.trim().toUpperCase() || '—'),
               },
               {
                 id: 'caja',
                 header: 'Caja',
                 width: 'minmax(0,0.45fr)',
-                cellClassName: 'text-[9px] font-medium text-[var(--foreground)] uppercase truncate',
-                cell: (item: any) => item.boxCode,
+                cell: (item: any) => plainCell(String(item.boxCode || '—'), !item.boxCode),
               },
               {
                 id: 'fecha',
                 header: 'Fecha',
-                width: 'minmax(0,0.65fr)',
-                cell: (item: any) => (
-                  <div className="flex flex-col gap-0 min-w-0 leading-tight" title={item.updatedAt}>
-                    <span className="text-[9px] font-medium text-[var(--foreground)] truncate">{item.fecha}</span>
-                    {item.hora ? (
-                      <span className="text-[9px] font-medium text-[var(--muted)] truncate">{item.hora}</span>
-                    ) : null}
-                  </div>
-                ),
+                width: 'minmax(0,0.85fr)',
+                cell: (item: any) => {
+                  const label = [item.fecha, item.hora].filter(Boolean).join(' ');
+                  return plainCell(label || '—', !label);
+                },
               },
               {
                 id: 'ingresos',
                 header: 'Ingresos',
                 width: 'minmax(0,0.7fr)',
-                align: 'center',
-                cell: (item: any) => (
-                  <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded w-fit mx-auto block whitespace-nowrap ${item.ingress_count > 1 ? 'bg-amber-500/15 text-amber-600 dark:text-amber-300' : 'bg-[#2ec4f1]/15 text-[#0ea5c9] dark:text-[#2ec4f1]'}`}>
-                    {ingressLabel(item.ingress_count)}
-                  </span>
-                ),
+                cell: (item: any) =>
+                  plainCell(ingressLabel(item.ingress_count), item.ingress_count > 1),
               },
               {
                 id: 'accion',
@@ -1015,29 +1010,29 @@ ${funcNotes || 'Ninguno evaluado'}
                 width: activeTab === 'diagnostico' ? '40px' : activeTab === 'scraps' ? '68px' : '84px',
                 sticky: 'end',
                 align: 'right',
-                headerClassName: `justify-end ${headerBg}`,
+                headerClassName: `justify-end ${TALLER_TABLE_HEADER} ${TALLER_TABLE_HEADER_TEXT}`,
                 cell: (item: any) => (
                   <div className="flex items-center justify-end gap-0.5">
                     {activeTab !== 'diagnostico' && activeTab !== 'scraps' && (
                       <button
                         type="button"
                         onClick={() => { setReturnModalOpen({ isOpen: true, item }); setReturnTargetStage('in_workshop'); }}
-                        className="h-6 w-6 flex items-center justify-center rounded-md border border-[var(--border)] text-[var(--muted)] hover:text-amber-500 hover:border-amber-300 hover:bg-amber-500/10 transition-colors shrink-0"
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[var(--border)] text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--heading)]"
                         title="Regresar a otra etapa"
                         aria-label="Regresar a otra etapa"
                       >
-                        <RotateCcw size={11} />
+                        <RotateCcw size={12} />
                       </button>
                     )}
                     {activeTab !== 'diagnostico' && (
                       <button
                         type="button"
                         onClick={() => setHistoryModalOpen({ isOpen: true, item })}
-                        className="h-6 w-6 flex items-center justify-center rounded-md border border-[var(--border)] text-[var(--muted)] hover:text-blue-500 hover:border-blue-300 hover:bg-blue-500/10 transition-colors shrink-0"
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[var(--border)] text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--heading)]"
                         title="Ver historial"
                         aria-label="Ver historial"
                       >
-                        <History size={11} />
+                        <History size={12} />
                       </button>
                     )}
                     {activeTab === 'scraps' ? (
@@ -1045,20 +1040,20 @@ ${funcNotes || 'Ninguno evaluado'}
                         type="button"
                         title="Despachar"
                         aria-label="Despachar"
-                        className="h-6 w-6 flex items-center justify-center rounded-md bg-rose-500 text-white hover:bg-rose-600 shadow-sm shrink-0"
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[var(--border)] bg-[var(--primary)] text-[var(--primary-foreground)] transition-colors hover:opacity-90"
                         onClick={() => { setScrapDispatchModal({ isOpen: true, item }); setScrapGuideNumber(''); setScrapNotes(''); }}
                       >
-                        <Send size={11} />
+                        <Send size={12} />
                       </button>
                     ) : (
                       <button
                         type="button"
                         title="Evaluar"
                         aria-label="Evaluar"
-                        className="h-6 w-6 flex items-center justify-center rounded-md bg-[#2ec4f1] text-[#181c3a] hover:bg-[#2ec4f1]/80 shadow-sm shrink-0"
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[var(--border)] bg-[var(--primary)] text-[var(--primary-foreground)] transition-colors hover:opacity-90"
                         onClick={() => void openOperationForSelection(item)}
                       >
-                        <ArrowRight size={11} />
+                        <ArrowRight size={12} />
                       </button>
                     )}
                   </div>
@@ -1069,10 +1064,10 @@ ${funcNotes || 'Ninguno evaluado'}
             return (
               <div className="space-y-6">
                 {locateHint?.found && locateHint.tab && locateHint.tabLabel && (
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-amber-50 border border-amber-200 rounded-2xl px-6 py-4">
-                    <p className="text-sm font-bold text-amber-900">
+                  <div className="flex flex-col justify-between gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-6 py-4 sm:flex-row sm:items-center">
+                    <p className="text-sm font-bold text-[var(--heading)]">
                       {locateHint.osLabel || locateHint.serial} está en{' '}
-                      <span className="text-amber-700">{locateHint.tabLabel}</span>
+                      <span className="text-amber-600 dark:text-amber-400">{locateHint.tabLabel}</span>
                       {locateHint.tab !== activeTab && (
                         <>
                           , no en {tabs.find((t) => t.id === activeTab)?.label || 'esta pestaña'}.
@@ -1091,28 +1086,28 @@ ${funcNotes || 'Ninguno evaluado'}
                     )}
                   </div>
                 )}
-                <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4 sm:gap-6 bg-white p-4 sm:p-6 lg:p-8 rounded-3xl border-2 border-slate-100 shadow-sm min-w-0">
+                <div className="flex min-w-0 flex-col gap-3 border border-[var(--border)] bg-[var(--surface)] p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:p-4">
                   {/* Búsqueda */}
-                  <div className="flex gap-4 items-stretch w-full xl:flex-1 xl:max-w-md min-w-0">
-                    <div className="relative flex-1 min-w-0">
-                      <Search className="absolute left-4 top-4 text-slate-400 w-4 h-4 pointer-events-none" />
+                  <div className="flex w-full min-w-0 items-stretch gap-3 xl:max-w-md xl:flex-1">
+                    <div className="relative min-w-0 flex-1">
+                      <Search className="pointer-events-none absolute top-3 left-3 h-4 w-4 text-[var(--muted)]" />
                       <textarea
-                        placeholder={`BUSCAR SERIE U OS… (pegar hasta ${BATCH_LIMITS.WORKSHOP_SEARCH_MAX_SERIALS} series)`}
+                        placeholder={`Buscar serie u OS… (pegar hasta ${BATCH_LIMITS.WORKSHOP_SEARCH_MAX_SERIALS} series)`}
                         value={searchTerm}
                         onChange={(e) => {
                           setSearchTerm(e.target.value);
                         }}
                         rows={2}
-                        className="w-full min-w-0 pl-12 pr-4 py-3 sm:py-4 bg-slate-50 border border-slate-100 rounded-2xl text-[10px] font-black uppercase outline-none focus:border-amber-400 transition-all resize-y custom-scrollbar"
+                        className="custom-scrollbar w-full min-w-0 resize-y rounded-md border border-[var(--border)] bg-[var(--surface)] py-2.5 pr-3 pl-10 text-xs font-medium text-[var(--foreground)] outline-none transition-colors placeholder:text-[var(--muted)] focus:border-[var(--accent)]"
                       />
                     </div>
                   </div>
 
                   {/* Acciones — envuelven en varias filas si no caben */}
-                  <div className="flex flex-wrap gap-2 sm:gap-3 items-center justify-start xl:justify-end w-full xl:w-auto min-w-0">
+                  <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-2 sm:gap-3 xl:w-auto xl:justify-end">
                     <Button
                       variant="outline"
-                      className="border-slate-200 text-slate-600 font-black uppercase text-[10px] tracking-widest"
+                      className="border-[var(--border)] text-[10px] font-black tracking-widest text-[var(--foreground)] uppercase"
                       leftIcon={exportingReport ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                       disabled={exportingReport}
                       onClick={() => void handleExportTabReport()}
@@ -1142,7 +1137,7 @@ ${funcNotes || 'Ninguno evaluado'}
                           <>
                             <Button 
                               variant="primary" 
-                              className="bg-[#181c3a] hover:bg-slate-800 text-white shadow-lg" 
+                              className="bg-[var(--primary)] text-[var(--primary-foreground)] shadow-lg hover:opacity-90" 
                               leftIcon={<Plus className="w-4 h-4" />}
                               onClick={() => {
                                 setTasks(tasks.map(t => selectedRows.includes(t.dbId) ? { ...t, responsable: 'ASIGNADO' } : t));
@@ -1190,10 +1185,13 @@ ${funcNotes || 'Ninguno evaluado'}
                       </div>
                     ) : activeTab !== 'scraps' ? (
                       <div className="w-full xl:w-auto xl:text-right">
-                        <Button variant="outline" className="border-slate-200 text-slate-400 hover:bg-slate-50 opacity-50 cursor-not-allowed w-full sm:w-auto whitespace-normal text-center">
+                        <Button
+                          variant="outline"
+                          className="w-full cursor-not-allowed whitespace-normal border-[var(--border)] text-center text-[var(--muted)] opacity-50 hover:bg-[var(--surface-hover)] sm:w-auto"
+                        >
                           Selecciona equipos para acciones masivas
                         </Button>
-                        <p className="text-[9px] font-black text-slate-300 mt-1">
+                        <p className="mt-1 text-[9px] font-black text-[var(--muted)]">
                           Máx. {BATCH_LIMITS.WORKSHOP_OPERATE_MAX_EQUIPMENTS} equipos / {BATCH_LIMITS.WORKSHOP_OPERATE_MAX_SERIES} series
                         </p>
                       </div>
@@ -1202,18 +1200,18 @@ ${funcNotes || 'Ninguno evaluado'}
                   </div>
                 </div>
 
-                <Card padding="none" className="border-2 border-slate-100 shadow-sm rounded-2xl p-0 min-w-0 w-full overflow-hidden">
+                <Card padding="none" className="min-w-0 w-full overflow-hidden border border-[var(--border)] bg-[var(--surface)] p-0 shadow-sm">
                   {operateProgress ? (
-                    <div className="py-16 px-8 text-center space-y-4">
-                      <Loader2 className="w-8 h-8 text-amber-500 animate-spin mx-auto" />
-                      <p className="text-[11px] font-black text-slate-600 uppercase tracking-widest">
+                    <div className="space-y-4 px-8 py-16 text-center">
+                      <Loader2 className="mx-auto h-8 w-8 animate-spin text-[var(--muted)]" />
+                      <p className="text-xs font-semibold tracking-wide text-[var(--foreground)] uppercase">
                         Traspasando {operateProgress.equipmentCount} equipo
                         {operateProgress.equipmentCount !== 1 ? 's' : ''}…{' '}
                         {operateProgress.processedSeries}/{operateProgress.totalSeries} series
                       </p>
-                      <div className="max-w-md mx-auto h-2 bg-slate-100 rounded-full overflow-hidden">
+                      <div className="mx-auto h-1.5 max-w-md overflow-hidden rounded-full bg-[var(--border)]">
                         <div
-                          className="h-full bg-amber-500 transition-all duration-300"
+                          className="h-full bg-[var(--accent)] transition-all duration-300"
                           style={{
                             width: `${Math.min(100, Math.round((operateProgress.processedSeries / operateProgress.totalSeries) * 100))}%`,
                           }}
@@ -1222,8 +1220,10 @@ ${funcNotes || 'Ninguno evaluado'}
                     </div>
                   ) : loading ? (
                     <div className="py-20 text-center">
-                      <Loader2 className="w-8 h-8 text-[#2ec4f1] animate-spin mx-auto" />
-                      <p className="text-[10px] font-black text-slate-400 uppercase mt-4 tracking-widest">Sincronizando con Servidor...</p>
+                      <Loader2 className="mx-auto h-8 w-8 animate-spin text-[var(--muted)]" />
+                      <p className="mt-4 text-[10px] font-semibold tracking-widest text-[var(--muted)] uppercase">
+                        Sincronizando con servidor…
+                      </p>
                     </div>
                   ) : (
                     <>
@@ -1231,21 +1231,23 @@ ${funcNotes || 'Ninguno evaluado'}
                         columns={tallerColumns}
                         data={filteredTasks}
                         getRowId={(item: any) => item.groupId || item.dbId}
-                        rowHeight={34}
+                        rowHeight={36}
                         maxBodyHeight={680}
                         compact
-                        headerClassName={headerBg}
-                        headerTextClassName="text-white/90"
+                        headerClassName={TALLER_TABLE_HEADER}
+                        headerTextClassName={TALLER_TABLE_HEADER_TEXT}
                         emptyMessage="No hay equipos en cola"
-                        rowClassName={(item: any) => (selectedRows.includes(item.dbId) ? 'bg-blue-50/30' : '')}
+                        rowClassName={(item: any) =>
+                          selectedRows.includes(item.dbId) ? 'bg-[var(--accent)]/10' : undefined
+                        }
                       />
-                      <div className="px-3 py-2 border-t border-slate-50 flex items-center justify-between bg-slate-50/50 rounded-b-2xl">
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                      <div className="flex items-center justify-between border-t border-[var(--border)] bg-[var(--surface-hover)] px-3 py-2">
+                        <span className="text-[10px] font-semibold tracking-widest text-[var(--muted)] uppercase">
                           {tasksTotalOs != null
                             ? `${filteredTasks.length} de ${tasksTotalOs} equipos en cola`
                             : `${filteredTasks.length} equipos en cola`}
                           {tabCounts[activeTab] != null && tasksTotalOs != null && tabCounts[activeTab] !== tasksTotalOs && (
-                            <span className="text-slate-300"> · badge {tabCounts[activeTab]}</span>
+                            <span className="text-[var(--muted)]"> · badge {tabCounts[activeTab]}</span>
                           )}
                         </span>
                         {tasksHasMore && !debouncedSearchTerm && (
@@ -1365,47 +1367,46 @@ ${funcNotes || 'Ninguno evaluado'}
       )}
       {/* Modal de Historial */}
       {historyModalOpen.isOpen && historyModalOpen.item && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-[#181c3a]/40 backdrop-blur-sm p-0 sm:p-4 overflow-y-auto">
-          <Card className="max-w-lg w-full shadow-2xl animate-rise-in p-0 overflow-hidden flex flex-col max-h-[92dvh] sm:max-h-[85vh] rounded-t-[1.75rem] sm:rounded-3xl my-0 sm:my-4">
-            <div className={`px-4 py-3 text-white flex justify-between items-center shrink-0 ${
-              activeTab === 'diagnostico' ? 'bg-amber-500' :
-              activeTab === 'reparacion' ? 'bg-blue-500' :
-              activeTab === 'reacondicionado' ? 'bg-emerald-500' :
-              activeTab === 'qc' ? 'bg-purple-500' :
-              activeTab === 'l3' ? 'bg-orange-500' :
-              activeTab === 'scraps' ? 'bg-rose-500' :
-              activeTab === 'listo' ? 'bg-teal-500' :
-              'bg-[#181c3a]'
-            }`}>
-              <div className="flex items-center gap-2 min-w-0">
-                <div className="p-1.5 rounded-lg bg-white/20 backdrop-blur-sm shrink-0">
-                  <History className="w-4 h-4 text-white" />
+        <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/50 p-0 backdrop-blur-sm sm:items-center sm:p-4">
+          <Card className="my-0 flex max-h-[92dvh] w-full max-w-lg animate-rise-in flex-col overflow-hidden rounded-t-[1.75rem] p-0 shadow-2xl sm:my-4 sm:max-h-[85vh] sm:rounded-3xl">
+            <div className="flex shrink-0 items-center justify-between bg-[var(--primary)] px-4 py-3 text-[var(--primary-foreground)]">
+              <div className="flex min-w-0 items-center gap-2">
+                <div className="shrink-0 rounded-lg bg-white/20 p-1.5 backdrop-blur-sm">
+                  <History className="h-4 w-4" />
                 </div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <Badge variant="blue" className="font-black text-[8px] uppercase border-none text-white bg-white/20 backdrop-blur-sm">
+                    <Badge variant="blue" className="border-none bg-white/20 text-[8px] font-black text-white uppercase backdrop-blur-sm">
                       {historyModalOpen.item.id}
                     </Badge>
-                    <span className="text-white/80 font-mono text-[10px] truncate">{historyModalOpen.item.sn}</span>
+                    <span className="truncate font-mono text-[10px] text-white/80">{historyModalOpen.item.sn}</span>
                   </div>
-                  <h3 className="text-sm font-black truncate">Historial de Operaciones</h3>
+                  <h3 className="truncate text-sm font-black">Historial de Operaciones</h3>
                 </div>
               </div>
-              <button onClick={() => setHistoryModalOpen({isOpen: false, item: null})} className="text-white/80 hover:text-white transition-colors shrink-0 ml-2">
+              <button
+                type="button"
+                onClick={() => setHistoryModalOpen({ isOpen: false, item: null })}
+                className="ml-2 shrink-0 text-white/80 transition-colors hover:text-white"
+              >
                 <XCircle size={22} strokeWidth={1.5} />
               </button>
             </div>
-            
-            <div className="p-4 space-y-3 overflow-y-auto flex-1 min-h-0">
-              <div className="relative pl-4 border-l-2 border-slate-100 space-y-4">
+
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-[var(--surface)] p-4 text-[var(--foreground)]">
+              <div className="relative space-y-4 border-l-2 border-[var(--border)] pl-4">
                 {loadingHistory ? (
                   <div className="py-6 text-center">
-                    <Loader2 className="w-6 h-6 text-[#2ec4f1] animate-spin mx-auto" />
-                    <p className="text-[9px] font-black text-slate-400 uppercase mt-2 tracking-widest">Cargando historial...</p>
+                    <Loader2 className="mx-auto h-6 w-6 animate-spin text-[var(--accent)]" />
+                    <p className="mt-2 text-[9px] font-black tracking-widest text-[var(--muted)] uppercase">
+                      Cargando historial...
+                    </p>
                   </div>
                 ) : historyItems.length === 0 ? (
                   <div className="py-6 text-center">
-                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">No hay historial registrado.</p>
+                    <p className="text-[9px] font-black tracking-widest text-[var(--muted)] uppercase">
+                      No hay historial registrado.
+                    </p>
                   </div>
                 ) : (
                   historyItems.map((record: any) => {
@@ -1413,19 +1414,26 @@ ${funcNotes || 'Ninguno evaluado'}
                     const payload = record.payload || {};
                     return (
                       <div className="relative" key={record.id}>
-                        <div className={`absolute -left-[21px] top-0.5 bg-white border-2 rounded-full p-0.5 ${isDiagnostic ? 'border-amber-500' : 'border-blue-500'}`}>
+                        <div
+                          className={`absolute -left-[21px] top-0.5 rounded-full border-2 bg-[var(--surface)] p-0.5 ${
+                            isDiagnostic ? 'border-amber-500' : 'border-[var(--accent)]'
+                          }`}
+                        >
                           {isDiagnostic ? (
-                            <Stethoscope className="w-2.5 h-2.5 text-amber-500" />
+                            <Stethoscope className="h-2.5 w-2.5 text-amber-500" />
                           ) : (
-                            <Activity className="w-2.5 h-2.5 text-blue-500" />
+                            <Activity className="h-2.5 w-2.5 text-[var(--accent)]" />
                           )}
                         </div>
                         <div>
-                          <h4 className="text-[11px] font-black text-[#181c3a] uppercase leading-tight">{record.action}</h4>
-                          <p className="text-[9px] font-bold text-slate-400 mt-0.5">
-                            {new Date(record.changed_at).toLocaleString()} • {record.profiles?.full_name?.toUpperCase() || 'SISTEMA'}
+                          <h4 className="text-[11px] leading-tight font-black text-[var(--heading)] uppercase">
+                            {record.action}
+                          </h4>
+                          <p className="mt-0.5 text-[9px] font-bold text-[var(--muted)]">
+                            {new Date(record.changed_at).toLocaleString()} •{' '}
+                            {record.profiles?.full_name?.toUpperCase() || 'SISTEMA'}
                           </p>
-                          <div className="mt-2 bg-slate-50 p-2.5 rounded-lg border border-slate-100 text-[10px] text-slate-600 leading-snug">
+                          <div className="mt-2 rounded-lg border border-[var(--border)] bg-[var(--surface-hover)] p-2.5 text-[10px] leading-snug text-[var(--foreground)]">
                             {isDiagnostic || record.action.includes('COMPLETAD') ? (
                               <>
                                 {payload.result && (
@@ -1454,7 +1462,7 @@ ${funcNotes || 'Ninguno evaluado'}
                                 )}
                                 {payload.nextStatus && (
                                   <div className="mt-2">
-                                    <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-[#181c3a] text-white text-[9px] font-black tracking-wide">
+                                    <span className="inline-flex items-center gap-1.5 rounded-md bg-[var(--primary)] px-2 py-1 text-[9px] font-black tracking-wide text-[var(--primary-foreground)]">
                                       <span className="text-white/60">DERIVADO A:</span>
                                       {
                                         payload.nextStatus === 'in_workshop' ? 'DIAGNÓSTICO' :
@@ -1475,7 +1483,7 @@ ${funcNotes || 'Ninguno evaluado'}
                                 {payload.reason && <p className="text-[10px]"><strong>Motivo:</strong> {payload.reason}</p>}
                                 {payload.status && (
                                   <div>
-                                    <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-[#181c3a] text-white text-[9px] font-black tracking-wide">
+                                    <span className="inline-flex items-center gap-1.5 rounded-md bg-[var(--primary)] px-2 py-1 text-[9px] font-black tracking-wide text-[var(--primary-foreground)]">
                                       <span className="text-white/60">NUEVO ESTADO:</span>
                                       {
                                         payload.status === 'in_workshop' ? 'DIAGNÓSTICO' :

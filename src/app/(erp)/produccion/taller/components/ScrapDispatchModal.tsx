@@ -312,49 +312,61 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
                   </div>
                 ) : (
                   <>
-                    {/* Tabla agrupada */}
-                    <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-sm">
-                      <table className="w-full">
-                        <thead className="bg-rose-500">
+                    {/* Tabla agrupada — celdas planas, sin chips */}
+                    <div className="overflow-hidden border border-slate-200 bg-white shadow-sm">
+                      <table className="w-full text-left">
+                        <thead className="bg-[#181c3a]">
                           <tr>
-                            {['Marca', 'Modelo', 'Tecnología', 'Cantidad', 'Series'].map(h => (
-                              <th key={h} className="px-5 py-4 text-left text-[9px] font-black uppercase tracking-widest text-white">{h}</th>
+                            {['Marca', 'Modelo', 'Tecnología', 'Cantidad', 'Series'].map((h) => (
+                              <th
+                                key={h}
+                                className="px-4 py-2.5 text-[9px] font-semibold tracking-widest text-white/90 uppercase"
+                              >
+                                {h}
+                              </th>
                             ))}
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-50">
-                          {groupList.map((g, i) => (
-                            <tr key={i} className="hover:bg-rose-50/30 transition-colors">
-                              <td className="px-5 py-4">
-                                <span className="text-xs font-black text-[#181c3a] uppercase">{g.marca}</span>
-                              </td>
-                              <td className="px-5 py-4">
-                                <span className="text-xs font-bold text-slate-600 uppercase">{g.modelo}</span>
-                              </td>
-                              <td className="px-5 py-4">
-                                <span className="text-[10px] font-bold text-slate-400 uppercase">{g.tecnologia}</span>
-                              </td>
-                              <td className="px-5 py-4">
-                                <span className="inline-flex items-center justify-center w-8 h-8 bg-rose-100 text-rose-700 rounded-xl text-sm font-black">{g.cantidad}</span>
-                              </td>
-                              <td className="px-5 py-4">
-                                <div className="flex flex-wrap gap-1">
-                                  {g.items.flatMap(it => it.all_sns || [it.sn]).slice(0,3).map((sn: string, si: number) => (
-                                    <span key={si} className="px-2 py-0.5 bg-slate-100 text-slate-500 rounded text-[9px] font-mono">{sn}</span>
-                                  ))}
-                                  {g.cantidad > 3 && <span className="px-2 py-0.5 bg-rose-100 text-rose-500 rounded text-[9px] font-bold">+{g.cantidad - 3}</span>}
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
+                        <tbody className="divide-y divide-slate-100">
+                          {groupList.map((g, i) => {
+                            const series = g.items.flatMap((it) => it.all_sns || [it.sn]);
+                            const preview = series.slice(0, 3).join(', ');
+                            const more = g.cantidad > 3 ? ` +${g.cantidad - 3}` : '';
+                            return (
+                              <tr key={i} className="hover:bg-slate-50">
+                                <td className="px-4 py-2.5 text-xs font-medium whitespace-nowrap text-slate-700 uppercase">
+                                  {g.marca}
+                                </td>
+                                <td className="px-4 py-2.5 text-xs font-medium whitespace-nowrap text-slate-700 uppercase">
+                                  {g.modelo}
+                                </td>
+                                <td className="px-4 py-2.5 text-xs font-medium whitespace-nowrap text-slate-500 uppercase">
+                                  {g.tecnologia}
+                                </td>
+                                <td className="px-4 py-2.5 text-xs font-medium tabular-nums text-slate-700">
+                                  {g.cantidad}
+                                </td>
+                                <td
+                                  className="max-w-[220px] truncate px-4 py-2.5 font-mono text-xs font-medium text-slate-600"
+                                  title={series.join(', ')}
+                                >
+                                  {preview}
+                                  {more}
+                                </td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
-                        <tfoot className="bg-slate-50 border-t border-slate-100">
+                        <tfoot className="border-t border-slate-200 bg-slate-50">
                           <tr>
-                            <td colSpan={3} className="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">TOTAL</td>
-                            <td className="px-5 py-3">
-                              <span className="inline-flex items-center justify-center w-8 h-8 bg-rose-500 text-white rounded-xl text-sm font-black">
-                                {filteredTasks.reduce((a, t) => a + (t.all_sns?.length || 1), 0)}
-                              </span>
+                            <td
+                              colSpan={3}
+                              className="px-4 py-2.5 text-[10px] font-semibold tracking-widest text-slate-500 uppercase"
+                            >
+                              Total
+                            </td>
+                            <td className="px-4 py-2.5 text-xs font-semibold tabular-nums text-slate-800">
+                              {filteredTasks.reduce((a, t) => a + (t.all_sns?.length || 1), 0)}
                             </td>
                             <td />
                           </tr>
@@ -457,48 +469,56 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
                 <h3 className="text-sm font-black text-[#181c3a] mb-3">Contenido de la Caja</h3>
 
                 {/* Tabla */}
-                <div className="flex-1 bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+                <div className="flex-1 overflow-hidden border border-slate-200 bg-white shadow-sm">
                   {scrapScannedItems.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-48 text-center">
-                      <ScanLine className="w-10 h-10 text-rose-200 mb-3" />
-                      <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Registra equipos con el escáner</p>
+                    <div className="flex h-48 flex-col items-center justify-center text-center">
+                      <ScanLine className="mb-3 h-10 w-10 text-slate-200" />
+                      <p className="text-[10px] font-semibold tracking-widest text-slate-400 uppercase">
+                        Registra equipos con el escáner
+                      </p>
                     </div>
                   ) : (
-                    <div className="overflow-x-auto overflow-y-auto max-h-[420px] custom-scrollbar">
-                      <table className="w-full text-xs">
-                        <thead className="sticky top-0 bg-white border-b border-slate-100 z-10">
+                    <div className="custom-scrollbar max-h-[420px] overflow-x-auto overflow-y-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead className="sticky top-0 z-10 border-b border-slate-700 bg-[#181c3a]">
                           <tr>
-                            <th className="px-3 py-3 text-left text-[9px] font-black uppercase tracking-widest text-slate-400">#</th>
-                            <th className="px-3 py-3 text-left text-[9px] font-black uppercase tracking-widest text-slate-400">SAP</th>
-                            <th className="px-3 py-3 text-left text-[9px] font-black uppercase tracking-widest text-slate-400">SN</th>
-                            <th className="px-3 py-3 text-left text-[9px] font-black uppercase tracking-widest text-slate-400">Usuario</th>
-                            <th className="w-8" />
+                            {['#', 'SAP', 'SN', 'Usuario', ''].map((h, hi) => (
+                              <th
+                                key={hi}
+                                className="px-3 py-2.5 text-[9px] font-semibold tracking-widest text-white/90 uppercase"
+                              >
+                                {h}
+                              </th>
+                            ))}
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-50">
+                        <tbody className="divide-y divide-slate-100">
                           {[...scrapScannedItems].reverse().map((sc, i) => (
-                            <tr key={i} className="hover:bg-slate-50 transition-colors">
-                              <td className="px-3 py-3">
-                                <span className="text-[10px] font-black text-slate-400">{scrapScannedItems.length - i}</span>
+                            <tr key={i} className="hover:bg-slate-50">
+                              <td className="px-3 py-2.5 text-xs font-medium text-slate-400">
+                                {scrapScannedItems.length - i}
                               </td>
-                              <td className="px-3 py-3">
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full text-[9px] font-black">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
-                                  OK (SN)
-                                </span>
+                              <td className="px-3 py-2.5 text-xs font-medium whitespace-nowrap text-slate-700">
+                                OK (SN)
                               </td>
-                              <td className="px-3 py-3">
-                                <span className="text-xs font-black text-emerald-600 font-mono">{sc.sn}</span>
+                              <td className="px-3 py-2.5 font-mono text-xs font-medium whitespace-nowrap text-slate-700">
+                                {sc.sn}
                               </td>
-                              <td className="px-3 py-3">
-                                <span className="text-[10px] font-bold text-slate-500">{sc.usuario || 'Actual'}</span>
+                              <td className="px-3 py-2.5 text-xs font-medium text-slate-600">
+                                {sc.usuario || 'Actual'}
                               </td>
-                              <td className="px-3 py-3">
+                              <td className="px-3 py-2.5">
                                 <button
-                                  onClick={() => setScrapScannedItems((prev: any[]) => prev.filter((_, idx) => idx !== (scrapScannedItems.length - 1 - i)))}
-                                  className="text-slate-300 hover:text-rose-400 transition-colors p-1 rounded-lg hover:bg-rose-50"
+                                  type="button"
+                                  onClick={() =>
+                                    setScrapScannedItems((prev: any[]) =>
+                                      prev.filter((_, idx) => idx !== scrapScannedItems.length - 1 - i)
+                                    )
+                                  }
+                                  className="rounded border border-transparent p-1 text-slate-400 transition-colors hover:border-slate-200 hover:bg-slate-50 hover:text-slate-700"
+                                  aria-label="Quitar equipo"
                                 >
-                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <Trash2 className="h-3.5 w-3.5" />
                                 </button>
                               </td>
                             </tr>

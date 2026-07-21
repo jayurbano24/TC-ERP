@@ -14,7 +14,7 @@ export function TallerKpiView({ data, timeRange = 'Hoy' }: { data: any, timeRang
           <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
             <Wrench size={20} />
           </div>
-          <h3 className="text-lg font-black text-[#181c3a]">Taller — resumen del día</h3>
+          <h3 className="text-lg font-black text-[#181c3a]">Taller — resumen ({timeRange})</h3>
         </div>
         <div className="flex items-center gap-3">
           <a href="/configuracion/metas" className="flex items-center gap-2 px-4 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors">
@@ -28,14 +28,14 @@ export function TallerKpiView({ data, timeRange = 'Hoy' }: { data: any, timeRang
       <div className="mx-4 mt-2 px-4 py-3 bg-[#f3efe6] border border-[#e8dfc8] rounded-lg flex items-center gap-3">
         <AlertTriangle className="text-[#a48e58] w-5 h-5" />
         <span className="text-sm font-semibold text-[#665a3d]">
-          Equipos pendientes: Diagnóstico <span className="font-black text-[#181c3a]">{data.pendientesDiagnostico}</span> | CC <span className="font-black text-[#181c3a]">{data.pendientesCC}</span> | L3 <span className="font-black text-[#181c3a]">{data.pendientesL3}</span> | Scraps <span className="font-black text-[#181c3a]">{data.pendientesScraps}</span>
+          OS pendientes: Diagnóstico <span className="font-black text-[#181c3a]">{data.pendientesDiagnostico}</span> | CC <span className="font-black text-[#181c3a]">{data.pendientesCC}</span> | L3 <span className="font-black text-[#181c3a]">{data.pendientesL3}</span> | Scraps <span className="font-black text-[#181c3a]">{data.pendientesScraps}</span>
         </span>
       </div>
 
       {/* Main Metrics */}
       <div className="grid grid-cols-5 gap-4 px-4">
         <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1" title="Equipos que finalizaron diagnóstico en el rango">Diag. Procesadas ({timeLabel})</p>
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1" title="OS que finalizaron diagnóstico en el rango">Diag. Procesadas OS ({timeLabel})</p>
           <p className="text-3xl font-black text-blue-600">{data.diagnosticadas}</p>
         </Card>
         <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100 border-l-[3px] border-l-blue-600">
@@ -69,7 +69,7 @@ export function TallerKpiView({ data, timeRange = 'Hoy' }: { data: any, timeRang
           </div>
           <table className="w-full text-xs text-left">
             <thead className="text-slate-400 border-b border-slate-100">
-              <tr><th className="p-2 font-semibold">Técnico</th><th className="p-2 font-semibold text-center">Procesadas hoy</th><th className="p-2 font-semibold text-center">Meta</th><th className="p-2 font-semibold text-center text-blue-600">Semana</th><th className="p-2 font-semibold text-center">Pendientes</th><th className="p-2 font-semibold text-center">Estado</th></tr>
+              <tr><th className="p-2 font-semibold">Técnico</th><th className="p-2 font-semibold text-center">Procesadas ({timeLabel})</th><th className="p-2 font-semibold text-center">Meta periodo</th><th className="p-2 font-semibold text-center text-blue-600">Meta sem.</th><th className="p-2 font-semibold text-center">Pendientes</th><th className="p-2 font-semibold text-center">Estado</th></tr>
             </thead>
             <tbody>
               {data.tables.diagnostico.map((r:any, i:number) => (
@@ -98,7 +98,7 @@ export function TallerKpiView({ data, timeRange = 'Hoy' }: { data: any, timeRang
           </div>
           <table className="w-full text-xs text-left">
             <thead className="text-slate-400 border-b border-slate-100">
-              <tr><th className="p-2 font-semibold">Técnico</th><th className="p-2 font-semibold text-center">Completadas hoy</th><th className="p-2 font-semibold text-center">Meta</th><th className="p-2 font-semibold text-center text-emerald-600">Semana</th><th className="p-2 font-semibold text-center">TAT prom.</th><th className="p-2 font-semibold text-center">Estado</th></tr>
+              <tr><th className="p-2 font-semibold">Técnico</th><th className="p-2 font-semibold text-center">Completadas ({timeLabel})</th><th className="p-2 font-semibold text-center">Meta periodo</th><th className="p-2 font-semibold text-center text-emerald-600">Meta sem.</th><th className="p-2 font-semibold text-center">TAT prom.</th><th className="p-2 font-semibold text-center">Estado</th></tr>
             </thead>
             <tbody>
               {data.tables.reacondicionado.map((r:any, i:number) => (
@@ -127,7 +127,7 @@ export function TallerKpiView({ data, timeRange = 'Hoy' }: { data: any, timeRang
           </div>
           <table className="w-full text-xs text-left">
             <thead className="text-slate-400 border-b border-slate-100">
-              <tr><th className="p-2 font-semibold">Técnico</th><th className="p-2 font-semibold text-center">Reparadas hoy</th><th className="p-2 font-semibold text-center">Meta</th><th className="p-2 font-semibold text-center text-amber-600">Semana</th><th className="p-2 font-semibold text-center">Enviadas CC</th><th className="p-2 font-semibold text-center">Estado</th></tr>
+              <tr><th className="p-2 font-semibold">Técnico</th><th className="p-2 font-semibold text-center">Reparadas ({timeLabel})</th><th className="p-2 font-semibold text-center">Meta periodo</th><th className="p-2 font-semibold text-center text-amber-600">Meta sem.</th><th className="p-2 font-semibold text-center">Enviadas CC</th><th className="p-2 font-semibold text-center">Estado</th></tr>
             </thead>
             <tbody>
               {data.tables.reparacion.map((r:any, i:number) => (
@@ -156,7 +156,7 @@ export function TallerKpiView({ data, timeRange = 'Hoy' }: { data: any, timeRang
           </div>
           <table className="w-full text-xs text-left">
             <thead className="text-slate-400 border-b border-slate-100">
-              <tr><th className="p-2 font-semibold">Inspector</th><th className="p-2 font-semibold text-center">Aprobadas</th><th className="p-2 font-semibold text-center">Meta</th><th className="p-2 font-semibold text-center text-rose-600">Semana</th><th className="p-2 font-semibold text-center">Rechazadas</th><th className="p-2 font-semibold text-center">Técnico rechazado</th><th className="p-2 font-semibold text-center">Estado</th></tr>
+              <tr><th className="p-2 font-semibold">Inspector</th><th className="p-2 font-semibold text-center">Aprobadas ({timeLabel})</th><th className="p-2 font-semibold text-center">Meta periodo</th><th className="p-2 font-semibold text-center text-rose-600">Meta sem.</th><th className="p-2 font-semibold text-center">Rechazadas</th><th className="p-2 font-semibold text-center">Técnico rechazado</th><th className="p-2 font-semibold text-center">Estado</th></tr>
             </thead>
             <tbody>
               {data.tables.cc.map((r:any, i:number) => (

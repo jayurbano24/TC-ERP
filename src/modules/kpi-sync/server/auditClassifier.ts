@@ -35,6 +35,8 @@ export function classifyAuditMetrics(log: AuditRow): AuditMetricEvent[] {
       events.push({ proceso: 'bodega', metrica: 'ingresos_bodega' });
       break;
     case 'TRASLADO BODEGA':
+    case 'TRASLADO':
+    case 'TRASLADO MASIVO A TALLER':
       events.push({ proceso: 'bodega', metrica: 'traslados_bodega' });
       break;
     default:
@@ -52,4 +54,6 @@ export const KPI_AUDIT_ACTIONS = [
   'DESPACHO CREADO',
   'INGRESO BODEGA',
   'TRASLADO BODEGA',
+  'TRASLADO',
+  'TRASLADO MASIVO A TALLER',
 ] as const;

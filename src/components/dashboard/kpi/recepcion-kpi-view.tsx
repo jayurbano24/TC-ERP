@@ -92,14 +92,15 @@ export function RecepcionKpiView({ data, timeRange = 'Hoy' }: { data: any, timeR
             </tr>
           </thead>
           <tbody>
-            {/* INGRESOS */}
+            {/* INGRESOS — solo origen CAC/PX (cajas físicas) */}
             <tr className="border-b border-slate-200">
               <td colSpan={5} className="py-2 px-3 font-black text-xs text-[#181c3a] underline uppercase">
-                INGRESOS
+                INGRESOS · Origen (cajas {timeLabel})
               </td>
             </tr>
-            {(data.tables.ingresos || []).map((row:any, i:number) => (
-              <tr key={`ingreso-${i}`} className="border-b border-slate-100 last:border-0">
+            {(data.tables.ingresos || []).map(
+              (row: { courier: string; cajas: number; procesadasHoy: number; acumulada: number }, i: number) => (
+              <tr key={`origen-${i}`} className="border-b border-slate-100 last:border-0">
                 <td className="py-1.5 px-3 pl-6 font-medium text-[#181c3a] text-xs flex items-center gap-2">
                   <span className="w-1 h-1 rounded-full bg-[#181c3a]"></span> {row.courier}
                 </td>

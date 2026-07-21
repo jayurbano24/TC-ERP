@@ -33,7 +33,7 @@ async function handle(req: Request) {
     return NextResponse.json(
       {
         error: 'RPC_NOT_DEPLOYED',
-        detail: 'Aplicar migración 154 y exponer schema internal en API settings',
+        detail: 'Aplicar migraciones 154 + 166 (wrappers public → internal, service_role)',
       },
       { status: 503 }
     );

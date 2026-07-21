@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { checkRateLimit, type RateLimitResult } from '@/lib/security/rateLimit';
+import { fireHttpStatusSample } from '@/modules/system-health/server/httpTelemetry';
 
 /**
  * Middleware de seguridad:
@@ -268,6 +269,7 @@ export async function middleware(req: NextRequest) {
     // SEC-03: rate limiting por IP antes de cualquier trabajo costoso.
     const rl = enforceRateLimit(req, pathname);
     if (rl instanceof NextResponse) {
+      fireHttpStatusSample(429, { source: 'middleware', path: pathname });
       return applyCorrelationHeaders(applySecurityHeaders(rl), correlationId);
     }
     rateLimit = rl;
@@ -279,6 +281,7 @@ export async function middleware(req: NextRequest) {
     const authed =
       Boolean(sessionUser) || cronOk || (await hasValidBearer(req));
     if (!authed) {
+      fireHttpStatusSample(401, { source: 'middleware', path: pathname });
       const denied = NextResponse.json({ error: 'No autenticado' }, { status: 401 });
       return applyCorrelationHeaders(
         applySecurityHeaders(applyRateLimitHeaders(denied, rateLimit)),

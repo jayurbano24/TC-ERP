@@ -66,15 +66,31 @@ export function PlatformDeepPanel({ health }: Props) {
         />
         <Row
           label="Conexiones activas"
-          status={p.postgres.activeConnections == null ? 'N/D' : String(p.postgres.activeConnections)}
+          status={
+            p.postgres.activeConnections == null ? 'N/D' : String(p.postgres.activeConnections)
+          }
           detail={p.postgres.note}
         />
-        <Row label="Schema" status={health.supabase.schema} detail="public" />
         <Row
-          label="Cache (Redis)"
-          status={health.redis.status}
-          detail={health.redis.note}
+          label="Conexiones totales"
+          status={
+            p.postgres.totalConnections == null ? 'N/D' : String(p.postgres.totalConnections)
+          }
         />
+        <Row
+          label="Locks en espera"
+          status={p.postgres.waitingLocks == null ? 'N/D' : String(p.postgres.waitingLocks)}
+        />
+        <Row
+          label="Tamaño DB"
+          status={
+            p.postgres.dbSizeBytes == null
+              ? 'N/D'
+              : `${(p.postgres.dbSizeBytes / (1024 * 1024)).toFixed(1)} MB`
+          }
+        />
+        <Row label="Schema" status={health.supabase.schema} detail="public" />
+        <Row label="Cache (Redis)" status={health.redis.status} detail={health.redis.note} />
       </Card>
     </div>
   );

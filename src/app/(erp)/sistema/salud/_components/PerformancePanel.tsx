@@ -99,23 +99,31 @@ export function PerformancePanel({ health }: Props) {
 
       <Card className="space-y-3 p-5">
         <h3 className="text-sm font-black uppercase tracking-widest text-[var(--heading)]">
-          Errores HTTP (aprox.)
+          Distribución HTTP
         </h3>
         <p className="text-xs text-[var(--muted)]">{httpStatus.note}</p>
-        <div className="space-y-2">
-          {httpStatus.buckets.map((b) => (
-            <div key={b.code} className="flex items-center gap-3 text-xs">
-              <span className="w-10 font-black text-[var(--heading)]">{b.code}</span>
-              <div className="h-2 flex-1 rounded-full bg-[var(--surface-hover)]">
-                <div
-                  className="h-2 rounded-full bg-[var(--accent)]"
-                  style={{ width: `${Math.min(100, b.count > 0 ? 20 + b.count : 2)}%` }}
-                />
+        {httpStatus.buckets.length === 0 ? (
+          <p className="text-sm text-[var(--muted)]">
+            Aún no hay muestras. Se llenan con el tráfico de API.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {httpStatus.buckets.map((b) => (
+              <div key={b.code} className="flex items-center gap-3 text-xs">
+                <span className="w-12 font-black text-[var(--heading)]">{b.code}</span>
+                <div className="h-2 flex-1 rounded-full bg-[var(--surface-hover)]">
+                  <div
+                    className="h-2 rounded-full bg-[var(--accent)]"
+                    style={{ width: `${Math.max(2, Math.min(100, b.pct))}%` }}
+                  />
+                </div>
+                <span className="w-24 text-right tabular-nums text-[var(--muted)]">
+                  {b.count} · {b.pct}%
+                </span>
               </div>
-              <span className="w-10 text-right text-[var(--muted)]">{b.count}</span>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </Card>
     </div>
   );

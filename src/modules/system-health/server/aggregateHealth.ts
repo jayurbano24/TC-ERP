@@ -24,6 +24,8 @@ import {
   scoreComponentQueue,
   scoreComponentSessions,
 } from './scoreAndAlerts';
+import { probeBackups } from './backupsProbe';
+import { loadHttpStatusBuckets } from './httpTelemetry';
 import {
   loadAvailability,
   loadLatencyStats,
@@ -237,7 +239,13 @@ function baseDownReport(
       rest: { status: 'error', latencyMs: null, note: msg },
       realtime: { status: 'not_configured', latencyMs: null },
       edgeFunctions: { status: 'not_configured', latencyMs: null },
-      postgres: { activeConnections: null, note: msg },
+      postgres: {
+        activeConnections: null,
+        totalConnections: null,
+        waitingLocks: null,
+        dbSizeBytes: null,
+        note: msg,
+      },
     },
     redis: {
       status: 'not_configured',
@@ -270,7 +278,7 @@ function baseDownReport(
     availability: { todayPct: null, d7Pct: null, d30Pct: null, note: 'N/D' },
     httpStatus: {
       buckets: [],
-      note: 'Sin APM HTTP; instrumentación futura vía middleware',
+      note: 'Sin muestras HTTP',
     },
     users: {
       connected: null,
@@ -288,11 +296,18 @@ function baseDownReport(
       note: msg,
     },
     integrations: [],
-    security: { loginFailures24h: null, note: msg },
+    security: {
+      loginFailures24h: null,
+      unauthorized24h: null,
+      rateLimited24h: null,
+      note: msg,
+    },
     backups: {
       status: 'not_configured',
       lastBackupAt: null,
       note: 'Gestionado en Supabase Dashboard / PITR',
+      sizeBytes: null,
+      durationNote: null,
     },
     performanceSparks: { rpm: [], latency: [] },
     errors24h: { syncFailures: 0, outboxFailed: 0, samples: [] },
@@ -375,7 +390,11 @@ export async function aggregateSystemHealth(): Promise<SystemHealthReport> {
     countExact(supabase, 'erp_audit_logs', (q) => q.gte('created_at', since1h)),
     countExact(supabase, 'user_sessions', (q) => q.gte('last_seen', idleCutoff)),
     countExact(supabase, 'erp_audit_logs', (q) =>
-      q.gte('created_at', since24h).ilike('action', '%login%fail%')
+      q
+        .gte('created_at', since24h)
+        .or(
+          'action.ilike.%login%fail%,action.ilike.%sign_in%fail%,action.ilike.%auth%fail%,action.ilike.%inicio%sesion%fail%'
+        )
     ),
   ]);
 
@@ -584,16 +603,27 @@ export async function aggregateSystemHealth(): Promise<SystemHealthReport> {
     };
   });
 
-  const [platform, integrations, latency, availability, peakRpm24h, sparkRpm, sparkLatency] =
-    await Promise.all([
-      probePlatform(supabase),
-      buildIntegrations(supabase, dbOk, dbLatency),
-      loadLatencyStats(supabase, since24h),
-      loadAvailability(supabase),
-      loadPeakRpm(supabase, since24h),
-      loadSparks(supabase, 'rpm', 24),
-      loadSparks(supabase, 'api_latency_ms', 24),
-    ]);
+  const [
+    platform,
+    integrations,
+    latency,
+    availability,
+    peakRpm24h,
+    sparkRpm,
+    sparkLatency,
+    httpAgg,
+    backups,
+  ] = await Promise.all([
+    probePlatform(supabase),
+    buildIntegrations(supabase, dbOk, dbLatency),
+    loadLatencyStats(supabase, since24h),
+    loadAvailability(supabase),
+    loadPeakRpm(supabase, since24h),
+    loadSparks(supabase, 'rpm', 24),
+    loadSparks(supabase, 'api_latency_ms', 24),
+    loadHttpStatusBuckets(supabase, since24h),
+    probeBackups(),
+  ]);
 
   const aggregateMs = Date.now() - apiStarted;
   const outboxBacklog =
@@ -702,12 +732,8 @@ export async function aggregateSystemHealth(): Promise<SystemHealthReport> {
     latency: latencyMerged,
     availability,
     httpStatus: {
-      buckets: [
-        { code: '2xx', count: 0, pct: 0 },
-        { code: '4xx', count: 0, pct: 0 },
-        { code: '5xx', count: syncFailures24h, pct: 0 },
-      ],
-      note: 'Sin APM de status HTTP aún; 5xx aproximado vía sync failures.',
+      buckets: httpAgg.buckets,
+      note: httpAgg.note,
     },
     users: {
       connected: connectedSessions,
@@ -731,13 +757,11 @@ export async function aggregateSystemHealth(): Promise<SystemHealthReport> {
     integrations,
     security: {
       loginFailures24h,
-      note: 'Proxy ilike action login/fail en erp_audit_logs (puede ser 0 si no se audita así).',
+      unauthorized24h: httpAgg.unauthorized,
+      rateLimited24h: httpAgg.rateLimited,
+      note: '401/429 desde samples HTTP; login fail desde erp_audit_logs (si se audita).',
     },
-    backups: {
-      status: 'not_configured',
-      lastBackupAt: null,
-      note: 'Backups/PITR se gestionan en Supabase Dashboard (no expuesto vía Data API).',
-    },
+    backups,
     performanceSparks: {
       rpm: sparkRpm,
       latency: sparkLatency,

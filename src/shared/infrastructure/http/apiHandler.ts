@@ -11,6 +11,7 @@ import {
   DomainException,
 } from '../../errors/Exceptions';
 import { logOnlyRoleCheck } from '../../authz/roleGuard';
+import { fireHttpStatusSample } from '@/modules/system-health/server/httpTelemetry';
 
 /**
  * Traduce una excepción a una respuesta segura para el cliente.
@@ -64,6 +65,12 @@ export function withErrorHandler<A extends unknown[]>(
         });
         if (denied) {
           denied.headers.set(CORRELATION_ID_HEADER, correlationId);
+          fireHttpStatusSample(denied.status, {
+            source: 'apiHandler',
+            module: meta.module,
+            action: meta.action,
+            authz: true,
+          });
           return denied as Awaited<ReturnType<typeof handler>>;
         }
       }
@@ -81,6 +88,12 @@ export function withErrorHandler<A extends unknown[]>(
           status: response.status,
         });
       }
+      fireHttpStatusSample(response.status, {
+        source: 'apiHandler',
+        module: meta?.module,
+        action: meta?.action,
+        durationMs,
+      });
       return response;
     } catch (error: unknown) {
       const internalMessage = error instanceof Error ? error.message : 'Internal Server Error';
@@ -98,6 +111,13 @@ export function withErrorHandler<A extends unknown[]>(
       } else {
         console.error('[API Error]', { correlationId, message: internalMessage });
       }
+      fireHttpStatusSample(clientError.status, {
+        source: 'apiHandler',
+        module: meta?.module,
+        action: meta?.action,
+        durationMs,
+        error: true,
+      });
       return NextResponse.json(
         { success: false, error: clientError.message, issues: clientError.issues, correlationId },
         {

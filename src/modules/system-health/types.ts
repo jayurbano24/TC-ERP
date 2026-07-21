@@ -114,6 +114,9 @@ export type IntegrationHealth = {
 
 export type PostgresDeepHealth = {
   activeConnections: number | null;
+  totalConnections: number | null;
+  waitingLocks: number | null;
+  dbSizeBytes: number | null;
   note: string;
 };
 
@@ -136,6 +139,8 @@ export type QueueDeep = {
 
 export type SecuritySnapshot = {
   loginFailures24h: number | null;
+  unauthorized24h: number | null;
+  rateLimited24h: number | null;
   note: string;
 };
 
@@ -143,6 +148,8 @@ export type BackupSnapshot = {
   status: ExternalServiceStatus;
   lastBackupAt: string | null;
   note: string;
+  sizeBytes: number | null;
+  durationNote: string | null;
 };
 
 export type DiagnosisHint = {

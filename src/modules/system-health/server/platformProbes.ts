@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { rpcInternal } from '@/lib/supabase/rpcInternal';
 import type { ExternalServiceStatus, IntegrationHealth, PlatformProbes, ServiceProbe } from '../types';
 
 async function probeAuth(supabase: SupabaseClient): Promise<ServiceProbe> {
@@ -39,8 +40,51 @@ async function probeStorage(supabase: SupabaseClient): Promise<ServiceProbe> {
   }
 }
 
+async function probePostgresStats(supabase: SupabaseClient) {
+  try {
+    const { data, error } = await rpcInternal(supabase, 'health_postgres_stats');
+    if (error || !data || typeof data !== 'object') {
+      return {
+        activeConnections: null as number | null,
+        totalConnections: null as number | null,
+        waitingLocks: null as number | null,
+        dbSizeBytes: null as number | null,
+        note:
+          error?.code === 'PGRST202' || error?.code === 'PGRST106'
+            ? 'Aplicar migración 165 y exponer schema internal en API settings'
+            : error?.message || 'Sin stats Postgres',
+      };
+    }
+    const row = data as Record<string, unknown>;
+    return {
+      activeConnections: numOrNull(row.active_connections),
+      totalConnections: numOrNull(row.total_connections),
+      waitingLocks: numOrNull(row.waiting_locks),
+      dbSizeBytes: numOrNull(row.db_size_bytes),
+      note: 'pg_stat_activity / pg_locks vía internal.health_postgres_stats',
+    };
+  } catch (e) {
+    return {
+      activeConnections: null as number | null,
+      totalConnections: null as number | null,
+      waitingLocks: null as number | null,
+      dbSizeBytes: null as number | null,
+      note: e instanceof Error ? e.message : 'Error stats Postgres',
+    };
+  }
+}
+
+function numOrNull(v: unknown): number | null {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 export async function probePlatform(supabase: SupabaseClient): Promise<PlatformProbes> {
-  const [auth, storage] = await Promise.all([probeAuth(supabase), probeStorage(supabase)]);
+  const [auth, storage, postgres] = await Promise.all([
+    probeAuth(supabase),
+    probeStorage(supabase),
+    probePostgresStats(supabase),
+  ]);
 
   return {
     auth,
@@ -60,10 +104,7 @@ export async function probePlatform(supabase: SupabaseClient): Promise<PlatformP
       latencyMs: null,
       note: 'Edge Functions no monitorizadas aquí',
     },
-    postgres: {
-      activeConnections: null,
-      note: 'Conexiones/locks requieren privilegios pg_stat; N/D en service role típico',
-    },
+    postgres,
   };
 }
 

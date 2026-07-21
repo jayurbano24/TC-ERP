@@ -97,7 +97,8 @@ export const SAP_UPLOAD_SELECT =
 
 export const ZK_RAW_LOG_SELECT = 'id, user_pin, check_time, processed';
 export const ZK_COMMAND_SELECT = 'id, command_str, device_sn, status, created_at';
-export const OUTBOX_EVENT_SELECT = 'id, payload, attempts, created_at, status, next_retry';
+export const OUTBOX_EVENT_SELECT =
+  'id, event_name, payload, attempts, created_at, status, next_retry';
 
 export const EMPLOYEE_BIOMETRIC_EMBEDDING_SELECT =
   'id, employee_id, embedding, pose, quality, model, active';

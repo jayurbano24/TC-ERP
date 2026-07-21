@@ -9,30 +9,52 @@ import {
   type SystemHealthReport,
 } from '../types';
 
-const CRON_JOBS: { path: string; schedule: string; label: string; processIds?: string[] }[] = [
+type CronJobDef = {
+  path: string;
+  schedule: string;
+  label: string;
+  /** Heartbeat dedicado en sync_process_config / sync_run_log. */
+  processIds: string[];
+};
+
+const CRON_JOBS: CronJobDef[] = [
+  {
+    path: '/api/internal/outbox-publish',
+    schedule: '* * * * *',
+    label: 'Outbox publish',
+    processIds: ['cron_outbox_publish'],
+  },
   {
     path: '/api/internal/kpi-sync?tier=critical',
     schedule: '*/5 * * * *',
     label: 'KPI Sync (critical)',
-    processIds: ['kpi_audit_feed', 'kpi_pipeline_wip'],
+    processIds: ['cron_kpi_sync_critical'],
   },
   {
     path: '/api/internal/kpi-sync?tier=standard',
     schedule: '*/7 * * * *',
     label: 'KPI Sync (standard)',
-    processIds: ['kpi_audit_feed', 'kpi_pipeline_wip'],
+    processIds: ['cron_kpi_sync_standard'],
   },
   {
     path: '/api/internal/refresh-summary-views',
     schedule: '*/10 * * * *',
     label: 'Refresh summary views',
+    processIds: ['cron_refresh_summary_views'],
   },
   {
     path: '/api/internal/attendance-close-open?graceMin=30',
     schedule: '*/15 * * * *',
     label: 'Attendance close-open',
+    processIds: ['cron_attendance_close_open'],
   },
 ];
+
+type ProcessRunMeta = {
+  lastSuccessAt: string | null;
+  lastErrorAt: string | null;
+  interval: number;
+};
 
 type FilterFn = (q: any) => any;
 
@@ -306,10 +328,7 @@ export async function aggregateSystemHealth(): Promise<SystemHealthReport> {
 
   samples.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
 
-  const processMeta = new Map<
-    string,
-    { lastSuccessAt: string | null; lastErrorAt: string | null; interval: number }
-  >();
+  const processMeta = new Map<string, ProcessRunMeta>();
 
   try {
     const { data: configs } = await supabase
@@ -352,7 +371,7 @@ export async function aggregateSystemHealth(): Promise<SystemHealthReport> {
   }
 
   const crons: CronJobHealth[] = CRON_JOBS.map((job) => {
-    const ids = job.processIds || [];
+    const ids = job.processIds;
     let lastSuccessAt: string | null = null;
     let lastErrorAt: string | null = null;
     let interval = 10;
@@ -375,7 +394,10 @@ export async function aggregateSystemHealth(): Promise<SystemHealthReport> {
       }
     }
 
-    const scheduleMin = Number(job.schedule.match(/^\*\/(\d+)/)?.[1] || interval);
+    // * * * * * → 1 min; */N → N min
+    const everyMin = job.schedule.startsWith('* *')
+      ? 1
+      : Number(job.schedule.match(/^\*\/(\d+)/)?.[1] || interval);
 
     return {
       path: job.path,
@@ -383,7 +405,7 @@ export async function aggregateSystemHealth(): Promise<SystemHealthReport> {
       label: job.label,
       lastSuccessAt,
       lastErrorAt,
-      status: cronStatusFrom(lastSuccessAt, lastErrorAt, scheduleMin),
+      status: cronStatusFrom(lastSuccessAt, lastErrorAt, everyMin),
     };
   });
 

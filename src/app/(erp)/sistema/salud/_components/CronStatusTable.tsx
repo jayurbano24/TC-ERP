@@ -49,7 +49,8 @@ export function CronStatusTable({ crons }: Props) {
           Crons Vercel
         </h3>
         <p className="mt-1 text-xs text-[var(--muted)]">
-          Schedule de vercel.json × última corrida en sync_run_log (cuando aplica)
+          Schedule de vercel.json × heartbeat por job (sync_process_config /
+          sync_run_log). Critical y standard ya no comparten estado.
         </p>
       </div>
       <div className="overflow-x-auto">

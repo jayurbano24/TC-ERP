@@ -3,10 +3,11 @@
  * Protegido por CRON_SECRET.
  */
 import { NextResponse } from 'next/server';
+import { recordCronHeartbeat } from '@/lib/cron/recordCronHeartbeat';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
 import { rpcInternal } from '@/lib/supabase/rpcInternal';
 
-export async function POST(req: Request) {
+async function handle(req: Request) {
   const secret =
     req.headers.get('x-cron-secret') ??
     req.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
@@ -25,18 +26,40 @@ export async function POST(req: Request) {
   });
 
   if (error?.code === '42883' || error?.code === 'PGRST202' || error?.code === 'PGRST106') {
+    await recordCronHeartbeat(supabase, 'cron_attendance_close_open', {
+      ok: false,
+      error: 'RPC_NOT_DEPLOYED',
+    });
     return NextResponse.json(
       {
         error: 'RPC_NOT_DEPLOYED',
         detail: 'Aplicar migración 154 y exponer schema internal en API settings',
       },
-      { status: 503 },
+      { status: 503 }
     );
   }
 
   if (error) {
+    await recordCronHeartbeat(supabase, 'cron_attendance_close_open', {
+      ok: false,
+      error: error.message,
+    });
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  await recordCronHeartbeat(supabase, 'cron_attendance_close_open', {
+    ok: true,
+    metadata: { data: data ?? null, graceMin },
+  });
+
   return NextResponse.json({ success: true, data: data ?? null });
+}
+
+/** Vercel Cron invoca GET. */
+export async function GET(req: Request) {
+  return handle(req);
+}
+
+export async function POST(req: Request) {
+  return handle(req);
 }

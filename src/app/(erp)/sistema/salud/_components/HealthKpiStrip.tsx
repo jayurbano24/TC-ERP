@@ -23,8 +23,11 @@ function toneForOk(ok: boolean) {
 
 export function HealthKpiStrip({ health }: Props) {
   const outbox =
-    (health.queues.outboxPending ?? 0) + (health.queues.outboxFailed ?? 0);
-  const errorsTotal = health.errors24h.syncFailures + health.errors24h.outboxFailed;
+    (health.queues?.outboxPending ?? 0) + (health.queues?.outboxFailed ?? 0);
+  const errorsTotal =
+    (health.errors24h?.syncFailures ?? 0) + (health.errors24h?.outboxFailed ?? 0);
+  const rpm = health.traffic?.requestsPerMinute;
+  const avgMs = health.traffic?.avgResponseMs;
 
   const items = [
     {
@@ -43,25 +46,21 @@ export function HealthKpiStrip({ health }: Props) {
     },
     {
       label: 'Peticiones / min',
-      value: health.traffic.requestsPerMinute == null ? '—' : String(health.traffic.requestsPerMinute),
+      value: rpm == null ? '—' : String(rpm),
       detail: 'Proxy audit (1 min)',
       icon: Gauge,
       tone: erpSoftStat.accent,
     },
     {
       label: 'Tiempo respuesta',
-      value:
-        health.traffic.avgResponseMs == null ? '—' : `${health.traffic.avgResponseMs} ms`,
+      value: avgMs == null ? '—' : `${avgMs} ms`,
       detail: 'Probe /api/health',
       icon: Timer,
-      tone:
-        (health.traffic.avgResponseMs ?? 0) > 1500
-          ? erpSoftStat.warning
-          : erpSoftStat.success,
+      tone: (avgMs ?? 0) > 1500 ? erpSoftStat.warning : erpSoftStat.success,
     },
     {
       label: 'Usuarios conectados',
-      value: health.users.connected == null ? '—' : String(health.users.connected),
+      value: health.users?.connected == null ? '—' : String(health.users.connected),
       detail: 'user_sessions',
       icon: Users,
       tone: erpSoftStat.accent,
@@ -69,10 +68,10 @@ export function HealthKpiStrip({ health }: Props) {
     {
       label: 'Colas pendientes',
       value: String(outbox),
-      detail: `Outbox P ${health.queues.outboxPending ?? '—'} · KPI ${health.queues.kpiInvalidationPending ?? '—'}`,
+      detail: `Outbox P ${health.queues?.outboxPending ?? '—'} · KPI ${health.queues?.kpiInvalidationPending ?? '—'}`,
       icon: ListTodo,
       tone:
-        (health.queues.outboxFailed ?? 0) > 0
+        (health.queues?.outboxFailed ?? 0) > 0
           ? erpSoftStat.danger
           : outbox >= 100
             ? erpSoftStat.warning
@@ -81,7 +80,7 @@ export function HealthKpiStrip({ health }: Props) {
     {
       label: 'Errores 24h',
       value: String(errorsTotal),
-      detail: `Sync ${health.errors24h.syncFailures} · Outbox ${health.errors24h.outboxFailed}`,
+      detail: `Sync ${health.errors24h?.syncFailures ?? 0} · Outbox ${health.errors24h?.outboxFailed ?? 0}`,
       icon: AlertCircle,
       tone: errorsTotal > 0 ? erpSoftStat.danger : erpSoftStat.success,
     },

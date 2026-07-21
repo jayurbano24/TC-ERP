@@ -28,6 +28,7 @@ bodega_start_or_append_scan_tx
 capture_px_equipment_tx
 classify_equipment_batch_tx
 close_px_box_tx
+create_or_get_sap_transfer_document
 count_workshop_os_all_tabs
 count_workshop_os_by_status
 create_bodega_box_tx
@@ -89,6 +90,7 @@ Llamadas solo vía `getSupabaseServerClient()` + `rpcInternal()` / cron.
 internal.sap_sync_tx
 internal.sap_sync_matches_tx
 internal.refresh_enterprise_summary_views
+internal.close_open_attendance_tx
 ```
 
 Dashboard: exponer schema `internal` en API settings (CHG-014).
@@ -128,9 +130,9 @@ px_is_serial_blocked_in_inventory
 refresh_service_order_stage_summary
 log_advanced_audit
 cac_tray_resolve_sap_transfer
-create_or_get_sap_transfer_document
 cac_backoffice_audit_log
 ```
+
 
 (La lista C en SQL 149 usa `to_regprocedure` y omite firmas inexistentes.)
 

@@ -61,9 +61,10 @@ Cliente TS: `src/lib/database/domainEvents.ts`
 
 ## Worker
 
-`src/workers/OutboxPublisherWorker.ts` — polling `outbox_event` → `EventBus` local.
+`src/workers/OutboxPublisherWorker.ts` — batch `outbox_event` → `EventBus` local.
 
-Activación producción: Fase 3.5. En Fase A basta con outbox poblado + métrica `outbox_pending`.
+Producción: cron Vercel `GET/POST /api/internal/outbox-publish` (`vercel.json`, cada minuto, `CRON_SECRET`).  
+Handlers de dominio aún opcionales: sin handler el evento se marca `COMPLETED` (observe-only).
 
 ## Validación
 

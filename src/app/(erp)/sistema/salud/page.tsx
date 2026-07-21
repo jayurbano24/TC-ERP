@@ -16,6 +16,7 @@ import { ConsumptionCard } from './_components/ConsumptionCard';
 import { SupabaseStatusCard } from './_components/SupabaseStatusCard';
 import { ServicesStatusPanel } from './_components/ServicesStatusPanel';
 import { TrafficUsersPanel } from './_components/TrafficUsersPanel';
+import { ConnectedUsersTable } from './_components/ConnectedUsersTable';
 
 export default function SistemaSaludPage() {
   const { isAdmin, isLoading: authzLoading } = useAuthz();
@@ -96,6 +97,12 @@ export default function SistemaSaludPage() {
         <div className="space-y-6">
           <HealthOverallBanner overall={data.overall} checkedAt={data.checkedAt} />
           <HealthKpiStrip health={data} />
+
+          <ConnectedUsersTable
+            users={data.users.connectedUsers ?? []}
+            idleMinutes={data.users.idleMinutes ?? 45}
+            connected={data.users.connected}
+          />
 
           <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
             <ServicesStatusPanel health={data} />

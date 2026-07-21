@@ -30,7 +30,7 @@ export function TrafficUsersPanel({ traffic, users }: Props) {
     {
       label: 'Usuarios conectados',
       value: fmt(users.connected),
-      hint: users.note,
+      hint: `Activos (last_seen < ${users.idleMinutes ?? 45} min)`,
       icon: Users,
     },
   ];

@@ -5,7 +5,8 @@ export type CronHeartbeatProcessId =
   | 'cron_kpi_sync_critical'
   | 'cron_kpi_sync_standard'
   | 'cron_refresh_summary_views'
-  | 'cron_attendance_close_open';
+  | 'cron_attendance_close_open'
+  | 'cron_session_idle_cleanup';
 
 const CRON_META: Record<
   CronHeartbeatProcessId,
@@ -31,7 +32,11 @@ const CRON_META: Record<
     intervalMinutes: 15,
     description: 'Heartbeat: Vercel cron attendance-close-open',
   },
-};
+  cron_session_idle_cleanup: {
+    intervalMinutes: 5,
+    description: 'Heartbeat: limpia sesiones ERP idle > 45 min',
+  },
+}
 
 /**
  * Registra corrida de cron interno en sync_process_config + sync_run_log

@@ -8,7 +8,13 @@ import { canViewNavItem } from "@/lib/navigation-permissions";
 import { useAuthz } from "@/components/authz";
 import { useTheme } from "@/components/theme-provider";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { registerUserSession } from "@/lib/userSession";
+import { registerUserSession, touchUserSession } from "@/lib/userSession";
+import {
+  SESSION_ACTIVITY_THROTTLE_MS,
+  SESSION_HEARTBEAT_MS,
+  SESSION_IDLE_MINUTES,
+  isSessionIdle,
+} from "@/lib/session/idlePolicy";
 import { 
   LayoutDashboard, 
   Settings, 
@@ -148,7 +154,7 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
 
           const { data: sessionData, error: sessionError } = await supabase
             .from('user_sessions')
-            .select('created_at')
+            .select('created_at, last_seen')
             .eq('id', localSessionId)
             .single();
 
@@ -158,6 +164,12 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
           }
 
           if (sessionData) {
+            if (isSessionIdle(sessionData.last_seen ?? sessionData.created_at)) {
+              await supabase.from('user_sessions').delete().eq('id', localSessionId);
+              handleLogout();
+              return;
+            }
+
             const sessionAgeHours =
               (Date.now() - new Date(sessionData.created_at).getTime()) / (1000 * 60 * 60);
             if (sessionAgeHours > 16) {
@@ -211,6 +223,67 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // Presencia: solo renueva last_seen con actividad real; idle > 45 min → logout.
+  useEffect(() => {
+    if (!currentUser?.id || currentUser.id === 'dev-user') return;
+
+    let lastActivityAt = Date.now();
+    let lastMarkedAt = 0;
+    let lastTouchSentAt = 0;
+    let disposed = false;
+
+    const onActivity = () => {
+      const now = Date.now();
+      if (now - lastMarkedAt < SESSION_ACTIVITY_THROTTLE_MS) return;
+      lastMarkedAt = now;
+      lastActivityAt = now;
+    };
+
+    const events: Array<keyof WindowEventMap> = [
+      'mousemove',
+      'mousedown',
+      'keydown',
+      'scroll',
+      'touchstart',
+      'click',
+    ];
+    for (const ev of events) {
+      window.addEventListener(ev, onActivity, { passive: true });
+    }
+
+    const tick = window.setInterval(() => {
+      void (async () => {
+        if (disposed) return;
+        const sessionId = localStorage.getItem('tcerp_session_id');
+        if (!sessionId) return;
+
+        const idleMs = Date.now() - lastActivityAt;
+        if (idleMs >= SESSION_IDLE_MINUTES * 60_000) {
+          handleLogout();
+          return;
+        }
+
+        // Sin actividad reciente: no renovar last_seen (cron + idle local expulsan).
+        if (idleMs > SESSION_HEARTBEAT_MS) return;
+        if (document.visibilityState === 'hidden') return;
+        if (Date.now() - lastTouchSentAt < SESSION_HEARTBEAT_MS) return;
+
+        lastTouchSentAt = Date.now();
+        const ok = await touchUserSession(sessionId);
+        if (!ok && !disposed) {
+          handleLogout();
+        }
+      })();
+    }, SESSION_HEARTBEAT_MS);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(tick);
+      for (const ev of events) {
+        window.removeEventListener(ev, onActivity);
+      }
+    };
+  }, [currentUser?.id]);
 
   return (
     <div className="min-h-screen bg-background font-sans text-foreground antialiased transition-colors duration-300">

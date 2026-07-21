@@ -29,6 +29,17 @@ export type ServiceProbe = {
   note?: string;
 };
 
+export type ConnectedUserPresence = {
+  sessionId: string;
+  userId: string;
+  fullName: string | null;
+  email: string | null;
+  role: string | null;
+  ipAddress: string | null;
+  connectedAt: string;
+  lastSeenAt: string;
+};
+
 export type SystemHealthReport = {
   overall: HealthOverall;
   checkedAt: string;
@@ -72,7 +83,9 @@ export type SystemHealthReport = {
   users: {
     connected: number | null;
     sessions: number | null;
+    idleMinutes: number;
     note: string;
+    connectedUsers: ConnectedUserPresence[];
   };
   queues: {
     outboxPending: number | null;

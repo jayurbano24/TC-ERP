@@ -1,7 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { SESSION_IDLE_MINUTES, sessionIdleCutoffIso } from '@/lib/session/idlePolicy';
 import { getServiceRoleAdminClient } from '@/shared/authz/requireServerAdmin';
 import {
   OUTBOX_PENDING_DEGRADED_THRESHOLD,
+  type ConnectedUserPresence,
   type CronJobHealth,
   type CronJobStatus,
   type HealthErrorSample,
@@ -47,6 +49,12 @@ const CRON_JOBS: CronJobDef[] = [
     schedule: '*/15 * * * *',
     label: 'Attendance close-open',
     processIds: ['cron_attendance_close_open'],
+  },
+  {
+    path: '/api/internal/session-idle-cleanup',
+    schedule: '*/5 * * * *',
+    label: 'Session idle cleanup',
+    processIds: ['cron_session_idle_cleanup'],
   },
 ];
 
@@ -188,7 +196,9 @@ function baseDownReport(
     users: {
       connected: null,
       sessions: null,
-      note: 'Sesiones activas en user_sessions',
+      idleMinutes: SESSION_IDLE_MINUTES,
+      note: `Activos con last_seen < ${SESSION_IDLE_MINUTES} min`,
+      connectedUsers: [],
     },
     queues: { outboxPending: null, outboxFailed: null, kpiInvalidationPending: null },
     errors24h: { syncFailures: 0, outboxFailed: 0, samples: [] },
@@ -242,6 +252,8 @@ export async function aggregateSystemHealth(): Promise<SystemHealthReport> {
   }
   const dbLatency = Date.now() - dbStarted;
 
+  const idleCutoff = sessionIdleCutoffIso();
+
   const [
     outboxPending,
     outboxFailed,
@@ -257,8 +269,58 @@ export async function aggregateSystemHealth(): Promise<SystemHealthReport> {
     countExact(supabase, 'receptions', (q) => q.gte('created_at', since24h)),
     countExact(supabase, 'erp_audit_logs', (q) => q.gte('created_at', since24h)),
     countExact(supabase, 'erp_audit_logs', (q) => q.gte('created_at', since1m)),
-    countExact(supabase, 'user_sessions'),
+    countExact(supabase, 'user_sessions', (q) => q.gte('last_seen', idleCutoff)),
   ]);
+
+  let connectedUsers: ConnectedUserPresence[] = [];
+  try {
+    const { data: sessionRows } = await supabase
+      .from('user_sessions')
+      .select('id, user_id, ip_address, created_at, last_seen')
+      .gte('last_seen', idleCutoff)
+      .order('last_seen', { ascending: false })
+      .limit(100);
+
+    const rows = sessionRows ?? [];
+    const userIds = [...new Set(rows.map((r) => r.user_id as string).filter(Boolean))];
+
+    const profileById = new Map<
+      string,
+      { full_name: string | null; email: string | null; role: string | null }
+    >();
+
+    if (userIds.length > 0) {
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, full_name, email, user_roles(role)')
+        .in('id', userIds);
+
+      for (const p of profiles || []) {
+        const roles = p.user_roles as { role?: string }[] | null;
+        profileById.set(p.id as string, {
+          full_name: (p.full_name as string | null) ?? null,
+          email: (p.email as string | null) ?? null,
+          role: roles?.[0]?.role ?? null,
+        });
+      }
+    }
+
+    connectedUsers = rows.map((r) => {
+      const profile = profileById.get(r.user_id as string);
+      return {
+        sessionId: String(r.id),
+        userId: String(r.user_id),
+        fullName: profile?.full_name ?? null,
+        email: profile?.email ?? null,
+        role: profile?.role ?? null,
+        ipAddress: (r.ip_address as string | null) ?? null,
+        connectedAt: String(r.created_at),
+        lastSeenAt: String(r.last_seen ?? r.created_at),
+      };
+    });
+  } catch {
+    connectedUsers = [];
+  }
 
   let domainEvents7d: number | null = null;
   try {
@@ -465,7 +527,9 @@ export async function aggregateSystemHealth(): Promise<SystemHealthReport> {
     users: {
       connected: connectedSessions,
       sessions: connectedSessions,
-      note: 'Sesiones registradas en user_sessions (1 por usuario activo en ERP)',
+      idleMinutes: SESSION_IDLE_MINUTES,
+      note: `Conectados = last_seen en los últimos ${SESSION_IDLE_MINUTES} min. Idle mayor → expulsión (cron + shell).`,
+      connectedUsers,
     },
     queues: {
       outboxPending,

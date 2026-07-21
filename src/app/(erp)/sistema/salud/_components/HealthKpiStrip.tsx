@@ -61,7 +61,7 @@ export function HealthKpiStrip({ health }: Props) {
     {
       label: 'Usuarios conectados',
       value: health.users?.connected == null ? '—' : String(health.users.connected),
-      detail: 'user_sessions',
+      detail: `Idle max ${health.users?.idleMinutes ?? 45} min`,
       icon: Users,
       tone: erpSoftStat.accent,
     },

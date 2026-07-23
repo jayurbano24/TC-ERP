@@ -58,7 +58,7 @@ export async function exportHistoryReport(
       'No. Guía': entry.unitGuide,
       Piloto: piloto,
       Courier: rec.carrier || '---',
-      Recibió: getBackofficeClassifierName(rec, entry.unitGuide),
+      Clasificó: getBackofficeClassifierName(rec, entry.unitGuide),
       Estatus: entry.unitStatusLabel,
       'Orden de Servicio': entry.osLabel,
       Ingreso: `${reentry}° Ingreso`,

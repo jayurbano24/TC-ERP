@@ -43,7 +43,14 @@ export default function ConsultaPage() {
     serials: string[],
     currentOsId?: string | null
   ): Promise<IngresoCycle[]> => {
-    const cleaned = [...new Set(serials.map((s) => String(s || '').trim()).filter(Boolean))];
+    const cleaned = [
+      ...new Set(
+        serials
+          .map((s) => String(s || '').trim())
+          .filter(Boolean)
+          .flatMap((s) => [s, s.toUpperCase(), s.toLowerCase()])
+      ),
+    ];
     if (!cleaned.length) return [];
 
     const osIds = new Set<string>();
@@ -59,32 +66,36 @@ export default function ConsultaPage() {
       if (row.id) seriesIds.push(row.id);
     }
 
-    const { data: byMain } = await supabase
-      .from('service_orders')
-      .select('id')
-      .in('main_serial', cleaned);
-    for (const row of byMain || []) {
-      if (row.id) osIds.add(row.id);
-    }
-
-    if (osIds.size === 0) {
-      for (const sn of cleaned.slice(0, 4)) {
-        const { data } = await supabase
-          .from('service_orders')
-          .select('id')
-          .ilike('main_serial', sn)
-          .limit(20);
-        for (const row of data || []) if (row.id) osIds.add(row.id);
+    // Case-insensitive: .in exacto falla si el casing del main_serial difiere
+    const mainOr = cleaned
+      .slice(0, 12)
+      .map((s) => `main_serial.ilike.${s.replace(/[,.()]/g, '')}`)
+      .join(',');
+    if (mainOr) {
+      const { data: byMain } = await supabase
+        .from('service_orders')
+        .select('id')
+        .or(mainOr)
+        .limit(100);
+      for (const row of byMain || []) {
+        if (row.id) osIds.add(row.id);
       }
     }
 
     // OS históricas desde ciclos (aunque la serie ya no apunte a ellas)
-    const { data: cycleLinks } = await supabase
-      .from('service_order_serial_cycles')
-      .select('service_order_id')
-      .in('serial_number', cleaned);
-    for (const row of cycleLinks || []) {
-      if (row.service_order_id) osIds.add(row.service_order_id);
+    const cycleOr = cleaned
+      .slice(0, 12)
+      .map((s) => `serial_number.ilike.${s.replace(/[,.()]/g, '')}`)
+      .join(',');
+    if (cycleOr) {
+      const { data: cycleLinks } = await supabase
+        .from('service_order_serial_cycles')
+        .select('service_order_id')
+        .or(cycleOr)
+        .limit(200);
+      for (const row of cycleLinks || []) {
+        if (row.service_order_id) osIds.add(row.service_order_id);
+      }
     }
 
     const idList = [...osIds];
@@ -224,10 +235,8 @@ export default function ConsultaPage() {
         (lotGuideLooksLikeForeignSap ? null : lotGuide) ||
         null;
 
-      const reentry =
-        Number(tray?.reentry_count) ||
-        Number(os.reentry_count) ||
-        idx + 1;
+      // Ordinal del historial = posición real entre OS encontradas (no el contador inflado).
+      const reentry = idx + 1;
 
       return {
         id: os.id,
@@ -362,15 +371,20 @@ export default function ConsultaPage() {
           exactMatch.service_orders?.sap_transfer_documents?.id ||
           null;
         const siblingIds = siblings.map((s: { id: string }) => s.id);
-        const guideNumbers = [
-          ...(reception?.reception_guides?.map((g: { guide_number?: string }) => g.guide_number) ||
-            []),
-          reception?.guide_number,
-        ].filter(Boolean) as string[];
 
         const trayCtx = exactMatch.service_order_id
           ? await fetchCacTrayContext(exactMatch.service_order_id)
           : null;
+
+        const sapDocumentNumber =
+          trayCtx?.sap_document_number ||
+          exactMatch.service_orders?.sap_transfer_documents?.sap_document_number ||
+          null;
+        // Solo guía/SAP de ESTA OS — no todas las guías del lote de recepción.
+        const guideNumbers = [
+          trayCtx?.guide_number,
+          sapDocumentNumber,
+        ].filter(Boolean) as string[];
 
         const equipmentSerials = siblings
           .flatMap((s: any) => [s.serial_number, s.s2, s.s3, s.s4])
@@ -383,6 +397,8 @@ export default function ConsultaPage() {
           sapTransferId,
           boxId: preferredSibling.current_box_id || exactMatch.current_box_id,
           guideNumbers,
+          sapDocumentNumber,
+          osLabel: exactMatch.service_orders?.os_label || null,
           receptionNotes: reception?.notes || null,
           equipmentSerials,
         });
@@ -969,6 +985,17 @@ export default function ConsultaPage() {
                   </div>
                 ) : (
                   <div className="space-y-4">
+                    {ingresoHistory.length === 1 &&
+                      Number(seriesData?.service_orders?.reentry_count) > 1 && (
+                        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
+                          Este equipo figuraba como{' '}
+                          <strong>{formatIngresoLabel(seriesData.service_orders.reentry_count)}</strong>,
+                          pero solo hay <strong>1 ciclo</strong> de OS en el sistema. Suele deberse a un
+                          contador inflado o a una OS previa eliminada. Ejecute la migración{' '}
+                          <code className="font-mono">169_fix_reentry_count_rank.sql</code> para
+                          recalcular.
+                        </div>
+                      )}
                     <p className="text-xs text-[var(--muted)] uppercase tracking-wider font-semibold">
                       Series del equipo consultado
                     </p>

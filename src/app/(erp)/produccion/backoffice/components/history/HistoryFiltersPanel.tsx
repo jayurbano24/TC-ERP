@@ -96,7 +96,7 @@ export function HistoryFiltersPanel({
             ['guide', 'No. Guía'],
             ['pilot', 'Piloto'],
             ['courier', 'Courier'],
-            ['receivedBy', 'Recibió'],
+            ['receivedBy', 'Clasificó'],
             ['status', 'Estatus'],
             ['osLabel', 'Orden de Servicio'],
             ['sapDocument', 'Documento SAP'],

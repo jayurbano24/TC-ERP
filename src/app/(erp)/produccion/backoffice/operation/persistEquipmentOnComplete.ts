@@ -99,7 +99,13 @@ export async function persistEquipmentOnComplete(params: PersistEquipmentParams)
 
   const supabaseForUser = getSupabaseBrowserClient();
   const { data: userData } = supabaseForUser ? await supabaseForUser.auth.getUser() : { data: null };
-  const registeredBy = userData?.user?.email || currentUserFullName;
+  // Nombre de quien clasifica (bandeja / auditoría). Email solo como fallback.
+  const registeredBy =
+    (currentUserFullName && currentUserFullName !== 'SISTEMA'
+      ? currentUserFullName
+      : null) ||
+    userData?.user?.email ||
+    'SISTEMA';
 
   for (const sapGroup of groupsToProcess) {
     const groupItems = guideItems.filter((i) =>

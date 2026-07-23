@@ -4,7 +4,6 @@ import React from 'react';
 import { Badge } from '@/components/ui';
 import { Calendar, ChevronLeft, MapPin, Phone, Truck, UserCheck } from 'lucide-react';
 import type { OperationContext } from '../../operation/operationContext';
-import { getReceiverName } from '../../backofficeHelpers';
 
 type Props = { ctx: OperationContext };
 
@@ -16,6 +15,7 @@ export function ConfigAgencyHeader({ ctx }: Props) {
     agencyDetails,
     setShowAgencyModal,
     processingDateLabel,
+    currentUserFullName,
   } = ctx;
 
   if (!activeReception) return null;
@@ -69,7 +69,9 @@ export function ConfigAgencyHeader({ ctx }: Props) {
             <div>
               <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2">Fecha de Procesamiento</p>
               <h3 className="text-xl font-black text-[var(--heading)] uppercase leading-tight">{processingDateLabel || '---'}</h3>
-              <p className="text-[10px] font-bold text-slate-400 uppercase mt-2">Usuario: {getReceiverName(activeReception)}</p>
+              <p className="text-[10px] font-bold text-slate-400 uppercase mt-2">
+                Usuario: {currentUserFullName || 'SISTEMA'}
+              </p>
             </div>
           </div>
         </div>

@@ -38,7 +38,10 @@ export function trayRowToHistoryEntry(row: CacTrayUnitRow, groupIndex = 0): Hist
 
   const notesParts: string[] = [];
   if (row.pilot_name) notesParts.push(`Piloto: ${row.pilot_name}`);
-  if (row.received_by_name) notesParts.push(`CLASIFICACIÓN (Guía ${row.guide_number}): Por: ${row.received_by_name}`);
+  // received_by_name en bandeja = clasificador Backoffice (no recepcionista CAC).
+  if (row.received_by_name) {
+    notesParts.push(`CLASIFICACIÓN (Guía ${row.guide_number}): Por: ${row.received_by_name}`);
+  }
 
   return {
     rec: {

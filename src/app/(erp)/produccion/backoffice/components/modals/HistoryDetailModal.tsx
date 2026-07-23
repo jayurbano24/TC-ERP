@@ -4,7 +4,9 @@ import { Badge, Button, Card } from '@/components/ui';
 import { SapValidationBadge } from '@/components/sap/SapValidationBadge';
 import { normalizeSeriesSapStatus, resolveUnitSapStatus } from '@/lib/sap/sapValidationStatus';
 import { Database, Plus, Printer } from 'lucide-react';
-import { getAgenciaLabel, getReceiverName } from '../../backofficeHelpers';
+import { getAgenciaLabel } from '../../backofficeHelpers';
+import { getBackofficeClassifierName } from '../../history/classifierUtils';
+import { parseBackofficeClassifierFromNotes } from '@/lib/database/traceability';
 import type { CatalogAgency, CatalogBrand, CatalogModel, CatalogTech } from '../../types';
 
 type Props = {
@@ -108,8 +110,12 @@ export function HistoryDetailModal({ reception, series, agencies, technologies, 
             <p className="text-sm font-black text-[var(--heading)] uppercase leading-tight">{reception.carrier || '---'}</p>
           </div>
           <div className="bg-[var(--surface)] rounded-2xl p-4 border border-[var(--border)]">
-            <p className="text-[8px] font-black uppercase tracking-widest text-[var(--muted)] mb-1">Recibido en Backoffice</p>
-            <p className="text-sm font-black text-[var(--heading)] uppercase leading-tight">{getReceiverName(reception)}</p>
+            <p className="text-[8px] font-black uppercase tracking-widest text-[var(--muted)] mb-1">Clasificó en Backoffice</p>
+            <p className="text-sm font-black text-[var(--heading)] uppercase leading-tight">
+              {parseBackofficeClassifierFromNotes(reception.notes) ||
+                getBackofficeClassifierName(reception) ||
+                '---'}
+            </p>
           </div>
           <div className="bg-[var(--surface)] rounded-2xl p-4 border border-[var(--border)]">
             <p className="text-[8px] font-black uppercase tracking-widest text-[var(--muted)] mb-1">Estatus</p>

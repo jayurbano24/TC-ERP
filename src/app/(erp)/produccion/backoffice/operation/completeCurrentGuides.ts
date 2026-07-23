@@ -224,6 +224,31 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
         let equipmentPersistError: string | null = null;
         let expectedUnits = 0;
 
+        // Grabar clasificador en reception_guides ANTES del classify/upsert bandeja.
+        const supabaseClientEarly = getSupabaseBrowserClient();
+        if (supabaseClientEarly && isEquipment && hasItems) {
+          const dbCategoryEarly = isDevolucion ? 'devolucion' : categoryLabelForNotes;
+          const { error: guidesEarlyError } = await supabaseClientEarly
+            .from('reception_guides')
+            .upsert(
+              ctx.scannedGuides.map((guideNumber) => ({
+                reception_id: ctx.activeReception!.id,
+                guide_number: guideNumber.trim(),
+                category: dbCategoryEarly,
+                status: 'CLASIFICADO',
+                agency: agencyLabel,
+                classified_by: ctx.currentUserFullName,
+                classified_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                ...(ctx.returnReason ? { motivo: ctx.returnReason } : {}),
+              })),
+              { onConflict: 'reception_id,guide_number' }
+            );
+          if (guidesEarlyError) {
+            console.warn('No se pudo pre-registrar clasificador en guías:', guidesEarlyError.message);
+          }
+        }
+
         if (isEquipment && hasItems) {
           const persistResult = await persistEquipmentOnComplete({
             activeReceptionId: ctx.activeReception.id,
@@ -308,8 +333,6 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
 
         const supabaseClient = getSupabaseBrowserClient();
         if (supabaseClient) {
-          const { data: userData } = await supabaseClient.auth.getUser();
-          const userEmail = userData?.user?.email || ctx.currentUserFullName;
           const dbCategory = isDevolucion
             ? 'devolucion'
             : categoryLabelForNotes;
@@ -320,7 +343,7 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
             category: dbCategory,
             status: 'CLASIFICADO',
             agency: agencyLabel,
-            classified_by: userEmail,
+            classified_by: ctx.currentUserFullName,
             classified_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
             ...(ctx.returnReason ? { motivo: ctx.returnReason } : {}),
@@ -339,6 +362,21 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
             ctx.setIsSubmitting(false);
             ctx.isSubmittingRef.current = false;
             return;
+          }
+
+          // Asegura nombre del clasificador en bandeja (no el de recepción).
+          if (isEquipment && hasItems) {
+            const { error: trayClassifierError } = await supabaseClient.rpc(
+              'refresh_cac_tray_classifier',
+              {
+                p_reception_id: ctx.activeReception.id,
+                p_guide_numbers: ctx.scannedGuides.map((g) => g.trim()),
+                p_classifier_name: ctx.currentUserFullName,
+              }
+            );
+            if (trayClassifierError) {
+              console.warn('No se pudo refrescar clasificador en bandeja:', trayClassifierError.message);
+            }
           }
         }
       }

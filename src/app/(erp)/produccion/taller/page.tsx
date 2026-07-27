@@ -3,7 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { ModulePage } from "@/components/module-page";
 import { Card, Button, Badge, notify, confirmDialog, DataTable, type DataTableColumn } from "@/components/ui";
-import { Wrench, Stethoscope, Search, Filter, Box, Plus, Activity, AlertCircle, ArrowRight, CheckCircle2, XCircle, Clock, ChevronLeft, ChevronRight, ChevronDown, User, CheckSquare, ServerCrash, RefreshCw, Zap, Trash2, Loader2, RotateCcw, History, ClipboardList, Package, Send, ScanLine, X, BarChart3, Layers, Edit2, Eye, Printer, Download } from 'lucide-react';
+import { Wrench, Stethoscope, Search, Filter, Box, Plus, Activity, AlertCircle, ArrowRight, XCircle, Clock, ChevronLeft, ChevronRight, ChevronDown, User, CheckSquare, ServerCrash, RefreshCw, Zap, Trash2, Loader2, RotateCcw, History, ClipboardList, Package, Send, ScanLine, X, BarChart3, Layers, Edit2, Eye, Printer, Download } from 'lucide-react';
 import { type WorkshopTabId } from '@/modules/workshop/client/workshop';
 import { fetchWorkshopTasksPageViaApi, locateWorkshopEquipmentViaApi, type WorkshopLocateResult } from '@/lib/api/workshopTasks';
 import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
@@ -808,7 +808,7 @@ ${funcNotes || 'Ninguno evaluado'}
     { id: 'qc', label: 'Control de Calidad', icon: CheckSquare, color: 'text-purple-500', bg: 'bg-purple-50' },
     { id: 'l3', label: 'L3 (Avanzado)', icon: Zap, color: 'text-orange-500', bg: 'bg-orange-50' },
     { id: 'scraps', label: 'SCRAPS', icon: Trash2, color: 'text-rose-500', bg: 'bg-rose-50' },
-    { id: 'listo', label: 'Equipo Listo', icon: CheckCircle2, color: 'text-teal-500', bg: 'bg-teal-50' },
+    // Equipo Listo no es pestaña: solo destino "Aceptado → Listo" en Control de Calidad.
     { id: 'despacho', label: 'Retornar a Bodega', icon: Send, color: 'text-indigo-500', bg: 'bg-indigo-50' },
   ];
 

@@ -44,7 +44,12 @@ const REQUEST_ID_HEADER = 'x-request-id';
 
 /** Rutas /api que NO requieren auth de usuario (dispositivos / health / cron interno). */
 function isPublicApiPath(pathname: string): boolean {
-  return pathname === '/api/health' || pathname.startsWith('/api/iclock');
+  return (
+    pathname === '/api/health' ||
+    pathname.startsWith('/api/iclock') ||
+    // Telemetría sendBeacon: no lleva Authorization; no debe exigir sesión ni provocar 401 ruidosos.
+    pathname === '/api/observability/web-vitals'
+  );
 }
 
 function isCronInternalPath(pathname: string): boolean {

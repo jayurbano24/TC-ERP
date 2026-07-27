@@ -280,7 +280,12 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
         lastTouchSentAt = Date.now();
         const ok = await touchUserSession(sessionId);
         if (!ok && !disposed) {
-          handleLogout();
+          // Sesión borrada por race (re-login / single-PC): renovar antes de expulsar.
+          localStorage.removeItem('tcerp_session_id');
+          const renewed = await registerUserSession(currentUser.id);
+          if (!renewed && !disposed) {
+            handleLogout();
+          }
         }
       })();
     }, SESSION_HEARTBEAT_MS);

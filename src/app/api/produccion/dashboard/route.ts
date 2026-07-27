@@ -17,7 +17,7 @@ export async function GET(request: Request) {
     const auth = await requireApiUser(request);
     if (auth instanceof NextResponse) return auth;
 
-    const denied = await authorize(request, auth.user.id, AUTHZ_MODULE.DASHBOARD, 'view');
+    const denied = await authorize(request, auth.user.id, AUTHZ_MODULE.TALLER, 'view');
     if (denied) return denied;
 
     return withResolvedReadClient(auth, async () => {

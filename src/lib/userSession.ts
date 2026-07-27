@@ -26,7 +26,8 @@ export async function registerUserSession(userId: string): Promise<string | null
   if (!supabase) return null;
 
   const now = new Date().toISOString();
-  await supabase.from('user_sessions').delete().eq('user_id', userId);
+  // No borrar otras filas aquí: el API (service role) ya aplica single-PC.
+  // El fallback cliente solo inserta; evita races que dejan localStorage huérfano.
   const { data, error } = await supabase
     .from('user_sessions')
     .insert({ user_id: userId, ip_address: 'browser', last_seen: now })

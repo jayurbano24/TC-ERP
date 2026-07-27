@@ -724,81 +724,62 @@ export async function getAreaKPIs(): Promise<AreaKPI[]> {
   ];
 }
 
-export async function getBIData() {
-  const supabase = getSupabaseBrowserClient();
-  const pricingTable = [
-    { tech: 'EMTA', condition: 'REACONDICIONADO', price: 2.78, quantity: 0 },
-    { tech: 'EMTA', condition: 'REPARADO', price: 4.32, quantity: 0 },
-    { tech: 'STB-HFC', condition: 'REACONDICIONADO', price: 2.78, quantity: 0 },
-    { tech: 'STB-HFC', condition: 'REPARADO', price: 3.64, quantity: 0 },
-    { tech: 'ONT', condition: 'REACONDICIONADO', price: 2.78, quantity: 0 },
-    { tech: 'ONT', condition: 'REPARADO', price: 3.64, quantity: 0 },
-    { tech: 'DTH', condition: 'REACONDICIONADO', price: 4.97, quantity: 0 },
-    { tech: 'DTH', condition: 'REPARADO', price: 5.97, quantity: 0 },
-    { tech: 'IPTV', condition: 'REACONDICIONADO', price: 2.78, quantity: 0 },
-    { tech: 'IPTV', condition: 'REPARADO', price: 3.64, quantity: 0 },
-    { tech: 'SWITCH', condition: 'REACONDICIONADO', price: 2.16, quantity: 0 },
-    { tech: 'XDSL', condition: 'REACONDICIONADO', price: 3.64, quantity: 0 },
-    { tech: 'XDSL', condition: 'REPARADO', price: 3.64, quantity: 0 },
-  ];
+export type BICostRow = {
+  tech: string;
+  condition: string;
+  price: number;
+  quantity: number;
+};
 
-  if (!supabase) return pricingTable;
+const BI_PRICING_TABLE: Omit<BICostRow, 'quantity'>[] = [
+  { tech: 'EMTA', condition: 'REACONDICIONADO', price: 2.78 },
+  { tech: 'EMTA', condition: 'REPARADO', price: 4.32 },
+  { tech: 'STB-HFC', condition: 'REACONDICIONADO', price: 2.78 },
+  { tech: 'STB-HFC', condition: 'REPARADO', price: 3.64 },
+  { tech: 'ONT', condition: 'REACONDICIONADO', price: 2.78 },
+  { tech: 'ONT', condition: 'REPARADO', price: 3.64 },
+  { tech: 'DTH', condition: 'REACONDICIONADO', price: 4.97 },
+  { tech: 'DTH', condition: 'REPARADO', price: 5.97 },
+  { tech: 'IPTV', condition: 'REACONDICIONADO', price: 2.78 },
+  { tech: 'IPTV', condition: 'REPARADO', price: 3.64 },
+  { tech: 'SWITCH', condition: 'REACONDICIONADO', price: 2.16 },
+  { tech: 'XDSL', condition: 'REACONDICIONADO', price: 3.64 },
+  { tech: 'XDSL', condition: 'REPARADO', price: 3.64 },
+];
 
-  const startOfMonth = new Date();
-  startOfMonth.setDate(1);
-  startOfMonth.setHours(0, 0, 0, 0);
-  const endOfDay = new Date();
-  endOfDay.setHours(23, 59, 59, 999);
+function emptyBIPricingTable(): BICostRow[] {
+  return BI_PRICING_TABLE.map((r) => ({ ...r, quantity: 0 }));
+}
 
-  // Fetch workshop jobs — model vía service_orders.model_id (evita embed ambiguo series↔OS)
-  const { data: jobs, error: jobsError } = await supabase
-    .from('workshop_jobs')
-    .select(`
-      result,
-      service_orders (
-        models ( name )
-      )
-    `)
-    .gte('created_at', startOfMonth.toISOString())
-    .lte('created_at', endOfDay.toISOString());
-
-  if (jobsError) {
-    console.warn('getBIData workshop_jobs:', jobsError.message);
+/**
+ * Desglose de costos por tecnología (vía API server — evita RLS en audit).
+ * Cuenta 1 OS al llegar a Equipo Listo (Reacondicionado vs Reparación/QC).
+ */
+export async function getBIData(timeRange: string = 'Este Mes'): Promise<BICostRow[]> {
+  const pricingTable = emptyBIPricingTable();
+  try {
+    const { fetchBICostBreakdownFromApi } = await import('@/lib/api/kpiProjections');
+    const { rows } = await fetchBICostBreakdownFromApi(timeRange);
+    if (Array.isArray(rows) && rows.length > 0) {
+      // Fusionar con tabla canónica de precios (por si el API omite filas a 0).
+      const byKey = new Map(
+        rows.map((r) => [`${r.tech}|${r.condition}`, r] as const)
+      );
+      return pricingTable.map((base) => {
+        const hit = byKey.get(`${base.tech}|${base.condition}`);
+        return hit
+          ? {
+              tech: base.tech,
+              condition: base.condition,
+              price: base.price,
+              quantity: Number(hit.quantity) || 0,
+            }
+          : base;
+      });
+    }
+  } catch (err) {
+    console.warn('getBIData API failed:', err);
   }
-
-  if (jobs) {
-    jobs.forEach((job: any) => {
-      // Determine condition
-      let condition = '';
-      if (job.result === 'reacondicionado') condition = 'REACONDICIONADO';
-      else if (job.result === 'reparacion' || job.result === 'reparado') condition = 'REPARADO';
-      
-      if (!condition) return;
-
-      const modelName = String(job.service_orders?.models?.name || '').toUpperCase();
-
-      // Determine technology from model name (fallback to ONT if not found to catch stragglers, or just try to match)
-      let tech = 'ONT'; // default
-      if (modelName.includes('EMTA')) tech = 'EMTA';
-      else if (modelName.includes('STB') || modelName.includes('HFC')) tech = 'STB-HFC';
-      else if (modelName.includes('DTH')) tech = 'DTH';
-      else if (modelName.includes('IPTV')) tech = 'IPTV';
-      else if (modelName.includes('SWITCH')) tech = 'SWITCH';
-      else if (modelName.includes('XDSL') || modelName.includes('DSL')) tech = 'XDSL';
-      else if (modelName.includes('ONT')) tech = 'ONT';
-
-      // Find row in pricing table and increment
-      const row = pricingTable.find(r => r.tech === tech && r.condition === condition);
-      if (row) {
-        row.quantity++;
-      } else {
-        // Fallback for switch with reparado that doesn't exist in table?
-        const fallbackRow = pricingTable.find(r => r.tech === 'ONT' && r.condition === condition);
-        if (fallbackRow) fallbackRow.quantity++;
-      }
-    });
-  }
-
   return pricingTable;
 }
 

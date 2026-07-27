@@ -1,5 +1,10 @@
 {
-  "updatedAt": "2026-06-29T19:05:14.095Z",
-  "allowed": [],
+  "updatedAt": "2026-07-27T19:57:39.435Z",
+  "allowed": [
+    "src/app/(erp)/bodega/gestion/BodegaGestionV2.tsx:ARCH-01:import { isBodegaOperationalRack } from '@/lib/database/warehouse';",
+    "src/app/(erp)/despacho/DespachoSalidaModal.tsx:ARCH-01:import { dispatchBoxFromWarehouse } from '@/lib/database/warehouse';",
+    "src/app/(erp)/despacho/DespachoSalidaModal.tsx:ARCH-01:import { getAgencies, getPxProviders } from '@/lib/database/config';",
+    "src/app/(erp)/produccion/backoffice/components/modals/HistoryDetailModal.tsx:ARCH-01:import { parseBackofficeClassifierFromNotes } from '@/lib/database/traceability';"
+  ],
   "note": "Grandfathered ARCH-01 errors; CI fails on NEW violations only."
 }

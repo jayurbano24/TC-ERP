@@ -84,7 +84,10 @@ export default function GeneralDashboardPage() {
     staleTime: 60_000,
   });
   const engineQuery = useQuery({ queryKey: ['dashboard-engine', timeRange], queryFn: () => getEngineKPIs(timeRange) });
-  const biQuery = useQuery({ queryKey: ['dashboard-bi'], queryFn: () => getBIData() });
+  const biQuery = useQuery({
+    queryKey: ['dashboard-bi', timeRange],
+    queryFn: () => getBIData(timeRange),
+  });
   const storageQuery = useQuery({ queryKey: ['dashboard-storage'], queryFn: () => getStorageData() });
 
   const kpis = kpisQuery.data ?? EMPTY_KPIS;
@@ -231,7 +234,13 @@ export default function GeneralDashboardPage() {
             </div>
 
             <Card className="p-8">
-              <h2 className="text-xl font-bold text-[var(--heading)] mb-6 border-b border-[var(--border)] pb-4">Desglose de Costos por Tecnología</h2>
+              <div className="mb-6 border-b border-[var(--border)] pb-4">
+                <h2 className="text-xl font-bold text-[var(--heading)]">Desglose de Costos por Tecnología</h2>
+                <p className="mt-1 text-xs text-[var(--muted)]">
+                  Misma cola que Taller → Equipo Listo, clasificada por ruta (Reacondicionado / Reparado vía QC).
+                  Periodo {timeRange}: solo OS de esa cola que llegaron a Listo en el rango.
+                </p>
+              </div>
               
               {/* Table Controls (Show / Search) */}
               <div className="flex flex-col sm:flex-row justify-between items-center mb-4 text-sm text-[var(--muted)]">

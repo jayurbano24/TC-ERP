@@ -69,3 +69,29 @@ export async function fetchWorkshopOsCountsFromApi(): Promise<WorkshopOsByStage 
     scraps: c.scraps ?? 0,
   };
 }
+
+export type BICostBreakdownRow = {
+  tech: string;
+  condition: string;
+  price: number;
+  quantity: number;
+};
+
+export async function fetchBICostBreakdownFromApi(
+  timeRange: string
+): Promise<{ rows: BICostBreakdownRow[]; source: string; countedOs: number }> {
+  const res = await handleKpiResponse(
+    await apiFetch(
+      `/api/v1/kpi/bi-cost-breakdown?timeRange=${encodeURIComponent(timeRange)}`
+    )
+  );
+  if (!res.ok) {
+    throw new Error(`KPI BI cost API ${res.status}`);
+  }
+  const body = await res.json();
+  return {
+    rows: (body.rows || []) as BICostBreakdownRow[],
+    source: String(body.source || 'unknown'),
+    countedOs: Number(body.countedOs || 0),
+  };
+}

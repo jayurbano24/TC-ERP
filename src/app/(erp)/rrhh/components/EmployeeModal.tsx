@@ -512,6 +512,11 @@ export default function EmployeeModal({
                       <option value="">-- Seleccione --</option>
                       {shifts.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
+                    {shifts.length === 0 && (
+                      <p className="text-[10px] font-semibold text-amber-600">
+                        No hay horarios. Créalos en RRHH → Catálogos → Horarios.
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <label className="text-xs font-bold uppercase tracking-widest text-slate-500">Fecha Ingreso *</label>

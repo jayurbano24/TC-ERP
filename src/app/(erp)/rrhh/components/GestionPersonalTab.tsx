@@ -47,8 +47,16 @@ export default function GestionPersonalTab() {
         setEmployees(empData.map((emp) => ({ ...emp, face_embedding: bioSet.has(emp.id) ? true : null })));
       }
 
-      const { data: shiftData } = await supabase.from('company_shifts').select(COMPANY_SHIFT_SELECT);
-      if (shiftData) setShifts(shiftData);
+      const { data: shiftData, error: shiftErr } = await supabase
+        .from('company_shifts')
+        .select(COMPANY_SHIFT_SELECT)
+        .order('name');
+      if (shiftErr) {
+        console.error('[rrhh] company_shifts:', shiftErr.message);
+        notify.error('No se pudieron cargar los horarios');
+      } else if (shiftData) {
+        setShifts(shiftData);
+      }
 
       const { data: dptData } = await supabase.from('hr_departments').select(HR_DEPARTMENT_SELECT).order('name');
       if (dptData) setDepartments(dptData);

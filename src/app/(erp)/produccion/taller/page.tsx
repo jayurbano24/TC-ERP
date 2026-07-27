@@ -1411,7 +1411,44 @@ ${funcNotes || 'Ninguno evaluado'}
                 ) : (
                   historyItems.map((record: any) => {
                     const isDiagnostic = record.action === 'DIAGNÓSTICO INICIAL COMPLETADO';
+                    const isWorkshopComplete =
+                      isDiagnostic || String(record.action || '').includes('COMPLETAD');
                     const payload = record.payload || {};
+                    const statusLabel = (status: string) => {
+                      if (status === 'in_workshop') return 'DIAGNÓSTICO';
+                      if (status === 'in_qc') return 'REPARACIÓN';
+                      if (status === 'in_validation') return 'CONTROL DE CALIDAD';
+                      if (status === 'in_control_warehouse') return 'L3';
+                      if (status === 'ready_to_dispatch') return 'REACONDICIONADO';
+                      if (status === 'scrapped' || status === 'irreparable') return 'SCRAPS';
+                      if (status === 'in_central_warehouse') return 'EQUIPO LISTO / BODEGA';
+                      if (status === 'RECEPCIONADO_BODEGA_GENERAL') return 'BACKOFFICE';
+                      return String(status).replace(/_/g, ' ').toUpperCase();
+                    };
+                    const lifecycleComment =
+                      (typeof payload.notes === 'string' && payload.notes) ||
+                      (typeof payload.observations === 'string' && payload.observations) ||
+                      (typeof payload.comment === 'string' && payload.comment) ||
+                      (typeof payload.box === 'string' && `Caja ${payload.box}`) ||
+                      '';
+                    const hidePayloadKeys = new Set([
+                      'reason',
+                      'status',
+                      'notes',
+                      'observations',
+                      'comment',
+                      'operator_name',
+                      'registered_by',
+                      'classified_by',
+                      'source',
+                      'box',
+                      'box_id',
+                      'nextStatus',
+                      'result',
+                      'items',
+                      'repairs',
+                      'diagnostics',
+                    ]);
                     return (
                       <div className="relative" key={record.id}>
                         <div
@@ -1434,7 +1471,7 @@ ${funcNotes || 'Ninguno evaluado'}
                             {record.profiles?.full_name?.toUpperCase() || 'SISTEMA'}
                           </p>
                           <div className="mt-2 rounded-lg border border-[var(--border)] bg-[var(--surface-hover)] p-2.5 text-[10px] leading-snug text-[var(--foreground)]">
-                            {isDiagnostic || record.action.includes('COMPLETAD') ? (
+                            {isWorkshopComplete ? (
                               <>
                                 {payload.result && (
                                   <p><strong>Resultado:</strong> {
@@ -1464,43 +1501,43 @@ ${funcNotes || 'Ninguno evaluado'}
                                   <div className="mt-2">
                                     <span className="inline-flex items-center gap-1.5 rounded-md bg-[var(--primary)] px-2 py-1 text-[9px] font-black tracking-wide text-[var(--primary-foreground)]">
                                       <span className="text-white/60">DERIVADO A:</span>
-                                      {
-                                        payload.nextStatus === 'in_workshop' ? 'DIAGNÓSTICO' :
-                                        payload.nextStatus === 'in_qc' ? 'REPARACIÓN' :
-                                        payload.nextStatus === 'in_validation' ? 'CONTROL DE CALIDAD' :
-                                        payload.nextStatus === 'in_control_warehouse' ? 'L3' :
-                                        payload.nextStatus === 'ready_to_dispatch' ? 'REACONDICIONADO' :
-                                        payload.nextStatus === 'scrapped' || payload.nextStatus === 'irreparable' ? 'SCRAPS' :
-                                        payload.nextStatus === 'in_central_warehouse' ? 'EQUIPO LISTO' :
-                                        payload.nextStatus
-                                      }
+                                      {statusLabel(String(payload.nextStatus))}
                                     </span>
                                   </div>
                                 )}
                               </>
                             ) : (
                               <div className="space-y-2">
-                                {payload.reason && <p className="text-[10px]"><strong>Motivo:</strong> {payload.reason}</p>}
+                                {payload.reason && (
+                                  <p className="text-[10px]">
+                                    <strong>Motivo:</strong> {payload.reason}
+                                  </p>
+                                )}
+                                {lifecycleComment && (
+                                  <p className="whitespace-pre-wrap text-[10px]">
+                                    <strong>Detalle:</strong> {lifecycleComment}
+                                  </p>
+                                )}
                                 {payload.status && (
                                   <div>
                                     <span className="inline-flex items-center gap-1.5 rounded-md bg-[var(--primary)] px-2 py-1 text-[9px] font-black tracking-wide text-[var(--primary-foreground)]">
-                                      <span className="text-white/60">NUEVO ESTADO:</span>
-                                      {
-                                        payload.status === 'in_workshop' ? 'DIAGNÓSTICO' :
-                                        payload.status === 'in_qc' ? 'REPARACIÓN' :
-                                        payload.status === 'in_validation' ? 'CONTROL DE CALIDAD' :
-                                        payload.status === 'in_control_warehouse' ? 'L3' :
-                                        payload.status === 'ready_to_dispatch' ? 'REACONDICIONADO' :
-                                        payload.status === 'scrapped' || payload.status === 'irreparable' ? 'SCRAPS' :
-                                        payload.status === 'in_central_warehouse' ? 'EQUIPO LISTO' :
-                                        payload.status.toUpperCase()
-                                      }
+                                      <span className="text-white/60">ESTADO:</span>
+                                      {statusLabel(String(payload.status))}
                                     </span>
                                   </div>
                                 )}
-                                {Object.keys(payload).filter(k => k !== 'reason' && k !== 'status').map(k => (
-                                  <p key={k}><strong>{k}:</strong> {String(payload[k])}</p>
-                                ))}
+                                {Object.keys(payload)
+                                  .filter((k) => !hidePayloadKeys.has(k))
+                                  .filter((k) => {
+                                    const v = payload[k];
+                                    return v !== null && v !== undefined && v !== '' && typeof v !== 'object';
+                                  })
+                                  .slice(0, 6)
+                                  .map((k) => (
+                                    <p key={k}>
+                                      <strong>{k}:</strong> {String(payload[k])}
+                                    </p>
+                                  ))}
                               </div>
                             )}
                           </div>

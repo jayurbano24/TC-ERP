@@ -154,7 +154,10 @@ export default function SeguridadPage() {
     try {
       const supabase = getSupabaseBrowserClient();
       if (supabase) {
-        const { data: emps } = await supabase.from('employees').select('id, codigo_empleado, nombre_completo').order('nombre_completo');
+        const { data: emps } = await supabase
+          .from('employees')
+          .select('id, codigo_empleado, nombre_completo, email')
+          .order('nombre_completo');
         if (emps) setHrEmployees(emps);
       }
       
@@ -249,6 +252,167 @@ export default function SeguridadPage() {
     setNewPassword('');
   };
 
+  /** Dominio de correo de ingreso (siempre corporativo TC). */
+  const resolveCompanyEmailDomain = (): string => 'techcorps.com';
+
+  /**
+   * Genera correo de ingreso si RRHH no lo tiene.
+   * LATAM: inicial del nombre + apellido paterno → sveliz@dominio
+   * (STEVEN OTTONIEL VELIZ LOPEZ → sveliz@…)
+   */
+  const suggestLoginEmail = (nombreCompleto: string, codigoEmpleado: string, domain: string): string => {
+    const parts = nombreCompleto
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/\p{M}/gu, '')
+      .replace(/[^a-z\s]/g, '')
+      .split(/\s+/)
+      .filter(Boolean);
+
+    let local = '';
+    if (parts.length >= 4) {
+      // 2 nombres + 2 apellidos → inicial + apellido paterno
+      local = `${parts[0][0]}${parts[parts.length - 2]}`;
+    } else if (parts.length === 3) {
+      // 1 nombre + 2 apellidos → inicial + apellido paterno
+      local = `${parts[0][0]}${parts[1]}`;
+    } else if (parts.length === 2) {
+      local = `${parts[0]}.${parts[1]}`;
+    } else if (parts.length === 1) {
+      local = parts[0];
+    }
+
+    if (!local && codigoEmpleado) {
+      local = codigoEmpleado.toLowerCase().replace(/[^a-z0-9]/g, '');
+    }
+    if (!local) return '';
+    return `${local}@${domain}`;
+  };
+
+  /**
+   * Al enlazar empleado RRHH → nombre + correo (del expediente o generado para ingreso).
+   */
+  const applyEmployeeToProfile = async (
+    employeeId: string,
+    fromOption?: { name?: string; email?: string; label?: string }
+  ) => {
+    if (!employeeId) {
+      setProfileData((prev) => ({
+        ...prev,
+        employee_id: '',
+        full_name: '',
+        email: '',
+      }));
+      return;
+    }
+
+    const nameFromLabel = (label: string): string => {
+      let s = label.replace(/\s*\([^)]*@[^)]*\)\s*$/u, '').trim();
+      s = s.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+      const parts = s.split(/\s*[-–—]\s*/);
+      if (parts.length >= 2) {
+        const head = parts[0].trim();
+        if (/^EMP-\d+/i.test(head) || /^[A-Z]{2,6}-\d+/i.test(head)) {
+          return parts.slice(1).join(' - ').trim();
+        }
+        return parts.slice(1).join(' - ').trim();
+      }
+      return s;
+    };
+
+    const emailFromLabel = (label: string): string => {
+      const m = label.match(/\(([^)]+@[^)]+)\)\s*$/u);
+      return m?.[1]?.trim().toLowerCase() || '';
+    };
+
+    let emp = hrEmployees.find((e) => String(e.id) === String(employeeId)) || null;
+
+    const supabase = getSupabaseBrowserClient();
+    if (supabase) {
+      const { data: fresh, error } = await supabase
+        .from('employees')
+        .select('id, codigo_empleado, nombre_completo, email')
+        .eq('id', employeeId)
+        .maybeSingle();
+      if (!error && fresh) {
+        emp = fresh;
+        setHrEmployees((prev) => {
+          const i = prev.findIndex((e) => String(e.id) === String(employeeId));
+          if (i < 0) return [...prev, fresh];
+          const next = [...prev];
+          next[i] = { ...next[i], ...fresh };
+          return next;
+        });
+      }
+    }
+
+    const fullName = String(
+      emp?.nombre_completo ||
+        fromOption?.name ||
+        (fromOption?.label ? nameFromLabel(fromOption.label) : '') ||
+        ''
+    ).trim();
+
+    const codigo = String(emp?.codigo_empleado || '').trim();
+    const emailFromDb = String(
+      emp?.email || fromOption?.email || (fromOption?.label ? emailFromLabel(fromOption.label) : '') || ''
+    )
+      .trim()
+      .toLowerCase();
+
+    const domain = resolveCompanyEmailDomain();
+    const suggested = !emailFromDb && fullName ? suggestLoginEmail(fullName, codigo, domain) : '';
+    const email = emailFromDb || suggested;
+
+    setProfileData((prev) => ({
+      ...prev,
+      employee_id: employeeId,
+      full_name: fullName,
+      email,
+    }));
+
+    if (!emailFromDb && email) {
+      notify.info('Correo generado para ingreso', {
+        description: `Se propuso ${email}. Puedes editarlo antes de guardar.`,
+      });
+    }
+  };
+
+  // Completar nombre/correo si el empleado ya está elegido y faltan datos.
+  useEffect(() => {
+    if (!userProfileModal?.isNew) return;
+    if (!profileData.employee_id) return;
+    if (hrEmployees.length === 0) return;
+
+    const needsName = !String(profileData.full_name || '').trim();
+    const needsEmail = !String(profileData.email || '').trim();
+    if (!needsName && !needsEmail) return;
+
+    const emp = hrEmployees.find((e) => String(e.id) === String(profileData.employee_id));
+    if (!emp) return;
+
+    const name = String(emp.nombre_completo || '').trim();
+    const codigo = String(emp.codigo_empleado || '').trim();
+    const emailFromDb = String(emp.email || '').trim().toLowerCase();
+    const domain = resolveCompanyEmailDomain();
+    const email = emailFromDb || (name ? suggestLoginEmail(name, codigo, domain) : '');
+
+    if ((needsName && !name) && (needsEmail && !email)) return;
+
+    setProfileData((prev) => ({
+      ...prev,
+      full_name: needsName ? name || prev.full_name : prev.full_name,
+      email: needsEmail ? email || prev.email : prev.email,
+    }));
+  }, [
+    userProfileModal?.isNew,
+    profileData.employee_id,
+    profileData.full_name,
+    profileData.email,
+    hrEmployees,
+  ]);
+
   const handleSaveProfile = async () => {
     if (!userProfileModal) return;
     if (!canEditSeguridad) {
@@ -273,9 +437,23 @@ export default function SeguridadPage() {
     }
 
     if (userProfileModal.isNew) {
-      // Create new user
+      // Create / link from empleado RRHH
+      if (!profileData.employee_id) {
+        notify.warning('Empleado requerido', {
+          description: 'Selecciona el empleado RRHH para completar nombre y correo de ingreso.',
+        });
+        setActionLoading(false);
+        return;
+      }
       if (!profileData.email || !newPassword || !profileData.full_name) {
-        notify.warning('Datos incompletos', { description: 'Correo, Contraseña y Nombre son obligatorios para nuevos usuarios.' });
+        notify.warning('Datos incompletos', {
+          description: 'Falta correo, nombre o contraseña.',
+        });
+        setActionLoading(false);
+        return;
+      }
+      if (!profileData.role_id) {
+        notify.warning('Rol requerido', { description: 'Selecciona el rol en el sistema.' });
         setActionLoading(false);
         return;
       }
@@ -290,6 +468,18 @@ export default function SeguridadPage() {
         notify.error('Error creando usuario', { description: res.error });
         setActionLoading(false);
         return;
+      }
+
+      if ('linked' in res && res.linked) {
+        notify.success('Usuario enlazado', {
+          description:
+            res.message ||
+            'La cuenta ya existía: se actualizó la clave y el vínculo con el empleado.',
+        });
+      } else {
+        notify.success('Usuario creado', {
+          description: res.message || 'Cuenta de acceso creada correctamente.',
+        });
       }
       
       // If we uploaded a file for a new user, we'd need to upload it AFTER user creation
@@ -373,6 +563,25 @@ export default function SeguridadPage() {
     if (!userSearch) return true;
     const term = userSearch.toLowerCase();
     return u.full_name?.toLowerCase().includes(term) || u.email?.toLowerCase().includes(term) || u.role?.toLowerCase().includes(term);
+  });
+
+  // Empleados RRHH que aún no tienen cuenta de acceso (employee_id ya enlazado).
+  const linkedEmployeeIds = new Set(
+    users
+      .map((u) => u.employee_id)
+      .filter((id): id is string => Boolean(id))
+      .map((id) => String(id))
+  );
+
+  const hrEmployeesWithoutAccount = hrEmployees.filter(
+    (e) => !linkedEmployeeIds.has(String(e.id))
+  );
+
+  // En edición: libres + el empleado ya enlazado a este perfil (para no perderlo del select).
+  const hrEmployeesAvailableToLink = hrEmployees.filter((e) => {
+    const id = String(e.id);
+    if (profileData.employee_id && id === String(profileData.employee_id)) return true;
+    return !linkedEmployeeIds.has(id);
   });
 
   // Usuarios del rol actual para la pestaña "roles"
@@ -894,13 +1103,56 @@ export default function SeguridadPage() {
 
                {/* Derecha: Datos y Seguridad */}
                <div className="flex-1 space-y-6">
+                  {userProfileModal.isNew && (
+                    <div>
+                      <label className="mb-1 flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-[var(--heading)]">
+                        <Users size={12} /> Empleado RRHH (Obligatorio)
+                      </label>
+                      <select
+                        value={profileData.employee_id || ''}
+                        onChange={(e) => {
+                          const id = e.target.value;
+                          const opt = e.target.selectedOptions?.[0];
+                          applyEmployeeToProfile(id, {
+                            name: opt?.getAttribute('data-name') || '',
+                            email: opt?.getAttribute('data-email') || '',
+                            label: opt?.textContent || '',
+                          });
+                        }}
+                        className="h-10 w-full rounded-lg border-2 border-emerald-100 bg-emerald-50 px-3 text-sm font-bold text-emerald-900 outline-none transition-all focus:border-emerald-400"
+                      >
+                        <option value="">-- Selecciona el empleado --</option>
+                        {hrEmployeesWithoutAccount.map((e) => (
+                          <option
+                            key={e.id}
+                            value={e.id}
+                            data-name={String(e.nombre_completo || '').trim()}
+                            data-email={String(e.email || '').trim()}
+                          >
+                            {e.codigo_empleado} - {e.nombre_completo || 'Sin nombre'}
+                            {e.email ? ` (${e.email})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-1 text-[10px] font-medium text-[var(--muted)]">
+                        Solo aparecen empleados sin cuenta. Nombre y correo se completan al elegir; defines rol y contraseña.
+                      </p>
+                    </div>
+                  )}
+
                   <div>
                      <label className="text-[10px] font-black text-[var(--heading)] uppercase tracking-widest block mb-1">Nombre Completo</label>
                      <input 
                         type="text" 
                         value={profileData.full_name}
                         onChange={e => setProfileData({...profileData, full_name: e.target.value})}
-                        className="w-full h-10 px-3 bg-[var(--surface)] border-2 border-[var(--border)] rounded-lg text-sm font-bold outline-none focus:border-[var(--accent)] transition-all"
+                        readOnly={Boolean(userProfileModal.isNew && profileData.employee_id)}
+                        className={`w-full h-10 px-3 border-2 border-[var(--border)] rounded-lg text-sm font-bold outline-none transition-all ${
+                          userProfileModal.isNew && profileData.employee_id
+                            ? 'bg-[var(--surface-hover)] text-[var(--heading)] cursor-default'
+                            : 'bg-[var(--surface)] focus:border-[var(--accent)]'
+                        }`}
+                        placeholder="Se completa al elegir empleado"
                      />
                   </div>
                   <div>
@@ -912,8 +1164,18 @@ export default function SeguridadPage() {
                         value={profileData.email}
                         onChange={e => setProfileData({...profileData, email: e.target.value})}
                         disabled={!userProfileModal.isNew}
-                        className={`w-full h-10 px-3 border-2 border-[var(--border)] rounded-lg text-sm font-bold outline-none transition-all ${userProfileModal.isNew ? 'bg-[var(--surface)] focus:border-[var(--accent)] text-[var(--heading)]' : 'bg-[var(--surface-hover)] text-[var(--muted)] cursor-not-allowed'}`}
+                        className={`w-full h-10 px-3 border-2 border-[var(--border)] rounded-lg text-sm font-bold outline-none transition-all ${
+                          !userProfileModal.isNew
+                            ? 'bg-[var(--surface-hover)] text-[var(--muted)] cursor-not-allowed'
+                            : 'bg-[var(--surface)] focus:border-[var(--accent)] text-[var(--heading)]'
+                        }`}
+                        placeholder="se genera al elegir empleado"
                      />
+                     {userProfileModal.isNew && profileData.employee_id && profileData.email && (
+                       <p className="mt-1 text-[10px] font-medium text-[var(--muted)]">
+                         Correo de ingreso (del expediente o generado). Puedes editarlo antes de guardar.
+                       </p>
+                     )}
                   </div>
                   <div>
                      <label className="text-[10px] font-black text-[var(--heading)] uppercase tracking-widest block mb-1">Rol en el Sistema</label>
@@ -927,21 +1189,44 @@ export default function SeguridadPage() {
                      </select>
                   </div>
 
+                  {!userProfileModal.isNew && (
                   <div>
                      <label className="text-[10px] font-black text-[var(--heading)] uppercase tracking-widest block mb-1 flex items-center gap-1"><Users size={12}/> Enlazar a Empleado (RRHH)</label>
                      <select 
                         value={profileData.employee_id || ''}
-                        onChange={e => setProfileData({...profileData, employee_id: e.target.value})}
+                        onChange={(e) => {
+                          const id = e.target.value;
+                          const opt = e.target.selectedOptions?.[0];
+                          applyEmployeeToProfile(id, {
+                            name: opt?.getAttribute('data-name') || '',
+                            email: opt?.getAttribute('data-email') || '',
+                            label: opt?.textContent || '',
+                          });
+                        }}
                         className="w-full h-10 px-3 bg-emerald-50 border-2 border-emerald-100 rounded-lg text-sm font-bold text-emerald-900 outline-none focus:border-emerald-400 transition-all"
                      >
                         <option value="">-- Sin cuenta de empleado --</option>
-                        {hrEmployees.map(e => <option key={e.id} value={e.id}>{e.codigo_empleado} - {e.nombre_completo}</option>)}
+                        {hrEmployeesAvailableToLink.map(e => (
+                          <option
+                            key={e.id}
+                            value={e.id}
+                            data-name={String(e.nombre_completo || '').trim()}
+                            data-email={String(e.email || '').trim()}
+                          >
+                            {e.codigo_empleado} - {e.nombre_completo || 'Sin nombre'}
+                            {e.email ? ` (${e.email})` : ''}
+                          </option>
+                        ))}
                      </select>
+                     <p className="mt-1 text-[10px] font-medium text-[var(--muted)]">
+                       No se listan empleados que ya tienen otra cuenta enlazada.
+                     </p>
                   </div>
+                  )}
                   
                   <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
                      <label className="text-[10px] font-black text-amber-700 uppercase tracking-widest block mb-1 flex items-center gap-1"><KeyRound size={12}/> {userProfileModal.isNew ? 'Contraseña (Obligatoria)' : 'Forzar Cambio de Contraseña'}</label>
-                     <p className="text-[10px] text-amber-600 mb-2 leading-tight">{userProfileModal.isNew ? 'Escribe la contraseña inicial para este usuario.' : 'Si escribes aquí, la contraseña del usuario será reemplazada. Déjalo en blanco para no cambiarla.'}</p>
+                     <p className="text-[10px] text-amber-600 mb-2 leading-tight">{userProfileModal.isNew ? 'Define rol y contraseña. Si el correo ya existe en Auth, se enlaza la cuenta y se reemplaza la clave.' : 'Si escribes aquí, la contraseña del usuario será reemplazada. Déjalo en blanco para no cambiarla.'}</p>
                      <input 
                         type="password" 
                         value={newPassword}

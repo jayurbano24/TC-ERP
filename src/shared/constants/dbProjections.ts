@@ -59,7 +59,8 @@ export const ERP_ROLE_PERMISSION_SELECT =
 export const HR_POSITION_SELECT = 'id, name, description';
 export const HR_DEPARTMENT_SELECT = 'id, name';
 export const HR_EMPLOYEE_TYPE_SELECT = 'id, name';
-export const COMPANY_SHIFT_SELECT = 'id, name, start_time, end_time';
+export const COMPANY_SHIFT_SELECT =
+  'id, name, weekly_schedule, ventana_desayuno_inicio, ventana_desayuno_fin, ventana_almuerzo_inicio, ventana_almuerzo_fin';
 export const ERP_USER_SECURITY_SELECT =
   'user_id, force_pwd_change, require_2fa, failed_attempts, locked_until, allowed_ips, updated_at';
 

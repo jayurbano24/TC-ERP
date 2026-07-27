@@ -18,6 +18,24 @@ export function resolveWorkshopNextStatus(result: string): string {
   return 'in_workshop';
 }
 
+/** Resultados válidos por acción de etapa (evita saltos de flujo desde el cliente). */
+const ALLOWED_RESULTS_BY_ACTION: Record<string, readonly string[]> = {
+  'DIAGNÓSTICO INICIAL COMPLETADO': ['reacondicionado', 'reparacion', 'l3', 'scraps'],
+  'REPARACIÓN COMPLETADA': ['control_calidad', 'reacondicionado', 'l3', 'scraps'],
+  'REACONDICIONADO COMPLETADO': ['control_calidad', 'reparacion', 'l3', 'scraps'],
+  'CONTROL DE CALIDAD COMPLETADO': ['listo', 'rechazado_qc'],
+};
+
+export function assertAllowedWorkshopResult(actionName: string, result: string): void {
+  const allowed = ALLOWED_RESULTS_BY_ACTION[actionName];
+  if (!allowed) return;
+  if (!allowed.includes(result)) {
+    throw new BusinessException(
+      `Resultado "${result}" no permitido en ${actionName}. Opciones: ${allowed.join(', ')}.`
+    );
+  }
+}
+
 /** Estados de pipeline de taller: un equipo (OS) no se parte entre etapas. */
 const WORKSHOP_PIPELINE_STATUSES = [
   'in_workshop',
@@ -94,7 +112,7 @@ export type WorkshopOperateParams = {
 
 /** Actualiza series + auditoría en lotes (servidor, sin N round-trips al browser). */
 export async function operateWorkshopSeriesBatch(
-  supabase: SupabaseClient,
+  _userClient: SupabaseClient,
   params: WorkshopOperateParams
 ): Promise<{ processed: number }> {
   const { seriesIds, result, notes, selectedDiagnostics = [], actionName, userId, userRole, operatorName } =
@@ -134,6 +152,8 @@ export async function operateWorkshopSeriesBatch(
     throw new BusinessException(prerequisiteCheck.message);
   }
 
+  assertAllowedWorkshopResult(actionName, result);
+
   const nextStatus = resolveWorkshopNextStatus(result);
   const updateData: Record<string, unknown> = { current_status: nextStatus };
   if (actionName === 'DIAGNÓSTICO INICIAL COMPLETADO') {
@@ -155,14 +175,26 @@ export async function operateWorkshopSeriesBatch(
 
   let processed = 0;
 
+  // Update con service role: el endpoint ya autenticó al operador. El client RLS
+  // del usuario puede devolver success con 0 filas (p.ej. puesto "TECNICO JUNIOR"
+  // sin enum operacional `tecnico`) → toast verde y la serie se queda en etapa.
+
   for (const chunk of chunkIds(targetSeriesIds)) {
-    const { error: updateError } = await supabase
+    const { data: updatedRows, error: updateError } = await admin
       .from('series')
       .update(updateData)
-      .in('id', chunk);
+      .in('id', chunk)
+      .select('id');
 
     if (updateError) {
       throw new Error(updateError.message);
+    }
+
+    const updatedCount = updatedRows?.length ?? 0;
+    if (updatedCount !== chunk.length) {
+      throw new Error(
+        `No se actualizaron todas las series (${updatedCount}/${chunk.length}). Reintente o revise permisos.`
+      );
     }
 
     const auditRows = chunk.map((recordId) => ({

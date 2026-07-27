@@ -572,7 +572,7 @@ export const OperationDrawer = memo(function OperationDrawer({
                     { label: 'L3 Avanzado', value: 'l3', variant: 'text-orange-600 border-orange-500/30 hover:border-orange-500 hover:bg-orange-50' },
                     { label: 'Scraps', value: 'scraps', variant: 'text-rose-600 border-rose-500/30 hover:border-rose-500 hover:bg-rose-50' }
                   ] : activeTab === 'reacondicionado' ? [
-                    { label: 'Equipo Listo', value: 'listo', variant: 'text-emerald-600 border-emerald-500/30 hover:border-emerald-500 hover:bg-emerald-50' },
+                    // Reacondicionado → QC (no saltar a Equipo Listo).
                     { label: 'Control Calidad', value: 'control_calidad', variant: 'text-purple-600 border-purple-500/30 hover:border-purple-500 hover:bg-purple-50' },
                     { label: 'Reparación L1/L2', value: 'reparacion', variant: 'text-blue-600 border-blue-500/30 hover:border-blue-500 hover:bg-blue-50' },
                     { label: 'Reparación L3', value: 'l3', variant: 'text-orange-600 border-orange-500/30 hover:border-orange-500 hover:bg-orange-50' },

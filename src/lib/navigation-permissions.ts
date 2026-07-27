@@ -16,6 +16,8 @@ export interface NavAuthz {
 const GESTION_FALLBACK_MODULES = new Set(['Reportes', 'Productividad', 'Costos']);
 
 const MODULE_ALIASES: Record<string, string[]> = {
+  Dashboard: ['Dashboard', 'Dashboard & BI'],
+  Consulta: ['Consulta'],
   'Recepción General': ['Recepción General', 'Recepción'],
   Reportes: ['Reportes'],
   'Recursos Humanos': ['Recursos Humanos', 'RRHH'],

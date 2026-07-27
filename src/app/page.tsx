@@ -9,6 +9,8 @@ import {
   LoginLayout,
 } from '@/components/auth';
 import { signInWithEmail } from '@/lib/auth';
+import { resolveHomePath } from '@/lib/auth/resolveHomePath';
+import { fetchAuthzMe } from '@/components/authz/AuthzProvider';
 import { registerUserSession } from '@/lib/userSession';
 
 export default function LoginPage() {
@@ -33,10 +35,21 @@ export default function LoginPage() {
       const authData = await signInWithEmail(loginIdentifier, password);
 
       if (authData?.user?.id) {
+        // Esperar a que la sesión quede usable para /api/* (cookies + Bearer).
+        await new Promise((r) => setTimeout(r, 150));
         await registerUserSession(authData.user.id);
       }
 
-      router.push('/dashboard');
+      // Aterrizaje según permisos: técnicos → Taller; no forzar Dashboard Gerencial.
+      let home = '/dashboard';
+      try {
+        const authz = await fetchAuthzMe();
+        home = resolveHomePath(authz);
+      } catch {
+        home = '/produccion/taller';
+      }
+
+      router.replace(home);
     } catch (err: unknown) {
       const raw =
         err instanceof Error ? err.message : 'Error inesperado al iniciar sesión.';

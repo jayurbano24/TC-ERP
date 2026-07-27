@@ -5,7 +5,7 @@ export async function signInWithEmail(identifier: string, password: string) {
 
   // Si no contiene '@', asumimos que es un nombre de usuario corto y le añadimos el dominio principal
   if (!normalizedIdentifier.includes('@')) {
-    normalizedIdentifier = `${normalizedIdentifier}@techcommwireless.com`;
+    normalizedIdentifier = `${normalizedIdentifier}@techcorps.com`;
   }
 
   const supabase = getSupabaseBrowserClient();

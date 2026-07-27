@@ -44,6 +44,7 @@ import { useCan } from '@/components/authz';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { Camera, Image as ImageIcon } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { formatAuditDiffEntries } from '@/shared/audit/formatAuditDiff';
 
 export default function SeguridadPage() {
   const [activeTab, setActiveTab] = useState<'users' | 'roles' | 'audit'>('roles');
@@ -160,20 +161,26 @@ export default function SeguridadPage() {
           .order('nombre_completo');
         if (emps) setHrEmployees(emps);
       }
-      
-      const rolesData = await getRoles();
-      if (!rolesData || rolesData.length === 0) {
-        setDbError("No se encontraron roles. O la base de datos está vacía, o el script SQL falló.");
+
+      const rolesResult = await getRoles();
+      const rolesData = rolesResult.roles || [];
+
+      if (rolesResult.error) {
+        setDbError(rolesResult.error);
+      } else if (!rolesData.length) {
+        setDbError(
+          'No hay puestos/roles en hr_positions. Crea cargos en RRHH → Catálogos, o revisa la sincronización de roles.'
+        );
       } else {
         setDbError(null);
       }
       setRoles(rolesData);
       if (rolesData.length > 0 && !selectedRole) setSelectedRole(rolesData[0]);
-      
+
       const usersData = await getUsersWithRoles();
       setUsers(usersData);
-    } catch (e: any) {
-      setDbError(e.message || "Error fatal de Base de Datos");
+    } catch (e: unknown) {
+      setDbError(e instanceof Error ? e.message : 'Error fatal de Base de Datos');
     }
   };
 
@@ -626,10 +633,10 @@ export default function SeguridadPage() {
       </div>
 
       {dbError && (
-        <div className="mb-6 bg-rose-50 border-2 border-rose-200 text-rose-700 p-4 rounded-xl flex items-center gap-3 animate-pulse">
-          <AlertTriangle size={24} />
+        <div className="mb-6 flex items-center gap-3 rounded-xl border-2 border-rose-200 bg-rose-50 p-4 text-rose-700">
+          <AlertTriangle size={24} className="shrink-0" />
           <div>
-            <h4 className="font-bold">Error de Base de Datos Detectado</h4>
+            <h4 className="font-bold">No se pudo cargar Seguridad</h4>
             <p className="text-sm">{dbError}</p>
           </div>
         </div>
@@ -1299,35 +1306,63 @@ export default function SeguridadPage() {
                 <Card padding="none" className="overflow-hidden border border-[var(--danger)]/20">
                   <div className="bg-[var(--danger)]/15 p-2 border-b border-[var(--danger)]/20 text-xs font-black uppercase text-[var(--danger)] tracking-widest text-center">Valores Anteriores</div>
                   <div className="p-4 bg-[var(--surface)] min-h-[150px] overflow-x-auto">
-                     {(!selectedLog.old_values || Object.keys(selectedLog.old_values).length === 0) ? (
-                        <p className="text-slate-400 italic text-center mt-10 text-xs">Sin valores anteriores registrados</p>
-                     ) : (
-                        <ul className="space-y-3">
-                           {Object.entries(selectedLog.old_values).map(([k, v]) => (
-                              <li key={k} className="flex flex-col border-b border-slate-50 pb-2">
-                                 <span className="text-[10px] font-black text-rose-400 uppercase">{k}</span>
-                                 <span className="text-sm text-slate-700 break-all">{String(v)}</span>
-                              </li>
+                     {(() => {
+                       const entries = formatAuditDiffEntries(
+                         selectedLog.old_values as Record<string, unknown> | null
+                       );
+                       if (entries.length === 0) {
+                         return (
+                           <p className="text-slate-400 italic text-center mt-10 text-xs">
+                             Sin valores anteriores (evento de creación o sin snapshot previo)
+                           </p>
+                         );
+                       }
+                       return (
+                         <ul className="space-y-3">
+                           {entries.map((e) => (
+                             <li key={e.key} className="flex flex-col border-b border-slate-50 pb-2">
+                               <span className="text-[10px] font-black text-rose-400 uppercase tracking-wide">
+                                 {e.label}
+                               </span>
+                               <span className="text-sm text-slate-700 break-words whitespace-pre-wrap">
+                                 {e.value}
+                               </span>
+                             </li>
                            ))}
-                        </ul>
-                     )}
+                         </ul>
+                       );
+                     })()}
                   </div>
                 </Card>
                 <Card padding="none" className="overflow-hidden border border-[var(--success)]/20">
                   <div className="bg-[var(--success)]/15 p-2 border-b border-[var(--success)]/20 text-xs font-black uppercase text-[var(--success)] tracking-widest text-center">Valores Nuevos</div>
                   <div className="p-4 bg-[var(--surface)] min-h-[150px] overflow-x-auto">
-                     {(!selectedLog.new_values || Object.keys(selectedLog.new_values).length === 0) ? (
-                        <p className="text-slate-400 italic text-center mt-10 text-xs">Sin valores nuevos registrados</p>
-                     ) : (
-                        <ul className="space-y-3">
-                           {Object.entries(selectedLog.new_values).map(([k, v]) => (
-                              <li key={k} className="flex flex-col border-b border-slate-50 pb-2">
-                                 <span className="text-[10px] font-black text-emerald-500 uppercase">{k}</span>
-                                 <span className="text-sm text-slate-700 break-all">{String(v)}</span>
-                              </li>
+                     {(() => {
+                       const entries = formatAuditDiffEntries(
+                         selectedLog.new_values as Record<string, unknown> | null
+                       );
+                       if (entries.length === 0) {
+                         return (
+                           <p className="text-slate-400 italic text-center mt-10 text-xs">
+                             Sin valores nuevos registrados
+                           </p>
+                         );
+                       }
+                       return (
+                         <ul className="space-y-3">
+                           {entries.map((e) => (
+                             <li key={e.key} className="flex flex-col border-b border-slate-50 pb-2">
+                               <span className="text-[10px] font-black text-emerald-500 uppercase tracking-wide">
+                                 {e.label}
+                               </span>
+                               <span className="text-sm text-slate-700 break-words whitespace-pre-wrap">
+                                 {e.value}
+                               </span>
+                             </li>
                            ))}
-                        </ul>
-                     )}
+                         </ul>
+                       );
+                     })()}
                   </div>
                 </Card>
               </div>

@@ -47,21 +47,44 @@ async function callerCan(action: 'view' | 'edit'): Promise<boolean> {
 }
 
 
+export type RoleRow = {
+  id: string;
+  name: string;
+  description: string;
+};
+
+export type GetRolesResult = {
+  roles: RoleRow[];
+  error?: string;
+  code?: 'unauthorized' | 'query_failed' | 'not_configured';
+};
+
 // Get all roles
-export async function getRoles() {
-  if (!(await callerCan('view'))) return [];
+export async function getRoles(): Promise<GetRolesResult> {
+  if (!(await callerCan('view'))) {
+    return {
+      roles: [],
+      code: 'unauthorized',
+      error:
+        'Sin permiso para ver el módulo Seguridad. Cierra sesión, vuelve a entrar o pide a un administrador can_view en Seguridad.',
+    };
+  }
   const supabase = getAdminClient();
-  if (!supabase) return [];
+  if (!supabase) {
+    return { roles: [], code: 'not_configured', error: 'Supabase no configurado en el servidor.' };
+  }
   const { data, error } = await supabase.from('hr_positions').select(HR_POSITION_SELECT).order('name');
   if (error) {
-    const errorMsg = error instanceof Error ? error.message : (error as any).message || JSON.stringify(error);
-    console.error("Error fetching roles:", errorMsg, error);
+    console.error('Error fetching roles:', error.message, error);
+    return { roles: [], code: 'query_failed', error: error.message };
   }
-  return (data || []).map(pos => ({
-    id: pos.id,
-    name: pos.name,
-    description: pos.description || `Puesto del departamento de RRHH`
-  }));
+  return {
+    roles: (data || []).map((pos) => ({
+      id: pos.id,
+      name: pos.name,
+      description: pos.description || 'Puesto del departamento de RRHH',
+    })),
+  };
 }
 
 // Get permissions for a specific role
@@ -136,6 +159,7 @@ export async function getUsersWithRoles() {
 
   if (profilesError) {
     console.error("Error fetching profiles as admin:", profilesError);
+    return [];
   }
 
   const { data: erpRoles } = await supabase.from('hr_positions').select(HR_POSITION_SELECT);

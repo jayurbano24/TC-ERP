@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, Badge, Button } from '@/components/ui';
 import { 
@@ -20,6 +21,11 @@ import { BodegaKpiView } from '@/components/dashboard/kpi/bodega-kpi-view';
 import { TallerKpiView } from '@/components/dashboard/kpi/taller-kpi-view';
 import { SalidaKpiView } from '@/components/dashboard/kpi/salida-kpi-view';
 import { ModulePage, ModuleToolbar } from '@/components/module-page';
+import { useAuthz } from '@/components/authz';
+import {
+  canViewGerencialDashboard,
+  resolveHomePath,
+} from '@/lib/auth/resolveHomePath';
 import { 
   BarChart3, 
   TrendingUp, 
@@ -50,6 +56,8 @@ const DEFAULT_METRICS: DashboardMetrics = {
 const DEFAULT_STORAGE = { ingresados: 0, despachados: 0, sinMovimiento60: 0, sinMovimiento90: 0 };
 
 export default function GeneralDashboardPage() {
+  const router = useRouter();
+  const authz = useAuthz();
   const queryClient = useQueryClient();
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editTargetValue, setEditTargetValue] = useState<string>('');
@@ -58,7 +66,20 @@ export default function GeneralDashboardPage() {
   
   const [sortConfig, setSortConfig] = useState<{key: string, direction: 'asc'|'desc'} | null>(null);
 
-  const kpisQuery = useQuery({ queryKey: ['dashboard-kpis', timeRange], queryFn: () => getDailyKPIs(timeRange) });
+  // Técnicos / roles sin Dashboard: redirigir a su módulo operativo (p. ej. Taller).
+  useEffect(() => {
+    if (authz.isLoading) return;
+    if (canViewGerencialDashboard(authz.snapshot)) return;
+    router.replace(resolveHomePath(authz.snapshot));
+  }, [authz.isLoading, authz.snapshot, router]);
+
+  const allowedGerencial = canViewGerencialDashboard(authz.snapshot);
+
+  const kpisQuery = useQuery({
+    queryKey: ['dashboard-kpis', timeRange],
+    queryFn: () => getDailyKPIs(timeRange),
+    enabled: allowedGerencial,
+  });
   const metricsQuery = useQuery({
     queryKey: ['dashboard-metrics', timeRange],
     queryFn: async () => {
@@ -72,23 +93,35 @@ export default function GeneralDashboardPage() {
       }
       return getDashboardMetrics(timeRange);
     },
+    enabled: allowedGerencial,
   });
   const pipelineQuery = useQuery({
     queryKey: ['dashboard-pipeline'],
     queryFn: () => fetchPipelineFromApi(),
     staleTime: 60_000,
+    enabled: allowedGerencial,
   });
   const workshopOsQuery = useQuery({
     queryKey: ['dashboard-workshop-os'],
     queryFn: () => fetchWorkshopOsCountsFromApi(),
     staleTime: 60_000,
+    enabled: allowedGerencial,
   });
-  const engineQuery = useQuery({ queryKey: ['dashboard-engine', timeRange], queryFn: () => getEngineKPIs(timeRange) });
+  const engineQuery = useQuery({
+    queryKey: ['dashboard-engine', timeRange],
+    queryFn: () => getEngineKPIs(timeRange),
+    enabled: allowedGerencial,
+  });
   const biQuery = useQuery({
     queryKey: ['dashboard-bi', timeRange],
     queryFn: () => getBIData(timeRange),
+    enabled: allowedGerencial,
   });
-  const storageQuery = useQuery({ queryKey: ['dashboard-storage'], queryFn: () => getStorageData() });
+  const storageQuery = useQuery({
+    queryKey: ['dashboard-storage'],
+    queryFn: () => getStorageData(),
+    enabled: allowedGerencial,
+  });
 
   const kpis = kpisQuery.data ?? EMPTY_KPIS;
   const metrics = metricsQuery.data ?? DEFAULT_METRICS;
@@ -165,6 +198,14 @@ export default function GeneralDashboardPage() {
     }
     setEditingUserId(null);
   };
+
+  if (authz.isLoading || !allowedGerencial) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center text-sm text-[var(--muted)]">
+        Redirigiendo a tu módulo…
+      </div>
+    );
+  }
 
   return (
     <ModulePage

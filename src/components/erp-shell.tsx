@@ -56,15 +56,6 @@ const ICON_MAP: Record<string, React.ElementType> = {
 // preexistente). Los permisos ya NO se cachean aquí: viven en el authz centralizado.
 const LAST_USER_KEY = 'tcerp_last_user_id';
 
-function isReturningUser(userId: string): boolean {
-  if (typeof window === 'undefined') return false;
-  try {
-    return localStorage.getItem(LAST_USER_KEY) === userId;
-  } catch {
-    return false;
-  }
-}
-
 function markUser(userId: string) {
   try {
     localStorage.setItem(LAST_USER_KEY, userId);
@@ -154,44 +145,47 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
         }
 
         const userId = session.user.id;
-        // Gracia de sesión: a un usuario recurrente no se le cierra sesión por
-        // errores transitorios de lectura de `user_sessions`.
-        const returning = isReturningUser(userId);
+        // Gracia de sesión: marcar usuario conocido (sin expulsar por fallos de user_sessions).
+        markUser(userId);
 
         {
           let localSessionId = localStorage.getItem('tcerp_session_id');
           if (!localSessionId) {
             localSessionId = await registerUserSession(userId);
             if (!localSessionId) {
-              if (!returning) handleLogout();
-              return;
+              // No expulsar solo por fallo de registro: la sesión Auth sigue válida.
+              console.warn('No se pudo registrar user_sessions; se continúa con Auth.');
             }
           }
 
-          const { data: sessionData, error: sessionError } = await supabase
-            .from('user_sessions')
-            .select('created_at, last_seen')
-            .eq('id', localSessionId)
-            .single();
+          if (localSessionId) {
+            const { data: sessionData, error: sessionError } = await supabase
+              .from('user_sessions')
+              .select('created_at, last_seen')
+              .eq('id', localSessionId)
+              .maybeSingle();
 
-          if (sessionError?.code === 'PGRST116' || (!sessionError && !sessionData)) {
-            if (!returning) handleLogout();
-            return;
-          }
+            if (sessionError?.code === 'PGRST116' || (!sessionError && !sessionData)) {
+              // Sesión local huérfana: re-registrar en lugar de cerrar sesión.
+              localStorage.removeItem('tcerp_session_id');
+              const renewed = await registerUserSession(userId);
+              if (!renewed) {
+                console.warn('No se pudo renovar user_sessions; se continúa con Auth.');
+              }
+            } else if (sessionData) {
+              if (isSessionIdle(sessionData.last_seen ?? sessionData.created_at)) {
+                await supabase.from('user_sessions').delete().eq('id', localSessionId);
+                handleLogout();
+                return;
+              }
 
-          if (sessionData) {
-            if (isSessionIdle(sessionData.last_seen ?? sessionData.created_at)) {
-              await supabase.from('user_sessions').delete().eq('id', localSessionId);
-              handleLogout();
-              return;
-            }
-
-            const sessionAgeHours =
-              (Date.now() - new Date(sessionData.created_at).getTime()) / (1000 * 60 * 60);
-            if (sessionAgeHours > 16) {
-              await supabase.from('user_sessions').delete().eq('id', localSessionId);
-              if (!returning) handleLogout();
-              return;
+              const sessionAgeHours =
+                (Date.now() - new Date(sessionData.created_at).getTime()) / (1000 * 60 * 60);
+              if (sessionAgeHours > 16) {
+                await supabase.from('user_sessions').delete().eq('id', localSessionId);
+                localStorage.removeItem('tcerp_session_id');
+                await registerUserSession(userId);
+              }
             }
           }
         }
@@ -220,7 +214,6 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
           role,
           role_id: roleId,
         });
-        markUser(userId);
       } catch (err) {
         console.error('Error cargando sesión/menú:', err);
       }

@@ -96,7 +96,9 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
           }
         }
         try {
-          await supabase.auth.signOut();
+          // Solo este dispositivo: scope global revocaba Auth en todos los PCs
+          // (causa típica: un técnico "se sale" en varias máquinas a la vez).
+          await supabase.auth.signOut({ scope: 'local' });
         } catch {
           /* ignore */
         }
@@ -280,12 +282,10 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
         lastTouchSentAt = Date.now();
         const ok = await touchUserSession(sessionId);
         if (!ok && !disposed) {
-          // Sesión borrada por race (re-login / single-PC): renovar antes de expulsar.
+          // Single-PC / idle: otra máquina tomó la sesión o expiró.
+          // NO re-registrar aquí (robaría la sesión activa del otro PC).
           localStorage.removeItem('tcerp_session_id');
-          const renewed = await registerUserSession(currentUser.id);
-          if (!renewed && !disposed) {
-            handleLogout();
-          }
+          handleLogout();
         }
       })();
     }, SESSION_HEARTBEAT_MS);

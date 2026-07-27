@@ -259,8 +259,18 @@ export async function middleware(req: NextRequest) {
         // No limpiar cookies por timeout de red / Supabase lento
         sessionUser = null;
       } else {
-        // Cookie presente pero JWT inválido/caducado → limpiar para cortar el loop 403
-        clearSupabaseAuthCookies(req, response);
+        // Solo limpiar ante JWT claramente inválido/expirado. Errores genéricos
+        // de Auth no deben borrar cookies (provocaba bounce post-login).
+        const msg = (error?.message || '').toLowerCase();
+        const definitive =
+          msg.includes('invalid') ||
+          msg.includes('expired') ||
+          msg.includes('session missing') ||
+          msg.includes('refresh token');
+        if (definitive) {
+          clearSupabaseAuthCookies(req, response);
+        }
+        sessionUser = null;
       }
     } catch {
       sessionUser = null;

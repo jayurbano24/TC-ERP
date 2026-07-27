@@ -137,7 +137,9 @@ type NotifyFn = ((message: string, opts?: ToastOptions) => string) & {
 };
 
 function isSessionExpiredToast(message: string, opts?: ToastOptions): boolean {
-  const blob = [message, opts?.title, opts?.description].filter(Boolean).join(' ');
+  // Solo título/mensaje principal: no usar `description` (a menudo es el body
+  // de un API 401 embebido en un error de negocio y provocaba logout fantasma).
+  const blob = [message, opts?.title].filter(Boolean).join(' ');
   return /no autenticado|not authenticated|session[_ ]?expired/i.test(blob);
 }
 

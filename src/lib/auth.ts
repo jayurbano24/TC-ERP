@@ -25,7 +25,7 @@ export async function signInWithEmail(identifier: string, password: string) {
 export async function signOut() {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return;
-  await supabase.auth.signOut();
+  await supabase.auth.signOut({ scope: 'local' });
 }
 
 export async function getCurrentUser() {

@@ -20,6 +20,6 @@ export class SupabaseAuthProvider implements IAuthProvider {
 
   async signOut(): Promise<void> {
     const supabase = getSupabaseBrowserClient()!;
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope: 'local' });
   }
 }

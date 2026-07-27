@@ -103,12 +103,9 @@ export async function PATCH(request: Request) {
     }
 
     if (isSessionIdle(row.last_seen)) {
+      // Solo borra la fila de presencia. NO revocar Auth global: eso expulsaba
+      // al mismo usuario en todos los PCs/navegadores a la vez.
       await supabase.from('user_sessions').delete().eq('id', sessionId);
-      try {
-        await supabase.auth.admin.signOut(row.user_id, 'global');
-      } catch {
-        /* best effort */
-      }
       return NextResponse.json({ error: 'SESSION_IDLE', active: false }, { status: 401 });
     }
 

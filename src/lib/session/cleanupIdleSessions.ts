@@ -8,7 +8,8 @@ export type IdleCleanupResult = {
 };
 
 /**
- * Elimina sesiones ERP sin actividad y revoca refresh tokens Auth (scope global).
+ * Elimina filas de presencia idle. No revoca Auth (global mataba todas las
+ * sesiones del usuario en todos los dispositivos).
  */
 export async function cleanupIdleSessions(
   supabase: SupabaseClient,
@@ -39,20 +40,9 @@ export async function cleanupIdleSessions(
     throw new Error(delError.message);
   }
 
-  let revokedUsers = 0;
-  for (const userId of userIds) {
-    try {
-      const { error: signOutError } = await supabase.auth.admin.signOut(userId, 'global');
-      if (!signOutError) revokedUsers += 1;
-      else console.warn('[idle_cleanup] signOut', userId, signOutError.message);
-    } catch (e) {
-      console.warn('[idle_cleanup] signOut exception', userId, e);
-    }
-  }
-
   return {
     deletedSessions: ids.length,
-    revokedUsers,
+    revokedUsers: 0,
     userIds,
   };
 }

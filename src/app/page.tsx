@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import {
   LoginBrand,
   LoginFooter,
@@ -19,7 +18,6 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const router = useRouter();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,8 +33,14 @@ export default function LoginPage() {
       const authData = await signInWithEmail(loginIdentifier, password);
 
       if (authData?.user?.id) {
-        // Esperar a que la sesión quede usable para /api/* (cookies + Bearer).
-        await new Promise((r) => setTimeout(r, 150));
+        // Esperar a que cookies/sesión Auth queden usables (evita bounce al login).
+        const { getSupabaseBrowserClient } = await import('@/lib/supabase/client');
+        const sb = getSupabaseBrowserClient();
+        for (let i = 0; i < 10; i++) {
+          const { data } = sb ? await sb.auth.getSession() : { data: { session: null } };
+          if (data.session?.access_token) break;
+          await new Promise((r) => setTimeout(r, 100));
+        }
         await registerUserSession(authData.user.id);
       }
 
@@ -49,7 +53,8 @@ export default function LoginPage() {
         home = '/produccion/taller';
       }
 
-      router.replace(home);
+      // Hard navigate: evita race App Router / layout redirect("/") sin cookies.
+      window.location.assign(home);
     } catch (err: unknown) {
       const raw =
         err instanceof Error ? err.message : 'Error inesperado al iniciar sesión.';

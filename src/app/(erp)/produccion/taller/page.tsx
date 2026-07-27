@@ -35,7 +35,6 @@ import { useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useWorkshopTabCounts } from '@/hooks/useWorkshopTabCounts';
 import { isHexagonalProductionOrderEnabled } from '@/modules/production-order';
-import { apiFetch } from '@/lib/http/apiFetch';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { ProductionOrderPanel } from '@/modules/production-order/components/ProductionOrderPanel';
 import { ItemDetailModal } from './components/ItemDetailModal';

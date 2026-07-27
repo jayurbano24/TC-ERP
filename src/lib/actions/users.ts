@@ -126,15 +126,19 @@ async function assignRoleToUser(
       .update({ role_id: roleId, role: pos.name })
       .eq('user_id', userId);
     if (error) throw error;
-    return;
+  } else {
+    const { error } = await supabaseAdmin.from('user_roles').insert({
+      user_id: userId,
+      role_id: roleId,
+      role: pos.name,
+    });
+    if (error) throw error;
   }
 
-  const { error } = await supabaseAdmin.from('user_roles').insert({
-    user_id: userId,
-    role_id: roleId,
-    role: pos.name,
+  // Asegura enum operacional (tecnico, qc, …) además del nombre de puesto RRHH.
+  await supabaseAdmin.rpc('app_sync_operational_role_from_position', {
+    p_user_id: userId,
   });
-  if (error) throw error;
 }
 
 /**

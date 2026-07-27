@@ -280,5 +280,9 @@ export async function changeUserRole(userId: string, roleId: string, roleName: s
   }
 
   if (result.error) return { error: result.error.message };
+
+  // Puesto RRHH (TECNICO JUNIOR, …) → también inserta enum operacional `tecnico`.
+  await supabase.rpc('app_sync_operational_role_from_position', { p_user_id: userId });
+
   return { success: true };
 }

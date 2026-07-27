@@ -37,15 +37,38 @@ export const ROLES_TALLER: OperationalRole[] = ['admin', 'supervisor', 'tecnico'
 const TTL_MS = 30_000;
 const cache = new Map<string, { roles: string[]; ts: number }>();
 
+/** Mapea nombres de puesto RRHH (TECNICO JUNIOR, …) a roles operacionales enum. */
+export function expandOperationalRoles(rawRoles: string[]): string[] {
+  const out = new Set(rawRoles.filter(Boolean));
+  for (const role of rawRoles) {
+    const normalized = role
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase();
+    if (normalized === 'GERENTE GENERAL') out.add('admin');
+    if (normalized.startsWith('SUPERVISOR')) out.add('supervisor');
+    if (normalized.includes('GERENTE')) out.add('gerencia');
+    if (normalized.includes('INVENTARIO') || normalized.includes('LOGISTIC')) out.add('bodega');
+    if (normalized.includes('QA') || normalized.includes('QC') || normalized.includes('CALIDAD')) {
+      out.add('qc');
+    }
+    if (normalized.includes('TECNICO') || normalized.includes('REFURBISH')) out.add('tecnico');
+    if (normalized.startsWith('BACKOFFICE') || normalized.includes('CLAIMS')) out.add('receptor_cac');
+  }
+  return [...out];
+}
+
 async function loadEnumRoles(userId: string): Promise<string[]> {
   const cached = cache.get(userId);
   if (cached && Date.now() - cached.ts < TTL_MS) return cached.roles;
 
   const supabase = getSupabaseServerClient();
   const { data } = await supabase.from('user_roles').select('role').eq('user_id', userId);
-  const roles = (data ?? [])
-    .map((r) => String((r as { role?: string }).role ?? ''))
-    .filter(Boolean);
+  const roles = expandOperationalRoles(
+    (data ?? [])
+      .map((r) => String((r as { role?: string }).role ?? ''))
+      .filter(Boolean)
+  );
 
   cache.set(userId, { roles, ts: Date.now() });
   return roles;

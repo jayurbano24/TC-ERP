@@ -78,20 +78,16 @@ export default function TallerPage() {
   // cada tecla). El input sigue ligado a searchTerm para que se sienta fluido.
   const debouncedSearchTerm = useDebouncedValue(searchTerm, 300);
 
-  // CQRS Dashboard State (Strangler Fig)
-  // C6: KPIs del dashboard CQRS vía TanStack Query (dedupe entre remontajes).
-  const dashboardQuery = useQuery({
-    queryKey: ['produccion-dashboard'],
-    queryFn: async () => {
-      const res = await apiFetch('/api/produccion/dashboard');
-      if (!res.ok) throw new Error('Dashboard CQRS no disponible');
-      const data = await res.json();
-      return data.data.kpis;
-    },
-    retry: false,
-  });
-  const dashboardKpis = dashboardQuery.data ?? null;
-  const useNewDashboard = dashboardQuery.isSuccess;
+  // CQRS Dashboard State (Strangler Fig) — desactivado en cliente hasta que
+  // USE_NEW_PROD_DASHBOARD esté activo en prod. Evita 403 ruidosos en consola
+  // cuando el flag/authz no permiten el endpoint opcional.
+  const useNewDashboard = false;
+  const dashboardKpis: {
+    diagnosticosPendientes: number;
+    diagnosticosEnProceso: number;
+    reparacionesEnEspera: number;
+    reparacionesActivas: number;
+  } | null = null;
 
   // Diagnostic Modal State
   const [isFunctionalChecklistOpen, setIsFunctionalChecklistOpen] = useState(false);

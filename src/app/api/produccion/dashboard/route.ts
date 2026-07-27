@@ -32,15 +32,17 @@ export async function GET(request: Request) {
 
       const isNewDashboardEnabled = await featureFlagService.isEnabled(ctx, 'USE_NEW_PROD_DASHBOARD');
 
+      // Strangler fig opcional: si el flag no está activo, 200 (no 403) para no
+      // ensuciar la consola del navegador ni parecer un fallo de autorización.
       if (!isNewDashboardEnabled) {
         return NextResponse.json(
-          { error: 'El nuevo dashboard de producción no está activo' },
-          { status: 403 }
+          { success: true, enabled: false, data: null },
+          { status: 200 }
         );
       }
 
       const data = await queryBus.execute(new GetProduccionDashboardQuery(), ctx);
-      return NextResponse.json({ success: true, data }, { status: 200 });
+      return NextResponse.json({ success: true, enabled: true, data }, { status: 200 });
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Error interno del servidor';

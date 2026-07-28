@@ -76,6 +76,8 @@ export default function TallerPage() {
   // C5: el filtrado se hace contra el término debounced (no recalcula la cola en
   // cada tecla). El input sigue ligado a searchTerm para que se sienta fluido.
   const debouncedSearchTerm = useDebouncedValue(searchTerm, 300);
+  /** Filtro por nombre de modelo (cola cargada en la pestaña activa). */
+  const [modelFilter, setModelFilter] = useState('');
 
   // CQRS Dashboard State (Strangler Fig) — desactivado en cliente hasta que
   // USE_NEW_PROD_DASHBOARD esté activo en prod. Evita 403 ruidosos en consola
@@ -812,23 +814,45 @@ ${funcNotes || 'Ninguno evaluado'}
     { id: 'despacho', label: 'Retornar a Bodega', icon: Send, color: 'text-indigo-500', bg: 'bg-indigo-50' },
   ];
 
-  const filteredTasks = useMemo(() => tasks.filter(t => {
-    let matchesTab = false;
-    if (activeTab === 'diagnostico') matchesTab = t.etapa === 'PARA DIAGNOSTICAR';
-    else if (activeTab === 'reparacion') matchesTab = t.etapa === 'REPARACION';
-    else if (activeTab === 'reacondicionado') matchesTab = t.etapa === 'REACONDICIONADO';
-    else if (activeTab === 'qc') matchesTab = t.etapa === 'CONTROL DE CALIDAD';
-    else if (activeTab === 'l3') matchesTab = t.etapa === 'L3';
-    else if (activeTab === 'scraps') matchesTab = t.etapa === 'SCRAPS';
-    else if (activeTab === 'listo') matchesTab = t.etapa === 'EQUIPO LISTO';
+  const filteredTasks = useMemo(() => {
+    const modelNeedle = modelFilter.trim().toUpperCase();
+    return tasks.filter((t) => {
+      let matchesTab = false;
+      if (activeTab === 'diagnostico') matchesTab = t.etapa === 'PARA DIAGNOSTICAR';
+      else if (activeTab === 'reparacion') matchesTab = t.etapa === 'REPARACION';
+      else if (activeTab === 'reacondicionado') matchesTab = t.etapa === 'REACONDICIONADO';
+      else if (activeTab === 'qc') matchesTab = t.etapa === 'CONTROL DE CALIDAD';
+      else if (activeTab === 'l3') matchesTab = t.etapa === 'L3';
+      else if (activeTab === 'scraps') matchesTab = t.etapa === 'SCRAPS';
+      else if (activeTab === 'listo') matchesTab = t.etapa === 'EQUIPO LISTO';
 
-    if (!matchesTab) return false;
+      if (!matchesTab) return false;
 
-    // Con término de búsqueda la API ya filtró por serie/OS en toda la cola.
-    if (debouncedSearchTerm.trim()) return true;
+      if (modelNeedle) {
+        const modelo = String(t.modelo || '').trim().toUpperCase();
+        if (modelo !== modelNeedle) return false;
+      }
 
-    return true;
-  }), [tasks, activeTab, debouncedSearchTerm]);
+      // Con término de búsqueda la API ya filtró por serie/OS en toda la cola.
+      return true;
+    });
+  }, [tasks, activeTab, debouncedSearchTerm, modelFilter]);
+
+  const modelFilterOptions = useMemo(() => {
+    const names = new Set<string>();
+    for (const t of tasks) {
+      const name = String(t.modelo || '').trim();
+      if (name && name !== 'S/N' && name.toUpperCase() !== 'DESCONOCIDA') {
+        names.add(name);
+      }
+    }
+    // Completar con catálogo por si el modelo buscado aún no está en la página cargada.
+    for (const m of catModelos) {
+      const name = String(m.name || '').trim();
+      if (name) names.add(name);
+    }
+    return [...names].sort((a, b) => a.localeCompare(b, 'es'));
+  }, [tasks, catModelos]);
 
   return (
     <ModulePage
@@ -1082,8 +1106,8 @@ ${funcNotes || 'Ninguno evaluado'}
                   </div>
                 )}
                 <div className="flex min-w-0 flex-col gap-3 border border-[var(--border)] bg-[var(--surface)] p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:p-4">
-                  {/* Búsqueda */}
-                  <div className="flex w-full min-w-0 items-stretch gap-3 xl:max-w-md xl:flex-1">
+                  {/* Búsqueda + filtro modelo */}
+                  <div className="flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:items-stretch xl:max-w-2xl xl:flex-1">
                     <div className="relative min-w-0 flex-1">
                       <Search className="pointer-events-none absolute top-3 left-3 h-4 w-4 text-[var(--muted)]" />
                       <textarea
@@ -1095,6 +1119,32 @@ ${funcNotes || 'Ninguno evaluado'}
                         rows={2}
                         className="custom-scrollbar w-full min-w-0 resize-y rounded-md border border-[var(--border)] bg-[var(--surface)] py-2.5 pr-3 pl-10 text-xs font-medium text-[var(--foreground)] outline-none transition-colors placeholder:text-[var(--muted)] focus:border-[var(--accent)]"
                       />
+                    </div>
+                    <div className="relative w-full shrink-0 sm:w-52">
+                      <Filter className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-[var(--muted)]" />
+                      <select
+                        value={modelFilter}
+                        onChange={(e) => setModelFilter(e.target.value)}
+                        aria-label="Filtrar por modelo"
+                        className="h-full min-h-[42px] w-full appearance-none rounded-md border border-[var(--border)] bg-[var(--surface)] py-2 pr-8 pl-8 text-xs font-bold text-[var(--foreground)] outline-none transition-colors focus:border-[var(--accent)]"
+                      >
+                        <option value="">Todos los modelos</option>
+                        {modelFilterOptions.map((name) => (
+                          <option key={name} value={name}>
+                            {name}
+                          </option>
+                        ))}
+                      </select>
+                      {modelFilter ? (
+                        <button
+                          type="button"
+                          title="Quitar filtro de modelo"
+                          onClick={() => setModelFilter('')}
+                          className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-[var(--muted)] hover:text-[var(--heading)]"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      ) : null}
                     </div>
                   </div>
 

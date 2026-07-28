@@ -22,6 +22,7 @@ import {
   catalogModelKey,
   normalizeCatalogLabel,
   stripBrandFromModelName,
+  stripKnownBrandsFromModelName,
 } from '@/shared/catalogs/normalizeCatalogName';
 import { InventoryTableToolbar } from './_components/InventoryTableToolbar';
 import { InventoryTableSkeleton } from './_components/InventoryTableSkeleton';
@@ -386,6 +387,30 @@ export default function InventarioDetallePage() {
     return [...byKey.values()].sort((a, b) => a.localeCompare(b, 'es'));
   }, [searchFilteredItems, filterTech]);
 
+  /** Marcas del alcance (tech) para limpiar prefijos/sufijos en nombres de modelo. */
+  const brandNamesInScope = useMemo(() => {
+    const techKey = catalogLabelKey(filterTech);
+    const names = new Set<string>();
+    for (const i of searchFilteredItems) {
+      if (techKey && catalogLabelKey(resolveItemTech(i)) !== techKey) continue;
+      const brand = resolveItemBrand(i);
+      if (brand && brand !== 'N/A') names.add(brand);
+    }
+    if (filterBrand) names.add(filterBrand);
+    return [...names];
+  }, [searchFilteredItems, filterTech, filterBrand]);
+
+  const resolveCleanModel = useCallback(
+    (item: Parameters<typeof resolveItemModel>[0]) => {
+      const raw = normalizeCatalogLabel(
+        item.models?.name || extractField(item.receptions?.notes || '', 'Backoffice_Model') || ''
+      );
+      const brand = resolveItemBrand(item);
+      return stripKnownBrandsFromModelName(stripBrandFromModelName(raw, brand), brandNamesInScope);
+    },
+    [brandNamesInScope]
+  );
+
   const modelFilterOptions = useMemo(() => {
     const techKey = catalogLabelKey(filterTech);
     const brandKey = catalogLabelKey(filterBrand);
@@ -393,33 +418,32 @@ export default function InventarioDetallePage() {
     for (const i of searchFilteredItems) {
       if (techKey && catalogLabelKey(resolveItemTech(i)) !== techKey) continue;
       if (brandKey && catalogLabelKey(resolveItemBrand(i)) !== brandKey) continue;
-      const brand = resolveItemBrand(i);
-      const name = resolveItemModel(i);
-      const key = catalogModelKey(name, brand) || catalogLabelKey(name);
+      const name = resolveCleanModel(i);
+      const key = catalogModelKey(name, undefined, brandNamesInScope) || catalogLabelKey(name);
       if (!key || key === 'NA') continue;
       const existing = byKey.get(key);
-      // Preferir etiqueta más corta/canónica (sin prefijo de marca)
       if (!existing || name.length < existing.length) byKey.set(key, name);
     }
     return [...byKey.values()].sort((a, b) => a.localeCompare(b, 'es'));
-  }, [searchFilteredItems, filterTech, filterBrand]);
+  }, [searchFilteredItems, filterTech, filterBrand, resolveCleanModel, brandNamesInScope]);
 
   const filteredItems = useMemo(() => {
     const techKey = catalogLabelKey(filterTech);
     const brandKey = catalogLabelKey(filterBrand);
-    const modelKey = catalogModelKey(filterModel, filterBrand) || catalogLabelKey(filterModel);
+    const modelKey =
+      catalogModelKey(filterModel, filterBrand, brandNamesInScope) || catalogLabelKey(filterModel);
     return searchFilteredItems.filter((i) => {
       if (techKey && catalogLabelKey(resolveItemTech(i)) !== techKey) return false;
       if (brandKey && catalogLabelKey(resolveItemBrand(i)) !== brandKey) return false;
       if (modelKey) {
         const itemKey =
-          catalogModelKey(resolveItemModel(i), resolveItemBrand(i)) ||
-          catalogLabelKey(resolveItemModel(i));
+          catalogModelKey(resolveCleanModel(i), undefined, brandNamesInScope) ||
+          catalogLabelKey(resolveCleanModel(i));
         if (itemKey !== modelKey) return false;
       }
       return true;
     });
-  }, [searchFilteredItems, filterTech, filterBrand, filterModel]);
+  }, [searchFilteredItems, filterTech, filterBrand, filterModel, brandNamesInScope, resolveCleanModel]);
 
   useEffect(() => {
     setPage(1);
@@ -436,13 +460,13 @@ export default function InventarioDetallePage() {
       filterModel &&
       !modelFilterOptions.some(
         (n) =>
-          (catalogModelKey(n, filterBrand) || catalogLabelKey(n)) ===
-          (catalogModelKey(filterModel, filterBrand) || catalogLabelKey(filterModel))
+          (catalogModelKey(n, filterBrand, brandNamesInScope) || catalogLabelKey(n)) ===
+          (catalogModelKey(filterModel, filterBrand, brandNamesInScope) || catalogLabelKey(filterModel))
       )
     ) {
       setFilterModel('');
     }
-  }, [filterModel, modelFilterOptions, filterBrand]);
+  }, [filterModel, modelFilterOptions, filterBrand, brandNamesInScope]);
 
   const clearCatalogFilters = useCallback(() => {
     setFilterTech('');
@@ -757,7 +781,7 @@ export default function InventarioDetallePage() {
               >
                 <option value="">Todos los modelos</option>
                 {modelFilterOptions.map((name) => (
-                  <option key={catalogModelKey(name, filterBrand) || catalogLabelKey(name)} value={name}>
+                  <option key={catalogModelKey(name, filterBrand, brandNamesInScope) || catalogLabelKey(name)} value={name}>
                     {name}
                   </option>
                 ))}

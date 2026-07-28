@@ -44,6 +44,7 @@ function adaptRow(raw: DespachoEquipoListoRow): ListoRow {
     box: raw.source_box_code || raw.boxes?.box_code || '—',
     material: String(raw.material ?? '').trim() || '—',
     valuation: String(raw.valuation ?? '').trim() || '—',
+    // Nota: material/valuation vienen del SSOT series (sync SAP / G985).
     updatedAt: raw.updated_at
       ? new Date(raw.updated_at).toLocaleString('es-GT')
       : '—',

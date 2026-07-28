@@ -70,6 +70,8 @@ const WORKSHOP_SERIES_SELECT = `
   updated_at,
   brand_id,
   model_id,
+  material,
+  valuation,
   entry_source,
   models (
     id,
@@ -350,6 +352,13 @@ function mergeWorkshopGroup(target: any, source: any) {
   }
   if (!target.service_order_id && source.service_order_id) {
     target.service_order_id = source.service_order_id;
+  }
+  // Material/Valoración SAP: tomar el primero no vacío entre series hermanas (S1–S4).
+  if (!String(target.material || '').trim() && String(source.material || '').trim()) {
+    target.material = source.material;
+  }
+  if (!String(target.valuation || '').trim() && String(source.valuation || '').trim()) {
+    target.valuation = source.valuation;
   }
   if (new Date(String(source.updated_at)) > new Date(String(target.updated_at))) {
     target.updated_at = source.updated_at;

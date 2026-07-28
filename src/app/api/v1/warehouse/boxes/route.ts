@@ -10,6 +10,8 @@ const ListBoxesQuery = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(100),
   search: z.string().trim().max(100).optional(),
   fillStatus: z.enum(['partial', 'full', 'all']).optional(),
+  technologyId: z.string().uuid().optional(),
+  modelId: z.string().uuid().optional(),
 });
 
 function isMissingRpcError(error: { message?: string; code?: string } | null): boolean {
@@ -47,8 +49,132 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'VALIDATION_ERROR', issues: parsed.error.flatten() }, { status: 422 });
   }
 
-  const { cursor, limit, search, fillStatus } = parsed.data;
+  const { cursor, limit, search, fillStatus, technologyId, modelId } = parsed.data;
   const fillParam = !fillStatus || fillStatus === 'all' ? null : fillStatus;
+
+  // Filtro por tecnología/modelo: no está en el RPC de página; resolvemos box_ids
+  // vía series en bodega y luego enriquecemos (IPTV/EMTA/… no dependen de la 1ª página).
+  if (technologyId || modelId) {
+    let modelIds: string[] = [];
+    if (modelId) {
+      modelIds = [modelId];
+    } else if (technologyId) {
+      const { data: mods, error: modsError } = await supabase
+        .from('models')
+        .select('id')
+        .eq('technology_id', technologyId);
+      if (modsError) {
+        return NextResponse.json({ error: 'QUERY_FAILED: ' + modsError.message }, { status: 500 });
+      }
+      modelIds = (mods ?? []).map((m) => String(m.id));
+    }
+
+    if (modelIds.length === 0) {
+      return NextResponse.json({ items: [], nextCursor: null });
+    }
+
+    const boxIdSet = new Set<string>();
+    const chunkSize = 80;
+    for (let i = 0; i < modelIds.length; i += chunkSize) {
+      const chunk = modelIds.slice(i, i + chunkSize);
+      let from = 0;
+      const pageSize = 1000;
+      for (;;) {
+        const { data: seriesHits, error: seriesError } = await supabase
+          .from('series')
+          .select('current_box_id')
+          .in('model_id', chunk)
+          .in('current_status', ['in_central_warehouse', 'in_control_warehouse'])
+          .not('current_box_id', 'is', null)
+          .range(from, from + pageSize - 1);
+        if (seriesError) {
+          return NextResponse.json({ error: 'QUERY_FAILED: ' + seriesError.message }, { status: 500 });
+        }
+        const rows = seriesHits ?? [];
+        for (const row of rows) {
+          if (row.current_box_id) boxIdSet.add(String(row.current_box_id));
+        }
+        if (rows.length < pageSize) break;
+        from += pageSize;
+      }
+    }
+
+    let boxIds = [...boxIdSet].sort();
+    if (cursor) {
+      boxIds = boxIds.filter((id) => id > cursor);
+    }
+
+    if (boxIds.length === 0) {
+      return NextResponse.json({ items: [], nextCursor: null });
+    }
+
+    // Cargar metadatos de cajas (puede ser > limit; paginamos por id)
+    const pageIds = boxIds.slice(0, Math.min(boxIds.length, 500));
+    const { data: boxRows, error: boxesError } = await supabase
+      .from('boxes')
+      .select('id, rack_location, box_code, capacity, created_at')
+      .in('id', pageIds);
+    if (boxesError) {
+      return NextResponse.json({ error: 'QUERY_FAILED: ' + boxesError.message }, { status: 500 });
+    }
+
+    const byId = new Map((boxRows ?? []).map((b) => [String(b.id), b]));
+    const candidates = onlyBodegaRows(
+      pageIds
+        .map((id) => {
+          const b = byId.get(id);
+          if (!b) return null;
+          return {
+            box_id: String(b.id),
+            rack: b.rack_location as string | null,
+            label: b.box_code as string | null,
+            capacity: b.capacity as number | null,
+            series_count: 0,
+            sample_brand_id: null,
+            sample_model_id: null,
+            sample_service_order_id: null,
+            last_movement_at: null,
+          };
+        })
+        .filter((x): x is NonNullable<typeof x> => Boolean(x))
+    );
+
+    let enriched = await enrichWarehouseBoxItems(supabase, candidates);
+
+    // Aplicar fillStatus en cliente (RPC no participa en este camino)
+    if (fillParam === 'partial') {
+      enriched = enriched.filter((b) => {
+        const eq = Number(b.equipos_count ?? b.series_count ?? 0);
+        const cap = Number(b.capacity || 0);
+        return eq > 0 && eq < Math.max(cap, 1);
+      });
+    } else if (fillParam === 'full') {
+      enriched = enriched.filter((b) => {
+        const eq = Number(b.equipos_count ?? b.series_count ?? 0);
+        const cap = Number(b.capacity || 0);
+        return eq >= Math.max(cap, 1);
+      });
+    }
+
+    if (search) {
+      const term = search.toLowerCase();
+      enriched = enriched.filter(
+        (b) =>
+          String(b.label || '').toLowerCase().includes(term) ||
+          String(b.rack || '').toLowerCase().includes(term)
+      );
+    }
+
+    // Re-paginar tras filtros fill/search
+    const sorted = [...enriched].sort((a, b) => String(a.box_id).localeCompare(String(b.box_id)));
+    const page = sorted.slice(0, limit);
+    const nextCursor = sorted.length > limit ? page[page.length - 1]?.box_id ?? null : null;
+
+    return NextResponse.json({
+      items: page,
+      nextCursor,
+    });
+  }
 
   // Camino dedicado: tarjeta "Cajas en Proceso" (TMP / EN_PROCESO)
   if (fillParam === 'partial' && !cursor && !search) {

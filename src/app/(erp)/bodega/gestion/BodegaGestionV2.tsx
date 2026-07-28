@@ -106,13 +106,21 @@ export default function BodegaGestionV2({
     isLoading: isBoxesLoading,
     refetch 
   } = useInfiniteQuery({
-    queryKey: ['warehouse-boxes', debouncedSearch, fillStatusParam ?? 'all'],
+    queryKey: [
+      'warehouse-boxes',
+      debouncedSearch,
+      fillStatusParam ?? 'all',
+      filterTech || 'all-tech',
+      filterModel || 'all-models',
+    ],
     queryFn: async ({ pageParam }) => {
       const url = new URL('/api/v1/warehouse/boxes', window.location.origin);
       if (pageParam) url.searchParams.set('cursor', pageParam as string);
       url.searchParams.set('limit', '30');
       if (debouncedSearch) url.searchParams.set('search', debouncedSearch);
       if (fillStatusParam) url.searchParams.set('fillStatus', fillStatusParam);
+      if (filterTech) url.searchParams.set('technologyId', filterTech);
+      if (filterModel) url.searchParams.set('modelId', filterModel);
 
       const res = await apiFetch(url.toString());
       if (isApiAuthFailure(res.status, null)) {
@@ -350,22 +358,14 @@ export default function BodegaGestionV2({
     });
   }, [inventory, filterTech, filterModel, filterStatus, debouncedSearch, brandName, modelName]);
 
-  /** Modelos presentes en la tabla para la tecnología seleccionada (cascada). */
+  /** Modelos del catálogo para la tecnología elegida (cascada; no depende de la 1ª página). */
   const modelFilterOptions = useMemo(() => {
     if (!filterTech) return [] as Array<{ id: string; label: string }>;
-    const byId = new Map<string, string>();
-    for (const item of inventory) {
-      if (!isBodegaOperationalRack(item.rack)) continue;
-      if (item.tecnologiaId !== filterTech) continue;
-      const id = String(item.modelo || '').trim();
-      if (!id || id === 'N/A') continue;
-      const label = String(item.modeloLabel || modelName(id) || id).trim() || id;
-      if (!byId.has(id)) byId.set(id, label);
-    }
-    return [...byId.entries()]
-      .map(([id, label]) => ({ id, label }))
+    return catModelos
+      .filter((m) => String(m.technology_id || '') === filterTech && String(m.name || '').trim())
+      .map((m) => ({ id: String(m.id), label: String(m.name).trim() }))
       .sort((a, b) => a.label.localeCompare(b.label, 'es'));
-  }, [inventory, filterTech, modelName]);
+  }, [catModelos, filterTech]);
 
   useEffect(() => {
     if (!filterModel) return;

@@ -21,8 +21,9 @@ function escapeRegExp(value: string): string {
 }
 
 /**
- * Huella de modelo para unificar variantes:
- * "CG-2000", "CG 2000", "CG2000", "KAON CG-2000" → misma clave (con marca opcional).
+ * Huella de modelo (conserva guiones):
+ * "CG-2000" / "CG 2000" / "KAON CG-2000" → CG-2000
+ * "CG2000" → CG2000 (distinto; no colapsar con CG-2000)
  */
 export function catalogModelKey(
   modelRaw: string | null | undefined,
@@ -39,7 +40,13 @@ export function catalogModelKey(
 
   return label
     .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, '');
+    // Espacio entre letra y dígito (o viceversa) → guion canónico
+    .replace(/([A-Z])\s+(\d)/g, '$1-$2')
+    .replace(/(\d)\s+([A-Z])/g, '$1-$2')
+    .replace(/\s+/g, '-')
+    .replace(/[^A-Z0-9-]+/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
 }
 
 /** Quita prefijo de marca del nombre de modelo para mostrar una sola etiqueta. */

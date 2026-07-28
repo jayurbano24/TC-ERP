@@ -213,20 +213,33 @@ export default function ReceptionsPage() {
   }, []);
 
   useEffect(() => {
-    setFilteredBrands(systemBrands);
-  }, [systemBrands]);
+    const techName = pxState.currentEntry.tecnologia;
+    if (!techName) {
+      setFilteredBrands([]);
+      return;
+    }
+    const techId = systemTechnologies.find((t) => t.name === techName)?.id;
+    if (!techId) {
+      setFilteredBrands([]);
+      return;
+    }
+    const brandIds = new Set(
+      systemModels.filter((m) => m.technology_id === techId).map((m) => m.brand_id).filter(Boolean)
+    );
+    setFilteredBrands(systemBrands.filter((b) => brandIds.has(b.id)));
+  }, [pxState.currentEntry.tecnologia, systemBrands, systemTechnologies, systemModels]);
 
   useEffect(() => {
     let filtered = systemModels;
     
-    if (pxState.currentEntry.marca) {
-      const brandId = systemBrands.find(b => b.name === pxState.currentEntry.marca)?.id;
-      filtered = filtered.filter(m => m.brand_id === brandId);
-    }
-    
     if (pxState.currentEntry.tecnologia) {
       const techId = systemTechnologies.find(t => t.name === pxState.currentEntry.tecnologia)?.id;
       filtered = filtered.filter(m => m.technology_id === techId);
+    }
+
+    if (pxState.currentEntry.marca) {
+      const brandId = systemBrands.find(b => b.name === pxState.currentEntry.marca)?.id;
+      filtered = filtered.filter(m => m.brand_id === brandId);
     }
     
     setFilteredModels(filtered);

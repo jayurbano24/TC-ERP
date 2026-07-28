@@ -283,12 +283,15 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
           }
 
           if (expectedUnits > 0 && osCreatedCount < expectedUnits) {
-            const human = humanizeClassifyEquipmentError(equipmentPersistError);
-            notify.error(`${human.description} La guía NO quedó clasificada.`, {
-              title: human.isDuplicate
-                ? `Serie duplicada — ingreso incompleto (${osCreatedCount}/${expectedUnits})`
-                : `Ingreso incompleto: ${osCreatedCount}/${expectedUnits} equipo(s) guardados`,
-              duration: 10000,
+            const missing = expectedUnits - osCreatedCount;
+            // Sin detalle del RPC: asumir duplicado (caso típico 3/4 tras migración 177).
+            const raw =
+              equipmentPersistError ||
+              `Serie duplicada: ${missing} equipo(s) del lote ya tienen una orden de servicio abierta.`;
+            const human = humanizeClassifyEquipmentError(raw);
+            notify.error(human.isDuplicate ? 'Serie duplicada' : human.title, {
+              description: `${human.description} Guardados: ${osCreatedCount} de ${expectedUnits}. La guía NO quedó clasificada.`,
+              duration: 0,
             });
             ctx.setIsSubmitting(false);
             ctx.isSubmittingRef.current = false;

@@ -17,8 +17,11 @@ function isDuplicateClassifyError(raw: string): boolean {
     msg.includes('ya posee una orden de servicio activa') ||
     msg.includes('ya fue clasificada en este mismo lote') ||
     msg.includes('ya está registrada') ||
+    msg.includes('ya tienen una orden') ||
+    msg.includes('ya tienen orden') ||
     msg.includes('está repetida') ||
-    msg.includes('serie duplicada')
+    msg.includes('serie duplicada') ||
+    msg.includes('no se pudieron ingresar')
   );
 }
 

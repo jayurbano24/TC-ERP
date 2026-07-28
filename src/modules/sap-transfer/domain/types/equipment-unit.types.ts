@@ -21,9 +21,21 @@ export type BlockReturnFormData = {
   observaciones?: string;
 };
 
+export type ClassifyUnitSkipError = {
+  main_serial?: string;
+  serial?: string;
+  error?: string;
+  active_os?: string;
+  active_status?: string;
+};
+
 export type ClassifyBatchResult = {
   data?: unknown[];
   error?: string;
+  /** Unidades omitidas por el RPC (p. ej. serie duplicada / OS activa). */
+  skippedErrors?: ClassifyUnitSkipError[];
+  unitsProcessed?: number;
+  unitsSkipped?: number;
 };
 
 export type BlockReturnResult = {

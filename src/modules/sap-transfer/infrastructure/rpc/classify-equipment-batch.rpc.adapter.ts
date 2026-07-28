@@ -1,8 +1,20 @@
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { humanizeClassifyEquipmentError } from '../../client/humanizeClassifyError';
 import type { IClassifyBatchGateway } from '../../domain/ports/classify-batch.gateway.port';
-import type { ClassifyBatchParams, ClassifyBatchResult } from '../../domain/types/equipment-unit.types';
+import type {
+  ClassifyBatchParams,
+  ClassifyBatchResult,
+  ClassifyUnitSkipError,
+} from '../../domain/types/equipment-unit.types';
 import { auditClassifiedSeries, auditClassifyBatchCompleted } from '../audit';
+
+function formatSkippedError(err: ClassifyUnitSkipError): string {
+  const serial = String(err.main_serial || err.serial || '').trim();
+  const detail = String(err.error || '').trim();
+  if (serial && detail) return `Serie duplicada: ${serial}. ${detail}`;
+  if (serial) return `Serie duplicada: ${serial} ya está registrada con una orden de servicio abierta.`;
+  return detail || 'Serie duplicada: una serie del lote ya está registrada.';
+}
 
 export class ClassifyEquipmentBatchRpcAdapter implements IClassifyBatchGateway {
   async classifyBatch(params: ClassifyBatchParams): Promise<ClassifyBatchResult> {
@@ -28,6 +40,9 @@ export class ClassifyEquipmentBatchRpcAdapter implements IClassifyBatchGateway {
     const payload = data as {
       service_orders?: unknown[];
       series_ids?: string[];
+      errors?: ClassifyUnitSkipError[];
+      units_processed?: number;
+      units_skipped?: number;
     } | null;
 
     const serviceOrders = Array.isArray(payload?.service_orders)
@@ -37,6 +52,13 @@ export class ClassifyEquipmentBatchRpcAdapter implements IClassifyBatchGateway {
     const seriesIds = Array.isArray(payload?.series_ids)
       ? payload.series_ids.filter((id): id is string => typeof id === 'string')
       : [];
+
+    const skippedErrors = Array.isArray(payload?.errors)
+      ? payload.errors.filter((e): e is ClassifyUnitSkipError => !!e && typeof e === 'object')
+      : [];
+
+    const unitsProcessed = Number(payload?.units_processed ?? serviceOrders.length);
+    const unitsSkipped = Number(payload?.units_skipped ?? skippedErrors.length);
 
     await auditClassifiedSeries(
       seriesIds,
@@ -56,6 +78,20 @@ export class ClassifyEquipmentBatchRpcAdapter implements IClassifyBatchGateway {
       });
     }
 
-    return { data: serviceOrders };
+    // Éxito parcial: el RPC no lanza excepción si procesó ≥1, pero trae `errors`.
+    const partialError =
+      skippedErrors.length > 0
+        ? formatSkippedError(skippedErrors[0])
+        : unitsSkipped > 0 && serviceOrders.length < params.units.length
+          ? `Serie duplicada: ${params.units.length - serviceOrders.length} equipo(s) no se pudieron ingresar porque ya tienen orden de servicio abierta.`
+          : undefined;
+
+    return {
+      data: serviceOrders,
+      error: partialError,
+      skippedErrors,
+      unitsProcessed,
+      unitsSkipped,
+    };
   }
 }

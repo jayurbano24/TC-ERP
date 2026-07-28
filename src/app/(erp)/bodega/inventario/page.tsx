@@ -19,7 +19,9 @@ import { resolveUnitSapStatus } from '@/lib/sap/sapValidationStatus';
 import { sanitizeCacAgencyRaw } from '@/lib/cacAgencyUtils';
 import {
   catalogLabelKey,
+  catalogModelKey,
   normalizeCatalogLabel,
+  stripBrandFromModelName,
 } from '@/shared/catalogs/normalizeCatalogName';
 import { InventoryTableToolbar } from './_components/InventoryTableToolbar';
 import { InventoryTableSkeleton } from './_components/InventoryTableSkeleton';
@@ -131,11 +133,16 @@ function resolveItemTech(item: {
 
 function resolveItemModel(item: {
   models?: { name?: string | null } | null;
+  brands?: { name?: string | null } | null;
   receptions?: { notes?: string | null } | null;
 }): string {
-  return normalizeCatalogLabel(
+  const raw = normalizeCatalogLabel(
     item.models?.name || extractField(item.receptions?.notes || '', 'Backoffice_Model') || ''
   );
+  const brand = normalizeCatalogLabel(
+    item.brands?.name || extractField(item.receptions?.notes || '', 'Backoffice_Brand') || ''
+  );
+  return stripBrandFromModelName(raw, brand);
 }
 
 const TECH_CARD_OPTIONS = ['ADSL', 'DTH', 'EMTA', 'IPTV', 'ONT', 'STB-HFC', 'WTTH'] as const;
@@ -386,10 +393,13 @@ export default function InventarioDetallePage() {
     for (const i of searchFilteredItems) {
       if (techKey && catalogLabelKey(resolveItemTech(i)) !== techKey) continue;
       if (brandKey && catalogLabelKey(resolveItemBrand(i)) !== brandKey) continue;
+      const brand = resolveItemBrand(i);
       const name = resolveItemModel(i);
-      const key = catalogLabelKey(name);
-      if (!key || key === 'N/A') continue;
-      if (!byKey.has(key)) byKey.set(key, name);
+      const key = catalogModelKey(name, brand) || catalogLabelKey(name);
+      if (!key || key === 'NA') continue;
+      const existing = byKey.get(key);
+      // Preferir etiqueta más corta/canónica (sin prefijo de marca)
+      if (!existing || name.length < existing.length) byKey.set(key, name);
     }
     return [...byKey.values()].sort((a, b) => a.localeCompare(b, 'es'));
   }, [searchFilteredItems, filterTech, filterBrand]);
@@ -397,11 +407,16 @@ export default function InventarioDetallePage() {
   const filteredItems = useMemo(() => {
     const techKey = catalogLabelKey(filterTech);
     const brandKey = catalogLabelKey(filterBrand);
-    const modelKey = catalogLabelKey(filterModel);
+    const modelKey = catalogModelKey(filterModel, filterBrand) || catalogLabelKey(filterModel);
     return searchFilteredItems.filter((i) => {
       if (techKey && catalogLabelKey(resolveItemTech(i)) !== techKey) return false;
       if (brandKey && catalogLabelKey(resolveItemBrand(i)) !== brandKey) return false;
-      if (modelKey && catalogLabelKey(resolveItemModel(i)) !== modelKey) return false;
+      if (modelKey) {
+        const itemKey =
+          catalogModelKey(resolveItemModel(i), resolveItemBrand(i)) ||
+          catalogLabelKey(resolveItemModel(i));
+        if (itemKey !== modelKey) return false;
+      }
       return true;
     });
   }, [searchFilteredItems, filterTech, filterBrand, filterModel]);
@@ -417,10 +432,17 @@ export default function InventarioDetallePage() {
   }, [filterBrand, brandFilterOptions]);
 
   useEffect(() => {
-    if (filterModel && !modelFilterOptions.some((n) => catalogLabelKey(n) === catalogLabelKey(filterModel))) {
+    if (
+      filterModel &&
+      !modelFilterOptions.some(
+        (n) =>
+          (catalogModelKey(n, filterBrand) || catalogLabelKey(n)) ===
+          (catalogModelKey(filterModel, filterBrand) || catalogLabelKey(filterModel))
+      )
+    ) {
       setFilterModel('');
     }
-  }, [filterModel, modelFilterOptions]);
+  }, [filterModel, modelFilterOptions, filterBrand]);
 
   const clearCatalogFilters = useCallback(() => {
     setFilterTech('');
@@ -634,7 +656,9 @@ export default function InventarioDetallePage() {
       return acc;
     }, {} as Record<string, number>);
     const uniqueOs = new Set(filteredItems.map(i => i.service_orders?.os_label).filter(Boolean)).size;
-    return { technologies, techCounts, uniqueOs };
+    // Ocultar techs en 0 para no parecer "duplicados" vacíos (STB-HFC / WTTH, etc.).
+    const visibleTechnologies = technologies.filter((tech) => (techCounts[tech] || 0) > 0);
+    return { technologies: visibleTechnologies, techCounts, uniqueOs };
   }, [searchFilteredItems, filteredItems]);
 
   return (
@@ -733,7 +757,7 @@ export default function InventarioDetallePage() {
               >
                 <option value="">Todos los modelos</option>
                 {modelFilterOptions.map((name) => (
-                  <option key={catalogLabelKey(name)} value={name}>
+                  <option key={catalogModelKey(name, filterBrand) || catalogLabelKey(name)} value={name}>
                     {name}
                   </option>
                 ))}

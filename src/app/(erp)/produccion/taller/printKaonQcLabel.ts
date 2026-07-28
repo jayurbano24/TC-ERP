@@ -1,11 +1,9 @@
 /**
- * Etiqueta de equipo KAON (QC) — layout aproximado a la sticker física:
- * Modelo, SSIDs derivados del WAN MAC, Serial + CM/MTA/WAN con CODE128.
+ * Etiqueta KAON QC — mismo layout que la sticker física del equipo:
+ * MODELO + Wi‑Fi (SSIDs) | Serial / CM MAC / MTA MAC / WAN MAC con CODE128.
  */
 
 import { catalogModelKey } from '@/shared/catalogs/normalizeCatalogName';
-
-export const KAON_QC_PRINTABLE_MODELS = new Set(['CG-2200', 'CG-3000']);
 
 export type KaonQcLabelInput = {
   modelo: string;
@@ -50,8 +48,8 @@ export function isKaonQcPrintableModel(modelo: string, marca?: string): boolean 
 }
 
 /**
- * Orden típico en sticker KAON tras ordenar MACs hex:
- * CM (menor) → WAN → MTA (mayor). SSIDs usan los últimos 6 del WAN.
+ * Orden típico sticker KAON (MACs hex ordenados):
+ * CM (menor) → WAN → MTA (mayor). SSIDs = últimos 6 del WAN.
  */
 export function resolveKaonLabelIds(allSns: string[], fallbackSn?: string) {
   const sns = [...(allSns || [])].map((s) => String(s || '').trim()).filter(Boolean);
@@ -72,13 +70,13 @@ export function resolveKaonLabelIds(allSns: string[], fallbackSn?: string) {
   return { serial, cmMac, mtaMac, wanMac, ssid24, ssid5 };
 }
 
+/** Tamaño aproximado de la sticker física del equipo (~90×55 mm). */
 const LABEL_CSS = `
-  @page { size: 70mm 50mm; margin: 0; }
-  * { box-sizing: border-box; }
+  @page { size: 90mm 55mm; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
-    margin: 0;
-    padding: 0;
-    width: 70mm;
+    width: 90mm;
+    height: 55mm;
     background: #fff;
     color: #000;
     font-family: Arial, Helvetica, sans-serif;
@@ -86,59 +84,88 @@ const LABEL_CSS = `
     print-color-adjust: exact;
   }
   .label {
-    width: 70mm;
-    min-height: 48mm;
-    padding: 2.5mm 3mm;
+    width: 90mm;
+    height: 55mm;
+    padding: 2.6mm 3mm 2.2mm;
     display: flex;
     flex-direction: column;
-    gap: 1.2mm;
+    gap: 1.4mm;
+    overflow: hidden;
   }
   .top {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    gap: 2mm;
+    gap: 3mm;
   }
-  .wifi {
-    font-size: 7px;
-    line-height: 1.25;
+  .wifi-block .title {
+    font-size: 6px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-bottom: 0.5mm;
+  }
+  .wifi-block .line {
+    font-size: 8px;
+    font-weight: 700;
+    line-height: 1.3;
+  }
+  .wifi-block .line .band { font-weight: 900; }
+  .wifi-block .pwd-title {
+    margin-top: 1.2mm;
+    font-size: 6px;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+  .model-block {
+    text-align: right;
+    line-height: 1.05;
+    min-width: 28mm;
+  }
+  .model-block .lbl {
+    font-size: 6.5px;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .model-block .name {
+    font-size: 20px;
+    font-weight: 900;
+    letter-spacing: 0.01em;
+  }
+  .model-block .brand {
+    margin-top: 0.6mm;
+    font-size: 9px;
+    font-weight: 900;
+    text-transform: uppercase;
+  }
+  .model-block .made {
+    margin-top: 1mm;
+    font-size: 6.5px;
     font-weight: 700;
   }
-  .wifi .k { font-weight: 800; text-transform: uppercase; font-size: 6px; color: #222; }
-  .model {
-    font-size: 13px;
-    font-weight: 900;
-    letter-spacing: 0.02em;
-    text-align: right;
-    line-height: 1.1;
-  }
-  .model .lbl { display: block; font-size: 6px; font-weight: 800; letter-spacing: 0.08em; }
-  .brand {
-    font-size: 7px;
-    font-weight: 800;
-    text-align: right;
-    text-transform: uppercase;
-  }
   .ids {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 1mm;
-    margin-top: 0.5mm;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-evenly;
+    gap: 0.8mm;
+    border-top: 0.35mm solid #000;
+    padding-top: 1.2mm;
   }
   .row {
-    display: flex;
+    display: grid;
+    grid-template-columns: 14mm 1fr;
     align-items: center;
-    gap: 1.5mm;
+    column-gap: 2mm;
   }
   .tag {
-    width: 14mm;
-    flex-shrink: 0;
-    font-size: 6.5px;
+    font-size: 7.5px;
     font-weight: 900;
     text-transform: uppercase;
+    letter-spacing: 0.02em;
   }
   .bc-wrap {
-    flex: 1;
     min-width: 0;
     display: flex;
     flex-direction: column;
@@ -147,19 +174,13 @@ const LABEL_CSS = `
   .bc {
     width: 100%;
     height: 7mm;
-    max-width: 48mm;
+    max-width: 68mm;
   }
   .bc-text {
-    font-size: 7px;
-    font-weight: 800;
+    font-size: 8.5px;
+    font-weight: 900;
     letter-spacing: 0.04em;
-    margin-top: 0.2mm;
-  }
-  .note {
-    margin-top: auto;
-    font-size: 5.5px;
-    color: #444;
-    font-weight: 600;
+    margin-top: 0.3mm;
   }
 `;
 
@@ -176,24 +197,31 @@ function buildLabelHtml(
   },
   barcodeBlock: (value: string) => string
 ): string {
+  // Mismo orden que la sticker física del equipo.
   const rows: Array<{ tag: string; value: string }> = [
-    { tag: 'Serial', value: opts.serial },
+    { tag: 'SERIAL', value: opts.serial },
     { tag: 'CM MAC', value: opts.cmMac },
     { tag: 'MTA MAC', value: opts.mtaMac },
     { tag: 'WAN MAC', value: opts.wanMac },
   ].filter((r) => r.value);
 
+  const brand = (opts.brand || 'KAON').toUpperCase().replace(/BROADBAND/i, '').trim() || 'KAON';
+
   return `
   <div class="label">
     <div class="top">
-      <div class="wifi">
-        <div><span class="k">2.4G</span> ${escapeHtml(opts.ssid24 || '—')}</div>
-        <div><span class="k">5G</span> ${escapeHtml(opts.ssid5 || '—')}</div>
-        <div><span class="k">Wi-Fi</span> (ver equipo / sistema)</div>
+      <div class="wifi-block">
+        <div class="title">Nombre red Wi-Fi</div>
+        <div class="line"><span class="band">2.4G:</span> ${escapeHtml(opts.ssid24 || '—')}</div>
+        <div class="line"><span class="band">5G:</span> ${escapeHtml(opts.ssid5 || '—')}</div>
+        <div class="pwd-title">Contraseña Wi-Fi</div>
+        <div class="line">Ver equipo / sistema</div>
       </div>
-      <div>
-        <div class="model"><span class="lbl">MODELO</span>${escapeHtml(opts.stickerModel)}</div>
-        <div class="brand">${escapeHtml(opts.brand || 'KAON')}</div>
+      <div class="model-block">
+        <div class="lbl">Modelo</div>
+        <div class="name">${escapeHtml(opts.stickerModel)}</div>
+        <div class="brand">Marca: ${escapeHtml(brand)}</div>
+        <div class="made">Made in Indonesia</div>
       </div>
     </div>
     <div class="ids">
@@ -207,7 +235,6 @@ function buildLabelHtml(
         )
         .join('')}
     </div>
-    <div class="note">TC-ERP · Control de Calidad · Etiqueta equipo</div>
   </div>`;
 }
 
@@ -254,7 +281,7 @@ ${bodyHtml}
   const win = iframe.contentWindow;
   if (!win) return;
 
-  await new Promise((r) => setTimeout(r, 200));
+  await new Promise((r) => setTimeout(r, 220));
   win.focus();
   win.print();
 
@@ -297,8 +324,8 @@ export async function printKaonQcLabel(
         format: 'CODE128',
         displayValue: false,
         margin: 0,
-        width: 1.35,
-        height: 28,
+        width: 1.45,
+        height: 30,
         background: '#ffffff',
         lineColor: '#000000',
       });
@@ -319,7 +346,7 @@ export async function printKaonQcLabel(
   const body = buildLabelHtml(
     {
       stickerModel,
-      brand: String(input.marca || 'KAON').toUpperCase(),
+      brand: String(input.marca || 'KAON'),
       ...ids,
     },
     barcodeBlock

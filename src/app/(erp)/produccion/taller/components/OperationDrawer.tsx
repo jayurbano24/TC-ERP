@@ -9,7 +9,7 @@ import {
 import {
   isKaonQcPrintableModel,
   printKaonQcLabel,
-} from './printKaonQcLabel';
+} from '../printKaonQcLabel';
 
 type Props = {
   activeTab: string;

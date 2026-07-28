@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { Card, Badge, Button, notify, confirmDialog, DataTable, type DataTableColumn } from '@/components/ui';
@@ -10,6 +10,15 @@ import { sapValidationReader } from '@/modules/sap-integration';
 import * as XLSX from 'xlsx';
 import { ModulePage, ModuleToolbar } from '@/components/module-page';
 import { DispatchBatchPanel } from './DispatchBatchPanel';
+import {
+  filterBrandsByTechnologyId,
+  filterModelsByTechAndBrand,
+} from '@/shared/catalogs/cascadeCatalogFilters';
+import {
+  fetchSapMatLotOptionsForModel,
+  uniqueMaterials,
+  valuationsForMaterial,
+} from '@/lib/api/despachoSapMatLot';
 import { 
   Truck, 
   Package, 
@@ -309,6 +318,76 @@ export default function DespachoPage() {
   const dbModels: any[] = catalogsQuery.data?.models ?? EMPTY_LIST;
   const dbTechs: any[] = catalogsQuery.data?.techs ?? EMPTY_LIST;
   const [editBoxId, setEditBoxId] = useState<string | null>(null);
+
+  const outboundBrands = useMemo(
+    () => filterBrandsByTechnologyId(dbBrands, dbModels, boxTech),
+    [dbBrands, dbModels, boxTech]
+  );
+  const outboundModels = useMemo(
+    () => filterModelsByTechAndBrand(dbModels, boxTech, boxBrand),
+    [dbModels, boxTech, boxBrand]
+  );
+
+  const sapMatLotQuery = useQuery({
+    queryKey: ['despacho-sap-mat-lot', boxBrand, boxModel],
+    queryFn: () => fetchSapMatLotOptionsForModel(boxBrand, boxModel),
+    enabled: showCreateBoxModal && !!boxBrand && !!boxModel,
+    staleTime: 60_000,
+  });
+  const sapMatLotPairs = sapMatLotQuery.data ?? [];
+  const sapMaterialOptions = useMemo(() => {
+    const list = uniqueMaterials(sapMatLotPairs);
+    if (boxMaterial && !list.some((m) => m.toUpperCase() === boxMaterial.toUpperCase())) {
+      return [boxMaterial, ...list];
+    }
+    return list;
+  }, [sapMatLotPairs, boxMaterial]);
+  const sapValuationOptions = useMemo(() => {
+    const list = valuationsForMaterial(sapMatLotPairs, boxMaterial);
+    if (boxValuation && !list.some((v) => v.toUpperCase() === boxValuation.toUpperCase())) {
+      return [boxValuation, ...list];
+    }
+    return list;
+  }, [sapMatLotPairs, boxMaterial, boxValuation]);
+
+  useEffect(() => {
+    if (!showCreateBoxModal || !boxBrand || !boxModel) return;
+    if (sapMatLotQuery.isLoading || sapMatLotQuery.isFetching) return;
+    const mats = uniqueMaterials(sapMatLotPairs);
+    if (mats.length === 1 && !boxMaterial) {
+      setBoxMaterial(mats[0]);
+    }
+  }, [
+    showCreateBoxModal,
+    boxBrand,
+    boxModel,
+    sapMatLotPairs,
+    sapMatLotQuery.isLoading,
+    sapMatLotQuery.isFetching,
+    boxMaterial,
+  ]);
+
+  useEffect(() => {
+    if (!showCreateBoxModal || !boxMaterial) return;
+    if (sapMatLotQuery.isLoading || sapMatLotQuery.isFetching) return;
+    const vals = valuationsForMaterial(sapMatLotPairs, boxMaterial);
+    if (vals.length === 1 && boxValuation.toUpperCase() !== vals[0].toUpperCase()) {
+      setBoxValuation(vals[0]);
+    } else if (
+      boxValuation &&
+      vals.length > 0 &&
+      !vals.some((v) => v.toUpperCase() === boxValuation.toUpperCase())
+    ) {
+      setBoxValuation('');
+    }
+  }, [
+    showCreateBoxModal,
+    boxMaterial,
+    sapMatLotPairs,
+    sapMatLotQuery.isLoading,
+    sapMatLotQuery.isFetching,
+    boxValuation,
+  ]);
 
   const [showUploadSAPModal, setShowUploadSAPModal] = useState(false);
   const [isUploadingSAP, setIsUploadingSAP] = useState(false);
@@ -1516,7 +1595,13 @@ export default function DespachoPage() {
                     <select 
                       className={erpFieldClass}
                       value={boxTech}
-                      onChange={e => setBoxTech(e.target.value)}
+                      onChange={(e) => {
+                        setBoxTech(e.target.value);
+                        setBoxBrand('');
+                        setBoxModel('');
+                        setBoxMaterial('');
+                        setBoxValuation('');
+                      }}
                     >
                       <option value="">Seleccione...</option>
                       {dbTechs.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -1528,10 +1613,16 @@ export default function DespachoPage() {
                     <select 
                       className={erpFieldClass}
                       value={boxBrand}
-                      onChange={e => setBoxBrand(e.target.value)}
+                      disabled={!boxTech}
+                      onChange={(e) => {
+                        setBoxBrand(e.target.value);
+                        setBoxModel('');
+                        setBoxMaterial('');
+                        setBoxValuation('');
+                      }}
                     >
-                      <option value="">Seleccione...</option>
-                      {dbBrands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                      <option value="">{boxTech ? 'Seleccione...' : 'Tecnología primero'}</option>
+                      {outboundBrands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                     </select>
                   </div>
 
@@ -1540,10 +1631,15 @@ export default function DespachoPage() {
                     <select 
                       className={erpFieldClass}
                       value={boxModel}
-                      onChange={e => setBoxModel(e.target.value)}
+                      disabled={!boxBrand}
+                      onChange={(e) => {
+                        setBoxModel(e.target.value);
+                        setBoxMaterial('');
+                        setBoxValuation('');
+                      }}
                     >
-                      <option value="">Seleccione...</option>
-                      {dbModels.filter(m => !boxBrand || m.brand_id === boxBrand).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                      <option value="">{boxBrand ? 'Seleccione...' : 'Marca primero'}</option>
+                      {outboundModels.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                     </select>
                   </div>
                   
@@ -1560,26 +1656,58 @@ export default function DespachoPage() {
 
                   <div className="space-y-1.5">
                     <label className={erpLabelClass}>Material</label>
-                    <input
-                      type="text"
-                      placeholder="Ej: 4010589"
+                    <select
                       className={`${erpFieldClass} font-mono`}
                       value={boxMaterial}
-                      onChange={e => setBoxMaterial(e.target.value)}
-                    />
+                      disabled={!boxModel || sapMatLotQuery.isLoading}
+                      onChange={(e) => {
+                        setBoxMaterial(e.target.value);
+                        setBoxValuation('');
+                      }}
+                    >
+                      <option value="">
+                        {!boxModel
+                          ? 'Modelo primero'
+                          : sapMatLotQuery.isLoading
+                            ? 'Cargando SAP...'
+                            : sapMaterialOptions.length === 0
+                              ? 'Sin material SAP para este modelo'
+                              : 'Seleccione material SAP...'}
+                      </option>
+                      {sapMaterialOptions.map((m) => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
                   </div>
 
                   <div className="space-y-1.5">
                     <label className={erpLabelClass}>Valoración</label>
-                    <input
-                      type="text"
-                      placeholder="Ej: NOVALORADO"
+                    <select
                       className={`${erpFieldClass} font-mono`}
                       value={boxValuation}
-                      onChange={e => setBoxValuation(e.target.value)}
-                    />
+                      disabled={!boxMaterial || sapMatLotQuery.isLoading}
+                      onChange={(e) => setBoxValuation(e.target.value)}
+                    >
+                      <option value="">
+                        {!boxMaterial
+                          ? 'Material primero'
+                          : sapMatLotQuery.isLoading
+                            ? 'Cargando SAP...'
+                            : sapValuationOptions.length === 0
+                              ? 'Sin valoración SAP para este material'
+                              : 'Seleccione valoración SAP...'}
+                      </option>
+                      {sapValuationOptions.map((v) => (
+                        <option key={v} value={v}>{v}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
+                {boxModel && !sapMatLotQuery.isLoading && sapMatLotPairs.length === 0 && (
+                  <p className="text-[11px] text-amber-700 font-medium">
+                    No hay Material/Valoración SAP en series de este marca+modelo. Valide equipos en Integración SAP o cargue el Excel G985.
+                  </p>
+                )}
               </div>
 
               <div className="p-6 bg-[var(--surface-hover)] border-t border-[var(--border)] flex justify-end gap-3">

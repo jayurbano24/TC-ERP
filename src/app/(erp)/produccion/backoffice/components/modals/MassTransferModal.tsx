@@ -37,7 +37,7 @@ export function MassTransferModal({ open, data, technologies, brands, models, on
             <select
               className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[var(--heading)] outline-none focus:border-amber-500 transition-all"
               value={data.techId}
-              onChange={(e) => onDataChange({ techId: e.target.value, modelId: '' })}
+              onChange={(e) => onDataChange({ techId: e.target.value, brandId: '', modelId: '' })}
             >
               <option value="">-- SELECCIONAR --</option>
               {technologies.map(t => <option key={t.id} value={t.id}>{t.nombre}</option>)}
@@ -46,19 +46,23 @@ export function MassTransferModal({ open, data, technologies, brands, models, on
           <div>
             <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 block mb-1">Marca</label>
             <select
-              className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[var(--heading)] outline-none focus:border-amber-500 transition-all"
+              className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[var(--heading)] outline-none focus:border-amber-500 transition-all disabled:opacity-50"
               value={data.brandId}
+              disabled={!data.techId}
               onChange={(e) => onDataChange({ brandId: e.target.value, modelId: '' })}
             >
-              <option value="">-- SELECCIONAR --</option>
+              <option value="">
+                {data.techId ? '-- SELECCIONAR --' : '-- Tecnología primero --'}
+              </option>
               {brands.map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
             </select>
           </div>
           <div>
             <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 block mb-1">Modelo</label>
             <select
-              className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[var(--heading)] outline-none focus:border-amber-500 transition-all"
+              className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[var(--heading)] outline-none focus:border-amber-500 transition-all disabled:opacity-50"
               value={data.modelId}
+              disabled={!data.brandId}
               onChange={(e) => onDataChange({ modelId: e.target.value })}
             >
               <option value="">-- SELECCIONAR --</option>

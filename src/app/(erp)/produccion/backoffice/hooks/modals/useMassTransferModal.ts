@@ -38,13 +38,13 @@ export function useMassTransferModal({
 
   const massTransferBrands = useMemo(
     () =>
-      MASTER_MARCAS.filter(
-        (b) =>
-          !massTransferData.techId ||
-          MASTER_MODELOS.some(
-            (m) => m.marcaId === b.id && m.tecnologiaId === massTransferData.techId
-          )
-      ),
+      !massTransferData.techId
+        ? []
+        : MASTER_MARCAS.filter((b) =>
+            MASTER_MODELOS.some(
+              (m) => m.marcaId === b.id && m.tecnologiaId === massTransferData.techId
+            )
+          ),
     [MASTER_MARCAS, MASTER_MODELOS, massTransferData.techId]
   );
 

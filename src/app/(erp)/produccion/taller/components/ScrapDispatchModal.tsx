@@ -1,11 +1,17 @@
 'use client';
 
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import { Button, notify } from '@/components/ui';
 import {
   Package, X, BarChart3, ScanLine, Layers, Trash2,
   AlertCircle, CheckCircle2, RotateCcw, Loader2, Send,
 } from 'lucide-react';
+import {
+  filterBrandsByTechnologyId,
+  filterModelsByTechAndBrand,
+  resolveCatalogBrandId,
+  resolveCatalogTechId,
+} from '@/shared/catalogs/cascadeCatalogFilters';
 
 type Props = {
   filteredTasks: any[];
@@ -79,6 +85,23 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
   fetchTasks,
   onClose,
 }: Props) {
+  const scrapTechId = useMemo(
+    () => resolveCatalogTechId(catTecnologias, scrapBoxTecnologia),
+    [catTecnologias, scrapBoxTecnologia]
+  );
+  const scrapBrandOptions = useMemo(
+    () => filterBrandsByTechnologyId(catMarcas, catModelos, scrapTechId),
+    [catMarcas, catModelos, scrapTechId]
+  );
+  const scrapBrandId = useMemo(
+    () => resolveCatalogBrandId(catMarcas, scrapBoxMarca),
+    [catMarcas, scrapBoxMarca]
+  );
+  const scrapModelOptions = useMemo(
+    () => filterModelsByTechAndBrand(catModelos, scrapTechId || undefined, scrapBrandId || undefined),
+    [catModelos, scrapTechId, scrapBrandId]
+  );
+
   const registerScan = () => {
     const snVal = scrapScanSN.trim().toUpperCase();
     if (!snVal) { setScrapScanError('El SN es obligatorio'); return; }
@@ -168,6 +191,27 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {/* Tecnología primero → marca → modelo */}
+                <div className="space-y-2">
+                  <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest block">
+                    Tecnología <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    value={scrapBoxTecnologia}
+                    onChange={e => {
+                      setScrapBoxTecnologia(e.target.value);
+                      setScrapBoxMarca('');
+                      setScrapBoxModelo('');
+                    }}
+                    className="w-full px-4 py-3.5 bg-white border-2 border-slate-200 rounded-xl text-sm font-bold text-[#181c3a] outline-none focus:border-rose-400 transition-colors appearance-none cursor-pointer"
+                  >
+                    <option value="">Seleccionar tecnología...</option>
+                    {catTecnologias.map((t: any) => (
+                      <option key={t.id} value={t.name}>{t.name}</option>
+                    ))}
+                  </select>
+                </div>
+
                 {/* Marca */}
                 <div className="space-y-2">
                   <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest block">
@@ -176,10 +220,13 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
                   <select
                     value={scrapBoxMarca}
                     onChange={e => { setScrapBoxMarca(e.target.value); setScrapBoxModelo(''); }}
-                    className="w-full px-4 py-3.5 bg-white border-2 border-slate-200 rounded-xl text-sm font-bold text-[#181c3a] outline-none focus:border-rose-400 transition-colors appearance-none cursor-pointer"
+                    disabled={!scrapBoxTecnologia}
+                    className="w-full px-4 py-3.5 bg-white border-2 border-slate-200 rounded-xl text-sm font-bold text-[#181c3a] outline-none focus:border-rose-400 transition-colors appearance-none cursor-pointer disabled:opacity-50"
                   >
-                    <option value="">Seleccionar marca...</option>
-                    {catMarcas.map((m: any) => (
+                    <option value="">
+                      {scrapBoxTecnologia ? 'Seleccionar marca...' : 'Primero selecciona una tecnología'}
+                    </option>
+                    {scrapBrandOptions.map((m: any) => (
                       <option key={m.id} value={m.name}>{m.name}</option>
                     ))}
                   </select>
@@ -197,32 +244,8 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
                     disabled={!scrapBoxMarca}
                   >
                     <option value="">{scrapBoxMarca ? 'Seleccionar modelo...' : 'Primero selecciona una marca'}</option>
-                    {catModelos
-                      .filter((m: any) => {
-                        if (!scrapBoxMarca) return true;
-                        const marca = catMarcas.find((b: any) => b.name === scrapBoxMarca);
-                        return marca ? m.brand_id === marca.id : true;
-                      })
-                      .map((m: any) => (
-                        <option key={m.id} value={m.name}>{m.name}</option>
-                      ))
-                    }
-                  </select>
-                </div>
-
-                {/* Tecnología */}
-                <div className="space-y-2">
-                  <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest block">
-                    Tecnología <span className="text-rose-500">*</span>
-                  </label>
-                  <select
-                    value={scrapBoxTecnologia}
-                    onChange={e => setScrapBoxTecnologia(e.target.value)}
-                    className="w-full px-4 py-3.5 bg-white border-2 border-slate-200 rounded-xl text-sm font-bold text-[#181c3a] outline-none focus:border-rose-400 transition-colors appearance-none cursor-pointer"
-                  >
-                    <option value="">Seleccionar tecnología...</option>
-                    {catTecnologias.map((t: any) => (
-                      <option key={t.id} value={t.name}>{t.name}</option>
+                    {scrapModelOptions.map((m: any) => (
+                      <option key={m.id} value={m.name}>{m.name}</option>
                     ))}
                   </select>
                 </div>

@@ -1,12 +1,18 @@
 'use client';
 
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import { Card, Button, Badge, notify, confirmDialog } from '@/components/ui';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import {
   Send, Plus, Package, Eye, Printer, Edit2, Trash2, ScanLine, X,
   ChevronLeft, AlertCircle, RotateCcw, CheckCircle2, Loader2,
 } from 'lucide-react';
+import {
+  filterBrandsByTechnologyId,
+  filterModelsByTechAndBrand,
+  resolveCatalogBrandId,
+  resolveCatalogTechId,
+} from '@/shared/catalogs/cascadeCatalogFilters';
 
 type DespachoMovement = {
   id: string;
@@ -118,6 +124,23 @@ export const DespachoView = memo(function DespachoView({
   const origenDef = DESP_ORIGENES.find(o => o.id === despOrigen);
   const destinoDef = DESP_DESTINOS.find(d => d.id === despDestino);
   const despTasks = origenDef ? tasks.filter(t => t.etapa === origenDef.etapa) : [];
+
+  const despTechId = useMemo(
+    () => resolveCatalogTechId(catTecnologias, despBoxTecnologia),
+    [catTecnologias, despBoxTecnologia]
+  );
+  const despBrandOptions = useMemo(
+    () => filterBrandsByTechnologyId(catMarcas, catModelos, despTechId),
+    [catMarcas, catModelos, despTechId]
+  );
+  const despBrandId = useMemo(
+    () => resolveCatalogBrandId(catMarcas, despBoxMarca),
+    [catMarcas, despBoxMarca]
+  );
+  const despModelOptions = useMemo(
+    () => filterModelsByTechAndBrand(catModelos, despTechId, despBrandId || undefined),
+    [catModelos, despTechId, despBrandId]
+  );
 
   return (
     <div className="space-y-0">
@@ -296,7 +319,15 @@ export const DespachoView = memo(function DespachoView({
               <div className="border-t border-slate-200 pt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">Tecnología <span className="text-rose-500">*</span></label>
-                  <select value={despBoxTecnologia} onChange={e => setDespBoxTecnologia(e.target.value)} className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-[#181c3a] outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 transition-all">
+                  <select
+                    value={despBoxTecnologia}
+                    onChange={e => {
+                      setDespBoxTecnologia(e.target.value);
+                      setDespBoxMarca('');
+                      setDespBoxModelo('');
+                    }}
+                    className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-[#181c3a] outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 transition-all"
+                  >
                     <option value="">Seleccionar Tecnología</option>
                     {catTecnologias.map(t => (
                       <option key={t.id} value={t.name}>{t.name}</option>
@@ -305,21 +336,31 @@ export const DespachoView = memo(function DespachoView({
                 </div>
                 <div>
                   <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">Marca <span className="text-rose-500">*</span></label>
-                  <select value={despBoxMarca} onChange={e => { setDespBoxMarca(e.target.value); setDespBoxModelo(''); }} className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-[#181c3a] outline-none focus:border-indigo-400 transition-all">
-                    <option value="">Seleccionar Marca</option>
-                    {catMarcas.map(m => (
+                  <select
+                    value={despBoxMarca}
+                    onChange={e => { setDespBoxMarca(e.target.value); setDespBoxModelo(''); }}
+                    disabled={!despBoxTecnologia}
+                    className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-[#181c3a] outline-none focus:border-indigo-400 transition-all disabled:opacity-50 disabled:bg-slate-100"
+                  >
+                    <option value="">
+                      {despBoxTecnologia ? 'Seleccionar Marca' : 'Selecciona una tecnología primero'}
+                    </option>
+                    {despBrandOptions.map(m => (
                       <option key={m.id} value={m.name}>{m.name}</option>
                     ))}
                   </select>
                 </div>
                 <div>
                   <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">Modelo <span className="text-rose-500">*</span></label>
-                  <select value={despBoxModelo} onChange={e => setDespBoxModelo(e.target.value)} disabled={!despBoxMarca} className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-[#181c3a] outline-none focus:border-indigo-400 transition-all disabled:opacity-50 disabled:bg-slate-100">
+                  <select
+                    value={despBoxModelo}
+                    onChange={e => setDespBoxModelo(e.target.value)}
+                    disabled={!despBoxMarca}
+                    className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-[#181c3a] outline-none focus:border-indigo-400 transition-all disabled:opacity-50 disabled:bg-slate-100"
+                  >
                     <option value="">{despBoxMarca ? 'Seleccionar Modelo' : 'Selecciona una marca primero'}</option>
-                    {catModelos
-                      .filter(m => !despBoxMarca || m.brand_id === catMarcas.find(b => b.name === despBoxMarca)?.id)
-                      .map(m => (
-                        <option key={m.id} value={m.name}>{m.name}</option>
+                    {despModelOptions.map(m => (
+                      <option key={m.id} value={m.name}>{m.name}</option>
                     ))}
                   </select>
                 </div>

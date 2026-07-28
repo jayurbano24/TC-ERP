@@ -1,8 +1,15 @@
 'use client';
 
+import { useMemo } from 'react';
 import { Button, Card } from '@/components/ui';
 import { Plus } from 'lucide-react';
 import type { CatalogAgency, CatalogBrand, CatalogModel, CatalogTech } from '../../types';
+import {
+  filterBrandsByTechnologyId,
+  filterModelsByTechAndBrand,
+  resolveCatalogBrandId,
+  resolveCatalogTechId,
+} from '@/shared/catalogs/cascadeCatalogFilters';
 
 export type EditMetaForm = { agency: string; tech: string; brand: string; model: string };
 
@@ -20,6 +27,23 @@ type Props = {
 };
 
 export function EditMetaModal({ reception, editMeta, saving, agencies, technologies, brands, models, onEditMetaChange, onSave, onClose }: Props) {
+  const techId = useMemo(
+    () => resolveCatalogTechId(technologies, editMeta.tech),
+    [technologies, editMeta.tech]
+  );
+  const brandOptions = useMemo(
+    () => filterBrandsByTechnologyId(brands, models, techId),
+    [brands, models, techId]
+  );
+  const brandId = useMemo(
+    () => resolveCatalogBrandId(brands, editMeta.brand),
+    [brands, editMeta.brand]
+  );
+  const modelOptions = useMemo(
+    () => filterModelsByTechAndBrand(models, techId || undefined, brandId || undefined),
+    [models, techId, brandId]
+  );
+
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 backdrop-blur-xl p-6">
       <Card className="w-full max-w-lg bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border-none animate-rise-in p-0">
@@ -33,7 +57,6 @@ export function EditMetaModal({ reception, editMeta, saving, agencies, technolog
           </button>
         </div>
         <div className="p-7 space-y-4">
-          {/* Agencia */}
           <div>
             <label className="text-[8px] font-black uppercase tracking-widest text-slate-400 block mb-1">Agencia CAC</label>
             <select
@@ -47,7 +70,6 @@ export function EditMetaModal({ reception, editMeta, saving, agencies, technolog
               ))}
             </select>
           </div>
-          {/* Tecnología */}
           <div>
             <label className="text-[8px] font-black uppercase tracking-widest text-slate-400 block mb-1">Tecnología</label>
             <select
@@ -61,34 +83,36 @@ export function EditMetaModal({ reception, editMeta, saving, agencies, technolog
               ))}
             </select>
           </div>
-          {/* Marca */}
           <div>
             <label className="text-[8px] font-black uppercase tracking-widest text-slate-400 block mb-1">Marca</label>
             <select
               value={editMeta.brand}
               onChange={e => onEditMetaChange({ brand: e.target.value, model: '' })}
-              className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[var(--heading)] outline-none focus:border-[var(--accent)] transition-all"
+              disabled={!editMeta.tech}
+              className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[var(--heading)] outline-none focus:border-[var(--accent)] transition-all disabled:opacity-50"
             >
-              <option value="">— Seleccionar Marca —</option>
-              {brands.map(b => (
+              <option value="">
+                {editMeta.tech ? '— Seleccionar Marca —' : '— Selecciona tecnología primero —'}
+              </option>
+              {brandOptions.map(b => (
                 <option key={b.id} value={b.nombre}>{b.nombre}</option>
               ))}
             </select>
           </div>
-          {/* Modelo */}
           <div>
             <label className="text-[8px] font-black uppercase tracking-widest text-slate-400 block mb-1">Modelo</label>
             <select
               value={editMeta.model}
               onChange={e => onEditMetaChange({ model: e.target.value })}
-              className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[var(--heading)] outline-none focus:border-[var(--accent)] transition-all"
+              disabled={!editMeta.brand}
+              className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-[var(--heading)] outline-none focus:border-[var(--accent)] transition-all disabled:opacity-50"
             >
-              <option value="">— Seleccionar Modelo —</option>
-              {models
-                .filter(m => !editMeta.brand || brands.find(b => b.nombre === editMeta.brand)?.id === m.marcaId)
-                .map(m => (
-                  <option key={m.id} value={m.nombre}>{m.nombre}</option>
-                ))}
+              <option value="">
+                {editMeta.brand ? '— Seleccionar Modelo —' : '— Selecciona marca primero —'}
+              </option>
+              {modelOptions.map(m => (
+                <option key={m.id} value={m.nombre}>{m.nombre}</option>
+              ))}
             </select>
           </div>
         </div>

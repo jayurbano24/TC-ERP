@@ -54,9 +54,11 @@ export function useBackofficeManifest({
 
   const availableBrandsConfig = useMemo(
     () =>
-      MASTER_MARCAS.filter(
-        (b) => !newItem.tipo || MASTER_MODELOS.some((m) => m.marcaId === b.id && m.tecnologiaId === newItem.tipo)
-      ),
+      !newItem.tipo
+        ? []
+        : MASTER_MARCAS.filter((b) =>
+            MASTER_MODELOS.some((m) => m.marcaId === b.id && m.tecnologiaId === newItem.tipo)
+          ),
     [MASTER_MARCAS, MASTER_MODELOS, newItem.tipo]
   );
 

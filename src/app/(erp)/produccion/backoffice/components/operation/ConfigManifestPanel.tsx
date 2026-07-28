@@ -126,7 +126,7 @@ export function ConfigManifestPanel({ ctx }: Props) {
             <select
               className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-black text-[10px] text-[var(--heading)] outline-none focus:border-[var(--accent)] disabled:opacity-50"
               value={newItem.tipo}
-              onChange={(e) => setNewItem({ ...newItem, tipo: e.target.value, modelo: '' })}
+              onChange={(e) => setNewItem({ ...newItem, tipo: e.target.value, marca: '', modelo: '' })}
               disabled={!agencyDetails}
             >
               <option value="">Tecnología...</option>
@@ -141,9 +141,9 @@ export function ConfigManifestPanel({ ctx }: Props) {
               className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-black text-[10px] text-[var(--heading)] outline-none focus:border-[var(--accent)] disabled:opacity-50"
               value={newItem.marca}
               onChange={(e) => setNewItem({ ...newItem, marca: e.target.value, modelo: '' })}
-              disabled={!agencyDetails}
+              disabled={!agencyDetails || !newItem.tipo}
             >
-              <option value="">Marca...</option>
+              <option value="">{newItem.tipo ? 'Marca...' : 'Tecnología primero'}</option>
               {availableBrandsConfig.map((m) => (
                 <option key={m.id} value={m.id}>{m.nombre}</option>
               ))}

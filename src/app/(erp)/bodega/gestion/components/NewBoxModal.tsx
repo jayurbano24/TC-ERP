@@ -1,9 +1,13 @@
 'use client';
 
-import { memo, type FormEvent } from 'react';
+import { memo, useMemo, type FormEvent } from 'react';
 import { Card, Badge, Button, confirmDialog } from '@/components/ui';
 import { erpFieldClass, erpLabelClass } from '@/lib/design/tokens';
 import { Box, QrCode, Trash2 } from 'lucide-react';
+import {
+  filterBrandsByTechnologyId,
+  filterModelsByTechAndBrand,
+} from '@/shared/catalogs/cascadeCatalogFilters';
 
 type Props = {
   newBox: any;
@@ -50,6 +54,15 @@ export const NewBoxModal = memo(function NewBoxModal({
 }: Props) {
   const canProceedToScan =
     Boolean(newBox.tecnologia && newBox.marca && newBox.modelo && newBox.cantidad > 0) && !loading;
+
+  const brandOptions = useMemo(
+    () => filterBrandsByTechnologyId(catMarcas, catModelos, newBox.tecnologia),
+    [catMarcas, catModelos, newBox.tecnologia]
+  );
+  const modelOptions = useMemo(
+    () => filterModelsByTechAndBrand(catModelos, newBox.tecnologia, newBox.marca),
+    [catModelos, newBox.tecnologia, newBox.marca]
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6 backdrop-blur-sm">
@@ -124,7 +137,7 @@ export const NewBoxModal = memo(function NewBoxModal({
                   disabled={!newBox.tecnologia}
                 >
                   <option value="">-- Seleccione --</option>
-                  {catMarcas.map((b) => (
+                  {brandOptions.map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.name}
                     </option>
@@ -143,17 +156,11 @@ export const NewBoxModal = memo(function NewBoxModal({
                   disabled={!newBox.marca}
                 >
                   <option value="">-- Seleccione --</option>
-                  {catModelos
-                    .filter(
-                      (m) =>
-                        (!newBox.tecnologia || m.technology_id === newBox.tecnologia) &&
-                        (!newBox.marca || m.brand_id === newBox.marca),
-                    )
-                    .map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name}
-                      </option>
-                    ))}
+                  {modelOptions.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div className="space-y-2">

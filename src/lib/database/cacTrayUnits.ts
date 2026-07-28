@@ -70,7 +70,32 @@ function applyTrayFilters(
     .not('unit_status_label', 'ilike', '%devolver%')
     .not('unit_status_label', 'ilike', '%retorno%');
 
+  // Ya ingresados a Bodega General: viven en Gestión de Bodega, no en Historial CAC.
+  q = q
+    .not(
+      'unit_status',
+      'in',
+      '("ingresado_bodega","INGRESADO_BODEGA","in_central_warehouse","IN_CENTRAL_WAREHOUSE")'
+    )
+    .not('unit_status_label', 'ilike', '%bodega general%');
+
   return q;
+}
+
+/** Estados live que no deben listarse en Historial Global CAC. */
+export function isCacTrayRowStillInBackofficeQueue(row: {
+  unit_status?: string | null;
+  unit_status_label?: string | null;
+}): boolean {
+  const status = String(row.unit_status || '')
+    .trim()
+    .toLowerCase();
+  const label = String(row.unit_status_label || '')
+    .trim()
+    .toLowerCase();
+  if (status === 'in_central_warehouse' || status === 'ingresado_bodega') return false;
+  if (label.includes('bodega general')) return false;
+  return true;
 }
 
 type TrayPageOptions = {
@@ -119,10 +144,29 @@ export async function queryCacTrayPage(
   const totalCount = count ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalCount / limit));
   const baseRows = (data || []) as CacTrayUnitRow[];
-  const rows =
+  const enriched =
     options?.includeSapValidation === false
       ? baseRows
       : await enrichCacTrayRowsWithSapValidation(baseRows);
+  // Enrich puede marcar live "Ingresado a Bodega General" aunque el snapshot
+  // aún diga Backoffice → ocultar esas filas de la bandeja operativa.
+  const rows = enriched.filter(isCacTrayRowStillInBackofficeQueue);
+
+  // Best-effort: desactivar en DB las OS ya en bodega (migración 172).
+  const toDeactivate = enriched.filter((r) => !isCacTrayRowStillInBackofficeQueue(r));
+  if (toDeactivate.length > 0) {
+    void Promise.all(
+      toDeactivate.map(async (r) => {
+        try {
+          await supabase.rpc('cac_tray_deactivate_if_in_warehouse', {
+            p_os_id: r.service_order_id,
+          });
+        } catch {
+          /* migración 172 pendiente o RPC no disponible */
+        }
+      })
+    );
+  }
 
   return {
     rows,
@@ -215,7 +259,8 @@ export async function queryCacTrayAllFiltered(
     if (chunk.length < pageSize) break;
   }
 
-  return enrichCacTrayRowsWithSapValidation(all);
+  const enriched = await enrichCacTrayRowsWithSapValidation(all);
+  return enriched.filter(isCacTrayRowStillInBackofficeQueue);
 }
 
 export async function queryTransferEligibleSeries(

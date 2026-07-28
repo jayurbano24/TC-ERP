@@ -92,8 +92,9 @@ export default function BodegaGestionV2({
   const [loadingBoxDetail, setLoadingBoxDetail] = useState(false);
   const [loading, setLoading] = useState(false);
   // Advanced Filters State (antes del query para poder filtrar en servidor)
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(true);
   const [filterTech, setFilterTech] = useState('');
+  const [filterModel, setFilterModel] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const fillStatusParam =
     filterStatus === 'Partial' ? 'partial' : filterStatus === 'Full' ? 'full' : undefined;
@@ -321,6 +322,11 @@ export default function BodegaGestionV2({
       if (!isBodegaOperationalRack(item.rack)) return false;
 
       if (filterTech && item.tecnologiaId !== filterTech) return false;
+      if (filterModel) {
+        const modelId = String(item.modelo || '');
+        const modelLabel = String(item.modeloLabel || modelName(item.modelo) || '').trim();
+        if (modelId !== filterModel && modelLabel !== filterModel) return false;
+      }
 
       // fillStatus ya filtra en servidor; el filtro cliente es respaldo (migración 129 pendiente)
       const isFull = item.status === 'Full';
@@ -342,10 +348,35 @@ export default function BodegaGestionV2({
         rackName.toLowerCase().includes(term)
       );
     });
-  }, [inventory, filterTech, filterStatus, debouncedSearch, brandName, modelName]);
+  }, [inventory, filterTech, filterModel, filterStatus, debouncedSearch, brandName, modelName]);
+
+  /** Modelos presentes en la tabla para la tecnología seleccionada (cascada). */
+  const modelFilterOptions = useMemo(() => {
+    if (!filterTech) return [] as Array<{ id: string; label: string }>;
+    const byId = new Map<string, string>();
+    for (const item of inventory) {
+      if (!isBodegaOperationalRack(item.rack)) continue;
+      if (item.tecnologiaId !== filterTech) continue;
+      const id = String(item.modelo || '').trim();
+      if (!id || id === 'N/A') continue;
+      const label = String(item.modeloLabel || modelName(id) || id).trim() || id;
+      if (!byId.has(id)) byId.set(id, label);
+    }
+    return [...byId.entries()]
+      .map(([id, label]) => ({ id, label }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'es'));
+  }, [inventory, filterTech, modelName]);
+
+  useEffect(() => {
+    if (!filterModel) return;
+    if (!filterTech || !modelFilterOptions.some((m) => m.id === filterModel || m.label === filterModel)) {
+      setFilterModel('');
+    }
+  }, [filterTech, filterModel, modelFilterOptions]);
 
   const resumeInProgressBoxes = useCallback(async () => {
     setFilterTech('');
+    setFilterModel('');
     setSearchTerm('');
     setShowAdvancedFilters(true);
 
@@ -1768,7 +1799,10 @@ export default function BodegaGestionV2({
               {filterTech && (
                 <button
                   type="button"
-                  onClick={() => setFilterTech('')}
+                  onClick={() => {
+                    setFilterTech('');
+                    setFilterModel('');
+                  }}
                   className="ml-auto text-[10px] font-semibold tracking-wide text-accent uppercase hover:underline"
                 >
                   Limpiar filtro
@@ -1782,7 +1816,10 @@ export default function BodegaGestionV2({
                   <button
                     key={t.value}
                     type="button"
-                    onClick={() => setFilterTech(active ? '' : t.value)}
+                    onClick={() => {
+                      setFilterTech(active ? '' : t.value);
+                      setFilterModel('');
+                    }}
                     className={`rounded-2xl border-2 p-4 text-left transition-all ${
                       active
                         ? 'border-[var(--accent)] shadow-sm'
@@ -1830,15 +1867,34 @@ export default function BodegaGestionV2({
             onFilter={() => setShowAdvancedFilters(!showAdvancedFilters)}
             filters={
               showAdvancedFilters && (
-                <div className="flex gap-2 animate-in fade-in zoom-in duration-200">
+                <div className="flex flex-wrap gap-2 animate-in fade-in zoom-in duration-200">
                   <select 
                     value={filterTech} 
-                    onChange={(e) => setFilterTech(e.target.value)}
+                    onChange={(e) => {
+                      setFilterTech(e.target.value);
+                      setFilterModel('');
+                    }}
                     className="h-10 rounded-lg border border-border bg-surface px-3 text-sm text-foreground outline-none focus:border-accent"
                   >
                     <option value="">Todas las Tecnologías</option>
                     {catTecnologias.map(t => (
                       <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={filterModel}
+                    onChange={(e) => setFilterModel(e.target.value)}
+                    disabled={!filterTech}
+                    title={!filterTech ? 'Primero elija una tecnología' : 'Filtrar por modelo'}
+                    className="h-10 min-w-[10rem] rounded-lg border border-border bg-surface px-3 text-sm text-foreground outline-none focus:border-accent disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <option value="">
+                      {!filterTech ? 'Elija tecnología…' : 'Todos los modelos'}
+                    </option>
+                    {modelFilterOptions.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}
+                      </option>
                     ))}
                   </select>
                   <select 
@@ -1850,13 +1906,17 @@ export default function BodegaGestionV2({
                     <option value="Full">Cajas Completas</option>
                     <option value="Partial">Cajas en Proceso</option>
                   </select>
-                  {filterStatus && (
+                  {(filterTech || filterModel || filterStatus) && (
                     <button
                       type="button"
-                      onClick={() => setFilterStatus('')}
+                      onClick={() => {
+                        setFilterTech('');
+                        setFilterModel('');
+                        setFilterStatus('');
+                      }}
                       className="h-10 px-3 text-[10px] font-black tracking-widest text-[var(--muted)] uppercase hover:text-[var(--heading)]"
                     >
-                      Limpiar estatus
+                      Limpiar filtros
                     </button>
                   )}
                 </div>

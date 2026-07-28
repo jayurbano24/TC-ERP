@@ -4,6 +4,7 @@ import { requireApiUser } from '@/shared/infrastructure/http/requireApiUser';
 import { logOnlyRoleCheck, ROLES_BODEGA_DESPACHO } from '@/shared/authz/roleGuard';
 import { enrichWarehouseBoxItems } from '@/shared/infrastructure/warehouse/enrichWarehouseBoxItems';
 import { isBodegaOperationalRack } from '@/lib/database/warehouse';
+import { getSupabaseServerClient } from '@/lib/supabase/server';
 
 const ListBoxesQuery = z.object({
   cursor: z.string().uuid().optional(),
@@ -13,6 +14,8 @@ const ListBoxesQuery = z.object({
   technologyId: z.string().uuid().optional(),
   modelId: z.string().uuid().optional(),
 });
+
+const WAREHOUSE_SERIES_STATUSES = ['in_central_warehouse', 'in_control_warehouse'] as const;
 
 function isMissingRpcError(error: { message?: string; code?: string } | null): boolean {
   if (!error) return false;
@@ -52,14 +55,14 @@ export async function GET(req: NextRequest) {
   const { cursor, limit, search, fillStatus, technologyId, modelId } = parsed.data;
   const fillParam = !fillStatus || fillStatus === 'all' ? null : fillStatus;
 
-  // Filtro por tecnología/modelo: no está en el RPC de página; resolvemos box_ids
-  // vía series en bodega y luego enriquecemos (IPTV/EMTA/… no dependen de la 1ª página).
+  // Filtro por tecnología/modelo: service role (misma vista que KPIs) + sample/counts.
   if (technologyId || modelId) {
+    const db = getSupabaseServerClient();
     let modelIds: string[] = [];
     if (modelId) {
       modelIds = [modelId];
     } else if (technologyId) {
-      const { data: mods, error: modsError } = await supabase
+      const { data: mods, error: modsError } = await db
         .from('models')
         .select('id')
         .eq('technology_id', technologyId);
@@ -80,11 +83,11 @@ export async function GET(req: NextRequest) {
       let from = 0;
       const pageSize = 1000;
       for (;;) {
-        const { data: seriesHits, error: seriesError } = await supabase
+        const { data: seriesHits, error: seriesError } = await db
           .from('series')
           .select('current_box_id')
           .in('model_id', chunk)
-          .in('current_status', ['in_central_warehouse', 'in_control_warehouse'])
+          .in('current_status', [...WAREHOUSE_SERIES_STATUSES])
           .not('current_box_id', 'is', null)
           .range(from, from + pageSize - 1);
         if (seriesError) {
@@ -108,9 +111,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ items: [], nextCursor: null });
     }
 
-    // Cargar metadatos de cajas (puede ser > limit; paginamos por id)
-    const pageIds = boxIds.slice(0, Math.min(boxIds.length, 500));
-    const { data: boxRows, error: boxesError } = await supabase
+    const pageIds = boxIds.slice(0, Math.max(limit * 3, 60));
+    const { data: boxRows, error: boxesError } = await db
       .from('boxes')
       .select('id, rack_location, box_code, capacity, created_at')
       .in('id', pageIds);
@@ -118,30 +120,76 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'QUERY_FAILED: ' + boxesError.message }, { status: 500 });
     }
 
+    type SeriesSample = {
+      current_box_id: string;
+      brand_id: string | null;
+      model_id: string | null;
+      service_order_id: string | null;
+      id: string;
+    };
+    const seriesByBox = new Map<
+      string,
+      { sample: SeriesSample; seriesCount: number; osIds: Set<string> }
+    >();
+
+    let seriesFrom = 0;
+    for (;;) {
+      const { data: seriesRows, error: seriesDetailError } = await db
+        .from('series')
+        .select('id, current_box_id, brand_id, model_id, service_order_id')
+        .in('current_box_id', pageIds)
+        .in('current_status', [...WAREHOUSE_SERIES_STATUSES])
+        .range(seriesFrom, seriesFrom + 999);
+      if (seriesDetailError) {
+        return NextResponse.json(
+          { error: 'QUERY_FAILED: ' + seriesDetailError.message },
+          { status: 500 }
+        );
+      }
+      const chunk = (seriesRows ?? []) as SeriesSample[];
+      for (const row of chunk) {
+        const boxId = String(row.current_box_id);
+        const prev = seriesByBox.get(boxId);
+        if (!prev) {
+          seriesByBox.set(boxId, {
+            sample: row,
+            seriesCount: 1,
+            osIds: new Set([String(row.service_order_id || row.id)]),
+          });
+        } else {
+          prev.seriesCount += 1;
+          prev.osIds.add(String(row.service_order_id || row.id));
+        }
+      }
+      if (chunk.length < 1000) break;
+      seriesFrom += 1000;
+    }
+
     const byId = new Map((boxRows ?? []).map((b) => [String(b.id), b]));
     const candidates = onlyBodegaRows(
       pageIds
         .map((id) => {
           const b = byId.get(id);
-          if (!b) return null;
+          const stats = seriesByBox.get(id);
+          if (!b || !stats) return null;
           return {
             box_id: String(b.id),
             rack: b.rack_location as string | null,
             label: b.box_code as string | null,
             capacity: b.capacity as number | null,
-            series_count: 0,
-            sample_brand_id: null,
-            sample_model_id: null,
-            sample_service_order_id: null,
+            series_count: stats.seriesCount,
+            equipos_count: stats.osIds.size,
+            sample_brand_id: stats.sample.brand_id,
+            sample_model_id: stats.sample.model_id,
+            sample_service_order_id: stats.sample.service_order_id,
             last_movement_at: null,
           };
         })
         .filter((x): x is NonNullable<typeof x> => Boolean(x))
     );
 
-    let enriched = await enrichWarehouseBoxItems(supabase, candidates);
+    let enriched = await enrichWarehouseBoxItems(db, candidates);
 
-    // Aplicar fillStatus en cliente (RPC no participa en este camino)
     if (fillParam === 'partial') {
       enriched = enriched.filter((b) => {
         const eq = Number(b.equipos_count ?? b.series_count ?? 0);
@@ -165,7 +213,14 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Re-paginar tras filtros fill/search
+    // Si el cliente pidió tecnología, forzar technology_id (evita drop en filtro UI).
+    if (technologyId) {
+      enriched = enriched.map((b) => ({
+        ...b,
+        technology_id: b.technology_id || technologyId,
+      }));
+    }
+
     const sorted = [...enriched].sort((a, b) => String(a.box_id).localeCompare(String(b.box_id)));
     const page = sorted.slice(0, limit);
     const nextCursor = sorted.length > limit ? page[page.length - 1]?.box_id ?? null : null;

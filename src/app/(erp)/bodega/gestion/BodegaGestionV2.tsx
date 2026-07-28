@@ -329,11 +329,20 @@ export default function BodegaGestionV2({
       // Cajas ya en Taller/Scrap no pertenecen a Gestión de Bodega
       if (!isBodegaOperationalRack(item.rack)) return false;
 
-      if (filterTech && item.tecnologiaId !== filterTech) return false;
+      // Si el API ya filtró por technologyId/modelId, no volver a descartar filas
+      // con tecnologiaId/modelo incompletos (causaba "No hay cajas en inventario").
+      if (filterTech && item.tecnologiaId && item.tecnologiaId !== filterTech) return false;
       if (filterModel) {
         const modelId = String(item.modelo || '');
         const modelLabel = String(item.modeloLabel || modelName(item.modelo) || '').trim();
-        if (modelId !== filterModel && modelLabel !== filterModel) return false;
+        if (
+          modelId &&
+          modelId !== 'N/A' &&
+          modelId !== filterModel &&
+          modelLabel !== filterModel
+        ) {
+          return false;
+        }
       }
 
       // fillStatus ya filtra en servidor; el filtro cliente es respaldo (migración 129 pendiente)

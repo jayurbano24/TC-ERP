@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { ModulePage } from "@/components/module-page";
 import { Card, Button, Badge, notify, confirmDialog, DataTable, type DataTableColumn } from "@/components/ui";
 import { Wrench, Stethoscope, Search, Filter, Box, Plus, Activity, AlertCircle, ArrowRight, XCircle, Clock, ChevronLeft, ChevronRight, ChevronDown, User, CheckSquare, ServerCrash, RefreshCw, Zap, Trash2, Loader2, RotateCcw, History, ClipboardList, Package, Send, ScanLine, X, BarChart3, Layers, Edit2, Eye, Printer, Download } from 'lucide-react';
@@ -227,6 +227,8 @@ export default function TallerPage() {
   const [tasksCursor, setTasksCursor] = useState<string | null>(null);
   const [tasksHasMore, setTasksHasMore] = useState(false);
   const [tasksTotalOs, setTasksTotalOs] = useState<number | null>(null);
+  /** Evita que una respuesta lenta de otra pestaña pise la cola actual. */
+  const tasksFetchSeqRef = useRef(0);
   const [locateHint, setLocateHint] = useState<WorkshopLocateResult | null>(null);
   const [operateProgress, setOperateProgress] = useState<{
     processedSeries: number;
@@ -275,10 +277,21 @@ export default function TallerPage() {
   }, [workshopCatalogsQuery.data]);
 
   useEffect(() => {
-    if (activeTab !== 'po' && activeTab !== 'despacho') {
-      void fetchTasks(false, debouncedSearchTerm);
+    if (activeTab === 'po' || activeTab === 'despacho') {
+      setSelectedRows([]);
+      return;
     }
+    // Reset inmediato al cambiar pestaña (evita mostrar cola vieja filtrada a vacío).
+    setTasks([]);
+    setTasksCursor(null);
+    setTasksHasMore(false);
+    setTasksTotalOs(null);
+    setLocateHint(null);
+    setTechFilter('');
+    setModelFilter('');
     setSelectedRows([]);
+    void fetchTasks(false, debouncedSearchTerm);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchTasks captura activeTab al invocar
   }, [activeTab, debouncedSearchTerm]);
 
   const WORKSHOP_SERIES_SLOTS = 4;
@@ -555,11 +568,13 @@ export default function TallerPage() {
     const search = (searchOverride ?? debouncedSearchTerm).trim();
     if (append && search) return;
 
+    const workshopTab = activeTab as WorkshopTabId;
+    const seq = append ? tasksFetchSeqRef.current : ++tasksFetchSeqRef.current;
+
     if (append) setLoadingMore(true);
     else setLoading(true);
 
     try {
-      const workshopTab = activeTab as WorkshopTabId;
       const cursor = append ? tasksCursor : null;
       const rawSearch = append ? '' : search;
       const parsedSearch = rawSearch ? parseWorkshopSearchTokens(rawSearch) : null;
@@ -576,6 +591,10 @@ export default function TallerPage() {
         cursor,
         append ? undefined : search || undefined
       );
+
+      // Respuesta obsoleta (el usuario ya cambió de pestaña / relanzó búsqueda).
+      if (seq !== tasksFetchSeqRef.current) return;
+
       const adapted = page.items.map(adaptWorkshopRow);
 
       setTasks((prev) => (append ? [...prev, ...adapted] : adapted));
@@ -589,16 +608,18 @@ export default function TallerPage() {
       if (!append && singleToken && adapted.length === 0) {
         try {
           const loc = await locateWorkshopEquipmentViaApi(singleToken);
+          if (seq !== tasksFetchSeqRef.current) return;
           setLocateHint(
             loc.found && loc.tab && loc.tab !== workshopTab ? loc : null
           );
         } catch {
-          setLocateHint(null);
+          if (seq === tasksFetchSeqRef.current) setLocateHint(null);
         }
       } else if (!append) {
         setLocateHint(null);
       }
     } catch (err) {
+      if (seq !== tasksFetchSeqRef.current) return;
       console.error('Error loading workshop tasks:', err);
       notify.error('No se pudo cargar la cola de taller', {
         description: err instanceof Error ? err.message : undefined,
@@ -608,8 +629,10 @@ export default function TallerPage() {
         setLocateHint(null);
       }
     } finally {
-      setLoading(false);
-      setLoadingMore(false);
+      if (seq === tasksFetchSeqRef.current) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
   };
 
@@ -816,18 +839,9 @@ ${funcNotes || 'Ninguno evaluado'}
     { id: 'despacho', label: 'Retornar a Bodega', icon: Send, color: 'text-indigo-500', bg: 'bg-indigo-50' },
   ];
 
-  const tabTasks = useMemo(() => {
-    return tasks.filter((t) => {
-      if (activeTab === 'diagnostico') return t.etapa === 'PARA DIAGNOSTICAR';
-      if (activeTab === 'reparacion') return t.etapa === 'REPARACION';
-      if (activeTab === 'reacondicionado') return t.etapa === 'REACONDICIONADO';
-      if (activeTab === 'qc') return t.etapa === 'CONTROL DE CALIDAD';
-      if (activeTab === 'l3') return t.etapa === 'L3';
-      if (activeTab === 'scraps') return t.etapa === 'SCRAPS';
-      if (activeTab === 'listo') return t.etapa === 'EQUIPO LISTO';
-      return false;
-    });
-  }, [tasks, activeTab]);
+  // La API ya filtra por pestaña; no re-filtrar por etapa (evita cola vacía si hay
+  // desfase de mapeo o una respuesta cruzada residual).
+  const tabTasks = tasks;
 
   const techFilterOptions = useMemo(() => {
     const byKey = new Map<string, string>();

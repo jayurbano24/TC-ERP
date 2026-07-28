@@ -20,7 +20,14 @@ export class ClassifyEquipmentBatchRpcAdapter implements IClassifyBatchGateway {
 
     if (error) {
       console.error('classify_equipment_batch_tx:', error);
-      return { error: error.message };
+      const raw = error.message || 'Error al clasificar equipos.';
+      if (/uniq_service_orders_active_main_serial/i.test(raw)) {
+        return {
+          error:
+            'Una o más series ya tienen una Orden de Servicio activa. Si es reingreso, despache o cierre el ciclo anterior; si es reintento del mismo manifiesto, aplique la migración 177 y vuelva a intentar.',
+        };
+      }
+      return { error: raw };
     }
 
     const payload = data as {

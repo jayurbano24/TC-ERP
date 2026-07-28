@@ -1,6 +1,33 @@
 import { z } from 'zod';
 import { ValidationException } from '../errors/Exceptions';
 
+type IssueLite = { path: string; message: string };
+
+function formatValidationMessage(issues: IssueLite[]): string {
+  const first = issues[0];
+  if (!first?.message) {
+    return 'Datos incompletos o inválidos. Revise el formulario e intente de nuevo.';
+  }
+
+  const blob = `${first.path} ${first.message}`.toLowerCase();
+  if (/duplicate|duplicad|unique|ya existe|already exists|repetid/.test(blob)) {
+    if (/serie|serial|main_serial/.test(blob)) {
+      return first.message.toLowerCase().includes('duplicad')
+        ? first.message
+        : `Serie duplicada: ${first.message}`;
+    }
+    return first.message.toLowerCase().includes('duplicad')
+      ? first.message
+      : `Registro duplicado: ${first.message}`;
+  }
+
+  // Preferir el detalle Zod (accionable) sobre el genérico.
+  if (first.path) {
+    return `${first.path}: ${first.message}`;
+  }
+  return first.message;
+}
+
 /**
  * Lee y valida el cuerpo JSON de una `Request` contra un esquema Zod.
  *
@@ -23,7 +50,7 @@ export async function parseJsonBody<T>(req: Request, schema: z.ZodType<T>): Prom
       message: issue.message,
     }));
     console.warn('[parseJsonBody] validation failed', issues);
-    throw new ValidationException('Validación de datos fallida.', issues);
+    throw new ValidationException(formatValidationMessage(issues), issues);
   }
   return result.data;
 }
@@ -42,13 +69,11 @@ export async function parseOptionalJsonBody<T>(req: Request, schema: z.ZodType<T
   }
   const result = schema.safeParse(raw ?? {});
   if (!result.success) {
-    throw new ValidationException(
-      'Validación de datos fallida.',
-      result.error.issues.map((issue) => ({
-        path: issue.path.join('.'),
-        message: issue.message,
-      }))
-    );
+    const issues = result.error.issues.map((issue) => ({
+      path: issue.path.join('.'),
+      message: issue.message,
+    }));
+    throw new ValidationException(formatValidationMessage(issues), issues);
   }
   return result.data;
 }

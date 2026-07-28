@@ -9,6 +9,8 @@
  * publica al store; el renderizado lo hace <MessageCenter /> montado una vez en el layout.
  */
 
+import { humanizeUserFacingError } from '@/shared/messaging/humanizeUserFacingError';
+
 export type MessageTone = 'success' | 'error' | 'warning' | 'info';
 
 export interface ToastItem {
@@ -116,7 +118,13 @@ function pushToast(tone: MessageTone, message: string, opts?: ToastOptions): str
     id,
     tone,
     title: opts?.title ?? message,
-    description: opts?.title ? message : opts?.description,
+    // Si hay description explícita, usarla. Si solo hay title, el 1er arg es el detalle.
+    description:
+      opts?.description !== undefined
+        ? opts.description
+        : opts?.title
+          ? message
+          : undefined,
     duration,
     createdAt: Date.now(),
   };
@@ -163,7 +171,19 @@ export const notify: NotifyFn = Object.assign(
         redirectToLoginFromToast();
         return '';
       }
-      return pushToast('error', message, opts);
+      const human = humanizeUserFacingError(
+        opts?.title ?? message,
+        opts?.description !== undefined
+          ? opts.description
+          : opts?.title
+            ? message
+            : undefined
+      );
+      return pushToast('error', human.title, {
+        ...opts,
+        title: human.title,
+        description: human.description,
+      });
     },
     warning: (message: string, opts?: ToastOptions) => pushToast('warning', message, opts),
     info: (message: string, opts?: ToastOptions) => pushToast('info', message, opts),

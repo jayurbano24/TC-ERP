@@ -119,10 +119,19 @@ export async function readApiJson<T>(res: Response): Promise<T> {
     await haltForLoginRedirect();
   }
   if (!res.ok) {
-    const msg =
-      payload && typeof payload === 'object' && 'error' in payload
-        ? String((payload as { error: unknown }).error)
+    const obj = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null;
+    let msg =
+      obj && 'error' in obj && obj.error != null
+        ? String(obj.error)
         : `HTTP ${res.status}`;
+    const issues = obj && Array.isArray(obj.issues) ? obj.issues : [];
+    const firstIssue = issues[0] as { message?: string } | undefined;
+    if (
+      firstIssue?.message &&
+      (/validaci[oó]n de datos fallida/i.test(msg) || msg === `HTTP ${res.status}`)
+    ) {
+      msg = String(firstIssue.message);
+    }
     throw new Error(msg || `HTTP ${res.status}`);
   }
   return payload as T;

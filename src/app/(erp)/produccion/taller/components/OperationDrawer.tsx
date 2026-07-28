@@ -1,11 +1,15 @@
 'use client';
 
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import { Card, Button, Badge, notify } from '@/components/ui';
 import {
   Stethoscope, Box, ChevronDown, AlertCircle, Wrench, Activity,
-  RefreshCw, XCircle, Loader2,
+  RefreshCw, XCircle, Loader2, Printer,
 } from 'lucide-react';
+import {
+  isKaonQcPrintableModel,
+  printKaonQcLabel,
+} from './printKaonQcLabel';
 
 type Props = {
   activeTab: string;
@@ -102,6 +106,46 @@ export const OperationDrawer = memo(function OperationDrawer({
   catReacondicionadoTests,
   handleCompleteOperation,
 }: Props) {
+  const canPrintKaonLabel = useMemo(() => {
+    if (!selectedForOperation || Array.isArray(selectedForOperation)) return false;
+    if (activeTab !== 'qc') return false;
+    return isKaonQcPrintableModel(
+      String(selectedForOperation.modelo || ''),
+      String(selectedForOperation.marca || '')
+    );
+  }, [activeTab, selectedForOperation]);
+
+  const handlePrintKaonLabel = async () => {
+    if (!selectedForOperation || Array.isArray(selectedForOperation)) return;
+    try {
+      await printKaonQcLabel(
+        {
+          modelo: String(selectedForOperation.modelo || ''),
+          marca: String(selectedForOperation.marca || ''),
+          sn: String(selectedForOperation.sn || ''),
+          all_sns: Array.isArray(selectedForOperation.all_sns)
+            ? selectedForOperation.all_sns.map((s: string) => String(s || ''))
+            : [],
+        },
+        {
+          onEmpty: () =>
+            notify.warning('Sin series para imprimir', {
+              description: 'El equipo no tiene serial/MAC capturados.',
+            }),
+          onUnsupportedModel: () =>
+            notify.warning('Modelo no soportado', {
+              description: 'La impresión de label aplica solo a CG-2200 y CG-3000.',
+            }),
+          onBarcodeError: () =>
+            notify.error('No se pudo generar la etiqueta de impresión.'),
+        }
+      );
+    } catch (err) {
+      console.error(err);
+      notify.error('Error al imprimir label');
+    }
+  };
+
   return (
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-[#181c3a]/40 backdrop-blur-sm p-2 sm:p-4 overflow-y-auto">
           <Card className="max-w-2xl w-full max-h-[92vh] my-2 sm:my-4 shadow-xl animate-rise-in p-0 flex flex-col overflow-hidden">
@@ -421,19 +465,35 @@ export const OperationDrawer = memo(function OperationDrawer({
                     <Activity className="w-4 h-4" />
                     Detalle de Control de Calidad
                   </h4>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      setQcEtiqueta('SI');
-                      setQcSello('SI');
-                      setQcChecklist('SI');
-                      setQcLegible('SI');
-                    }}
-                    className="text-[10px] font-black uppercase tracking-wider text-purple-600 bg-purple-50 hover:bg-purple-100 px-4 py-2 rounded-xl transition-all border border-purple-200 shadow-sm hover:shadow active:scale-95 flex-shrink-0"
-                  >
-                    Marcar Todos SÍ
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
+                    {canPrintKaonLabel ? (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          void handlePrintKaonLabel();
+                        }}
+                        className="text-[10px] font-black uppercase tracking-wider text-white bg-[#181c3a] hover:bg-slate-800 px-4 py-2 rounded-xl transition-all border border-[#181c3a] shadow-sm hover:shadow active:scale-95 inline-flex items-center gap-1.5"
+                        title="Imprimir label del equipo (CG-2200 / CG-3000)"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                        Imprimir label
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setQcEtiqueta('SI');
+                        setQcSello('SI');
+                        setQcChecklist('SI');
+                        setQcLegible('SI');
+                      }}
+                      className="text-[10px] font-black uppercase tracking-wider text-purple-600 bg-purple-50 hover:bg-purple-100 px-4 py-2 rounded-xl transition-all border border-purple-200 shadow-sm hover:shadow active:scale-95"
+                    >
+                      Marcar Todos SÍ
+                    </button>
+                  </div>
                 </div>
                   
                   <div className="grid grid-cols-1 gap-4">

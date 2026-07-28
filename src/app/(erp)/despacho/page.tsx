@@ -41,6 +41,7 @@ import {
 } from '@/lib/api/despachoReads';
 import { fetchReferenceCatalogsViaApi } from '@/lib/api/referenceCatalogs';
 import { DespachoSalidaModal } from './DespachoSalidaModal';
+import { EquipoListoPanel } from './EquipoListoPanel';
 import { printOutboundLabel, printOutboundLabels } from './printOutboundLabel';
 import { printOutboundDetalle } from './printOutboundDetalle';
 
@@ -265,7 +266,8 @@ async function fetchDespachoData(): Promise<{ history: any[]; dispatches: Dispat
 
 export default function DespachoPage() {
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'operacion'|'historial'>('operacion');
+  type DespachoTabId = 'equipo_listo' | 'operacion' | 'historial' | 'cqrs' | 'lotes';
+  const [activeTab, setActiveTab] = useState<DespachoTabId>('equipo_listo');
 
   const despachoQuery = useQuery({
     queryKey: ['despacho-data', 'v1'],
@@ -1381,18 +1383,21 @@ export default function DespachoPage() {
     >
       <div className="space-y-6">
         <div className={`${erpTab.list} w-fit flex-wrap`}>
-          {([
-            { id: 'operacion', label: 'Gestión de Outbound' },
-            { id: 'historial', label: 'Historial de Despachos' },
-            { id: 'cqrs', label: 'Pendientes (CQRS Eventos)', icon: Boxes },
-            { id: 'lotes', label: 'Lotes de salida', icon: Boxes },
-          ] as const).map(({ id, label, icon: Icon }) => {
-            const active = (activeTab as string) === id;
+          {(
+            [
+              { id: 'equipo_listo' as const, label: 'Equipo Listo', icon: CheckCircle2 },
+              { id: 'operacion' as const, label: 'Gestión de Outbound', icon: null },
+              { id: 'historial' as const, label: 'Historial de Despachos', icon: null },
+              { id: 'cqrs' as const, label: 'Pendientes (CQRS Eventos)', icon: Boxes },
+              { id: 'lotes' as const, label: 'Lotes de salida', icon: Boxes },
+            ] satisfies Array<{ id: DespachoTabId; label: string; icon: typeof Boxes | null }>
+          ).map(({ id, label, icon: Icon }) => {
+            const active = activeTab === id;
             return (
               <button
                 key={id}
                 type="button"
-                onClick={() => setActiveTab(id as typeof activeTab | 'cqrs' | 'lotes')}
+                onClick={() => setActiveTab(id)}
                 className={[
                   erpTab.trigger,
                   'px-6 py-2.5 text-sm normal-case tracking-normal',
@@ -1407,9 +1412,11 @@ export default function DespachoPage() {
           })}
         </div>
 
-        {(activeTab as any) === 'lotes' ? (
+        {activeTab === 'equipo_listo' ? (
+          <EquipoListoPanel />
+        ) : activeTab === 'lotes' ? (
           <DispatchBatchPanel />
-        ) : (activeTab as any) === 'cqrs' ? (
+        ) : activeTab === 'cqrs' ? (
           <div className="space-y-6 animate-in fade-in">
             <Card className="p-6">
               <div className="flex justify-between items-center mb-6">

@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from 'react';
 import { getTechnologies, getBrands, getModels, getAgencies } from '@/shared/catalogs/catalogs';
+import { normalizeCatalogLabel } from '@/shared/catalogs/normalizeCatalogName';
 import type { CatalogAgency, CatalogBrand, CatalogModel, CatalogTech } from '../types';
 
 export function useBackofficeCatalogs() {
@@ -19,14 +20,20 @@ export function useBackofficeCatalogs() {
         getAgencies(),
       ]);
       setMASTER_TECNOLOGIAS(
-        techs.map((t: any) => ({ id: t.id, nombre: t.name, seriesCount: t.series_count || 1 }))
+        techs.map((t: any) => ({
+          id: t.id,
+          nombre: normalizeCatalogLabel(t.name),
+          seriesCount: t.series_count || 1,
+        }))
       );
-      setMASTER_MARCAS(brands.map((b: any) => ({ id: b.id, nombre: b.name })));
+      setMASTER_MARCAS(
+        brands.map((b: any) => ({ id: b.id, nombre: normalizeCatalogLabel(b.name) }))
+      );
       setMASTER_MODELOS(
         models.map((m: any) => ({
           id: m.id,
           marcaId: m.brand_id,
-          nombre: m.name,
+          nombre: normalizeCatalogLabel(m.name),
           tecnologiaId: m.technology_id,
           seriesCount: m.series_count || 1,
           digitsPerSeries: m.digits_per_series || [12],
@@ -35,7 +42,7 @@ export function useBackofficeCatalogs() {
       setCAC_AGENCIES(
         agencies.map((a: any) => ({
           id: a.code,
-          name: a.name,
+          name: normalizeCatalogLabel(a.name) || a.name,
           manager: a.manager || 'Encargado Pendiente',
           email: a.email || 'correo@agencia.com',
           direccion: a.address || 'Dirección no registrada',

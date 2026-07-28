@@ -17,6 +17,10 @@ import {
   type HistoryUnitEntry,
 } from '../historyTrayUtils';
 import type { CatalogAgency, CatalogBrand, CatalogModel } from '../types';
+import {
+  catalogLabelKey,
+  normalizeCatalogLabel,
+} from '@/shared/catalogs/normalizeCatalogName';
 
 type Catalogs = {
   CAC_AGENCIES: CatalogAgency[];
@@ -177,11 +181,21 @@ export function useBackofficeHistory(
     catalogs.MASTER_MODELOS.some((m) => m.marcaId === b.id && m.tecnologiaId === historyFilters.techId)
   );
 
-  const historyFilterModels = catalogs.MASTER_MODELOS.filter(
-    (m) =>
-      (!historyFilters.techId || m.tecnologiaId === historyFilters.techId) &&
-      (!historyFilters.brandId || m.marcaId === historyFilters.brandId)
-  );
+  const historyFilterModels = (() => {
+    const filtered = catalogs.MASTER_MODELOS.filter(
+      (m) =>
+        (!historyFilters.techId || m.tecnologiaId === historyFilters.techId) &&
+        (!historyFilters.brandId || m.marcaId === historyFilters.brandId)
+    );
+    const byKey = new Map<string, (typeof filtered)[number]>();
+    for (const m of filtered) {
+      const key = `${m.tecnologiaId}|${m.marcaId}|${catalogLabelKey(m.nombre)}`;
+      if (!byKey.has(key)) {
+        byKey.set(key, { ...m, nombre: normalizeCatalogLabel(m.nombre) });
+      }
+    }
+    return [...byKey.values()];
+  })();
 
   const patchHistoryFilter = useCallback((patch: Partial<HistoryTrayFilters>) => {
     setHistoryFilters((prev) => ({ ...prev, ...patch }));

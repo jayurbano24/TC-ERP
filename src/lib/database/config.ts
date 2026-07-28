@@ -5,6 +5,7 @@ import {
   invalidateReferenceCatalogCache,
   setCachedReferenceCatalog,
 } from '@/shared/catalogs/referenceCatalogCache';
+import { normalizeCatalogLabel } from '@/shared/catalogs/normalizeCatalogName';
 import {
   AGENCY_SELECT,
   BRAND_SELECT,
@@ -44,7 +45,7 @@ export async function saveTechnology(tech: any) {
   
   // Mapear camelCase UI -> snake_case DB
   const dbTech = {
-    name: payload.name || payload.nombre,
+    name: normalizeCatalogLabel(payload.name || payload.nombre),
     series_count: payload.series_count || payload.seriesCount || 1,
     digits_per_series: payload.digits_per_series || payload.digitsPerSeries || [12]
   };
@@ -96,7 +97,7 @@ export async function saveBrand(brand: any) {
   if (!supabase) return { error: "Supabase not configured" };
   const { id, ...payload } = brand;
   
-  const name = payload.nombre || payload.name;
+  const name = normalizeCatalogLabel(payload.nombre || payload.name);
   if (!name) return { error: "El nombre de la marca es requerido" };
 
   const dbBrand = {
@@ -239,12 +240,15 @@ export async function saveModel(model: any) {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: "Supabase not configured" };
   const { id, ...payload } = model;
+
+  const rawName = payload.nombre || payload.name;
+  const name = normalizeCatalogLabel(rawName);
   
   // Mapping UI fields to DB fields
   const dbModel = {
     brand_id: payload.brand_id || payload.marcaId,
-    code: (payload.nombre || payload.name || '').replace(/\s+/g, '-').toUpperCase(),
-    name: payload.nombre || payload.name,
+    code: name.replace(/\s+/g, '-').toUpperCase(),
+    name,
     technology_id: payload.tecnologiaId,
     series_count: payload.seriesCount,
     digits_per_series: payload.digitsPerSeries
@@ -253,7 +257,7 @@ export async function saveModel(model: any) {
   if (!dbModel.brand_id) {
     return { error: 'Debe seleccionar una marca para el modelo.' };
   }
-  if (!dbModel.name?.trim()) {
+  if (!dbModel.name) {
     return { error: 'El nombre del modelo es obligatorio.' };
   }
 

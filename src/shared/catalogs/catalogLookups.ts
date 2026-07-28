@@ -1,3 +1,5 @@
+import { normalizeCatalogLabel } from '@/shared/catalogs/normalizeCatalogName';
+
 export type CatalogRow = { id: string; name?: string; brand_id?: string; technology_id?: string };
 
 export type CatalogLookups = {
@@ -10,24 +12,33 @@ export type CatalogLookups = {
   techIdByModelId: Map<string, string>;
 };
 
+function withNormalizedName<T extends CatalogRow>(row: T): T {
+  const name = normalizeCatalogLabel(row.name);
+  return name ? { ...row, name } : row;
+}
+
 export function buildCatalogLookups(
   technologies: CatalogRow[],
   brands: CatalogRow[],
   models: CatalogRow[]
 ): CatalogLookups {
+  const normTech = technologies.map(withNormalizedName);
+  const normBrands = brands.map(withNormalizedName);
+  const normModels = models.map(withNormalizedName);
+
   const techNameById = new Map<string, string>();
-  for (const t of technologies) {
+  for (const t of normTech) {
     if (t.id) techNameById.set(t.id, t.name ?? '---');
   }
 
   const brandNameById = new Map<string, string>();
-  for (const b of brands) {
+  for (const b of normBrands) {
     if (b.id) brandNameById.set(b.id, b.name ?? '---');
   }
 
   const modelNameById = new Map<string, string>();
   const techIdByModelId = new Map<string, string>();
-  for (const m of models) {
+  for (const m of normModels) {
     if (m.id) {
       modelNameById.set(m.id, m.name ?? '---');
       if (m.technology_id) techIdByModelId.set(m.id, m.technology_id);
@@ -35,9 +46,9 @@ export function buildCatalogLookups(
   }
 
   return {
-    technologies,
-    brands,
-    models,
+    technologies: normTech,
+    brands: normBrands,
+    models: normModels,
     techNameById,
     brandNameById,
     modelNameById,

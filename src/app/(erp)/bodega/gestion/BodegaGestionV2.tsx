@@ -56,6 +56,10 @@ import { BoxDeletionApprovalsPanel } from './components/BoxDeletionApprovalsPane
 import { fetchBoxSeriesUi } from '@/modules/inventario/client/warehouseBoxSeries';
 import { formatWarehouseBoxId } from '@/modules/inventario/client/warehouseBoxDisplay';
 import { RECEPTION_TIMELINE_SELECT } from '@/shared/constants/dbProjections';
+import {
+  catalogLabelKey,
+  normalizeCatalogLabel,
+} from '@/shared/catalogs/normalizeCatalogName';
 
 function isWarehouseSummaryMissingError(message: unknown): boolean {
   const text = String(message ?? '');
@@ -367,13 +371,18 @@ export default function BodegaGestionV2({
     });
   }, [inventory, filterTech, filterModel, filterStatus, debouncedSearch, brandName, modelName]);
 
-  /** Modelos del catálogo para la tecnología elegida (cascada; no depende de la 1ª página). */
+  /** Modelos del catálogo para la tecnología elegida (cascada; sin duplicados por espacios/caso). */
   const modelFilterOptions = useMemo(() => {
     if (!filterTech) return [] as Array<{ id: string; label: string }>;
-    return catModelos
-      .filter((m) => String(m.technology_id || '') === filterTech && String(m.name || '').trim())
-      .map((m) => ({ id: String(m.id), label: String(m.name).trim() }))
-      .sort((a, b) => a.label.localeCompare(b.label, 'es'));
+    const byKey = new Map<string, { id: string; label: string }>();
+    for (const m of catModelos) {
+      if (String(m.technology_id || '') !== filterTech) continue;
+      const label = normalizeCatalogLabel(m.name);
+      const key = catalogLabelKey(label);
+      if (!key) continue;
+      if (!byKey.has(key)) byKey.set(key, { id: String(m.id), label });
+    }
+    return [...byKey.values()].sort((a, b) => a.label.localeCompare(b.label, 'es'));
   }, [catModelos, filterTech]);
 
   useEffect(() => {

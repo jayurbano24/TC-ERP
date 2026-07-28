@@ -3,6 +3,10 @@
 import type React from 'react';
 import { useCallback, useMemo, useState } from 'react';
 import { notify, confirmDialog } from '@/components/ui/messaging/messageStore';
+import {
+  catalogLabelKey,
+  normalizeCatalogLabel,
+} from '@/shared/catalogs/normalizeCatalogName';
 import type {
   BackofficeReception,
   CatalogAgency,
@@ -56,13 +60,19 @@ export function useBackofficeManifest({
     [MASTER_MARCAS, MASTER_MODELOS, newItem.tipo]
   );
 
-  const availableModels = useMemo(
-    () =>
-      MASTER_MODELOS.filter(
-        (m) => (!newItem.tipo || m.tecnologiaId === newItem.tipo) && (!newItem.marca || m.marcaId === newItem.marca)
-      ),
-    [MASTER_MODELOS, newItem.marca, newItem.tipo]
-  );
+  const availableModels = useMemo(() => {
+    const filtered = MASTER_MODELOS.filter(
+      (m) => (!newItem.tipo || m.tecnologiaId === newItem.tipo) && (!newItem.marca || m.marcaId === newItem.marca)
+    );
+    const byKey = new Map<string, (typeof filtered)[number]>();
+    for (const m of filtered) {
+      const key = `${m.tecnologiaId}|${m.marcaId}|${catalogLabelKey(m.nombre)}`;
+      if (!byKey.has(key)) {
+        byKey.set(key, { ...m, nombre: normalizeCatalogLabel(m.nombre) });
+      }
+    }
+    return [...byKey.values()];
+  }, [MASTER_MODELOS, newItem.marca, newItem.tipo]);
 
   const resetManifestState = useCallback(() => {
     setGuideItems([]);

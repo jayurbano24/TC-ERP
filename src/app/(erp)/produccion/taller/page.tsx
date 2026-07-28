@@ -37,6 +37,10 @@ import { useWorkshopTabCounts } from '@/hooks/useWorkshopTabCounts';
 import { isHexagonalProductionOrderEnabled } from '@/modules/production-order';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { ProductionOrderPanel } from '@/modules/production-order/components/ProductionOrderPanel';
+import {
+  catalogLabelKey,
+  normalizeCatalogLabel,
+} from '@/shared/catalogs/normalizeCatalogName';
 import { ItemDetailModal } from './components/ItemDetailModal';
 import { ReturnStageModal } from './components/ReturnStageModal';
 import { ScrapDispatchModal } from './components/ScrapDispatchModal';
@@ -76,7 +80,8 @@ export default function TallerPage() {
   // C5: el filtrado se hace contra el término debounced (no recalcula la cola en
   // cada tecla). El input sigue ligado a searchTerm para que se sienta fluido.
   const debouncedSearchTerm = useDebouncedValue(searchTerm, 300);
-  /** Filtro por nombre de modelo (cola cargada en la pestaña activa). */
+  /** Filtro por tecnología + modelo (cascada; nombres normalizados sin duplicados). */
+  const [techFilter, setTechFilter] = useState('');
   const [modelFilter, setModelFilter] = useState('');
 
   // CQRS Dashboard State (Strangler Fig) — desactivado en cliente hasta que
@@ -360,21 +365,18 @@ export default function TallerPage() {
         (sourceStr === 'PX' ? courierStr : 'N/A');
     }
 
-    const tecnologiaName =
+    const tecnologiaName = normalizeCatalogLabel(
       t.models?.technologies?.name ||
-      techName(techId) ||
-      (techId && !/^cajas:/i.test(techId) ? techId : null) ||
-      'EQUIPO';
-    const marcaName =
-      t.brands?.name ||
-      brandName(brandId) ||
-      brandId ||
-      'Desconocida';
-    const modeloName =
-      t.models?.name ||
-      modelName(modelId) ||
-      modelId ||
-      'S/N';
+        techName(techId) ||
+        (techId && !/^cajas:/i.test(techId) ? techId : null) ||
+        'EQUIPO'
+    );
+    const marcaName = normalizeCatalogLabel(
+      t.brands?.name || brandName(brandId) || brandId || 'Desconocida'
+    );
+    const modeloName = normalizeCatalogLabel(
+      t.models?.name || modelName(modelId) || modelId || 'S/N'
+    );
 
     const stageRaw = t.current_status === 'in_workshop' ? 'PARA DIAGNOSTICAR'
       : t.current_status === 'in_qc' ? 'REPARACION'
@@ -814,55 +816,63 @@ ${funcNotes || 'Ninguno evaluado'}
     { id: 'despacho', label: 'Retornar a Bodega', icon: Send, color: 'text-indigo-500', bg: 'bg-indigo-50' },
   ];
 
-  const filteredTasks = useMemo(() => {
-    const modelNeedle = modelFilter.trim().toUpperCase();
+  const tabTasks = useMemo(() => {
     return tasks.filter((t) => {
-      let matchesTab = false;
-      if (activeTab === 'diagnostico') matchesTab = t.etapa === 'PARA DIAGNOSTICAR';
-      else if (activeTab === 'reparacion') matchesTab = t.etapa === 'REPARACION';
-      else if (activeTab === 'reacondicionado') matchesTab = t.etapa === 'REACONDICIONADO';
-      else if (activeTab === 'qc') matchesTab = t.etapa === 'CONTROL DE CALIDAD';
-      else if (activeTab === 'l3') matchesTab = t.etapa === 'L3';
-      else if (activeTab === 'scraps') matchesTab = t.etapa === 'SCRAPS';
-      else if (activeTab === 'listo') matchesTab = t.etapa === 'EQUIPO LISTO';
+      if (activeTab === 'diagnostico') return t.etapa === 'PARA DIAGNOSTICAR';
+      if (activeTab === 'reparacion') return t.etapa === 'REPARACION';
+      if (activeTab === 'reacondicionado') return t.etapa === 'REACONDICIONADO';
+      if (activeTab === 'qc') return t.etapa === 'CONTROL DE CALIDAD';
+      if (activeTab === 'l3') return t.etapa === 'L3';
+      if (activeTab === 'scraps') return t.etapa === 'SCRAPS';
+      if (activeTab === 'listo') return t.etapa === 'EQUIPO LISTO';
+      return false;
+    });
+  }, [tasks, activeTab]);
 
-      if (!matchesTab) return false;
+  const techFilterOptions = useMemo(() => {
+    const byKey = new Map<string, string>();
+    for (const t of tabTasks) {
+      const name = normalizeCatalogLabel(t.tecnologia);
+      const key = catalogLabelKey(name);
+      if (!key || key === 'EQUIPO') continue;
+      if (!byKey.has(key)) byKey.set(key, name);
+    }
+    return [...byKey.values()].sort((a, b) => a.localeCompare(b, 'es'));
+  }, [tabTasks]);
 
-      if (modelNeedle) {
-        const modelo = String(t.modelo || '').trim().toUpperCase();
-        if (modelo !== modelNeedle) return false;
-      }
+  const modelFilterOptions = useMemo(() => {
+    const techKey = catalogLabelKey(techFilter);
+    const byKey = new Map<string, string>();
+    for (const t of tabTasks) {
+      if (techKey && catalogLabelKey(t.tecnologia) !== techKey) continue;
+      const name = normalizeCatalogLabel(t.modelo);
+      const key = catalogLabelKey(name);
+      if (!key || key === 'S/N' || key === 'DESCONOCIDA') continue;
+      if (!byKey.has(key)) byKey.set(key, name);
+    }
+    return [...byKey.values()].sort((a, b) => a.localeCompare(b, 'es'));
+  }, [tabTasks, techFilter]);
 
+  const filteredTasks = useMemo(() => {
+    const techKey = catalogLabelKey(techFilter);
+    const modelKey = catalogLabelKey(modelFilter);
+    return tabTasks.filter((t) => {
+      if (techKey && catalogLabelKey(t.tecnologia) !== techKey) return false;
+      if (modelKey && catalogLabelKey(t.modelo) !== modelKey) return false;
       // Con término de búsqueda la API ya filtró por serie/OS en toda la cola.
       return true;
     });
-  }, [tasks, activeTab, debouncedSearchTerm, modelFilter]);
+  }, [tabTasks, techFilter, modelFilter, debouncedSearchTerm]);
 
-  const modelFilterOptions = useMemo(() => {
-    const names = new Set<string>();
-    for (const t of tasks) {
-      // Solo modelos presentes en la cola cargada de la pestaña (no el catálogo completo).
-      let matchesTab = false;
-      if (activeTab === 'diagnostico') matchesTab = t.etapa === 'PARA DIAGNOSTICAR';
-      else if (activeTab === 'reparacion') matchesTab = t.etapa === 'REPARACION';
-      else if (activeTab === 'reacondicionado') matchesTab = t.etapa === 'REACONDICIONADO';
-      else if (activeTab === 'qc') matchesTab = t.etapa === 'CONTROL DE CALIDAD';
-      else if (activeTab === 'l3') matchesTab = t.etapa === 'L3';
-      else if (activeTab === 'scraps') matchesTab = t.etapa === 'SCRAPS';
-      else if (activeTab === 'listo') matchesTab = t.etapa === 'EQUIPO LISTO';
-      if (!matchesTab) continue;
-
-      const name = String(t.modelo || '').trim();
-      if (name && name !== 'S/N' && name.toUpperCase() !== 'DESCONOCIDA') {
-        names.add(name);
-      }
-    }
-    return [...names].sort((a, b) => a.localeCompare(b, 'es'));
-  }, [tasks, activeTab]);
-
-  // Si el modelo seleccionado ya no está en la tabla (cambio de pestaña / refresh), limpiar.
+  // Cascada: limpiar filtros inválidos al cambiar pestaña / tech.
   useEffect(() => {
-    if (modelFilter && !modelFilterOptions.includes(modelFilter)) {
+    if (techFilter && !techFilterOptions.some((n) => catalogLabelKey(n) === catalogLabelKey(techFilter))) {
+      setTechFilter('');
+    }
+  }, [techFilter, techFilterOptions]);
+
+  useEffect(() => {
+    if (modelFilter && !modelFilterOptions.some((n) => catalogLabelKey(n) === catalogLabelKey(modelFilter))) {
       setModelFilter('');
     }
   }, [modelFilter, modelFilterOptions]);
@@ -1119,8 +1129,8 @@ ${funcNotes || 'Ninguno evaluado'}
                   </div>
                 )}
                 <div className="flex min-w-0 flex-col gap-3 border border-[var(--border)] bg-[var(--surface)] p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:p-4">
-                  {/* Búsqueda + filtro modelo */}
-                  <div className="flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:items-stretch xl:max-w-2xl xl:flex-1">
+                  {/* Búsqueda + filtros tecnología → modelo */}
+                  <div className="flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:items-stretch xl:max-w-3xl xl:flex-1">
                     <div className="relative min-w-0 flex-1">
                       <Search className="pointer-events-none absolute top-3 left-3 h-4 w-4 text-[var(--muted)]" />
                       <textarea
@@ -1133,17 +1143,52 @@ ${funcNotes || 'Ninguno evaluado'}
                         className="custom-scrollbar w-full min-w-0 resize-y rounded-md border border-[var(--border)] bg-[var(--surface)] py-2.5 pr-3 pl-10 text-xs font-medium text-[var(--foreground)] outline-none transition-colors placeholder:text-[var(--muted)] focus:border-[var(--accent)]"
                       />
                     </div>
-                    <div className="relative w-full shrink-0 sm:w-52">
+                    <div className="relative w-full shrink-0 sm:w-40">
+                      <Filter className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-[var(--muted)]" />
+                      <select
+                        value={techFilter}
+                        onChange={(e) => {
+                          setTechFilter(e.target.value);
+                          setModelFilter('');
+                        }}
+                        aria-label="Filtrar por tecnología"
+                        className="h-full min-h-[42px] w-full appearance-none rounded-md border border-[var(--border)] bg-[var(--surface)] py-2 pr-8 pl-8 text-xs font-bold text-[var(--foreground)] outline-none transition-colors focus:border-[var(--accent)]"
+                      >
+                        <option value="">Toda tecnología</option>
+                        {techFilterOptions.map((name) => (
+                          <option key={catalogLabelKey(name)} value={name}>
+                            {name}
+                          </option>
+                        ))}
+                      </select>
+                      {techFilter ? (
+                        <button
+                          type="button"
+                          title="Quitar filtro de tecnología"
+                          onClick={() => {
+                            setTechFilter('');
+                            setModelFilter('');
+                          }}
+                          className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-[var(--muted)] hover:text-[var(--heading)]"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      ) : null}
+                    </div>
+                    <div className="relative w-full shrink-0 sm:w-44">
                       <Filter className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-[var(--muted)]" />
                       <select
                         value={modelFilter}
                         onChange={(e) => setModelFilter(e.target.value)}
                         aria-label="Filtrar por modelo"
-                        className="h-full min-h-[42px] w-full appearance-none rounded-md border border-[var(--border)] bg-[var(--surface)] py-2 pr-8 pl-8 text-xs font-bold text-[var(--foreground)] outline-none transition-colors focus:border-[var(--accent)]"
+                        disabled={Boolean(techFilter) && modelFilterOptions.length === 0}
+                        className="h-full min-h-[42px] w-full appearance-none rounded-md border border-[var(--border)] bg-[var(--surface)] py-2 pr-8 pl-8 text-xs font-bold text-[var(--foreground)] outline-none transition-colors focus:border-[var(--accent)] disabled:opacity-60"
                       >
-                        <option value="">Todos los modelos</option>
+                        <option value="">
+                          {techFilter ? 'Modelos de la tech' : 'Todos los modelos'}
+                        </option>
                         {modelFilterOptions.map((name) => (
-                          <option key={name} value={name}>
+                          <option key={catalogLabelKey(name)} value={name}>
                             {name}
                           </option>
                         ))}

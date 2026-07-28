@@ -841,18 +841,31 @@ ${funcNotes || 'Ninguno evaluado'}
   const modelFilterOptions = useMemo(() => {
     const names = new Set<string>();
     for (const t of tasks) {
+      // Solo modelos presentes en la cola cargada de la pestaña (no el catálogo completo).
+      let matchesTab = false;
+      if (activeTab === 'diagnostico') matchesTab = t.etapa === 'PARA DIAGNOSTICAR';
+      else if (activeTab === 'reparacion') matchesTab = t.etapa === 'REPARACION';
+      else if (activeTab === 'reacondicionado') matchesTab = t.etapa === 'REACONDICIONADO';
+      else if (activeTab === 'qc') matchesTab = t.etapa === 'CONTROL DE CALIDAD';
+      else if (activeTab === 'l3') matchesTab = t.etapa === 'L3';
+      else if (activeTab === 'scraps') matchesTab = t.etapa === 'SCRAPS';
+      else if (activeTab === 'listo') matchesTab = t.etapa === 'EQUIPO LISTO';
+      if (!matchesTab) continue;
+
       const name = String(t.modelo || '').trim();
       if (name && name !== 'S/N' && name.toUpperCase() !== 'DESCONOCIDA') {
         names.add(name);
       }
     }
-    // Completar con catálogo por si el modelo buscado aún no está en la página cargada.
-    for (const m of catModelos) {
-      const name = String(m.name || '').trim();
-      if (name) names.add(name);
-    }
     return [...names].sort((a, b) => a.localeCompare(b, 'es'));
-  }, [tasks, catModelos]);
+  }, [tasks, activeTab]);
+
+  // Si el modelo seleccionado ya no está en la tabla (cambio de pestaña / refresh), limpiar.
+  useEffect(() => {
+    if (modelFilter && !modelFilterOptions.includes(modelFilter)) {
+      setModelFilter('');
+    }
+  }, [modelFilter, modelFilterOptions]);
 
   return (
     <ModulePage

@@ -138,10 +138,22 @@ function resolveItemModel(item: {
   );
 }
 
+const TECH_CARD_OPTIONS = ['ADSL', 'DTH', 'EMTA', 'IPTV', 'ONT', 'STB-HFC', 'WTTH'] as const;
+
+function resolveItemBrand(item: {
+  brands?: { name?: string | null } | null;
+  receptions?: { notes?: string | null } | null;
+}): string {
+  return normalizeCatalogLabel(
+    item.brands?.name || extractField(item.receptions?.notes || '', 'Backoffice_Brand') || ''
+  );
+}
+
 export default function InventarioDetallePage() {
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearch = useDebouncedValue(searchTerm, 250);
   const [filterTech, setFilterTech] = useState('');
+  const [filterBrand, setFilterBrand] = useState('');
   const [filterModel, setFilterModel] = useState('');
   const [density, setDensity] = useState<TableDensity>('normal');
   const [tableExpanded, setTableExpanded] = useState(false);
@@ -334,18 +346,32 @@ export default function InventarioDetallePage() {
         (i.material || '').toLowerCase().includes(s) ||
         (i.valuation || '').toLowerCase().includes(s) ||
         resolveItemTech(i).toLowerCase().includes(s) ||
-        (i.brands?.name || '').toLowerCase().includes(s) ||
+        resolveItemBrand(i).toLowerCase().includes(s) ||
         resolveItemModel(i).toLowerCase().includes(s)
       );
     });
   }, [groupedItems, debouncedSearch]);
 
-  const modelFilterOptions = useMemo(() => {
+  const techFilterOptions = useMemo(() => {
+    const byKey = new Map<string, string>();
+    for (const tech of TECH_CARD_OPTIONS) {
+      byKey.set(catalogLabelKey(tech), tech);
+    }
+    for (const i of searchFilteredItems) {
+      const name = resolveItemTech(i);
+      const key = catalogLabelKey(name);
+      if (!key || key === 'N/A') continue;
+      if (!byKey.has(key)) byKey.set(key, name);
+    }
+    return [...byKey.values()].sort((a, b) => a.localeCompare(b, 'es'));
+  }, [searchFilteredItems]);
+
+  const brandFilterOptions = useMemo(() => {
     const techKey = catalogLabelKey(filterTech);
     const byKey = new Map<string, string>();
     for (const i of searchFilteredItems) {
       if (techKey && catalogLabelKey(resolveItemTech(i)) !== techKey) continue;
-      const name = resolveItemModel(i);
+      const name = resolveItemBrand(i);
       const key = catalogLabelKey(name);
       if (!key || key === 'N/A') continue;
       if (!byKey.has(key)) byKey.set(key, name);
@@ -353,25 +379,60 @@ export default function InventarioDetallePage() {
     return [...byKey.values()].sort((a, b) => a.localeCompare(b, 'es'));
   }, [searchFilteredItems, filterTech]);
 
+  const modelFilterOptions = useMemo(() => {
+    const techKey = catalogLabelKey(filterTech);
+    const brandKey = catalogLabelKey(filterBrand);
+    const byKey = new Map<string, string>();
+    for (const i of searchFilteredItems) {
+      if (techKey && catalogLabelKey(resolveItemTech(i)) !== techKey) continue;
+      if (brandKey && catalogLabelKey(resolveItemBrand(i)) !== brandKey) continue;
+      const name = resolveItemModel(i);
+      const key = catalogLabelKey(name);
+      if (!key || key === 'N/A') continue;
+      if (!byKey.has(key)) byKey.set(key, name);
+    }
+    return [...byKey.values()].sort((a, b) => a.localeCompare(b, 'es'));
+  }, [searchFilteredItems, filterTech, filterBrand]);
+
   const filteredItems = useMemo(() => {
     const techKey = catalogLabelKey(filterTech);
+    const brandKey = catalogLabelKey(filterBrand);
     const modelKey = catalogLabelKey(filterModel);
     return searchFilteredItems.filter((i) => {
       if (techKey && catalogLabelKey(resolveItemTech(i)) !== techKey) return false;
+      if (brandKey && catalogLabelKey(resolveItemBrand(i)) !== brandKey) return false;
       if (modelKey && catalogLabelKey(resolveItemModel(i)) !== modelKey) return false;
       return true;
     });
-  }, [searchFilteredItems, filterTech, filterModel]);
+  }, [searchFilteredItems, filterTech, filterBrand, filterModel]);
 
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch, filterTech, filterModel]);
+  }, [debouncedSearch, filterTech, filterBrand, filterModel]);
+
+  useEffect(() => {
+    if (filterBrand && !brandFilterOptions.some((n) => catalogLabelKey(n) === catalogLabelKey(filterBrand))) {
+      setFilterBrand('');
+    }
+  }, [filterBrand, brandFilterOptions]);
 
   useEffect(() => {
     if (filterModel && !modelFilterOptions.some((n) => catalogLabelKey(n) === catalogLabelKey(filterModel))) {
       setFilterModel('');
     }
   }, [filterModel, modelFilterOptions]);
+
+  const clearCatalogFilters = useCallback(() => {
+    setFilterTech('');
+    setFilterBrand('');
+    setFilterModel('');
+  }, []);
+
+  const setTechFilter = useCallback((next: string) => {
+    setFilterTech(next);
+    setFilterBrand('');
+    setFilterModel('');
+  }, []);
 
   const totalCount = filteredItems.length;
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE) || 1);
@@ -564,7 +625,7 @@ export default function InventarioDetallePage() {
   ], []);
 
   const techStats = useMemo(() => {
-    const technologies = ['ADSL', 'DTH', 'EMTA', 'IPTV', 'ONT', 'STB-HFC', 'WTTH'];
+    const technologies = [...TECH_CARD_OPTIONS];
     const techCounts = technologies.reduce((acc, tech) => {
       const techKey = catalogLabelKey(tech);
       acc[tech] = searchFilteredItems.filter(
@@ -598,9 +659,9 @@ export default function InventarioDetallePage() {
           </div>
         </div>
 
-        <div className="flex flex-col gap-3 rounded-xl border-2 border-border bg-surface p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-4">
-          <div className="flex w-full min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
-            <div className="relative min-w-0 flex-1 max-w-md">
+        <div className="flex flex-col gap-3 rounded-xl border-2 border-border bg-surface p-3 shadow-sm lg:flex-row lg:items-center lg:justify-between lg:p-4">
+          <div className="flex w-full min-w-0 flex-1 flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-center">
+            <div className="relative min-w-0 w-full max-w-md flex-1">
               <Search className="absolute top-1/2 left-3 h-5 w-5 -translate-y-1/2 text-muted" />
               <input
                 type="text"
@@ -610,7 +671,59 @@ export default function InventarioDetallePage() {
                 className="w-full rounded-lg border border-border bg-surface-hover py-2 pr-4 pl-10 text-sm font-medium text-foreground outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
               />
             </div>
-            <div className="relative w-full shrink-0 sm:w-56">
+
+            <div className="relative w-full shrink-0 sm:w-40">
+              <Filter className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
+              <select
+                value={filterTech}
+                onChange={(e) => setTechFilter(e.target.value)}
+                aria-label="Filtrar por tecnología"
+                className="h-10 w-full appearance-none rounded-lg border border-border bg-surface-hover py-2 pr-8 pl-8 text-xs font-bold text-foreground outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
+              >
+                <option value="">Toda tecnología</option>
+                {techFilterOptions.map((name) => (
+                  <option key={catalogLabelKey(name)} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="relative w-full shrink-0 sm:w-40">
+              <Filter className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
+              <select
+                value={filterBrand}
+                onChange={(e) => {
+                  setFilterBrand(e.target.value);
+                  setFilterModel('');
+                }}
+                aria-label="Filtrar por marca"
+                disabled={!filterTech && brandFilterOptions.length === 0}
+                className="h-10 w-full appearance-none rounded-lg border border-border bg-surface-hover py-2 pr-8 pl-8 text-xs font-bold text-foreground outline-none focus:border-accent focus:ring-2 focus:ring-accent/30 disabled:opacity-60"
+              >
+                <option value="">Todas las marcas</option>
+                {brandFilterOptions.map((name) => (
+                  <option key={catalogLabelKey(name)} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+              {filterBrand ? (
+                <button
+                  type="button"
+                  title="Quitar filtro de marca"
+                  onClick={() => {
+                    setFilterBrand('');
+                    setFilterModel('');
+                  }}
+                  className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-muted hover:text-heading"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
+            </div>
+
+            <div className="relative w-full shrink-0 sm:w-48">
               <Filter className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
               <select
                 value={filterModel}
@@ -618,9 +731,7 @@ export default function InventarioDetallePage() {
                 aria-label="Filtrar por modelo"
                 className="h-10 w-full appearance-none rounded-lg border border-border bg-surface-hover py-2 pr-8 pl-8 text-xs font-bold text-foreground outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
               >
-                <option value="">
-                  {filterTech ? `Modelos · ${filterTech}` : 'Todos los modelos'}
-                </option>
+                <option value="">Todos los modelos</option>
                 {modelFilterOptions.map((name) => (
                   <option key={catalogLabelKey(name)} value={name}>
                     {name}
@@ -638,13 +749,11 @@ export default function InventarioDetallePage() {
                 </button>
               ) : null}
             </div>
-            {(filterTech || filterModel) && (
+
+            {(filterTech || filterBrand || filterModel) && (
               <button
                 type="button"
-                onClick={() => {
-                  setFilterTech('');
-                  setFilterModel('');
-                }}
+                onClick={clearCatalogFilters}
                 className="shrink-0 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-[#181c3a]"
               >
                 Limpiar filtros
@@ -670,10 +779,9 @@ export default function InventarioDetallePage() {
                     key={tech}
                     type="button"
                     onClick={() => {
-                      setFilterTech((prev) =>
-                        catalogLabelKey(prev) === catalogLabelKey(tech) ? '' : tech
+                      setTechFilter(
+                        catalogLabelKey(filterTech) === catalogLabelKey(tech) ? '' : tech
                       );
-                      setFilterModel('');
                     }}
                     className="text-left"
                     title={active ? 'Quitar filtro de tecnología' : `Filtrar por ${tech}`}
@@ -693,7 +801,7 @@ export default function InventarioDetallePage() {
                 );
               })}
               <Card className="min-w-[140px] shrink-0 rounded-2xl border-2 border-accent/30 p-6 text-center shadow-sm transition-all">
-                <p className="mb-1 text-[10px] font-semibold tracking-wide text-accent uppercase">Total Global</p>
+                <p className="mb-1 text-[10px] font-semibold tracking-wide text-accent uppercase">Total filtrado</p>
                 <h3 className="my-3 text-4xl font-bold text-heading">{filteredItems.length}</h3>
                 <p className="text-[8px] font-semibold tracking-widest text-muted uppercase">Equipos TC</p>
               </Card>

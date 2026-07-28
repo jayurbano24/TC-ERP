@@ -1,4 +1,5 @@
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { humanizeClassifyEquipmentError } from '../../client/humanizeClassifyError';
 import type { IClassifyBatchGateway } from '../../domain/ports/classify-batch.gateway.port';
 import type { ClassifyBatchParams, ClassifyBatchResult } from '../../domain/types/equipment-unit.types';
 import { auditClassifiedSeries, auditClassifyBatchCompleted } from '../audit';
@@ -20,14 +21,8 @@ export class ClassifyEquipmentBatchRpcAdapter implements IClassifyBatchGateway {
 
     if (error) {
       console.error('classify_equipment_batch_tx:', error);
-      const raw = error.message || 'Error al clasificar equipos.';
-      if (/uniq_service_orders_active_main_serial/i.test(raw)) {
-        return {
-          error:
-            'Una o más series ya tienen una Orden de Servicio activa. Si es reingreso, despache o cierre el ciclo anterior; si es reintento del mismo manifiesto, aplique la migración 177 y vuelva a intentar.',
-        };
-      }
-      return { error: raw };
+      const human = humanizeClassifyEquipmentError(error.message);
+      return { error: human.description };
     }
 
     const payload = data as {

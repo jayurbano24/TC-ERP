@@ -4,6 +4,7 @@ import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { notify } from '@/components/ui/messaging/messageStore';
 import { createServiceOrders } from '@/modules/recepcion/client/receptions';
 import { createOrGetSapTransfer, classifyEquipmentBatch } from '@/modules/sap-transfer/client/sapTransferData';
+import { humanizeClassifyEquipmentError } from '@/modules/sap-transfer/client/humanizeClassifyError';
 import { generateClientCorrelationId } from '@/shared/infrastructure/http/correlationId.client';
 import { countReadyEquipmentUnits } from '../historyTrayUtils';
 import type { GuideItem, SapTransferGroup } from '../types';
@@ -155,8 +156,12 @@ export async function persistEquipmentOnComplete(params: PersistEquipmentParams)
       });
 
       if (batchRes.error) {
-        equipmentPersistError = batchRes.error;
-        notify.error(`Error al clasificar equipos (SAP ${sapGroup.sapDocument})`, { description: batchRes.error, duration: 0 });
+        const human = humanizeClassifyEquipmentError(batchRes.error);
+        equipmentPersistError = human.description;
+        notify.error(human.title, {
+          description: `${human.description} (SAP ${sapGroup.sapDocument})`,
+          duration: 0,
+        });
       } else if (batchRes.data) {
         osCreatedCount += batchRes.data.length;
       }

@@ -7,6 +7,7 @@ import { sanitizeCacAgencyRaw } from '@/lib/cacAgencyUtils';
 import { generateMovId } from '../backofficeHelpers';
 import type { SapTransferGroup } from '../types';
 import type { CompleteGuidesContext } from './completeGuidesContext';
+import { humanizeClassifyEquipmentError } from '@/modules/sap-transfer/client/humanizeClassifyError';
 import { persistEquipmentOnComplete } from './persistEquipmentOnComplete';
 
 export type { CompleteGuidesContext } from './completeGuidesContext';
@@ -271,10 +272,9 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
           expectedUnits = persistResult.expectedUnits;
 
           if (expectedUnits > 0 && osCreatedCount === 0) {
-            notify.error('No se guardaron equipos en la base de datos', {
-              description:
-                (equipmentPersistError ? `${equipmentPersistError}. ` : '') +
-                'La guía NO quedó clasificada. Verifique permisos (RLS) e intente de nuevo.',
+            const human = humanizeClassifyEquipmentError(equipmentPersistError);
+            notify.error(human.isDuplicate ? 'Serie duplicada' : human.title, {
+              description: `${human.description} La guía NO quedó clasificada.`,
               duration: 0,
             });
             ctx.setIsSubmitting(false);
@@ -283,14 +283,13 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
           }
 
           if (expectedUnits > 0 && osCreatedCount < expectedUnits) {
-            notify.error(
-              (equipmentPersistError ? `${equipmentPersistError}\n` : '') +
-                'La guía NO quedó clasificada. Corrija el error e intente de nuevo.',
-              {
-                title: `Ingreso incompleto: ${osCreatedCount}/${expectedUnits} equipo(s) guardados`,
-                duration: 10000,
-              }
-            );
+            const human = humanizeClassifyEquipmentError(equipmentPersistError);
+            notify.error(`${human.description} La guía NO quedó clasificada.`, {
+              title: human.isDuplicate
+                ? `Serie duplicada — ingreso incompleto (${osCreatedCount}/${expectedUnits})`
+                : `Ingreso incompleto: ${osCreatedCount}/${expectedUnits} equipo(s) guardados`,
+              duration: 10000,
+            });
             ctx.setIsSubmitting(false);
             ctx.isSubmittingRef.current = false;
             return;

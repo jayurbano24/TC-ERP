@@ -146,7 +146,10 @@ BEGIN
       v_skipped := v_skipped + 1;
       v_errors := v_errors || jsonb_build_object(
         'main_serial', v_main_serial,
-        'error', format('La serie %s ya fue clasificada en este mismo lote.', v_main_serial)
+        'error', format(
+          'Serie duplicada: %s está repetida en este mismo lote. Quite el duplicado e intente de nuevo.',
+          v_main_serial
+        )
       );
       CONTINUE;
     END IF;
@@ -194,7 +197,7 @@ BEGIN
           'active_os', v_active.os_label,
           'active_status', v_active.status,
           'error', format(
-            'La serie %s ya tiene una Orden de Servicio activa (%s / %s). Cierre o despache ese ciclo antes de reingresar.',
+            'Serie duplicada: %s ya está registrada con la orden %s (estado %s). No se puede ingresar de nuevo hasta cerrar o despachar ese ciclo.',
             v_main_serial,
             coalesce(v_active.os_label, v_active.service_order_id::text),
             v_active.status
@@ -270,7 +273,7 @@ BEGIN
               'active_os', v_os_rec.os_label,
               'active_status', v_os_rec.status,
               'error', format(
-                'La serie %s ya tiene una Orden de Servicio activa (%s / %s). Cierre o despache ese ciclo antes de reingresar.',
+                'Serie duplicada: %s ya está registrada con la orden %s (estado %s). No se puede ingresar de nuevo hasta cerrar o despachar ese ciclo.',
                 v_main_serial,
                 coalesce(v_os_rec.os_label, v_os_rec.id::text),
                 coalesce(v_os_rec.status, '?')

@@ -131,7 +131,13 @@ export default function GeneralDashboardPage() {
     const msi = pipelineProjection?.workshopOs;
     const live = workshopOsQuery.data;
     const msiTotal = msi ? Object.values(msi).reduce((a, b) => a + b, 0) : 0;
-    if (msiTotal > 0 && msi) return msi;
+    if (msiTotal > 0 && msi) {
+      // Equipo Listo: preferir conteo live (SSOT Taller) si ya cargó.
+      return {
+        ...msi,
+        listo: live?.listo ?? msi.listo ?? 0,
+      };
+    }
     return live ?? msi ?? null;
   }, [pipelineProjection, workshopOsQuery.data]);
 
@@ -388,22 +394,23 @@ export default function GeneralDashboardPage() {
                 <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded w-fit">MSI</span>
               )}
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
               {[
-                { key: 'diagnostico' as const, label: 'Diagnóstico', color: 'text-amber-600', bg: 'bg-amber-50' },
-                { key: 'reparacion' as const, label: 'Reparación', color: 'text-blue-600', bg: 'bg-blue-50' },
-                { key: 'reacondicionado' as const, label: 'Reacondicionado', color: 'text-emerald-600', bg: 'bg-emerald-50' },
-                { key: 'qc' as const, label: 'Ctrl. Calidad', color: 'text-purple-600', bg: 'bg-purple-50' },
-                { key: 'l3' as const, label: 'L3', color: 'text-orange-600', bg: 'bg-orange-50' },
-                { key: 'scraps' as const, label: 'Scrap', color: 'text-rose-600', bg: 'bg-rose-50' },
+                { key: 'diagnostico' as const, label: 'Diagnóstico', color: 'text-amber-600', bg: 'bg-amber-50', unit: 'OS' },
+                { key: 'reparacion' as const, label: 'Reparación', color: 'text-blue-600', bg: 'bg-blue-50', unit: 'OS' },
+                { key: 'reacondicionado' as const, label: 'Reacondicionado', color: 'text-emerald-600', bg: 'bg-emerald-50', unit: 'OS' },
+                { key: 'qc' as const, label: 'Ctrl. Calidad', color: 'text-purple-600', bg: 'bg-purple-50', unit: 'OS' },
+                { key: 'l3' as const, label: 'L3', color: 'text-orange-600', bg: 'bg-orange-50', unit: 'OS' },
+                { key: 'scraps' as const, label: 'Scrap', color: 'text-rose-600', bg: 'bg-rose-50', unit: 'OS' },
+                { key: 'listo' as const, label: 'Equipo Listo', color: 'text-teal-700', bg: 'bg-teal-50', unit: 'Hoy' },
               ].map((stage) => (
                 <div
                   key={stage.key}
                   className={`rounded-xl border border-[var(--border)] p-4 text-center ${stage.bg}`}
                 >
                   <p className="text-[9px] font-black uppercase tracking-wide text-[var(--muted)] mb-1">{stage.label}</p>
-                  <p className={`text-2xl font-black ${stage.color}`}>{workshopOs[stage.key].toLocaleString()}</p>
-                  <p className="text-[8px] font-bold text-[var(--muted)] mt-1">OS</p>
+                  <p className={`text-2xl font-black ${stage.color}`}>{(workshopOs[stage.key] ?? 0).toLocaleString()}</p>
+                  <p className="text-[8px] font-bold text-[var(--muted)] mt-1">{stage.unit}</p>
                 </div>
               ))}
             </div>

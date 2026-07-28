@@ -15,6 +15,8 @@ export type WorkshopOsByStage = {
   qc: number;
   l3: number;
   scraps: number;
+  /** Cola Equipo Listo (SSOT Taller / Despacho). */
+  listo: number;
 };
 
 export type KpiPipelineSnapshot = {
@@ -67,6 +69,7 @@ export async function fetchWorkshopOsCountsFromApi(): Promise<WorkshopOsByStage 
     qc: c.qc ?? 0,
     l3: c.l3 ?? 0,
     scraps: c.scraps ?? 0,
+    listo: c.listo ?? 0,
   };
 }
 

@@ -13,6 +13,7 @@ export type WorkshopOsByStage = {
   qc: number;
   l3: number;
   scraps: number;
+  listo: number;
 };
 
 export type PipelineSnapshot = {
@@ -33,6 +34,7 @@ function readWorkshopOsFromMap(map: Record<string, number>): WorkshopOsByStage {
     qc: map.os_qc ?? 0,
     l3: map.os_l3 ?? 0,
     scraps: map.os_scraps ?? 0,
+    listo: map.os_listo ?? 0,
   };
 }
 

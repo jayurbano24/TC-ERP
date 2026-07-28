@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireApiUser } from '@/shared/infrastructure/http/requireApiUser';
 import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
-import { ROLES_TALLER } from '@/shared/authz/roleGuard';
+import { ROLES_PRODUCCION, ROLES_TALLER } from '@/shared/authz/roleGuard';
 import { estimateJsonBytes, logEgress } from '@/shared/infrastructure/http/egressLog';
 import { getCorrelationIdFromHeaders } from '@/shared/infrastructure/http/correlationId';
 import { getWorkshopReadClient } from '@/shared/infrastructure/workshop/workshopReadClient';
@@ -44,5 +44,10 @@ export const GET = withErrorHandler(
 
     return NextResponse.json(responseBody);
   },
-  { module: 'taller', action: 'counts', roles: ROLES_TALLER }
+  {
+    module: 'taller',
+    action: 'counts',
+    // Dashboard gerencial también lee estos conteos (Equipo Listo / etapas).
+    roles: [...new Set([...ROLES_TALLER, ...ROLES_PRODUCCION])],
+  }
 );

@@ -110,7 +110,8 @@ export async function runKpiPipelineWipSync(supabase: SupabaseClient): Promise<S
       ['os_reacondicionado', Number(c.reacondicionado ?? 0)],
       ['os_qc', Number(c.qc ?? 0)],
       ['os_l3', Number(c.l3 ?? 0)],
-      ['os_scraps', Number(c.scraps ?? 0)]
+      ['os_scraps', Number(c.scraps ?? 0)],
+      ['os_listo', Number(c.listo ?? 0)]
     );
   }
 

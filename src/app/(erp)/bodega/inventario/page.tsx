@@ -11,12 +11,16 @@ import {
   type DataTableColumn,
 } from '@/components/ui';
 import { ModulePage } from '@/components/module-page';
-import { Search, Download, ArrowLeft } from 'lucide-react';
+import { Search, Download, ArrowLeft, Filter, X } from 'lucide-react';
 import Link from 'next/link';
 import { getInventoryDetails, resolveWarehouseStatusLabel } from '@/modules/inventario/client/inventoryQueries';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { resolveUnitSapStatus } from '@/lib/sap/sapValidationStatus';
 import { sanitizeCacAgencyRaw } from '@/lib/cacAgencyUtils';
+import {
+  catalogLabelKey,
+  normalizeCatalogLabel,
+} from '@/shared/catalogs/normalizeCatalogName';
 import { InventoryTableToolbar } from './_components/InventoryTableToolbar';
 import { InventoryTableSkeleton } from './_components/InventoryTableSkeleton';
 
@@ -114,9 +118,31 @@ function resolveAgencyLabel(item: {
   return '---';
 }
 
+function resolveItemTech(item: {
+  models?: { technologies?: { name?: string | null } | null; name?: string | null } | null;
+  receptions?: { notes?: string | null } | null;
+}): string {
+  return normalizeCatalogLabel(
+    item.models?.technologies?.name ||
+      extractField(item.receptions?.notes || '', 'Backoffice_Tech') ||
+      ''
+  );
+}
+
+function resolveItemModel(item: {
+  models?: { name?: string | null } | null;
+  receptions?: { notes?: string | null } | null;
+}): string {
+  return normalizeCatalogLabel(
+    item.models?.name || extractField(item.receptions?.notes || '', 'Backoffice_Model') || ''
+  );
+}
+
 export default function InventarioDetallePage() {
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearch = useDebouncedValue(searchTerm, 250);
+  const [filterTech, setFilterTech] = useState('');
+  const [filterModel, setFilterModel] = useState('');
   const [density, setDensity] = useState<TableDensity>('normal');
   const [tableExpanded, setTableExpanded] = useState(false);
   const [page, setPage] = useState(1);
@@ -293,7 +319,7 @@ export default function InventarioDetallePage() {
     return [...mergedGroups, ...ungrouped];
   }, [items]);
 
-  const filteredItems = useMemo(() => {
+  const searchFilteredItems = useMemo(() => {
     return groupedItems.filter((i) => {
       if (!debouncedSearch) return true;
       const s = debouncedSearch.toLowerCase();
@@ -307,16 +333,45 @@ export default function InventarioDetallePage() {
         (i.boxes?.id || '').toLowerCase().includes(s) ||
         (i.material || '').toLowerCase().includes(s) ||
         (i.valuation || '').toLowerCase().includes(s) ||
-        (i.models?.technologies?.name || '').toLowerCase().includes(s) ||
+        resolveItemTech(i).toLowerCase().includes(s) ||
         (i.brands?.name || '').toLowerCase().includes(s) ||
-        (i.models?.name || '').toLowerCase().includes(s)
+        resolveItemModel(i).toLowerCase().includes(s)
       );
     });
   }, [groupedItems, debouncedSearch]);
 
+  const modelFilterOptions = useMemo(() => {
+    const techKey = catalogLabelKey(filterTech);
+    const byKey = new Map<string, string>();
+    for (const i of searchFilteredItems) {
+      if (techKey && catalogLabelKey(resolveItemTech(i)) !== techKey) continue;
+      const name = resolveItemModel(i);
+      const key = catalogLabelKey(name);
+      if (!key || key === 'N/A') continue;
+      if (!byKey.has(key)) byKey.set(key, name);
+    }
+    return [...byKey.values()].sort((a, b) => a.localeCompare(b, 'es'));
+  }, [searchFilteredItems, filterTech]);
+
+  const filteredItems = useMemo(() => {
+    const techKey = catalogLabelKey(filterTech);
+    const modelKey = catalogLabelKey(filterModel);
+    return searchFilteredItems.filter((i) => {
+      if (techKey && catalogLabelKey(resolveItemTech(i)) !== techKey) return false;
+      if (modelKey && catalogLabelKey(resolveItemModel(i)) !== modelKey) return false;
+      return true;
+    });
+  }, [searchFilteredItems, filterTech, filterModel]);
+
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch]);
+  }, [debouncedSearch, filterTech, filterModel]);
+
+  useEffect(() => {
+    if (filterModel && !modelFilterOptions.some((n) => catalogLabelKey(n) === catalogLabelKey(filterModel))) {
+      setFilterModel('');
+    }
+  }, [filterModel, modelFilterOptions]);
 
   const totalCount = filteredItems.length;
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE) || 1);
@@ -511,15 +566,15 @@ export default function InventarioDetallePage() {
   const techStats = useMemo(() => {
     const technologies = ['ADSL', 'DTH', 'EMTA', 'IPTV', 'ONT', 'STB-HFC', 'WTTH'];
     const techCounts = technologies.reduce((acc, tech) => {
-      acc[tech] = filteredItems.filter(i => {
-        const itemTech = (i.models?.technologies?.name || extractField(i.receptions?.notes, 'Backoffice_Tech') || '').toUpperCase();
-        return itemTech === tech;
-      }).length;
+      const techKey = catalogLabelKey(tech);
+      acc[tech] = searchFilteredItems.filter(
+        (i) => catalogLabelKey(resolveItemTech(i)) === techKey
+      ).length;
       return acc;
     }, {} as Record<string, number>);
     const uniqueOs = new Set(filteredItems.map(i => i.service_orders?.os_label).filter(Boolean)).size;
     return { technologies, techCounts, uniqueOs };
-  }, [filteredItems]);
+  }, [searchFilteredItems, filteredItems]);
 
   return (
     <ModulePage
@@ -544,15 +599,57 @@ export default function InventarioDetallePage() {
         </div>
 
         <div className="flex flex-col gap-3 rounded-xl border-2 border-border bg-surface p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-4">
-          <div className="relative max-w-md flex-1 w-full">
-            <Search className="absolute top-1/2 left-3 h-5 w-5 -translate-y-1/2 text-muted" />
-            <input
-              type="text"
-              placeholder="Buscar por serie, OS, caja, material..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full rounded-lg border border-border bg-surface-hover py-2 pr-4 pl-10 text-sm font-medium text-foreground outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
-            />
+          <div className="flex w-full min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="relative min-w-0 flex-1 max-w-md">
+              <Search className="absolute top-1/2 left-3 h-5 w-5 -translate-y-1/2 text-muted" />
+              <input
+                type="text"
+                placeholder="Buscar por serie, OS, caja, material..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full rounded-lg border border-border bg-surface-hover py-2 pr-4 pl-10 text-sm font-medium text-foreground outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
+              />
+            </div>
+            <div className="relative w-full shrink-0 sm:w-56">
+              <Filter className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
+              <select
+                value={filterModel}
+                onChange={(e) => setFilterModel(e.target.value)}
+                aria-label="Filtrar por modelo"
+                className="h-10 w-full appearance-none rounded-lg border border-border bg-surface-hover py-2 pr-8 pl-8 text-xs font-bold text-foreground outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
+              >
+                <option value="">
+                  {filterTech ? `Modelos · ${filterTech}` : 'Todos los modelos'}
+                </option>
+                {modelFilterOptions.map((name) => (
+                  <option key={catalogLabelKey(name)} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+              {filterModel ? (
+                <button
+                  type="button"
+                  title="Quitar filtro de modelo"
+                  onClick={() => setFilterModel('')}
+                  className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-muted hover:text-heading"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
+            </div>
+            {(filterTech || filterModel) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterTech('');
+                  setFilterModel('');
+                }}
+                className="shrink-0 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-[#181c3a]"
+              >
+                Limpiar filtros
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-3 shrink-0">
             <Button onClick={exportToExcel} className="bg-emerald-500 hover:bg-emerald-600 text-white border-none rounded-xl px-4 py-2 text-xs font-black uppercase tracking-wider">
@@ -566,13 +663,35 @@ export default function InventarioDetallePage() {
 
           return (
             <div className="flex gap-4 overflow-x-auto pb-4 custom-scrollbar">
-              {technologies.map(tech => (
-                <Card key={tech} className="min-w-[130px] shrink-0 rounded-2xl border-2 border-border p-6 text-center shadow-sm transition-all hover:border-accent/40">
-                  <p className="mb-1 text-[10px] font-semibold tracking-wide text-muted uppercase">{tech}</p>
-                  <h3 className="my-3 text-4xl font-bold text-heading">{techCounts[tech] || 0}</h3>
-                  <p className="text-[8px] font-semibold tracking-widest text-muted uppercase">Equipos</p>
-                </Card>
-              ))}
+              {technologies.map(tech => {
+                const active = catalogLabelKey(filterTech) === catalogLabelKey(tech);
+                return (
+                  <button
+                    key={tech}
+                    type="button"
+                    onClick={() => {
+                      setFilterTech((prev) =>
+                        catalogLabelKey(prev) === catalogLabelKey(tech) ? '' : tech
+                      );
+                      setFilterModel('');
+                    }}
+                    className="text-left"
+                    title={active ? 'Quitar filtro de tecnología' : `Filtrar por ${tech}`}
+                  >
+                    <Card
+                      className={`min-w-[130px] shrink-0 rounded-2xl border-2 p-6 text-center shadow-sm transition-all ${
+                        active
+                          ? 'border-accent bg-accent/5 ring-2 ring-accent/20'
+                          : 'border-border hover:border-accent/40'
+                      }`}
+                    >
+                      <p className="mb-1 text-[10px] font-semibold tracking-wide text-muted uppercase">{tech}</p>
+                      <h3 className="my-3 text-4xl font-bold text-heading">{techCounts[tech] || 0}</h3>
+                      <p className="text-[8px] font-semibold tracking-widest text-muted uppercase">Equipos</p>
+                    </Card>
+                  </button>
+                );
+              })}
               <Card className="min-w-[140px] shrink-0 rounded-2xl border-2 border-accent/30 p-6 text-center shadow-sm transition-all">
                 <p className="mb-1 text-[10px] font-semibold tracking-wide text-accent uppercase">Total Global</p>
                 <h3 className="my-3 text-4xl font-bold text-heading">{filteredItems.length}</h3>

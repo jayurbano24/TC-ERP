@@ -1,6 +1,16 @@
 import { COUNT_HEAD } from '@/shared/constants/dbProjections';
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
+/** Desglose diario de equipos (1 OS = 1 equipo) por etapa. */
+export type UserKpiBreakdown = {
+  diagnostico: number;
+  reparacion: number;
+  reacondicionado: number;
+  qc: number;
+  clasificados: number;
+  bodega: number;
+};
+
 export type UserKPI = {
   user_id: string;
   name: string;
@@ -8,8 +18,10 @@ export type UserKPI = {
   target: number;
   progress: number;
   percentage: number;
-  /** Unidad legible del trabajo contado (ej. equipos clasificados). */
+  /** Unidad legible del trabajo contado (ej. equipos / día). */
   progressLabel: string;
+  /** Equipos por etapa en el periodo (opc.). */
+  breakdown?: UserKpiBreakdown;
 };
 
 type ProfileRow = {

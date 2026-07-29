@@ -62,6 +62,20 @@ const DEFAULT_METRICS: DashboardMetrics = {
 const DEFAULT_STORAGE = { ingresados: 0, despachados: 0, sinMovimiento60: 0, sinMovimiento90: 0 };
 const RENDIMIENTO_PREVIEW = 6;
 
+/** Chips de desglose diario (solo etapas con valor > 0). */
+function formatKpiBreakdown(kpi: UserKPI): string {
+  const b = kpi.breakdown;
+  if (!b) return '';
+  const parts: string[] = [];
+  if (b.diagnostico > 0) parts.push(`Diag ${b.diagnostico}`);
+  if (b.reparacion > 0) parts.push(`Rep ${b.reparacion}`);
+  if (b.reacondicionado > 0) parts.push(`Reacond ${b.reacondicionado}`);
+  if (b.qc > 0) parts.push(`QC ${b.qc}`);
+  if (b.clasificados > 0) parts.push(`Clasif ${b.clasificados}`);
+  if (b.bodega > 0) parts.push(`Bodega ${b.bodega}`);
+  return parts.join(' · ');
+}
+
 /** Etiqueta de periodo para tarjetas (zona America/Guatemala). */
 function formatDashboardPeriod(timeRange: string): { badge: string; detail: string } {
   const fmt = new Intl.DateTimeFormat('es-GT', {
@@ -545,24 +559,38 @@ export default function GeneralDashboardPage() {
                   </div>
                   <p className="text-xs text-[var(--muted)] font-medium">
                     Periodo: <span className="font-bold text-[var(--heading)]">{periodLabel.detail}</span>
-                    {' · '}OS distintos del periodo (misma regla que pestaña KPI)
+                    {' · '}Equipos/día por usuario (1 equipo = 1 OS · misma regla que KPI)
                   </p>
                 </div>
                 <Users className="w-5 h-5 text-[var(--muted)] shrink-0" />
               </div>
 
-              <div className="space-y-8">
+              <div className="space-y-6">
                 {produccionKpis.map((kpi, idx) => {
                   const max = Math.max(...kpis.map(k => k.progress), 1);
                   const percent = (kpi.progress / max) * 100;
                   const colors = ['bg-[var(--accent)]', 'bg-[var(--success)]', 'bg-[var(--warning)]', 'bg-[var(--muted)]', 'bg-[var(--danger)]'];
+                  const breakdown = formatKpiBreakdown(kpi);
                   
                   return (
                     <div key={kpi.user_id || kpi.name}>
-                      <div className="flex justify-between text-xs font-black uppercase tracking-widest mb-3">
-                        <span className="text-[var(--heading)]">{kpi.name} <span className="text-[var(--muted)] ml-1">({kpi.role.replace('_', ' ')})</span></span>
-                        <span className="text-[var(--muted)]">{kpi.progress} {kpi.progressLabel}</span>
+                      <div className="flex justify-between items-baseline gap-3 text-xs font-black uppercase tracking-widest mb-1.5">
+                        <span className="text-[var(--heading)] min-w-0 truncate">
+                          {kpi.name}{' '}
+                          <span className="text-[var(--muted)] font-bold normal-case tracking-normal">
+                            ({kpi.role.replace('_', ' ')})
+                          </span>
+                        </span>
+                        <span className="text-[var(--heading)] tabular-nums shrink-0">
+                          {kpi.progress}{' '}
+                          <span className="text-[var(--muted)]">equipos / día</span>
+                        </span>
                       </div>
+                      {breakdown ? (
+                        <p className="mb-2 text-[10px] font-semibold text-[var(--muted)] tracking-wide">
+                          {breakdown}
+                        </p>
+                      ) : null}
                       <div className="w-full bg-[var(--surface-hover)] rounded-full h-3">
                         <div className={`${colors[idx % colors.length]} h-3 rounded-full transition-all duration-1000`} style={{ width: `${percent}%` }} />
                       </div>
@@ -610,7 +638,7 @@ export default function GeneralDashboardPage() {
             </h3>
             <p className="mt-1 text-xs text-[var(--muted)]">
               Periodo: <span className="font-bold text-[var(--heading)]">{periodLabel.detail}</span>
-              {' · '}ETL vs meta diaria
+              {' · '}Equipos/día vs meta (1 equipo = 1 OS)
             </p>
           </div>
 
@@ -647,8 +675,13 @@ export default function GeneralDashboardPage() {
                           {kpi.role.replace('_', ' ')}
                         </p>
                         <p className="mt-1 text-[10px] font-black text-[var(--accent)] tabular-nums">
-                          {kpi.progress} {kpi.progressLabel}
+                          {kpi.progress} equipos / día
                         </p>
+                        {formatKpiBreakdown(kpi) ? (
+                          <p className="mt-0.5 text-[10px] font-semibold text-[var(--muted)]">
+                            {formatKpiBreakdown(kpi)}
+                          </p>
+                        ) : null}
                       </div>
                     </div>
                     <div className="flex items-center gap-3">

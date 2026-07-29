@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { DashboardMetrics, UserKPI } from '@/lib/database/kpi';
+import type { DashboardMetrics, UserKPI, UserKpiBreakdown } from '@/lib/database/kpi';
 import {
   countCacTrayOsInStatuses,
   countInventoryDetailOs,
@@ -35,15 +35,47 @@ type ProfileKpiRow = {
 function progressLabelForRole(role: string): string {
   const r = role.toUpperCase();
   if (r.includes('BACKOFFICE') || r.includes('GERENTE') || r === 'ADMIN' || r.includes('SUPERVISOR')) {
-    return 'OS clasificados';
+    return 'equipos / día';
   }
-  if (r.includes('RECEPTOR') || r.includes('RECEPCION')) return 'unidades recibidas';
-  if (r.includes('BODEGA')) return 'movimientos de bodega';
+  if (r.includes('RECEPTOR') || r.includes('RECEPCION')) return 'equipos / día';
+  if (r.includes('BODEGA')) return 'equipos / día';
   if (r.includes('TECNICO') || r.includes('TALLER') || r.includes('QC') || r.includes('OPERACION')) {
-    return 'OS producidos';
+    return 'equipos / día';
   }
-  if (r.includes('DESPACHO')) return 'despachos';
-  return 'OS producidos';
+  if (r.includes('DESPACHO')) return 'equipos / día';
+  return 'equipos / día';
+}
+
+function emptyBreakdown(): UserKpiBreakdown {
+  return {
+    diagnostico: 0,
+    reparacion: 0,
+    reacondicionado: 0,
+    qc: 0,
+    clasificados: 0,
+    bodega: 0,
+  };
+}
+
+function stageKeyForAction(action: string): keyof UserKpiBreakdown | null {
+  switch (action) {
+    case 'DIAGNÓSTICO INICIAL COMPLETADO':
+      return 'diagnostico';
+    case 'REPARACIÓN COMPLETADA':
+      return 'reparacion';
+    case 'REACONDICIONADO COMPLETADO':
+      return 'reacondicionado';
+    case 'CONTROL DE CALIDAD COMPLETADO':
+      return 'qc';
+    case 'INGRESO BODEGA':
+    case 'TRASLADO BODEGA':
+    case 'TRASLADO':
+    case 'TRASLADO MASIVO A TALLER':
+    case 'DESPACHO CREADO':
+      return 'bodega';
+    default:
+      return null;
+  }
 }
 
 function roleBucket(role: string): 'backoffice' | 'reception' | 'bodega' | 'taller' | 'other' {
@@ -372,80 +404,98 @@ export async function readDailyUserProductionKpis(
     .map((r) => String(r.record_id));
   const seriesToOs = await mapSeriesIdsToServiceOrders(supabase, seriesIds);
 
-  const osByUser = new Map<string, Set<string>>();
-  const movesByUser = new Map<string, Set<string>>();
+  // Equipos/día = OS distintos por etapa (misma regla que pestaña KPI Taller).
+  const stageOsByUser = new Map<string, Map<keyof UserKpiBreakdown, Set<string>>>();
+  const touchOsByUser = new Map<string, Set<string>>();
+
+  const bumpStage = (uid: string, stage: keyof UserKpiBreakdown, key: string) => {
+    let stages = stageOsByUser.get(uid);
+    if (!stages) {
+      stages = new Map();
+      stageOsByUser.set(uid, stages);
+    }
+    let set = stages.get(stage);
+    if (!set) {
+      set = new Set<string>();
+      stages.set(stage, set);
+    }
+    set.add(key);
+    if (stage !== 'clasificados' && stage !== 'bodega') {
+      let touch = touchOsByUser.get(uid);
+      if (!touch) {
+        touch = new Set<string>();
+        touchOsByUser.set(uid, touch);
+      }
+      touch.add(key);
+    } else if (stage === 'bodega') {
+      let touch = touchOsByUser.get(uid);
+      if (!touch) {
+        touch = new Set<string>();
+        touchOsByUser.set(uid, touch);
+      }
+      touch.add(`bodega:${key}`);
+    }
+  };
+
   for (const row of auditRows) {
     const uid = String(row.user_id || '');
     const action = String(row.action || '');
     const recordId = row.record_id ? String(row.record_id) : '';
     if (!uid) continue;
+    const stage = stageKeyForAction(action);
+    if (!stage) continue;
 
     if (tallerActions.has(action)) {
       const osId = (recordId && seriesToOs.get(recordId)) || recordId;
       if (!osId) continue;
-      let set = osByUser.get(uid);
-      if (!set) {
-        set = new Set<string>();
-        osByUser.set(uid, set);
-      }
-      set.add(osId);
+      bumpStage(uid, stage, osId);
       continue;
     }
 
     if (moveActions.has(action)) {
-      const key = recordId || `${action}:${uid}:${movesByUser.get(uid)?.size ?? 0}`;
-      let set = movesByUser.get(uid);
-      if (!set) {
-        set = new Set<string>();
-        movesByUser.set(uid, set);
-      }
-      set.add(key);
+      const key = recordId || `${action}:${uid}`;
+      bumpStage(uid, 'bodega', key);
     }
   }
 
-  const etlByUser = new Map<string, number>();
-  for (const [uid, set] of osByUser) etlByUser.set(uid, set.size);
-  for (const [uid, set] of movesByUser) {
-    etlByUser.set(uid, (etlByUser.get(uid) ?? 0) + set.size);
-  }
-
-  // Backoffice live — OS clasificados (no está en kpi_usuario aún)
-  const backofficeByUser = new Map<string, number>();
+  // Backoffice live — equipos (OS) clasificados en el periodo
   const { data: trayUnits } = await supabase
     .from('cac_tray_units')
     .select('received_by_name, service_order_id')
     .gte('classified_at', startIso)
     .lte('classified_at', endIso);
 
-  const trayOsByUser = new Map<string, Set<string>>();
   (trayUnits || []).forEach(
     (row: { received_by_name?: string; service_order_id?: string }, idx: number) => {
       const userId = resolveUserId(row.received_by_name);
       if (!userId) return;
-      let osSet = trayOsByUser.get(userId);
-      if (!osSet) {
-        osSet = new Set<string>();
-        trayOsByUser.set(userId, osSet);
-      }
-      osSet.add(row.service_order_id?.trim() || `__anon_${userId}_${idx}`);
+      const osKey = row.service_order_id?.trim() || `__anon_${userId}_${idx}`;
+      bumpStage(userId, 'clasificados', osKey);
     }
   );
-  for (const [userId, osSet] of trayOsByUser) {
-    backofficeByUser.set(userId, osSet.size);
-  }
+
+  const breakdownFor = (uid: string): UserKpiBreakdown => {
+    const b = emptyBreakdown();
+    const stages = stageOsByUser.get(uid);
+    if (!stages) return b;
+    for (const [stage, set] of stages) {
+      b[stage] = set.size;
+    }
+    return b;
+  };
 
   const kpis: UserKPI[] = users
     .filter((u) => u.is_active && u.user_roles && u.user_roles.length > 0)
     .map((u) => {
       const roleStr = u.user_roles![0].role;
       const bucket = roleBucket(roleStr);
-      const etl = etlByUser.get(u.id) ?? 0;
-      const backoffice = backofficeByUser.get(u.id) ?? 0;
+      const breakdown = breakdownFor(u.id);
+      const tallerTouch = touchOsByUser.get(u.id)?.size ?? 0;
+      const clasificados = breakdown.clasificados;
 
-      let progress = 0;
-      if (bucket === 'backoffice') progress = backoffice || etl;
-      else if (bucket === 'taller' || bucket === 'bodega') progress = etl;
-      else progress = Math.max(etl, backoffice);
+      // Equipos trabajados en el día: taller (OS tocados) o clasificación; si hay ambos, el mayor.
+      let progress = Math.max(tallerTouch, clasificados);
+      if (bucket === 'bodega' && breakdown.bodega > progress) progress = breakdown.bodega;
 
       const targetObj = targetsData.find((t) => t.user_id === u.id);
       const target = targetObj ? Number(targetObj.target_value) : 100;
@@ -458,6 +508,7 @@ export async function readDailyUserProductionKpis(
         progress,
         percentage: target > 0 ? Math.round((progress / target) * 100) : 0,
         progressLabel: progressLabelForRole(roleStr),
+        breakdown,
       };
     });
 

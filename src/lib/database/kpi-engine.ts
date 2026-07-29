@@ -1549,7 +1549,30 @@ export async function getEngineKPIs(timeRange: string = 'Hoy') {
     ...tallerTechStats[t],
   }));
 
-  /** KPO por técnico: equipos (OS) por etapa + total del periodo. */
+  /** Metas diarias por persona (user_kpi_targets) — misma fuente que Rendimiento Dashboard. */
+  let userTargets: Array<{ user_id: string; target_value: number }> = [];
+  try {
+    const { data: targetsRows } = await supabase
+      .from('user_kpi_targets')
+      .select('user_id, target_value');
+    if (targetsRows) {
+      userTargets = targetsRows as Array<{ user_id: string; target_value: number }>;
+    }
+  } catch {
+    /* tabla opcional */
+  }
+  const targetByUserId = new Map(
+    userTargets.map((t) => [t.user_id, Number(t.target_value) || 0])
+  );
+  const nameToUserId = new Map<string, string>();
+  for (const u of usersData || []) {
+    const display = getUserName(u.id);
+    const resolved = personResolver.resolve(display);
+    nameToUserId.set(display, u.id);
+    nameToUserId.set(resolved, u.id);
+  }
+
+  /** KPO por técnico: equipos (OS) por etapa + total + % vs meta diaria. */
   const tecnicoNames = new Set<string>([
     ...Object.keys(diagData.userMap),
     ...Object.keys(reacData.userMap),
@@ -1566,6 +1589,28 @@ export async function getEngineKPIs(timeRange: string = 'Hoy') {
       const qcRechazadas = ccRechData.userMap[tecnico]?.size || 0;
       const qc = qcAprobadas + qcRechazadas;
       const totalEtapas = diagnostico + reacondicionado + reparacion + qc;
+
+      const userId =
+        nameToUserId.get(tecnico) ||
+        nameToUserId.get(personResolver.resolve(tecnico)) ||
+        null;
+      const metaDiaria =
+        (userId && targetByUserId.get(userId)) ||
+        (diagnostico >= reparacion &&
+        diagnostico >= reacondicionado &&
+        diagnostico >= qc
+          ? goalFor('diagnostico', 100)
+          : reparacion >= reacondicionado && reparacion >= qc
+            ? goalFor('reparacion', 100)
+            : reacondicionado >= qc
+              ? goalFor('reacondicionado', 100)
+              : goalFor('qc', 100));
+      const scaled = scalePeriodGoals(metaDiaria, timeRange);
+      const meta = scaled.meta;
+      const porcentaje = meta > 0 ? Math.round((totalEtapas / meta) * 100) : 0;
+      const estadoMeta =
+        porcentaje >= 100 ? 'Meta' : porcentaje >= 80 ? 'Cerca' : 'Bajo';
+
       return {
         tecnico,
         diagnostico,
@@ -1575,6 +1620,10 @@ export async function getEngineKPIs(timeRange: string = 'Hoy') {
         qcRechazadas,
         qc,
         totalEtapas,
+        metaDiaria,
+        meta,
+        porcentaje,
+        estadoMeta,
       };
     })
     .filter((r) => r.totalEtapas > 0)

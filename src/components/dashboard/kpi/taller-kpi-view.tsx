@@ -15,6 +15,10 @@ type PorTecnicoRow = {
   qcRechazadas: number;
   qc: number;
   totalEtapas: number;
+  metaDiaria?: number;
+  meta?: number;
+  porcentaje?: number;
+  estadoMeta?: string;
 };
 
 /** Matriz KPO desde API o armada desde tablas por etapa (fallback). */
@@ -142,9 +146,9 @@ export function TallerKpiView({ data, timeRange = 'Hoy' }: { data: any; timeRang
       {isRealizado ? (
         <>
           <div className="mx-4 mt-1 rounded-lg border border-indigo-100 bg-indigo-50/70 px-3 py-2 text-[12px] font-semibold text-indigo-900">
-            <span className="font-black">KPO Taller</span>: por cada técnico, cuántos equipos hizo en
-            Diag / Reacond / Rep / QC en <span className="font-black">{timeRange}</span>, y el{' '}
-            <span className="font-black">total del día</span> (suma de etapas).
+            <span className="font-black">KPO Taller</span>: equipos por etapa en{' '}
+            <span className="font-black">{timeRange}</span>, total del día y{' '}
+            <span className="font-black">% vs meta</span> (metas de Rendimiento / user targets).
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 px-4">
@@ -192,7 +196,7 @@ export function TallerKpiView({ data, timeRange = 'Hoy' }: { data: any; timeRang
               </span>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left min-w-[720px]">
+              <table className="w-full text-xs text-left min-w-[860px]">
                 <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
                   <tr>
                     <th className="p-3 font-bold sticky left-0 bg-slate-50">Técnico</th>
@@ -202,43 +206,81 @@ export function TallerKpiView({ data, timeRange = 'Hoy' }: { data: any; timeRang
                     <th className="p-3 font-bold text-center text-emerald-700">QC aprobó</th>
                     <th className="p-3 font-bold text-center text-rose-700">QC rechazó</th>
                     <th className="p-3 font-black text-center text-[#181c3a] bg-indigo-50/80">
-                      Total día
+                      Total
                     </th>
+                    <th className="p-3 font-bold text-center">Meta</th>
+                    <th className="p-3 font-bold text-center">% meta</th>
+                    <th className="p-3 font-bold text-center">Estado</th>
                   </tr>
                 </thead>
                 <tbody>
                   {porTecnico.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="p-6 text-center text-slate-400 font-semibold">
+                      <td colSpan={10} className="p-6 text-center text-slate-400 font-semibold">
                         Sin trabajo de taller en {timeRange}
                       </td>
                     </tr>
                   )}
-                  {porTecnico.map((r) => (
-                    <tr key={r.tecnico} className="border-b border-slate-50 hover:bg-slate-50/80">
-                      <td className="p-3 font-black text-[#181c3a] sticky left-0 bg-white">
-                        {r.tecnico}
-                      </td>
-                      <td className="p-3 text-center font-bold text-blue-600 tabular-nums">
-                        {r.diagnostico || '—'}
-                      </td>
-                      <td className="p-3 text-center font-bold text-emerald-600 tabular-nums">
-                        {r.reacondicionado || '—'}
-                      </td>
-                      <td className="p-3 text-center font-bold text-amber-600 tabular-nums">
-                        {r.reparacion || '—'}
-                      </td>
-                      <td className="p-3 text-center font-bold text-emerald-600 tabular-nums">
-                        {r.qcAprobadas || '—'}
-                      </td>
-                      <td className="p-3 text-center font-bold text-rose-600 tabular-nums">
-                        {r.qcRechazadas || '—'}
-                      </td>
-                      <td className="p-3 text-center font-black text-[#181c3a] bg-indigo-50/40 tabular-nums">
-                        {r.totalEtapas}
-                      </td>
-                    </tr>
-                  ))}
+                  {porTecnico.map((r) => {
+                    const pct = Number(r.porcentaje ?? 0);
+                    const meta = Number(r.meta ?? r.metaDiaria ?? 0);
+                    const pctColor =
+                      pct >= 100
+                        ? 'text-emerald-700'
+                        : pct >= 80
+                          ? 'text-amber-700'
+                          : 'text-rose-700';
+                    const badgeClass =
+                      r.estadoMeta === 'Meta'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : r.estadoMeta === 'Cerca'
+                          ? 'bg-amber-100 text-amber-800'
+                          : 'bg-rose-100 text-rose-800';
+                    return (
+                      <tr key={r.tecnico} className="border-b border-slate-50 hover:bg-slate-50/80">
+                        <td className="p-3 font-black text-[#181c3a] sticky left-0 bg-white">
+                          {r.tecnico}
+                        </td>
+                        <td className="p-3 text-center font-bold text-blue-600 tabular-nums">
+                          {r.diagnostico || '—'}
+                        </td>
+                        <td className="p-3 text-center font-bold text-emerald-600 tabular-nums">
+                          {r.reacondicionado || '—'}
+                        </td>
+                        <td className="p-3 text-center font-bold text-amber-600 tabular-nums">
+                          {r.reparacion || '—'}
+                        </td>
+                        <td className="p-3 text-center font-bold text-emerald-600 tabular-nums">
+                          {r.qcAprobadas || '—'}
+                        </td>
+                        <td className="p-3 text-center font-bold text-rose-600 tabular-nums">
+                          {r.qcRechazadas || '—'}
+                        </td>
+                        <td className="p-3 text-center font-black text-[#181c3a] bg-indigo-50/40 tabular-nums">
+                          {r.totalEtapas}
+                        </td>
+                        <td className="p-3 text-center font-bold text-slate-600 tabular-nums">
+                          {meta > 0 ? meta : '—'}
+                        </td>
+                        <td className={`p-3 text-center font-black tabular-nums ${pctColor}`}>
+                          {meta > 0 ? `${pct}%` : '—'}
+                        </td>
+                        <td className="p-3 text-center">
+                          {meta > 0 ? (
+                            <Badge className={`px-2 py-0.5 text-[9px] font-black ${badgeClass}`}>
+                              {r.estadoMeta === 'Meta'
+                                ? 'Llegó'
+                                : r.estadoMeta === 'Cerca'
+                                  ? 'Cerca'
+                                  : 'Bajo'}
+                            </Badge>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
                 {porTecnico.length > 0 && (
                   <tfoot className="bg-slate-100 border-t border-slate-200 font-black text-[#181c3a]">
@@ -255,6 +297,9 @@ export function TallerKpiView({ data, timeRange = 'Hoy' }: { data: any; timeRang
                           Number(data.reparadas || 0) +
                           Number(data.aprobadasCC || 0) +
                           Number(data.rechazadasCC || 0)}
+                      </td>
+                      <td className="p-3 text-center text-slate-500" colSpan={3}>
+                        —
                       </td>
                     </tr>
                   </tfoot>

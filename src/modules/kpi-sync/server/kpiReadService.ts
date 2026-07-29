@@ -326,13 +326,7 @@ const TALLER_AUDIT_ACTIONS = [
   'CONTROL DE CALIDAD COMPLETADO',
 ] as const;
 
-const BODEGA_AUDIT_ACTIONS = [
-  'INGRESO BODEGA',
-  'TRASLADO BODEGA',
-  'TRASLADO',
-  'TRASLADO MASIVO A TALLER',
-  'DESPACHO CREADO',
-] as const;
+/**
 
 /**
  * Producción / Rendimiento por persona.
@@ -367,12 +361,11 @@ export async function readDailyUserProductionKpis(
   const auditRows: AuditRow[] = [];
   const PAGE = 1000;
   let offset = 0;
-  const actions = [...TALLER_AUDIT_ACTIONS, ...BODEGA_AUDIT_ACTIONS];
   for (;;) {
     const { data: page, error } = await supabase
       .from('erp_audit_logs')
       .select('user_id, action, record_id')
-      .in('action', actions)
+      .in('action', [...TALLER_AUDIT_ACTIONS])
       .gte('created_at', startIso)
       .lte('created_at', endIso)
       .range(offset, offset + PAGE - 1);
@@ -385,7 +378,6 @@ export async function readDailyUserProductionKpis(
   }
 
   const tallerActions = new Set<string>(TALLER_AUDIT_ACTIONS);
-  const moveActions = new Set<string>(BODEGA_AUDIT_ACTIONS);
 
   const seriesIds = auditRows
     .filter((r) => r.record_id && tallerActions.has(String(r.action || '')))

@@ -71,8 +71,9 @@ function formatKpiBreakdown(kpi: UserKPI): string {
   if (b.reparacion > 0) parts.push(`Rep ${b.reparacion}`);
   if (b.reacondicionado > 0) parts.push(`Reacond ${b.reacondicionado}`);
   if (b.qc > 0) parts.push(`QC ${b.qc}`);
-  if (b.clasificados > 0) parts.push(`Clasif ${b.clasificados}`);
-  if (b.bodega > 0) parts.push(`Bodega ${b.bodega}`);
+  if (b.clasificados > 0) parts.push(`CAC ${b.clasificados}`);
+  if (b.clasificadosPx > 0) parts.push(`PX ${b.clasificadosPx}`);
+  if (b.bodega > 0) parts.push(`Bodega ${b.bodega} cajas`);
   return parts.join(' · ');
 }
 
@@ -185,13 +186,20 @@ export default function GeneralDashboardPage() {
 
   const kpis = kpisQuery.data ?? EMPTY_KPIS;
   const periodLabel = React.useMemo(() => formatDashboardPeriod(timeRange), [timeRange]);
+  const kpisConTrabajo = React.useMemo(() => kpis.filter((k) => k.progress > 0), [kpis]);
   const produccionKpis = React.useMemo(
-    () => (produccionExpanded ? kpis : kpis.slice(0, RENDIMIENTO_PREVIEW)),
-    [kpis, produccionExpanded]
+    () =>
+      produccionExpanded
+        ? kpisConTrabajo
+        : kpisConTrabajo.slice(0, RENDIMIENTO_PREVIEW),
+    [kpisConTrabajo, produccionExpanded]
   );
   const rendimientoKpis = React.useMemo(
-    () => (rendimientoExpanded ? kpis : kpis.slice(0, RENDIMIENTO_PREVIEW)),
-    [kpis, rendimientoExpanded]
+    () =>
+      rendimientoExpanded
+        ? kpisConTrabajo
+        : kpisConTrabajo.slice(0, RENDIMIENTO_PREVIEW),
+    [kpisConTrabajo, rendimientoExpanded]
   );
   const metrics = metricsQuery.data ?? DEFAULT_METRICS;
   const bespokeData = engineQuery.data ?? null;
@@ -559,7 +567,7 @@ export default function GeneralDashboardPage() {
                   </div>
                   <p className="text-xs text-[var(--muted)] font-medium">
                     Periodo: <span className="font-bold text-[var(--heading)]">{periodLabel.detail}</span>
-                    {' · '}Equipos/día por usuario (1 equipo = 1 OS · misma regla que KPI)
+                    {' · '}Equipos/día: taller + CAC/PX + cajas bodega (filtro del periodo)
                   </p>
                 </div>
                 <Users className="w-5 h-5 text-[var(--muted)] shrink-0" />
@@ -567,7 +575,7 @@ export default function GeneralDashboardPage() {
 
               <div className="space-y-6">
                 {produccionKpis.map((kpi, idx) => {
-                  const max = Math.max(...kpis.map(k => k.progress), 1);
+                  const max = Math.max(...kpisConTrabajo.map(k => k.progress), 1);
                   const percent = (kpi.progress / max) * 100;
                   const colors = ['bg-[var(--accent)]', 'bg-[var(--success)]', 'bg-[var(--warning)]', 'bg-[var(--muted)]', 'bg-[var(--danger)]'];
                   const breakdown = formatKpiBreakdown(kpi);
@@ -597,13 +605,13 @@ export default function GeneralDashboardPage() {
                     </div>
                   );
                 })}
-                {kpis.length === 0 && (
+                {kpisConTrabajo.length === 0 && (
                   <div className="text-center text-[var(--muted)] py-10 text-sm">
                     No hay datos de producción para {periodLabel.badge.toLowerCase()} ({periodLabel.detail}).
                   </div>
                 )}
               </div>
-              {kpis.length > RENDIMIENTO_PREVIEW && (
+              {kpisConTrabajo.length > RENDIMIENTO_PREVIEW && (
                 <button
                   type="button"
                   onClick={() => setProduccionExpanded((v) => !v)}
@@ -611,7 +619,7 @@ export default function GeneralDashboardPage() {
                 >
                   {produccionExpanded
                     ? 'Mostrar menos'
-                    : `Ver completo (${kpis.length} personas)`}
+                    : `Ver completo (${kpisConTrabajo.length} personas)`}
                 </button>
               )}
             </Card>
@@ -739,7 +747,7 @@ export default function GeneralDashboardPage() {
               );
             })}
 
-            {kpis.length === 0 && (
+            {kpisConTrabajo.length === 0 && (
               <p className="py-4 text-center text-sm text-[var(--muted)]">
                 No hay datos de rendimiento para {periodLabel.badge.toLowerCase()} ({periodLabel.detail}).
               </p>
@@ -752,12 +760,12 @@ export default function GeneralDashboardPage() {
               variant="outline"
               className="w-full border-none bg-[var(--surface-hover)] py-6 text-[10px] font-black tracking-widest uppercase hover:bg-[var(--border)]"
               onClick={() => setRendimientoExpanded((v) => !v)}
-              disabled={kpis.length <= RENDIMIENTO_PREVIEW}
+              disabled={kpisConTrabajo.length <= RENDIMIENTO_PREVIEW}
             >
               {rendimientoExpanded
                 ? 'Mostrar menos'
-                : kpis.length > RENDIMIENTO_PREVIEW
-                  ? `Ver reporte completo (${kpis.length})`
+                : kpisConTrabajo.length > RENDIMIENTO_PREVIEW
+                  ? `Ver reporte completo (${kpisConTrabajo.length})`
                   : 'Reporte completo'}
             </Button>
           </div>

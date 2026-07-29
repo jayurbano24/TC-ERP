@@ -1,13 +1,17 @@
 import { COUNT_HEAD } from '@/shared/constants/dbProjections';
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
-/** Desglose diario de equipos (1 OS = 1 equipo) por etapa. */
+/** Desglose diario de equipos (1 OS = 1 equipo, salvo bodega = cajas). */
 export type UserKpiBreakdown = {
   diagnostico: number;
   reparacion: number;
   reacondicionado: number;
   qc: number;
+  /** OS clasificados CAC (bandeja). */
   clasificados: number;
+  /** OS registrados vía recepción PX. */
+  clasificadosPx: number;
+  /** Cajas ingresadas a bodega central. */
   bodega: number;
 };
 

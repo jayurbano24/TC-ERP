@@ -24,34 +24,61 @@ export function TallerKpiView({ data, timeRange = 'Hoy' }: { data: any, timeRang
         </div>
       </div>
 
-      {/* Warning Banner */}
+      {/* Cómo leer esta pantalla */}
+      <div className="mx-4 mt-2 grid grid-cols-1 md:grid-cols-3 gap-2 text-[11px]">
+        <div className="rounded-lg border border-blue-100 bg-blue-50/80 px-3 py-2 text-blue-900">
+          <p className="font-black uppercase tracking-wide text-[10px] mb-0.5">Trabajado ({timeRange})</p>
+          <p className="font-semibold text-blue-800/90">
+            Cards y tablas = OS que <span className="font-black">completaron</span> cada etapa en el periodo
+            (1 OS = 1 equipo).
+          </p>
+        </div>
+        <div className="rounded-lg border border-emerald-100 bg-emerald-50/80 px-3 py-2 text-emerald-900">
+          <p className="font-black uppercase tracking-wide text-[10px] mb-0.5">Aprobados CC ({timeRange})</p>
+          <p className="font-semibold text-emerald-800/90">
+            Card verde = equipos que CC <span className="font-black">aprobó hoy</span>. Roja = rechazados hoy.
+          </p>
+        </div>
+        <div className="rounded-lg border border-amber-200 bg-[#f3efe6] px-3 py-2 text-[#665a3d]">
+          <p className="font-black uppercase tracking-wide text-[10px] mb-0.5">Cola actual (resta)</p>
+          <p className="font-semibold">
+            Banner = OS que <span className="font-black">aún esperan</span> en taller (WIP vivo, no es del día).
+          </p>
+        </div>
+      </div>
+
+      {/* Warning Banner — WIP / lo que resta */}
       <div className="mx-4 mt-2 px-4 py-3 bg-[#f3efe6] border border-[#e8dfc8] rounded-lg flex items-center gap-3">
-        <AlertTriangle className="text-[#a48e58] w-5 h-5" />
+        <AlertTriangle className="text-[#a48e58] w-5 h-5 shrink-0" />
         <span className="text-sm font-semibold text-[#665a3d]">
-          OS pendientes: Diagnóstico <span className="font-black text-[#181c3a]">{data.pendientesDiagnostico}</span> | CC <span className="font-black text-[#181c3a]">{data.pendientesCC}</span> | L3 <span className="font-black text-[#181c3a]">{data.pendientesL3}</span> | Scraps <span className="font-black text-[#181c3a]">{data.pendientesScraps}</span>
+          Cola actual (pendientes, no son del día): Diagnóstico{' '}
+          <span className="font-black text-[#181c3a]">{data.pendientesDiagnostico}</span> | CC{' '}
+          <span className="font-black text-[#181c3a]">{data.pendientesCC}</span> | L3{' '}
+          <span className="font-black text-[#181c3a]">{data.pendientesL3}</span> | Scraps{' '}
+          <span className="font-black text-[#181c3a]">{data.pendientesScraps}</span>
         </span>
       </div>
 
-      {/* Main Metrics */}
+      {/* Main Metrics — completados en el periodo */}
       <div className="grid grid-cols-5 gap-4 px-4">
         <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1" title="OS que finalizaron diagnóstico en el rango">Diag. Procesadas OS ({timeLabel})</p>
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1" title="OS que finalizaron diagnóstico en el rango">Diag. hechas ({timeLabel})</p>
           <p className="text-3xl font-black text-blue-600">{data.diagnosticadas}</p>
         </Card>
         <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100 border-l-[3px] border-l-blue-600">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1" title="Equipos reacondicionados en el rango">Reacond. ({timeLabel})</p>
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1" title="Equipos reacondicionados en el rango">Reacond. hechos ({timeLabel})</p>
           <p className="text-3xl font-black text-blue-600">{data.reacondicionadas}</p>
         </Card>
         <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100 border-l-[3px] border-l-blue-600">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1" title="Equipos reparados en el rango">Reparadas ({timeLabel})</p>
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1" title="Equipos reparados en el rango">Rep. hechas ({timeLabel})</p>
           <p className="text-3xl font-black text-blue-600">{data.reparadas}</p>
         </Card>
         <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100 border-l-[3px] border-l-emerald-600">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1" title="Equipos aprobados por CC en el rango">Aprobadas CC ({timeLabel})</p>
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1" title="Equipos aprobados por CC en el rango">CC aprobó ({timeLabel})</p>
           <p className="text-3xl font-black text-emerald-600">{data.aprobadasCC}</p>
         </Card>
         <Card className="p-4 bg-white shadow-sm rounded-lg border border-slate-100 border-l-[3px] border-l-rose-600">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1" title="Equipos rechazados por CC en el rango">Rechazadas CC ({timeLabel})</p>
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1" title="Equipos rechazados por CC en el rango">CC rechazó ({timeLabel})</p>
           <p className="text-3xl font-black text-rose-600">{data.rechazadasCC}</p>
         </Card>
       </div>

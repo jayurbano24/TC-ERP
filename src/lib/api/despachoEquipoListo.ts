@@ -29,9 +29,10 @@ export type DespachoEquipoListoRow = {
 export async function fetchDespachoEquipoListoPage(opts?: {
   cursor?: string | null;
   search?: string;
+  limit?: number;
 }): Promise<DespachoEquipoListoPage> {
   const params = new URLSearchParams({
-    limit: String(BATCH_LIMITS.WORKSHOP_QUEUE_PAGE_OS),
+    limit: String(opts?.limit ?? BATCH_LIMITS.WORKSHOP_QUEUE_PAGE_OS),
   });
   if (opts?.cursor) params.set('cursor', opts.cursor);
 
@@ -58,4 +59,28 @@ export async function fetchDespachoEquipoListoPage(opts?: {
     totalOs: data.totalOs ?? null,
     searchTruncated,
   };
+}
+
+const EXPORT_PAGE_LIMIT = BATCH_LIMITS.API_PAGE_MAX;
+const EXPORT_MAX_OS = 5000;
+
+/** Descarga todas las páginas de Equipo Listo (para Excel). Respeta búsqueda. */
+export async function fetchAllDespachoEquipoListo(opts?: {
+  search?: string;
+}): Promise<DespachoEquipoListoRow[]> {
+  const all: DespachoEquipoListoRow[] = [];
+  let cursor: string | null = null;
+
+  for (let page = 0; page < 100 && all.length < EXPORT_MAX_OS; page++) {
+    const result = await fetchDespachoEquipoListoPage({
+      cursor,
+      search: opts?.search,
+      limit: EXPORT_PAGE_LIMIT,
+    });
+    all.push(...result.items);
+    if (!result.nextCursor || result.items.length === 0) break;
+    cursor = result.nextCursor;
+  }
+
+  return all;
 }

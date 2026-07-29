@@ -2,11 +2,13 @@
 
 import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import * as XLSX from 'xlsx';
 import { Card, Button, Badge, DataTable, type DataTableColumn, notify } from '@/components/ui';
-import { CheckCircle2, Loader2, RefreshCw, Search } from 'lucide-react';
+import { CheckCircle2, FileSpreadsheet, Loader2, RefreshCw, Search } from 'lucide-react';
 import { erpFieldClass } from '@/lib/design/tokens';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import {
+  fetchAllDespachoEquipoListo,
   fetchDespachoEquipoListoPage,
   type DespachoEquipoListoRow,
 } from '@/lib/api/despachoEquipoListo';
@@ -56,6 +58,7 @@ function adaptRow(raw: DespachoEquipoListoRow): ListoRow {
  */
 export function EquipoListoPanel() {
   const [search, setSearch] = useState('');
+  const [exporting, setExporting] = useState(false);
   const debouncedSearch = useDebouncedValue(search, 350);
 
   const query = useQuery({
@@ -68,6 +71,49 @@ export function EquipoListoPanel() {
     () => (query.data?.items ?? []).map(adaptRow),
     [query.data?.items]
   );
+
+  const handleExportExcel = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const items = await fetchAllDespachoEquipoListo({ search: debouncedSearch });
+      if (items.length === 0) {
+        notify.warning('No hay equipos en Equipo Listo para exportar.');
+        return;
+      }
+
+      const excelRows = items.map((raw, idx) => {
+        const r = adaptRow(raw);
+        return {
+          '#': idx + 1,
+          OS: r.os,
+          S1: r.s1 === '—' ? '' : r.s1,
+          S2: r.s2 === '—' ? '' : r.s2,
+          S3: r.s3 === '—' ? '' : r.s3,
+          S4: r.s4 === '—' ? '' : r.s4,
+          Tecnología: r.tech === '—' ? '' : r.tech,
+          Marca: r.brand === '—' ? '' : r.brand,
+          Modelo: r.model === '—' ? '' : r.model,
+          Material: r.material === '—' ? '' : r.material,
+          Valoración: r.valuation === '—' ? '' : r.valuation,
+          'Listo desde': r.updatedAt === '—' ? '' : r.updatedAt,
+        };
+      });
+
+      const ws = XLSX.utils.json_to_sheet(excelRows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Equipo Listo');
+      const stamp = new Date().toISOString().slice(0, 10);
+      XLSX.writeFile(wb, `Equipo_Listo_${stamp}.xlsx`);
+      notify.success(`Excel generado: ${excelRows.length} equipo(s)`);
+    } catch (e: unknown) {
+      notify.error('No se pudo exportar Equipo Listo', {
+        description: e instanceof Error ? e.message : undefined,
+      });
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const columns: DataTableColumn<ListoRow>[] = useMemo(
     () => [
@@ -169,6 +215,21 @@ export function EquipoListoPanel() {
                 className={`${erpFieldClass} pl-8 h-9 text-xs`}
               />
             </div>
+            <Button
+              variant="outline"
+              className="h-9 px-3"
+              disabled={exporting || query.isLoading}
+              onClick={() => void handleExportExcel()}
+              leftIcon={
+                exporting ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                )
+              }
+            >
+              {exporting ? 'Exportando…' : 'Excel'}
+            </Button>
             <Button
               variant="outline"
               className="h-9 px-3"

@@ -13,6 +13,36 @@ import {
   Pencil,
 } from 'lucide-react';
 import { setKPI } from '@/modules/kpi-analytics/client/kpi';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+
+function foldPersonKey(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+async function resolveProfileIdByName(tecnico: string): Promise<string | null> {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase || !tecnico.trim()) return null;
+  const { data } = await supabase
+    .from('profiles')
+    .select('id, full_name, employees(nombre_completo)')
+    .eq('is_active', true);
+  const want = foldPersonKey(tecnico);
+  for (const p of data || []) {
+    const emp = Array.isArray(p.employees)
+      ? p.employees[0]?.nombre_completo
+      : (p.employees as { nombre_completo?: string } | null)?.nombre_completo;
+    const candidates = [p.full_name, emp].filter(Boolean) as string[];
+    for (const c of candidates) {
+      if (foldPersonKey(c) === want) return p.id;
+    }
+  }
+  return null;
+}
 
 type TallerVista = 'realizado' | 'pendiente';
 
@@ -112,6 +142,7 @@ export function TallerKpiView({
   const [mostrarDetalleEtapas, setMostrarDetalleEtapas] = useState(false);
   const [metaOverrides, setMetaOverrides] = useState<Record<string, number>>({});
   const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editingTecnico, setEditingTecnico] = useState<string | null>(null);
   const [editMetaValue, setEditMetaValue] = useState('');
   const [savingMeta, setSavingMeta] = useState(false);
 
@@ -119,9 +150,13 @@ export function TallerKpiView({
   const porTecnico = useMemo(() => {
     return basePorTecnico.map((r) => {
       const key = r.user_id || r.tecnico;
-      const metaDiaria =
+      const metaDiaria = Number(
         metaOverrides[key] ??
-        Number(r.metaDiaria ?? r.meta ?? 0);
+          metaOverrides[r.tecnico] ??
+          r.metaDiaria ??
+          r.meta ??
+          0
+      );
       const meta = scaleMetaForRange(metaDiaria, timeRange);
       const { porcentaje, estadoMeta } = pctAndEstado(r.totalEtapas, meta);
       return { ...r, metaDiaria, meta, porcentaje, estadoMeta };
@@ -138,18 +173,34 @@ export function TallerKpiView({
     Number(data.pendientesL3 || 0) +
     Number(data.pendientesScraps || 0);
 
-  const startEditMeta = (r: PorTecnicoRow) => {
-    if (!r.user_id) {
+  const startEditMeta = async (r: PorTecnicoRow) => {
+    let userId = r.user_id || null;
+    if (!userId) {
+      userId = await resolveProfileIdByName(r.tecnico);
+    }
+    if (!userId) {
       notify.warning('No se pudo vincular este nombre a un usuario para guardar la meta.');
       return;
     }
-    const key = r.user_id;
-    setEditingKey(key);
-    setEditMetaValue(String(r.metaDiaria || r.meta || ''));
+    setEditingKey(userId);
+    setEditingTecnico(r.tecnico);
+    setEditMetaValue(String(r.metaDiaria || r.meta || 400));
+  };
+
+  const cancelEditMeta = () => {
+    setEditingKey(null);
+    setEditingTecnico(null);
   };
 
   const saveEditMeta = async (r: PorTecnicoRow) => {
-    if (!r.user_id) return;
+    let userId = r.user_id || editingKey;
+    if (!userId) {
+      userId = await resolveProfileIdByName(r.tecnico);
+    }
+    if (!userId) {
+      notify.warning('No se pudo vincular este nombre a un usuario para guardar la meta.');
+      return;
+    }
     const val = parseInt(editMetaValue, 10);
     if (isNaN(val) || val <= 0) {
       notify.warning('La meta diaria debe ser un número mayor a 0.');
@@ -157,13 +208,13 @@ export function TallerKpiView({
     }
     setSavingMeta(true);
     try {
-      const ok = await setKPI(r.user_id, val);
+      const ok = await setKPI(userId, val);
       if (!ok) {
         notify.error('No se pudo guardar la meta.');
         return;
       }
-      setMetaOverrides((prev) => ({ ...prev, [r.user_id!]: val }));
-      setEditingKey(null);
+      setMetaOverrides((prev) => ({ ...prev, [userId!]: val, [r.tecnico]: val }));
+      cancelEditMeta();
       notify.success(`Meta de ${r.tecnico}: ${val}/día`);
       await onMetaSaved?.();
     } finally {
@@ -308,7 +359,9 @@ export function TallerKpiView({
                     const meta = Number(r.meta ?? 0);
                     const metaDiaria = Number(r.metaDiaria ?? 0);
                     const rowKey = r.user_id || r.tecnico;
-                    const isEditing = editingKey === r.user_id;
+                    const isEditing =
+                      editingKey !== null &&
+                      (editingKey === r.user_id || editingKey === rowKey);
                     const pctColor =
                       pct >= 100
                         ? 'text-emerald-700'
@@ -373,7 +426,7 @@ export function TallerKpiView({
                           ) : (
                             <button
                               type="button"
-                              onClick={() => startEditMeta(r)}
+                              onClick={() => void startEditMeta(r)}
                               className="inline-flex items-center gap-1 rounded-md px-2 py-1 font-bold text-slate-700 tabular-nums hover:bg-indigo-50 hover:text-indigo-800"
                               title="Clic para editar meta diaria"
                             >

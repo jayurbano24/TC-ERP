@@ -1394,6 +1394,8 @@ export async function getEngineKPIs(timeRange: string = 'Hoy') {
       return true;
     });
     const userMap: Record<string, Set<string>> = {};
+    /** Display name → auth user_id (desde la auditoría; evita fallar el match de metas). */
+    const nameToUserId: Record<string, string> = {};
     const globalUniques = new Set<string>();
     filtered.forEach((log) => {
       const osId =
@@ -1404,9 +1406,13 @@ export async function getEngineKPIs(timeRange: string = 'Hoy') {
       const uName = log.user_id ? getUserName(log.user_id) : 'Desconocido';
       if (!userMap[uName]) userMap[uName] = new Set();
       userMap[uName].add(osId);
+      if (log.user_id && uName !== 'Desconocido') {
+        nameToUserId[uName] = log.user_id;
+        nameToUserId[foldKey(uName)] = log.user_id;
+      }
       globalUniques.add(osId);
     });
-    return { userMap, total: globalUniques.size };
+    return { userMap, total: globalUniques.size, nameToUserId };
   };
 
   const diagData = getUniqueOsCounts(auditTaller, 'DIAGNÓSTICO INICIAL COMPLETADO');
@@ -1565,12 +1571,38 @@ export async function getEngineKPIs(timeRange: string = 'Hoy') {
     userTargets.map((t) => [t.user_id, Number(t.target_value) || 0])
   );
   const nameToUserId = new Map<string, string>();
+  const registerName = (raw: string | null | undefined, userId: string) => {
+    if (!raw || !userId) return;
+    const display = personResolver.resolve(raw);
+    nameToUserId.set(display, userId);
+    nameToUserId.set(foldKey(display), userId);
+    nameToUserId.set(normalizePersonName(raw), userId);
+    nameToUserId.set(foldKey(raw), userId);
+  };
   for (const u of usersData || []) {
-    const display = getUserName(u.id);
-    const resolved = personResolver.resolve(display);
-    nameToUserId.set(display, u.id);
-    nameToUserId.set(resolved, u.id);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const row = u as any;
+    registerName(getUserName(u.id), u.id);
+    registerName(row.full_name, u.id);
+    const emp = Array.isArray(row.employees)
+      ? row.employees[0]?.nombre_completo
+      : row.employees?.nombre_completo;
+    registerName(emp, u.id);
   }
+  // Prioridad: user_id de la auditoría (misma fuente que las cantidades KPO)
+  for (const block of [diagData, reacData, repData, ccAproData, ccRechData]) {
+    for (const [name, uid] of Object.entries(block.nameToUserId || {})) {
+      nameToUserId.set(name, uid);
+      nameToUserId.set(foldKey(name), uid);
+    }
+  }
+
+  const resolveTecnicoUserId = (tecnico: string): string | null =>
+    nameToUserId.get(tecnico) ||
+    nameToUserId.get(foldKey(tecnico)) ||
+    nameToUserId.get(personResolver.resolve(tecnico)) ||
+    nameToUserId.get(foldKey(personResolver.resolve(tecnico))) ||
+    null;
 
   /** KPO por técnico: equipos (OS) por etapa + total + % vs meta diaria. */
   const tecnicoNames = new Set<string>([
@@ -1590,21 +1622,20 @@ export async function getEngineKPIs(timeRange: string = 'Hoy') {
       const qc = qcAprobadas + qcRechazadas;
       const totalEtapas = diagnostico + reacondicionado + reparacion + qc;
 
-      const userId =
-        nameToUserId.get(tecnico) ||
-        nameToUserId.get(personResolver.resolve(tecnico)) ||
-        null;
+      const userId = resolveTecnicoUserId(tecnico);
+      const configured = userId ? targetByUserId.get(userId) : undefined;
       const metaDiaria =
-        (userId && targetByUserId.get(userId)) ||
-        (diagnostico >= reparacion &&
-        diagnostico >= reacondicionado &&
-        diagnostico >= qc
-          ? goalFor('diagnostico', 100)
-          : reparacion >= reacondicionado && reparacion >= qc
-            ? goalFor('reparacion', 100)
-            : reacondicionado >= qc
-              ? goalFor('reacondicionado', 100)
-              : goalFor('qc', 100));
+        configured && configured > 0
+          ? configured
+          : diagnostico >= reparacion &&
+              diagnostico >= reacondicionado &&
+              diagnostico >= qc
+            ? goalFor('diagnostico', 100)
+            : reparacion >= reacondicionado && reparacion >= qc
+              ? goalFor('reparacion', 100)
+              : reacondicionado >= qc
+                ? goalFor('reacondicionado', 100)
+                : goalFor('qc', 100);
       const scaled = scalePeriodGoals(metaDiaria, timeRange);
       const meta = scaled.meta;
       const porcentaje = meta > 0 ? Math.round((totalEtapas / meta) * 100) : 0;

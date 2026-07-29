@@ -294,7 +294,7 @@ export async function readPipelineFromKpi(supabase: SupabaseClient): Promise<Pip
 
 /**
  * Producción / Rendimiento por persona.
- * - Taller / Bodega / Despacho: suma de métricas ETL en `kpi_usuario`.
+ * - Taller / Bodega / Despacho: eventos del periodo en `kpi_event_ledger` (por fecha GT).
  * - Backoffice: OS distintos en `cac_tray_units` (clasificador) del periodo.
  */
 export async function readDailyUserProductionKpis(
@@ -322,19 +322,46 @@ export async function readDailyUserProductionKpis(
     /* tabla opcional */
   }
 
-  // ETL — equipos producidos / movidos por usuario
+  // ETL — contar eventos del ledger (idempotente). kpi_usuario puede estar inflado
+  // si el sync reaplicó deltas tras ignoreDuplicates en el ledger.
   const etlByUser = new Map<string, number>();
-  const { data: kpiRows } = await supabase
-    .from('kpi_usuario')
-    .select('user_id, proceso, metrica, valor')
-    .in('fecha', fechas);
+  const metricList = [...ETL_PRODUCTION_METRICS];
+  const PAGE = 1000;
+  let offset = 0;
+  for (;;) {
+    const { data: ledgerPage, error: ledgerError } = await supabase
+      .from('kpi_event_ledger')
+      .select('user_id, metrica, valor')
+      .in('fecha', fechas)
+      .in('metrica', metricList)
+      .range(offset, offset + PAGE - 1);
 
-  for (const row of kpiRows || []) {
-    const metrica = String(row.metrica || '');
-    if (!ETL_PRODUCTION_METRICS.has(metrica)) continue;
-    const uid = String(row.user_id || '');
-    if (!uid) continue;
-    etlByUser.set(uid, (etlByUser.get(uid) ?? 0) + Number(row.valor ?? 0));
+    if (ledgerError) break;
+    const rows = ledgerPage ?? [];
+    for (const row of rows) {
+      const metrica = String(row.metrica || '');
+      if (!ETL_PRODUCTION_METRICS.has(metrica)) continue;
+      const uid = String(row.user_id || '');
+      if (!uid) continue;
+      etlByUser.set(uid, (etlByUser.get(uid) ?? 0) + Number(row.valor ?? 1));
+    }
+    if (rows.length < PAGE) break;
+    offset += PAGE;
+  }
+
+  // Fallback: si el ledger aún no tiene filas del periodo, usar proyección kpi_usuario.
+  if (etlByUser.size === 0) {
+    const { data: kpiRows } = await supabase
+      .from('kpi_usuario')
+      .select('user_id, metrica, valor')
+      .in('fecha', fechas)
+      .in('metrica', metricList);
+
+    for (const row of kpiRows || []) {
+      const uid = String(row.user_id || '');
+      if (!uid) continue;
+      etlByUser.set(uid, (etlByUser.get(uid) ?? 0) + Number(row.valor ?? 0));
+    }
   }
 
   // Backoffice live — OS clasificados (no está en kpi_usuario aún)

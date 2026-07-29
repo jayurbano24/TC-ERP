@@ -123,8 +123,6 @@ export async function runKpiAuditFeedSync(supabase: SupabaseClient): Promise<Syn
   }
 
   const ledgerRows: Array<Record<string, unknown>> = [];
-  const diarioDeltas = new Map<string, number>();
-  const usuarioDeltas = new Map<string, number>();
 
   for (const log of batch) {
     const metrics = classifyAuditMetrics(log);
@@ -144,33 +142,62 @@ export async function runKpiAuditFeedSync(supabase: SupabaseClient): Promise<Syn
         branch_id: log.branch_id,
         valor: 1,
       });
-      const dk = diarioKey(fecha, m.proceso, m.metrica, dim);
-      diarioDeltas.set(dk, (diarioDeltas.get(dk) ?? 0) + 1);
-      if (log.user_id) {
-        const uk = usuarioKey(fecha, log.user_id, m.proceso, m.metrica);
-        usuarioDeltas.set(uk, (usuarioDeltas.get(uk) ?? 0) + 1);
+    }
+  }
+
+  // Solo aplicar deltas de filas NUEVAS en el ledger (evita inflación al reprocesar).
+  const newDiarioDeltas = new Map<string, number>();
+  const newUsuarioDeltas = new Map<string, number>();
+
+  if (ledgerRows.length > 0) {
+    const auditIds = ledgerRows.map((r) => String(r.audit_id));
+    const existingIds = new Set<string>();
+    const ID_PAGE = 200;
+    for (let i = 0; i < auditIds.length; i += ID_PAGE) {
+      const slice = auditIds.slice(i, i + ID_PAGE);
+      const { data: existing } = await supabase
+        .from('kpi_event_ledger')
+        .select('audit_id')
+        .in('audit_id', slice);
+      for (const row of existing ?? []) {
+        existingIds.add(String(row.audit_id));
+      }
+    }
+
+    const freshRows = ledgerRows.filter((r) => !existingIds.has(String(r.audit_id)));
+
+    if (freshRows.length > 0) {
+      const { error: ledgerError } = await supabase
+        .from('kpi_event_ledger')
+        .upsert(freshRows, { onConflict: 'audit_id', ignoreDuplicates: true });
+
+      if (ledgerError && ledgerError.code !== '23505') {
+        return {
+          processId: PROCESS_ID,
+          status: 'error',
+          rowsRead: batch.length,
+          rowsAffected: 0,
+          error: ledgerError.message,
+        };
+      }
+
+      for (const row of freshRows) {
+        const fecha = String(row.fecha);
+        const proceso = String(row.proceso);
+        const metrica = String(row.metrica);
+        const dim = String(row.dimension_key ?? 'ALL');
+        const dk = diarioKey(fecha, proceso, metrica, dim);
+        newDiarioDeltas.set(dk, (newDiarioDeltas.get(dk) ?? 0) + 1);
+        if (row.user_id) {
+          const uk = usuarioKey(fecha, String(row.user_id), proceso, metrica);
+          newUsuarioDeltas.set(uk, (newUsuarioDeltas.get(uk) ?? 0) + 1);
+        }
       }
     }
   }
 
-  if (ledgerRows.length > 0) {
-    const { error: ledgerError } = await supabase
-      .from('kpi_event_ledger')
-      .upsert(ledgerRows, { onConflict: 'audit_id', ignoreDuplicates: true });
-
-    if (ledgerError && ledgerError.code !== '23505') {
-      return {
-        processId: PROCESS_ID,
-        status: 'error',
-        rowsRead: batch.length,
-        rowsAffected: 0,
-        error: ledgerError.message,
-      };
-    }
-  }
-
-  await applyDiarioDeltas(supabase, diarioDeltas);
-  await applyUsuarioDeltas(supabase, usuarioDeltas);
+  await applyDiarioDeltas(supabase, newDiarioDeltas);
+  await applyUsuarioDeltas(supabase, newUsuarioDeltas);
 
   const last = batch[batch.length - 1]!;
   const { error: wmUpdateError } = await supabase.from('sync_watermarks').upsert({

@@ -545,7 +545,7 @@ export default function GeneralDashboardPage() {
                   </div>
                   <p className="text-xs text-[var(--muted)] font-medium">
                     Periodo: <span className="font-bold text-[var(--heading)]">{periodLabel.detail}</span>
-                    {' · '}ETL kpi_usuario + clasificación Backoffice
+                    {' · '}eventos del periodo (ETL) + clasificación Backoffice
                   </p>
                 </div>
                 <Users className="w-5 h-5 text-[var(--muted)] shrink-0" />

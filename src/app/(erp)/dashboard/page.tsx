@@ -60,6 +60,36 @@ const DEFAULT_METRICS: DashboardMetrics = {
   productionByBrand: []
 };
 const DEFAULT_STORAGE = { ingresados: 0, despachados: 0, sinMovimiento60: 0, sinMovimiento90: 0 };
+const RENDIMIENTO_PREVIEW = 6;
+
+/** Etiqueta de periodo para tarjetas (zona America/Guatemala). */
+function formatDashboardPeriod(timeRange: string): { badge: string; detail: string } {
+  const fmt = new Intl.DateTimeFormat('es-GT', {
+    timeZone: 'America/Guatemala',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+  const now = new Date();
+  const start = new Date(now);
+  const end = new Date(now);
+
+  if (timeRange === 'Ayer') {
+    start.setDate(start.getDate() - 1);
+    end.setDate(end.getDate() - 1);
+  } else if (timeRange === 'Esta Semana') {
+    const day = start.getDay();
+    const diff = start.getDate() - day + (day === 0 ? -6 : 1);
+    start.setDate(diff);
+  } else if (timeRange === 'Este Mes') {
+    start.setDate(1);
+  }
+
+  const startLabel = fmt.format(start);
+  const endLabel = fmt.format(end);
+  const detail = startLabel === endLabel ? startLabel : `${startLabel} — ${endLabel}`;
+  return { badge: timeRange, detail };
+}
 
 export default function GeneralDashboardPage() {
   const router = useRouter();
@@ -69,6 +99,8 @@ export default function GeneralDashboardPage() {
   const [editTargetValue, setEditTargetValue] = useState<string>('');
   const [activeTab, setActiveTab] = useState('dashboard');
   const [timeRange, setTimeRange] = useState('Hoy');
+  const [rendimientoExpanded, setRendimientoExpanded] = useState(false);
+  const [produccionExpanded, setProduccionExpanded] = useState(false);
   
   const [sortConfig, setSortConfig] = useState<{key: string, direction: 'asc'|'desc'} | null>(null);
 
@@ -138,6 +170,15 @@ export default function GeneralDashboardPage() {
   });
 
   const kpis = kpisQuery.data ?? EMPTY_KPIS;
+  const periodLabel = React.useMemo(() => formatDashboardPeriod(timeRange), [timeRange]);
+  const produccionKpis = React.useMemo(
+    () => (produccionExpanded ? kpis : kpis.slice(0, RENDIMIENTO_PREVIEW)),
+    [kpis, produccionExpanded]
+  );
+  const rendimientoKpis = React.useMemo(
+    () => (rendimientoExpanded ? kpis : kpis.slice(0, RENDIMIENTO_PREVIEW)),
+    [kpis, rendimientoExpanded]
+  );
   const metrics = metricsQuery.data ?? DEFAULT_METRICS;
   const bespokeData = engineQuery.data ?? null;
   const pipelineProjection = pipelineQuery.data?.pipeline ?? null;
@@ -237,7 +278,11 @@ export default function GeneralDashboardPage() {
         <select 
           className="bg-[var(--surface)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm font-bold text-[var(--foreground)] outline-none"
           value={timeRange}
-          onChange={(e) => setTimeRange(e.target.value)}
+          onChange={(e) => {
+            setTimeRange(e.target.value);
+            setRendimientoExpanded(false);
+            setProduccionExpanded(false);
+          }}
         >
           <option>Hoy</option>
           <option>Ayer</option>
@@ -490,24 +535,30 @@ export default function GeneralDashboardPage() {
 
             {/* Producción por Personas */}
             <Card className="p-8 border-2 border-[var(--border)] shadow-sm">
-              <div className="flex items-center justify-between mb-8">
-                <div>
-                  <h3 className="text-xl font-black text-[var(--heading)]">Producción por Personas</h3>
+              <div className="flex items-center justify-between mb-8 gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2 mb-1">
+                    <h3 className="text-xl font-black text-[var(--heading)]">Producción por Personas</h3>
+                    <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-emerald-700 border border-emerald-100">
+                      {periodLabel.badge}
+                    </span>
+                  </div>
                   <p className="text-xs text-[var(--muted)] font-medium">
-                    Equipos producidos por operador (ETL kpi_usuario + clasificación Backoffice)
+                    Periodo: <span className="font-bold text-[var(--heading)]">{periodLabel.detail}</span>
+                    {' · '}ETL kpi_usuario + clasificación Backoffice
                   </p>
                 </div>
-                <Users className="w-5 h-5 text-[var(--muted)]" />
+                <Users className="w-5 h-5 text-[var(--muted)] shrink-0" />
               </div>
 
               <div className="space-y-8">
-                {kpis.map((kpi, idx) => {
+                {produccionKpis.map((kpi, idx) => {
                   const max = Math.max(...kpis.map(k => k.progress), 1);
                   const percent = (kpi.progress / max) * 100;
                   const colors = ['bg-[var(--accent)]', 'bg-[var(--success)]', 'bg-[var(--warning)]', 'bg-[var(--muted)]', 'bg-[var(--danger)]'];
                   
                   return (
-                    <div key={kpi.name}>
+                    <div key={kpi.user_id || kpi.name}>
                       <div className="flex justify-between text-xs font-black uppercase tracking-widest mb-3">
                         <span className="text-[var(--heading)]">{kpi.name} <span className="text-[var(--muted)] ml-1">({kpi.role.replace('_', ' ')})</span></span>
                         <span className="text-[var(--muted)]">{kpi.progress} {kpi.progressLabel}</span>
@@ -520,31 +571,52 @@ export default function GeneralDashboardPage() {
                 })}
                 {kpis.length === 0 && (
                   <div className="text-center text-[var(--muted)] py-10 text-sm">
-                    No hay datos de producción registrados hoy.
+                    No hay datos de producción para {periodLabel.badge.toLowerCase()} ({periodLabel.detail}).
                   </div>
                 )}
               </div>
+              {kpis.length > RENDIMIENTO_PREVIEW && (
+                <button
+                  type="button"
+                  onClick={() => setProduccionExpanded((v) => !v)}
+                  className="mt-6 w-full py-3 text-[10px] font-black uppercase tracking-widest text-[var(--muted)] hover:text-[var(--heading)] bg-[var(--surface-hover)] rounded-xl transition-colors"
+                >
+                  {produccionExpanded
+                    ? 'Mostrar menos'
+                    : `Ver completo (${kpis.length} personas)`}
+                </button>
+              )}
             </Card>
 
           </div>
 
 
-        <Card className="flex max-h-[min(720px,calc(100vh-10rem))] min-h-0 flex-col overflow-hidden border-2 border-[var(--border)] lg:col-span-4">
+        <Card
+          className={`flex min-h-0 flex-col overflow-hidden border-2 border-[var(--border)] lg:col-span-4 ${
+            rendimientoExpanded
+              ? 'max-h-[min(1100px,calc(100vh-6rem))]'
+              : 'max-h-[min(720px,calc(100vh-10rem))]'
+          }`}
+        >
           <div className="shrink-0 rounded-t-xl border-b border-[var(--border)] bg-[var(--surface)] p-6">
-            <h3 className="flex items-center gap-2 text-xl font-bold text-[var(--heading)]">
+            <h3 className="flex flex-wrap items-center gap-2 text-xl font-bold text-[var(--heading)]">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--accent)]/15">
                 <TrendingUp className="h-5 w-5 text-[var(--accent)]" />
               </div>
               Rendimiento
+              <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-emerald-700 border border-emerald-100">
+                {periodLabel.badge}
+              </span>
             </h3>
             <p className="mt-1 text-xs text-[var(--muted)]">
-              Rendimiento ETL por persona vs meta diaria (mismos equipos producidos)
+              Periodo: <span className="font-bold text-[var(--heading)]">{periodLabel.detail}</span>
+              {' · '}ETL vs meta diaria
             </p>
           </div>
 
           <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto px-6 py-4">
             <div className="space-y-6">
-            {kpis.map((kpi) => {
+            {rendimientoKpis.map((kpi) => {
               const statusLabel = kpi.percentage >= 90 ? 'TOP' : kpi.percentage >= 50 ? 'AVG' : 'LOW';
               const statusColor =
                 kpi.percentage >= 90
@@ -636,7 +708,7 @@ export default function GeneralDashboardPage() {
 
             {kpis.length === 0 && (
               <p className="py-4 text-center text-sm text-[var(--muted)]">
-                No hay datos de rendimiento registrados hoy.
+                No hay datos de rendimiento para {periodLabel.badge.toLowerCase()} ({periodLabel.detail}).
               </p>
             )}
             </div>
@@ -646,8 +718,14 @@ export default function GeneralDashboardPage() {
             <Button
               variant="outline"
               className="w-full border-none bg-[var(--surface-hover)] py-6 text-[10px] font-black tracking-widest uppercase hover:bg-[var(--border)]"
+              onClick={() => setRendimientoExpanded((v) => !v)}
+              disabled={kpis.length <= RENDIMIENTO_PREVIEW}
             >
-              Ver Reporte Completo
+              {rendimientoExpanded
+                ? 'Mostrar menos'
+                : kpis.length > RENDIMIENTO_PREVIEW
+                  ? `Ver reporte completo (${kpis.length})`
+                  : 'Reporte completo'}
             </Button>
           </div>
         </Card>

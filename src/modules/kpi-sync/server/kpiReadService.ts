@@ -1,10 +1,124 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { DashboardMetrics } from '@/lib/database/kpi';
+import type { DashboardMetrics, UserKPI } from '@/lib/database/kpi';
 import {
   countCacTrayOsInStatuses,
   countInventoryDetailOs,
 } from './countDistinctOs';
 import { fechasEnRango, resolveTimeRangeBounds } from './timeRange';
+
+/** Métricas ETL (`kpi_usuario`) que cuentan como equipos producidos / movidos. */
+const ETL_PRODUCTION_METRICS = new Set([
+  'diagnosticos_completados',
+  'reparaciones_completadas',
+  'reacondicionados_completados',
+  'qc_completados',
+  'ingresos_bodega',
+  'traslados_bodega',
+  'despachos_creados',
+]);
+
+type ProfileKpiRow = {
+  id: string;
+  full_name?: string | null;
+  is_active?: boolean | null;
+  user_roles?: { role: string }[] | null;
+  employees?: { nombre_completo?: string } | { nombre_completo?: string }[] | null;
+};
+
+function progressLabelForRole(role: string): string {
+  const r = role.toUpperCase();
+  if (r.includes('BACKOFFICE') || r.includes('GERENTE') || r === 'ADMIN' || r.includes('SUPERVISOR')) {
+    return 'equipos (OS) clasificados';
+  }
+  if (r.includes('RECEPTOR') || r.includes('RECEPCION')) return 'unidades recibidas';
+  if (r.includes('BODEGA')) return 'movimientos de bodega';
+  if (r.includes('TECNICO') || r.includes('TALLER') || r.includes('QC') || r.includes('OPERACION')) {
+    return 'equipos producidos';
+  }
+  if (r.includes('DESPACHO')) return 'despachos';
+  return 'equipos producidos';
+}
+
+function roleBucket(role: string): 'backoffice' | 'reception' | 'bodega' | 'taller' | 'other' {
+  const r = role.toUpperCase();
+  if (r.includes('BACKOFFICE') || r.includes('GERENTE') || r === 'ADMIN' || r.includes('SUPERVISOR')) {
+    return 'backoffice';
+  }
+  if (r.includes('RECEPTOR') || r.includes('RECEPCION')) return 'reception';
+  if (r.includes('BODEGA')) return 'bodega';
+  if (r.includes('TECNICO') || r.includes('TALLER') || r.includes('QC') || r.includes('OPERACION')) {
+    return 'taller';
+  }
+  return 'other';
+}
+
+function resolveDisplayName(u: ProfileKpiRow): string {
+  let realName = u.full_name || 'Usuario';
+  const emp = u.employees;
+  if (Array.isArray(emp) && emp[0]?.nombre_completo) realName = emp[0].nombre_completo;
+  else if (emp && !Array.isArray(emp) && emp.nombre_completo) realName = emp.nombre_completo;
+  else if (realName.includes('@')) realName = realName.split('@')[0];
+  return realName;
+}
+
+function normalizeNameTokens(name: string): string[] {
+  return name
+    .toLowerCase()
+    .replace(/[.,]/g, ' ')
+    .split(/\s+/)
+    .filter((t) => t.length > 1);
+}
+
+function namesLikelyMatch(a: string, b: string): boolean {
+  const ta = normalizeNameTokens(a);
+  const tb = normalizeNameTokens(b);
+  if (!ta.length || !tb.length) return false;
+  if (ta.join(' ') === tb.join(' ')) return true;
+  const setB = new Set(tb);
+  let overlap = 0;
+  for (const token of ta) {
+    if (setB.has(token)) overlap += 1;
+  }
+  return overlap >= 2;
+}
+
+function buildNameResolver(users: ProfileKpiRow[]) {
+  const idByKey = new Map<string, string>();
+  const aliasEntries: { id: string; keys: string[] }[] = [];
+  for (const u of users) {
+    const keys = new Set<string>();
+    if (u.full_name) keys.add(u.full_name.trim());
+    const emp = u.employees;
+    if (Array.isArray(emp) && emp[0]?.nombre_completo) keys.add(emp[0].nombre_completo.trim());
+    else if (emp && !Array.isArray(emp) && emp.nombre_completo) keys.add(emp.nombre_completo.trim());
+    idByKey.set(u.id.toLowerCase(), u.id);
+    const keyList: string[] = [];
+    for (const key of keys) {
+      const lower = key.toLowerCase();
+      idByKey.set(lower, u.id);
+      keyList.push(key);
+      if (lower.includes('@')) {
+        idByKey.set(lower.split('@')[0], u.id);
+        keyList.push(lower.split('@')[0]);
+      }
+    }
+    aliasEntries.push({ id: u.id, keys: keyList });
+  }
+  return (actorKey: string | null | undefined): string | null => {
+    if (!actorKey) return null;
+    const trimmed = actorKey.trim();
+    const lower = trimmed.toLowerCase();
+    if (idByKey.has(lower)) return idByKey.get(lower)!;
+    if (lower.includes('@')) {
+      const local = lower.split('@')[0];
+      if (idByKey.has(local)) return idByKey.get(local)!;
+    }
+    for (const entry of aliasEntries) {
+      if (entry.keys.some((key) => namesLikelyMatch(trimmed, key))) return entry.id;
+    }
+    return null;
+  };
+}
 
 export type WorkshopOsByStage = {
   diagnostico: number;
@@ -176,6 +290,106 @@ export async function readPipelineFromKpi(supabase: SupabaseClient): Promise<Pip
     workshopOs: readWorkshopOsFromMap(map),
     refreshedAt,
   };
+}
+
+/**
+ * Producción / Rendimiento por persona.
+ * - Taller / Bodega / Despacho: suma de métricas ETL en `kpi_usuario`.
+ * - Backoffice: OS distintos en `cac_tray_units` (clasificador) del periodo.
+ */
+export async function readDailyUserProductionKpis(
+  supabase: SupabaseClient,
+  timeRange: string
+): Promise<UserKPI[]> {
+  const fechas = fechasEnRango(timeRange);
+  const { startIso, endIso } = resolveTimeRangeBounds(timeRange);
+  if (fechas.length === 0) return [];
+
+  const { data: usersData } = await supabase
+    .from('profiles')
+    .select('id, full_name, is_active, user_roles(role), employees(nombre_completo)');
+
+  if (!usersData?.length) return [];
+
+  const users = usersData as ProfileKpiRow[];
+  const resolveUserId = buildNameResolver(users);
+
+  let targetsData: Array<{ user_id: string; target_value: number }> = [];
+  try {
+    const res = await supabase.from('user_kpi_targets').select('user_id, target_value');
+    if (res.data) targetsData = res.data as Array<{ user_id: string; target_value: number }>;
+  } catch {
+    /* tabla opcional */
+  }
+
+  // ETL — equipos producidos / movidos por usuario
+  const etlByUser = new Map<string, number>();
+  const { data: kpiRows } = await supabase
+    .from('kpi_usuario')
+    .select('user_id, proceso, metrica, valor')
+    .in('fecha', fechas);
+
+  for (const row of kpiRows || []) {
+    const metrica = String(row.metrica || '');
+    if (!ETL_PRODUCTION_METRICS.has(metrica)) continue;
+    const uid = String(row.user_id || '');
+    if (!uid) continue;
+    etlByUser.set(uid, (etlByUser.get(uid) ?? 0) + Number(row.valor ?? 0));
+  }
+
+  // Backoffice live — OS clasificados (no está en kpi_usuario aún)
+  const backofficeByUser = new Map<string, number>();
+  const { data: trayUnits } = await supabase
+    .from('cac_tray_units')
+    .select('received_by_name, service_order_id')
+    .gte('classified_at', startIso)
+    .lte('classified_at', endIso);
+
+  const trayOsByUser = new Map<string, Set<string>>();
+  (trayUnits || []).forEach(
+    (row: { received_by_name?: string; service_order_id?: string }, idx: number) => {
+      const userId = resolveUserId(row.received_by_name);
+      if (!userId) return;
+      let osSet = trayOsByUser.get(userId);
+      if (!osSet) {
+        osSet = new Set<string>();
+        trayOsByUser.set(userId, osSet);
+      }
+      osSet.add(row.service_order_id?.trim() || `__anon_${userId}_${idx}`);
+    }
+  );
+  for (const [userId, osSet] of trayOsByUser) {
+    backofficeByUser.set(userId, osSet.size);
+  }
+
+  const kpis: UserKPI[] = users
+    .filter((u) => u.is_active && u.user_roles && u.user_roles.length > 0)
+    .map((u) => {
+      const roleStr = u.user_roles![0].role;
+      const bucket = roleBucket(roleStr);
+      const etl = etlByUser.get(u.id) ?? 0;
+      const backoffice = backofficeByUser.get(u.id) ?? 0;
+
+      let progress = 0;
+      if (bucket === 'backoffice') progress = backoffice || etl;
+      else if (bucket === 'taller' || bucket === 'bodega') progress = etl;
+      else progress = Math.max(etl, backoffice);
+
+      const targetObj = targetsData.find((t) => t.user_id === u.id);
+      const target = targetObj ? Number(targetObj.target_value) : 100;
+
+      return {
+        user_id: u.id,
+        name: resolveDisplayName(u),
+        role: roleStr,
+        target,
+        progress,
+        percentage: target > 0 ? Math.round((progress / target) * 100) : 0,
+        progressLabel: progressLabelForRole(roleStr),
+      };
+    });
+
+  return kpis.sort((a, b) => b.progress - a.progress || b.percentage - a.percentage);
 }
 
 export async function kpiProjectionsAvailable(supabase: SupabaseClient): Promise<boolean> {

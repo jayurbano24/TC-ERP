@@ -122,7 +122,7 @@ function progressLabelForRole(role: string): string {
   if (r.includes('RECEPTOR') || r.includes('RECEPCION')) return 'unidades recibidas';
   if (r.includes('BODEGA')) return 'movimientos de bodega';
   if (r.includes('TECNICO') || r.includes('TALLER') || r.includes('QC') || r.includes('OPERACION')) {
-    return 'órdenes de taller';
+    return 'equipos producidos';
   }
   return 'unidades procesadas';
 }
@@ -240,6 +240,25 @@ export async function getDailyKPIs(timeRange: string = 'Hoy'): Promise<UserKPI[]
   jobs?.forEach((j: { technician_id?: string }) => {
     if (j.technician_id) bump(j.technician_id, 'taller', 1);
   });
+
+  // Fallback taller: si workshop_jobs está vacío, contar auditoría de etapas (misma fuente del ETL).
+  const tallerJobsCount = jobs?.length ?? 0;
+  if (tallerJobsCount === 0) {
+    const { data: tallerAudit } = await supabase
+      .from('erp_audit_logs')
+      .select('user_id')
+      .in('action', [
+        'DIAGNÓSTICO INICIAL COMPLETADO',
+        'REPARACIÓN COMPLETADA',
+        'REACONDICIONADO COMPLETADO',
+        'CONTROL DE CALIDAD COMPLETADO',
+      ])
+      .gte('created_at', startIso)
+      .lte('created_at', endIso);
+    tallerAudit?.forEach((log: { user_id?: string }) => {
+      if (log.user_id) bump(log.user_id, 'taller', 1);
+    });
+  }
 
   /**
    * Backoffice — fuente de verdad = OS distintos en bandeja CAC (`cac_tray_units`),

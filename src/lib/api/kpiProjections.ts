@@ -1,5 +1,5 @@
 import { apiFetch, isApiAuthFailure, redirectToLogin } from '@/lib/http/apiFetch';
-import type { DashboardMetrics } from '@/lib/database/kpi';
+import type { DashboardMetrics, UserKPI } from '@/lib/database/kpi';
 
 async function handleKpiResponse(res: Response): Promise<Response> {
   if (!isApiAuthFailure(res.status, null)) return res;
@@ -28,6 +28,22 @@ export type KpiPipelineSnapshot = {
   workshopOs: WorkshopOsByStage;
   refreshedAt: string | null;
 };
+
+export async function fetchDailyUserKpisFromApi(
+  timeRange: string
+): Promise<{ kpis: UserKPI[]; source: string }> {
+  const res = await handleKpiResponse(
+    await apiFetch(`/api/v1/kpi/daily-users?timeRange=${encodeURIComponent(timeRange)}`)
+  );
+  if (!res.ok) {
+    throw new Error(`KPI daily-users API ${res.status}`);
+  }
+  const body = await res.json();
+  return {
+    kpis: (body.kpis || []) as UserKPI[],
+    source: String(body.source || 'unknown'),
+  };
+}
 
 export async function fetchDashboardMetricsFromApi(
   timeRange: string

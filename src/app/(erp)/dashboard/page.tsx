@@ -14,7 +14,13 @@ import {
   getStorageData
 } from '@/modules/kpi-analytics/client/kpi';
 import { getEngineKPIs } from '@/modules/kpi-analytics/client/kpiEngine';
-import { fetchDashboardMetricsFromApi, fetchPipelineFromApi, fetchWorkshopOsCountsFromApi, type WorkshopOsByStage } from '@/lib/api/kpiProjections';
+import {
+  fetchDailyUserKpisFromApi,
+  fetchDashboardMetricsFromApi,
+  fetchPipelineFromApi,
+  fetchWorkshopOsCountsFromApi,
+  type WorkshopOsByStage,
+} from '@/lib/api/kpiProjections';
 import { RecepcionKpiView } from '@/components/dashboard/kpi/recepcion-kpi-view';
 import { BackofficeKpiView } from '@/components/dashboard/kpi/backoffice-kpi-view';
 import { BodegaKpiView } from '@/components/dashboard/kpi/bodega-kpi-view';
@@ -77,7 +83,15 @@ export default function GeneralDashboardPage() {
 
   const kpisQuery = useQuery({
     queryKey: ['dashboard-kpis', timeRange],
-    queryFn: () => getDailyKPIs(timeRange),
+    queryFn: async () => {
+      try {
+        const { kpis } = await fetchDailyUserKpisFromApi(timeRange);
+        if (kpis.length > 0) return kpis;
+      } catch {
+        // fallback legacy (conteo en vivo)
+      }
+      return getDailyKPIs(timeRange);
+    },
     enabled: allowedGerencial,
   });
   const metricsQuery = useQuery({
@@ -479,7 +493,9 @@ export default function GeneralDashboardPage() {
               <div className="flex items-center justify-between mb-8">
                 <div>
                   <h3 className="text-xl font-black text-[var(--heading)]">Producción por Personas</h3>
-                  <p className="text-xs text-[var(--muted)] font-medium">Distribución de equipos procesados por operador</p>
+                  <p className="text-xs text-[var(--muted)] font-medium">
+                    Equipos producidos por operador (ETL kpi_usuario + clasificación Backoffice)
+                  </p>
                 </div>
                 <Users className="w-5 h-5 text-[var(--muted)]" />
               </div>
@@ -522,7 +538,7 @@ export default function GeneralDashboardPage() {
               Rendimiento
             </h3>
             <p className="mt-1 text-xs text-[var(--muted)]">
-              Productividad individual por rol (Meta Diaria)
+              Rendimiento ETL por persona vs meta diaria (mismos equipos producidos)
             </p>
           </div>
 

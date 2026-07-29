@@ -11,8 +11,10 @@ export type UserKpiBreakdown = {
   clasificados: number;
   /** OS registrados vía recepción PX. */
   clasificadosPx: number;
-  /** Cajas ingresadas a bodega central. */
+  /** Equipos (OS) ingresados a bodega central. */
   bodega: number;
+  /** Cajas distintas asociadas a esos ingresos (referencia). */
+  bodegaCajas: number;
 };
 
 export type UserKPI = {

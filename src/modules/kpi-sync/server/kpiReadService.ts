@@ -41,6 +41,7 @@ function emptyBreakdown(): UserKpiBreakdown {
     clasificados: 0,
     clasificadosPx: 0,
     bodega: 0,
+    bodegaCajas: 0,
   };
 }
 
@@ -434,13 +435,8 @@ export async function readDailyUserProductionKpis(
       const osId = (recordId && seriesToOs.get(recordId)) || recordId;
       if (!osId) continue;
       bumpStage(uid, stage, osId);
-      continue;
     }
-
-    if (moveActions.has(action)) {
-      const key = recordId || `${action}:${uid}`;
-      bumpStage(uid, 'bodega', key);
-    }
+    // Bodega: no usar audit aquí — SSOT = warehouse_movements.INGRESO (abajo).
   }
 
   // Backoffice CAC — OS en bandeja (misma fuente que pestaña KPI Backoffice)
@@ -499,22 +495,64 @@ export async function readDailyUserProductionKpis(
     }
   }
 
-  // Bodega — cajas distintas con movimiento INGRESO en el periodo (Joshay, etc.)
-  const { data: bodegaIngresos } = await supabase
-    .from('warehouse_movements')
-    .select('box_id, performed_by, performed_by_name')
-    .eq('movement_type', 'INGRESO')
-    .gte('created_at', startIso)
-    .lte('created_at', endIso);
+  // Bodega — equipos (OS) vía series de movimientos INGRESO (+ cajas de referencia)
+  type BodegaMov = {
+    box_id?: string | null;
+    performed_by?: string | null;
+    performed_by_name?: string | null;
+    series_ids?: string[] | null;
+  };
+  const bodegaIngresos: BodegaMov[] = [];
+  {
+    const PAGE = 1000;
+    let offset = 0;
+    for (;;) {
+      const { data: page, error } = await supabase
+        .from('warehouse_movements')
+        .select('box_id, performed_by, performed_by_name, series_ids')
+        .eq('movement_type', 'INGRESO')
+        .gte('created_at', startIso)
+        .lte('created_at', endIso)
+        .range(offset, offset + PAGE - 1);
+      if (error) break;
+      const rows = (page ?? []) as BodegaMov[];
+      bodegaIngresos.push(...rows);
+      if (rows.length < PAGE) break;
+      offset += PAGE;
+    }
+  }
 
-  for (const m of bodegaIngresos || []) {
-    if (!m.box_id) continue;
+  const bodegaSeriesByUser = new Map<string, string[]>();
+  const bodegaBoxesByUser = new Map<string, Set<string>>();
+  for (const m of bodegaIngresos) {
     const uid =
       resolveUserId(m.performed_by) ||
       resolveUserId(m.performed_by_name) ||
       null;
     if (!uid) continue;
-    bumpStage(uid, 'bodega', String(m.box_id));
+    if (m.box_id) {
+      let boxes = bodegaBoxesByUser.get(uid);
+      if (!boxes) {
+        boxes = new Set<string>();
+        bodegaBoxesByUser.set(uid, boxes);
+      }
+      boxes.add(String(m.box_id));
+    }
+    const sids = m.series_ids || [];
+    if (sids.length) {
+      const list = bodegaSeriesByUser.get(uid) ?? [];
+      for (const sid of sids) if (sid) list.push(String(sid));
+      bodegaSeriesByUser.set(uid, list);
+    }
+  }
+
+  const allBodegaSeries = [...new Set([...bodegaSeriesByUser.values()].flat())];
+  const bodegaSeriesToOs = await mapSeriesIdsToServiceOrders(supabase, allBodegaSeries);
+  for (const [uid, seriesList] of bodegaSeriesByUser) {
+    for (const sid of seriesList) {
+      const osId = bodegaSeriesToOs.get(sid) || sid;
+      bumpStage(uid, 'bodega', osId);
+    }
   }
 
   const breakdownFor = (uid: string): UserKpiBreakdown => {
@@ -524,6 +562,7 @@ export async function readDailyUserProductionKpis(
     for (const [stage, set] of stages) {
       b[stage] = set.size;
     }
+    b.bodegaCajas = bodegaBoxesByUser.get(uid)?.size ?? 0;
     return b;
   };
 
@@ -534,14 +573,10 @@ export async function readDailyUserProductionKpis(
       const breakdown = breakdownFor(u.id);
       const tallerTouch = touchOsByUser.get(u.id)?.size ?? 0;
       const backofficeOs = breakdown.clasificados + breakdown.clasificadosPx;
-      const bodegaBoxes = breakdown.bodega;
+      const bodegaOs = breakdown.bodega;
 
-      // Taller/backoffice = OS (equipos); bodega = cajas distintas ingresadas.
-      const progress = Math.max(tallerTouch, backofficeOs, bodegaBoxes);
-      const progressLabel =
-        progress > 0 && bodegaBoxes >= tallerTouch && bodegaBoxes >= backofficeOs
-          ? 'cajas / día'
-          : 'equipos / día';
+      // Todo en equipos (OS), incluida bodega.
+      const progress = Math.max(tallerTouch, backofficeOs, bodegaOs);
 
       const targetObj = targetsData.find((t) => t.user_id === u.id);
       const target = targetObj ? Number(targetObj.target_value) : 100;
@@ -553,7 +588,7 @@ export async function readDailyUserProductionKpis(
         target,
         progress,
         percentage: target > 0 ? Math.round((progress / target) * 100) : 0,
-        progressLabel,
+        progressLabel: 'equipos / día',
         breakdown,
       };
     });

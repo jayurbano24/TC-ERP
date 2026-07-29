@@ -73,7 +73,11 @@ function formatKpiBreakdown(kpi: UserKPI): string {
   if (b.qc > 0) parts.push(`QC ${b.qc}`);
   if (b.clasificados > 0) parts.push(`CAC ${b.clasificados}`);
   if (b.clasificadosPx > 0) parts.push(`PX ${b.clasificadosPx}`);
-  if (b.bodega > 0) parts.push(`Bodega ${b.bodega} cajas`);
+  if (b.bodega > 0) {
+    const cajas =
+      b.bodegaCajas > 0 ? ` (${b.bodegaCajas} caja${b.bodegaCajas === 1 ? '' : 's'})` : '';
+    parts.push(`Bodega ${b.bodega}${cajas}`);
+  }
   return parts.join(' · ');
 }
 
@@ -567,7 +571,7 @@ export default function GeneralDashboardPage() {
                   </div>
                   <p className="text-xs text-[var(--muted)] font-medium">
                     Periodo: <span className="font-bold text-[var(--heading)]">{periodLabel.detail}</span>
-                    {' · '}Equipos/día: taller + CAC/PX + cajas bodega (filtro del periodo)
+                    {' · '}Equipos/día (1 OS = 1 equipo): taller + CAC/PX + ingreso bodega
                   </p>
                 </div>
                 <Users className="w-5 h-5 text-[var(--muted)] shrink-0" />

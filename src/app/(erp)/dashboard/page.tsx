@@ -318,9 +318,19 @@ export default function GeneralDashboardPage() {
     const val = parseInt(editTargetValue);
     if (!isNaN(val) && val > 0) {
       await setKPI(userId, val);
-      await queryClient.invalidateQueries({ queryKey: ['dashboard-kpis'] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['dashboard-kpis'] }),
+        queryClient.invalidateQueries({ queryKey: ['dashboard-engine'] }),
+      ]);
     }
     setEditingUserId(null);
+  };
+
+  const handleTallerMetaSaved = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['dashboard-kpis'] }),
+      queryClient.invalidateQueries({ queryKey: ['dashboard-engine'] }),
+    ]);
   };
 
   if (authz.isLoading || !allowedGerencial) {
@@ -900,7 +910,11 @@ export default function GeneralDashboardPage() {
             <RecepcionKpiView data={bespokeData?.recepcion} timeRange={timeRange} />
             <BackofficeKpiView data={bespokeData?.backoffice} timeRange={timeRange} />
             <BodegaKpiView data={bespokeData?.bodega} timeRange={timeRange} />
-            <TallerKpiView data={bespokeData.taller} timeRange={timeRange} />
+            <TallerKpiView
+              data={bespokeData.taller}
+              timeRange={timeRange}
+              onMetaSaved={handleTallerMetaSaved}
+            />
             <SalidaKpiView data={bespokeData.salida} timeRange={timeRange} />
           </div>
         )}

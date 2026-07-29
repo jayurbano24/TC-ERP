@@ -1613,6 +1613,7 @@ export async function getEngineKPIs(timeRange: string = 'Hoy') {
 
       return {
         tecnico,
+        user_id: userId,
         diagnostico,
         reacondicionado,
         reparacion,

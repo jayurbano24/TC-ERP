@@ -1,13 +1,24 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Card, Badge } from '@/components/ui';
-import { Wrench, AlertTriangle, Search, CheckCircle, Activity, Clock, CheckCircle2 } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { Card, Badge, Button, notify } from '@/components/ui';
+import {
+  Wrench,
+  AlertTriangle,
+  Search,
+  CheckCircle,
+  Activity,
+  Clock,
+  CheckCircle2,
+  Pencil,
+} from 'lucide-react';
+import { setKPI } from '@/modules/kpi-analytics/client/kpi';
 
 type TallerVista = 'realizado' | 'pendiente';
 
 type PorTecnicoRow = {
   tecnico: string;
+  user_id?: string | null;
   diagnostico: number;
   reacondicionado: number;
   reparacion: number;
@@ -20,6 +31,18 @@ type PorTecnicoRow = {
   porcentaje?: number;
   estadoMeta?: string;
 };
+
+function scaleMetaForRange(metaDiaria: number, timeRange: string): number {
+  if (timeRange === 'Esta Semana') return metaDiaria * 5;
+  if (timeRange === 'Este Mes') return metaDiaria * 25;
+  return metaDiaria;
+}
+
+function pctAndEstado(total: number, meta: number): { porcentaje: number; estadoMeta: string } {
+  const porcentaje = meta > 0 ? Math.round((total / meta) * 100) : 0;
+  const estadoMeta = porcentaje >= 100 ? 'Meta' : porcentaje >= 80 ? 'Cerca' : 'Bajo';
+  return { porcentaje, estadoMeta };
+}
 
 /** Matriz KPO desde API o armada desde tablas por etapa (fallback). */
 function buildPorTecnico(data: any): PorTecnicoRow[] {
@@ -75,19 +98,78 @@ function buildPorTecnico(data: any): PorTecnicoRow[] {
     .sort((a, b) => b.totalEtapas - a.totalEtapas);
 }
 
-export function TallerKpiView({ data, timeRange = 'Hoy' }: { data: any; timeRange?: string }) {
+export function TallerKpiView({
+  data,
+  timeRange = 'Hoy',
+  onMetaSaved,
+}: {
+  data: any;
+  timeRange?: string;
+  /** Tras guardar meta: invalidar queries del dashboard. */
+  onMetaSaved?: () => void | Promise<void>;
+}) {
   const [vista, setVista] = useState<TallerVista>('realizado');
   const [mostrarDetalleEtapas, setMostrarDetalleEtapas] = useState(false);
+  const [metaOverrides, setMetaOverrides] = useState<Record<string, number>>({});
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editMetaValue, setEditMetaValue] = useState('');
+  const [savingMeta, setSavingMeta] = useState(false);
+
+  const basePorTecnico = useMemo(() => (data ? buildPorTecnico(data) : []), [data]);
+  const porTecnico = useMemo(() => {
+    return basePorTecnico.map((r) => {
+      const key = r.user_id || r.tecnico;
+      const metaDiaria =
+        metaOverrides[key] ??
+        Number(r.metaDiaria ?? r.meta ?? 0);
+      const meta = scaleMetaForRange(metaDiaria, timeRange);
+      const { porcentaje, estadoMeta } = pctAndEstado(r.totalEtapas, meta);
+      return { ...r, metaDiaria, meta, porcentaje, estadoMeta };
+    });
+  }, [basePorTecnico, metaOverrides, timeRange]);
+
   if (!data) return null;
 
   const timeLabel = timeRange.toUpperCase();
   const isRealizado = vista === 'realizado';
-  const porTecnico = buildPorTecnico(data);
   const colaTotal =
     Number(data.pendientesDiagnostico || 0) +
     Number(data.pendientesCC || 0) +
     Number(data.pendientesL3 || 0) +
     Number(data.pendientesScraps || 0);
+
+  const startEditMeta = (r: PorTecnicoRow) => {
+    if (!r.user_id) {
+      notify.warning('No se pudo vincular este nombre a un usuario para guardar la meta.');
+      return;
+    }
+    const key = r.user_id;
+    setEditingKey(key);
+    setEditMetaValue(String(r.metaDiaria || r.meta || ''));
+  };
+
+  const saveEditMeta = async (r: PorTecnicoRow) => {
+    if (!r.user_id) return;
+    const val = parseInt(editMetaValue, 10);
+    if (isNaN(val) || val <= 0) {
+      notify.warning('La meta diaria debe ser un número mayor a 0.');
+      return;
+    }
+    setSavingMeta(true);
+    try {
+      const ok = await setKPI(r.user_id, val);
+      if (!ok) {
+        notify.error('No se pudo guardar la meta.');
+        return;
+      }
+      setMetaOverrides((prev) => ({ ...prev, [r.user_id!]: val }));
+      setEditingKey(null);
+      notify.success(`Meta de ${r.tecnico}: ${val}/día`);
+      await onMetaSaved?.();
+    } finally {
+      setSavingMeta(false);
+    }
+  };
 
   return (
     <div className="flex flex-col gap-4 border-2 border-slate-200 rounded-xl bg-[#f9f8f4] overflow-hidden">
@@ -147,8 +229,8 @@ export function TallerKpiView({ data, timeRange = 'Hoy' }: { data: any; timeRang
         <>
           <div className="mx-4 mt-1 rounded-lg border border-indigo-100 bg-indigo-50/70 px-3 py-2 text-[12px] font-semibold text-indigo-900">
             <span className="font-black">KPO Taller</span>: equipos por etapa en{' '}
-            <span className="font-black">{timeRange}</span>, total del día y{' '}
-            <span className="font-black">% vs meta</span> (metas de Rendimiento / user targets).
+            <span className="font-black">{timeRange}</span>. Clic en la{' '}
+            <span className="font-black">Meta</span> para editarla y recalcular el %.
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 px-4">
@@ -223,7 +305,10 @@ export function TallerKpiView({ data, timeRange = 'Hoy' }: { data: any; timeRang
                   )}
                   {porTecnico.map((r) => {
                     const pct = Number(r.porcentaje ?? 0);
-                    const meta = Number(r.meta ?? r.metaDiaria ?? 0);
+                    const meta = Number(r.meta ?? 0);
+                    const metaDiaria = Number(r.metaDiaria ?? 0);
+                    const rowKey = r.user_id || r.tecnico;
+                    const isEditing = editingKey === r.user_id;
                     const pctColor =
                       pct >= 100
                         ? 'text-emerald-700'
@@ -237,7 +322,7 @@ export function TallerKpiView({ data, timeRange = 'Hoy' }: { data: any; timeRang
                           ? 'bg-amber-100 text-amber-800'
                           : 'bg-rose-100 text-rose-800';
                     return (
-                      <tr key={r.tecnico} className="border-b border-slate-50 hover:bg-slate-50/80">
+                      <tr key={rowKey} className="border-b border-slate-50 hover:bg-slate-50/80">
                         <td className="p-3 font-black text-[#181c3a] sticky left-0 bg-white">
                           {r.tecnico}
                         </td>
@@ -259,8 +344,48 @@ export function TallerKpiView({ data, timeRange = 'Hoy' }: { data: any; timeRang
                         <td className="p-3 text-center font-black text-[#181c3a] bg-indigo-50/40 tabular-nums">
                           {r.totalEtapas}
                         </td>
-                        <td className="p-3 text-center font-bold text-slate-600 tabular-nums">
-                          {meta > 0 ? meta : '—'}
+                        <td className="p-3 text-center">
+                          {isEditing ? (
+                            <div className="inline-flex items-center gap-1 justify-center">
+                              <input
+                                type="number"
+                                min={1}
+                                className="w-16 rounded border border-indigo-300 bg-white px-1.5 py-1 text-center text-xs font-bold text-[#181c3a] outline-none focus:border-indigo-500"
+                                value={editMetaValue}
+                                onChange={(e) => setEditMetaValue(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') void saveEditMeta(r);
+                                  if (e.key === 'Escape') setEditingKey(null);
+                                }}
+                                autoFocus
+                                disabled={savingMeta}
+                              />
+                              <Button
+                                variant="primary"
+                                size="sm"
+                                className="!px-2 !py-1 text-[10px]"
+                                disabled={savingMeta}
+                                onClick={() => void saveEditMeta(r)}
+                              >
+                                OK
+                              </Button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => startEditMeta(r)}
+                              className="inline-flex items-center gap-1 rounded-md px-2 py-1 font-bold text-slate-700 tabular-nums hover:bg-indigo-50 hover:text-indigo-800"
+                              title="Clic para editar meta diaria"
+                            >
+                              {metaDiaria > 0 ? metaDiaria : '—'}
+                              {timeRange !== 'Hoy' && metaDiaria > 0 ? (
+                                <span className="text-[9px] font-semibold text-slate-400">
+                                  /día
+                                </span>
+                              ) : null}
+                              <Pencil className="h-3 w-3 text-slate-400" />
+                            </button>
+                          )}
                         </td>
                         <td className={`p-3 text-center font-black tabular-nums ${pctColor}`}>
                           {meta > 0 ? `${pct}%` : '—'}

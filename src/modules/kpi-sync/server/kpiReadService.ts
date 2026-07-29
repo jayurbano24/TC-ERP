@@ -32,20 +32,6 @@ type ProfileKpiRow = {
   employees?: { nombre_completo?: string } | { nombre_completo?: string }[] | null;
 };
 
-function progressLabelForRole(role: string): string {
-  const r = role.toUpperCase();
-  if (r.includes('BACKOFFICE') || r.includes('GERENTE') || r === 'ADMIN' || r.includes('SUPERVISOR')) {
-    return 'equipos / día';
-  }
-  if (r.includes('RECEPTOR') || r.includes('RECEPCION')) return 'equipos / día';
-  if (r.includes('BODEGA')) return 'equipos / día';
-  if (r.includes('TECNICO') || r.includes('TALLER') || r.includes('QC') || r.includes('OPERACION')) {
-    return 'equipos / día';
-  }
-  if (r.includes('DESPACHO')) return 'equipos / día';
-  return 'equipos / día';
-}
-
 function emptyBreakdown(): UserKpiBreakdown {
   return {
     diagnostico: 0,

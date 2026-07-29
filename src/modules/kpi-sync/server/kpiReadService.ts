@@ -6,16 +6,23 @@ import {
 } from './countDistinctOs';
 import { fechasEnRango, resolveTimeRangeBounds } from './timeRange';
 
-/** Métricas ETL (`kpi_usuario`) que cuentan como equipos producidos / movidos. */
-const ETL_PRODUCTION_METRICS = new Set([
-  'diagnosticos_completados',
-  'reparaciones_completadas',
-  'reacondicionados_completados',
-  'qc_completados',
-  'ingresos_bodega',
-  'traslados_bodega',
-  'despachos_creados',
-]);
+async function mapSeriesIdsToServiceOrders(
+  supabase: SupabaseClient,
+  seriesIds: string[]
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  const unique = [...new Set(seriesIds.filter(Boolean))];
+  for (let i = 0; i < unique.length; i += 200) {
+    const chunk = unique.slice(i, i + 200);
+    const { data } = await supabase.from('series').select('id, service_order_id').in('id', chunk);
+    for (const row of data || []) {
+      if (row.id && row.service_order_id) {
+        map.set(String(row.id), String(row.service_order_id));
+      }
+    }
+  }
+  return map;
+}
 
 type ProfileKpiRow = {
   id: string;
@@ -28,15 +35,15 @@ type ProfileKpiRow = {
 function progressLabelForRole(role: string): string {
   const r = role.toUpperCase();
   if (r.includes('BACKOFFICE') || r.includes('GERENTE') || r === 'ADMIN' || r.includes('SUPERVISOR')) {
-    return 'equipos (OS) clasificados';
+    return 'OS clasificados';
   }
   if (r.includes('RECEPTOR') || r.includes('RECEPCION')) return 'unidades recibidas';
   if (r.includes('BODEGA')) return 'movimientos de bodega';
   if (r.includes('TECNICO') || r.includes('TALLER') || r.includes('QC') || r.includes('OPERACION')) {
-    return 'equipos producidos';
+    return 'OS producidos';
   }
   if (r.includes('DESPACHO')) return 'despachos';
-  return 'equipos producidos';
+  return 'OS producidos';
 }
 
 function roleBucket(role: string): 'backoffice' | 'reception' | 'bodega' | 'taller' | 'other' {
@@ -292,18 +299,32 @@ export async function readPipelineFromKpi(supabase: SupabaseClient): Promise<Pip
   };
 }
 
+const TALLER_AUDIT_ACTIONS = [
+  'DIAGNÓSTICO INICIAL COMPLETADO',
+  'REPARACIÓN COMPLETADA',
+  'REACONDICIONADO COMPLETADO',
+  'CONTROL DE CALIDAD COMPLETADO',
+] as const;
+
+const BODEGA_AUDIT_ACTIONS = [
+  'INGRESO BODEGA',
+  'TRASLADO BODEGA',
+  'TRASLADO',
+  'TRASLADO MASIVO A TALLER',
+  'DESPACHO CREADO',
+] as const;
+
 /**
  * Producción / Rendimiento por persona.
- * - Taller / Bodega / Despacho: eventos del periodo en `kpi_event_ledger` (por fecha GT).
- * - Backoffice: OS distintos en `cac_tray_units` (clasificador) del periodo.
+ * Misma regla que pestaña KPI Taller: 1 equipo = 1 OS distinto
+ * (erp_audit_logs.record_id = series.id → service_order_id).
+ * Backoffice: OS distintos en `cac_tray_units`.
  */
 export async function readDailyUserProductionKpis(
   supabase: SupabaseClient,
   timeRange: string
 ): Promise<UserKPI[]> {
-  const fechas = fechasEnRango(timeRange);
   const { startIso, endIso } = resolveTimeRangeBounds(timeRange);
-  if (fechas.length === 0) return [];
 
   const { data: usersData } = await supabase
     .from('profiles')
@@ -322,46 +343,70 @@ export async function readDailyUserProductionKpis(
     /* tabla opcional */
   }
 
-  // ETL — contar eventos del ledger (idempotente). kpi_usuario puede estar inflado
-  // si el sync reaplicó deltas tras ignoreDuplicates en el ledger.
-  const etlByUser = new Map<string, number>();
-  const metricList = [...ETL_PRODUCTION_METRICS];
+  type AuditRow = { user_id?: string | null; action?: string | null; record_id?: string | null };
+  const auditRows: AuditRow[] = [];
   const PAGE = 1000;
   let offset = 0;
+  const actions = [...TALLER_AUDIT_ACTIONS, ...BODEGA_AUDIT_ACTIONS];
   for (;;) {
-    const { data: ledgerPage, error: ledgerError } = await supabase
-      .from('kpi_event_ledger')
-      .select('user_id, metrica, valor')
-      .in('fecha', fechas)
-      .in('metrica', metricList)
+    const { data: page, error } = await supabase
+      .from('erp_audit_logs')
+      .select('user_id, action, record_id')
+      .in('action', actions)
+      .gte('created_at', startIso)
+      .lte('created_at', endIso)
       .range(offset, offset + PAGE - 1);
 
-    if (ledgerError) break;
-    const rows = ledgerPage ?? [];
-    for (const row of rows) {
-      const metrica = String(row.metrica || '');
-      if (!ETL_PRODUCTION_METRICS.has(metrica)) continue;
-      const uid = String(row.user_id || '');
-      if (!uid) continue;
-      etlByUser.set(uid, (etlByUser.get(uid) ?? 0) + Number(row.valor ?? 1));
-    }
+    if (error) break;
+    const rows = (page ?? []) as AuditRow[];
+    auditRows.push(...rows);
     if (rows.length < PAGE) break;
     offset += PAGE;
   }
 
-  // Fallback: si el ledger aún no tiene filas del periodo, usar proyección kpi_usuario.
-  if (etlByUser.size === 0) {
-    const { data: kpiRows } = await supabase
-      .from('kpi_usuario')
-      .select('user_id, metrica, valor')
-      .in('fecha', fechas)
-      .in('metrica', metricList);
+  const tallerActions = new Set<string>(TALLER_AUDIT_ACTIONS);
+  const moveActions = new Set<string>(BODEGA_AUDIT_ACTIONS);
 
-    for (const row of kpiRows || []) {
-      const uid = String(row.user_id || '');
-      if (!uid) continue;
-      etlByUser.set(uid, (etlByUser.get(uid) ?? 0) + Number(row.valor ?? 0));
+  const seriesIds = auditRows
+    .filter((r) => r.record_id && tallerActions.has(String(r.action || '')))
+    .map((r) => String(r.record_id));
+  const seriesToOs = await mapSeriesIdsToServiceOrders(supabase, seriesIds);
+
+  const osByUser = new Map<string, Set<string>>();
+  const movesByUser = new Map<string, Set<string>>();
+  for (const row of auditRows) {
+    const uid = String(row.user_id || '');
+    const action = String(row.action || '');
+    const recordId = row.record_id ? String(row.record_id) : '';
+    if (!uid) continue;
+
+    if (tallerActions.has(action)) {
+      const osId = (recordId && seriesToOs.get(recordId)) || recordId;
+      if (!osId) continue;
+      let set = osByUser.get(uid);
+      if (!set) {
+        set = new Set<string>();
+        osByUser.set(uid, set);
+      }
+      set.add(osId);
+      continue;
     }
+
+    if (moveActions.has(action)) {
+      const key = recordId || `${action}:${uid}:${movesByUser.get(uid)?.size ?? 0}`;
+      let set = movesByUser.get(uid);
+      if (!set) {
+        set = new Set<string>();
+        movesByUser.set(uid, set);
+      }
+      set.add(key);
+    }
+  }
+
+  const etlByUser = new Map<string, number>();
+  for (const [uid, set] of osByUser) etlByUser.set(uid, set.size);
+  for (const [uid, set] of movesByUser) {
+    etlByUser.set(uid, (etlByUser.get(uid) ?? 0) + set.size);
   }
 
   // Backoffice live — OS clasificados (no está en kpi_usuario aún)

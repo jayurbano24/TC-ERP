@@ -241,12 +241,12 @@ export async function getDailyKPIs(timeRange: string = 'Hoy'): Promise<UserKPI[]
     if (j.technician_id) bump(j.technician_id, 'taller', 1);
   });
 
-  // Fallback taller: si workshop_jobs está vacío, contar auditoría de etapas (misma fuente del ETL).
+  // Fallback taller: si workshop_jobs está vacío, OS distintos (misma regla que KPI Taller).
   const tallerJobsCount = jobs?.length ?? 0;
   if (tallerJobsCount === 0) {
     const { data: tallerAudit } = await supabase
       .from('erp_audit_logs')
-      .select('user_id')
+      .select('user_id, record_id')
       .in('action', [
         'DIAGNÓSTICO INICIAL COMPLETADO',
         'REPARACIÓN COMPLETADA',
@@ -255,9 +255,33 @@ export async function getDailyKPIs(timeRange: string = 'Hoy'): Promise<UserKPI[]
       ])
       .gte('created_at', startIso)
       .lte('created_at', endIso);
-    tallerAudit?.forEach((log: { user_id?: string }) => {
-      if (log.user_id) bump(log.user_id, 'taller', 1);
-    });
+
+    const seriesIds = [...new Set((tallerAudit || []).map((l) => l.record_id).filter(Boolean))] as string[];
+    const seriesToOs = new Map<string, string>();
+    for (let i = 0; i < seriesIds.length; i += 200) {
+      const chunk = seriesIds.slice(i, i + 200);
+      const { data: seriesRows } = await supabase
+        .from('series')
+        .select('id, service_order_id')
+        .in('id', chunk);
+      for (const s of seriesRows || []) {
+        if (s.id && s.service_order_id) seriesToOs.set(String(s.id), String(s.service_order_id));
+      }
+    }
+    const osByUser = new Map<string, Set<string>>();
+    for (const log of tallerAudit || []) {
+      if (!log.user_id || !log.record_id) continue;
+      const osId = seriesToOs.get(String(log.record_id)) || String(log.record_id);
+      let set = osByUser.get(log.user_id);
+      if (!set) {
+        set = new Set<string>();
+        osByUser.set(log.user_id, set);
+      }
+      set.add(osId);
+    }
+    for (const [userId, set] of osByUser) {
+      bump(userId, 'taller', set.size);
+    }
   }
 
   /**

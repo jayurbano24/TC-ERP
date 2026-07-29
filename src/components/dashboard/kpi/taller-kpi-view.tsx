@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { Card, Badge, Button, notify } from '@/components/ui';
+import { Card, Badge } from '@/components/ui';
 import {
   Wrench,
   AlertTriangle,
@@ -10,39 +10,7 @@ import {
   Activity,
   Clock,
   CheckCircle2,
-  Pencil,
 } from 'lucide-react';
-import { setKPI } from '@/modules/kpi-analytics/client/kpi';
-import { getSupabaseBrowserClient } from '@/lib/supabase/client';
-
-function foldPersonKey(value: string): string {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
-}
-
-async function resolveProfileIdByName(tecnico: string): Promise<string | null> {
-  const supabase = getSupabaseBrowserClient();
-  if (!supabase || !tecnico.trim()) return null;
-  const { data } = await supabase
-    .from('profiles')
-    .select('id, full_name, employees(nombre_completo)')
-    .eq('is_active', true);
-  const want = foldPersonKey(tecnico);
-  for (const p of data || []) {
-    const emp = Array.isArray(p.employees)
-      ? p.employees[0]?.nombre_completo
-      : (p.employees as { nombre_completo?: string } | null)?.nombre_completo;
-    const candidates = [p.full_name, emp].filter(Boolean) as string[];
-    for (const c of candidates) {
-      if (foldPersonKey(c) === want) return p.id;
-    }
-  }
-  return null;
-}
 
 type TallerVista = 'realizado' | 'pendiente';
 
@@ -61,18 +29,6 @@ type PorTecnicoRow = {
   porcentaje?: number;
   estadoMeta?: string;
 };
-
-function scaleMetaForRange(metaDiaria: number, timeRange: string): number {
-  if (timeRange === 'Esta Semana') return metaDiaria * 5;
-  if (timeRange === 'Este Mes') return metaDiaria * 25;
-  return metaDiaria;
-}
-
-function pctAndEstado(total: number, meta: number): { porcentaje: number; estadoMeta: string } {
-  const porcentaje = meta > 0 ? Math.round((total / meta) * 100) : 0;
-  const estadoMeta = porcentaje >= 100 ? 'Meta' : porcentaje >= 80 ? 'Cerca' : 'Bajo';
-  return { porcentaje, estadoMeta };
-}
 
 /** Matriz KPO desde API o armada desde tablas por etapa (fallback). */
 function buildPorTecnico(data: any): PorTecnicoRow[] {
@@ -128,40 +84,11 @@ function buildPorTecnico(data: any): PorTecnicoRow[] {
     .sort((a, b) => b.totalEtapas - a.totalEtapas);
 }
 
-export function TallerKpiView({
-  data,
-  timeRange = 'Hoy',
-  onMetaSaved,
-}: {
-  data: any;
-  timeRange?: string;
-  /** Tras guardar meta: invalidar queries del dashboard. */
-  onMetaSaved?: () => void | Promise<void>;
-}) {
+export function TallerKpiView({ data, timeRange = 'Hoy' }: { data: any; timeRange?: string }) {
   const [vista, setVista] = useState<TallerVista>('realizado');
   const [mostrarDetalleEtapas, setMostrarDetalleEtapas] = useState(false);
-  const [metaOverrides, setMetaOverrides] = useState<Record<string, number>>({});
-  const [editingKey, setEditingKey] = useState<string | null>(null);
-  const [editingTecnico, setEditingTecnico] = useState<string | null>(null);
-  const [editMetaValue, setEditMetaValue] = useState('');
-  const [savingMeta, setSavingMeta] = useState(false);
 
-  const basePorTecnico = useMemo(() => (data ? buildPorTecnico(data) : []), [data]);
-  const porTecnico = useMemo(() => {
-    return basePorTecnico.map((r) => {
-      const key = r.user_id || r.tecnico;
-      const metaDiaria = Number(
-        metaOverrides[key] ??
-          metaOverrides[r.tecnico] ??
-          r.metaDiaria ??
-          r.meta ??
-          0
-      );
-      const meta = scaleMetaForRange(metaDiaria, timeRange);
-      const { porcentaje, estadoMeta } = pctAndEstado(r.totalEtapas, meta);
-      return { ...r, metaDiaria, meta, porcentaje, estadoMeta };
-    });
-  }, [basePorTecnico, metaOverrides, timeRange]);
+  const porTecnico = useMemo(() => (data ? buildPorTecnico(data) : []), [data]);
 
   if (!data) return null;
 
@@ -172,55 +99,6 @@ export function TallerKpiView({
     Number(data.pendientesCC || 0) +
     Number(data.pendientesL3 || 0) +
     Number(data.pendientesScraps || 0);
-
-  const startEditMeta = async (r: PorTecnicoRow) => {
-    let userId = r.user_id || null;
-    if (!userId) {
-      userId = await resolveProfileIdByName(r.tecnico);
-    }
-    if (!userId) {
-      notify.warning('No se pudo vincular este nombre a un usuario para guardar la meta.');
-      return;
-    }
-    setEditingKey(userId);
-    setEditingTecnico(r.tecnico);
-    setEditMetaValue(String(r.metaDiaria || r.meta || 400));
-  };
-
-  const cancelEditMeta = () => {
-    setEditingKey(null);
-    setEditingTecnico(null);
-  };
-
-  const saveEditMeta = async (r: PorTecnicoRow) => {
-    let userId = r.user_id || editingKey;
-    if (!userId) {
-      userId = await resolveProfileIdByName(r.tecnico);
-    }
-    if (!userId) {
-      notify.warning('No se pudo vincular este nombre a un usuario para guardar la meta.');
-      return;
-    }
-    const val = parseInt(editMetaValue, 10);
-    if (isNaN(val) || val <= 0) {
-      notify.warning('La meta diaria debe ser un número mayor a 0.');
-      return;
-    }
-    setSavingMeta(true);
-    try {
-      const ok = await setKPI(userId, val);
-      if (!ok) {
-        notify.error('No se pudo guardar la meta.');
-        return;
-      }
-      setMetaOverrides((prev) => ({ ...prev, [userId!]: val, [r.tecnico]: val }));
-      cancelEditMeta();
-      notify.success(`Meta de ${r.tecnico}: ${val}/día`);
-      await onMetaSaved?.();
-    } finally {
-      setSavingMeta(false);
-    }
-  };
 
   return (
     <div className="flex flex-col gap-4 border-2 border-slate-200 rounded-xl bg-[#f9f8f4] overflow-hidden">
@@ -280,8 +158,9 @@ export function TallerKpiView({
         <>
           <div className="mx-4 mt-1 rounded-lg border border-indigo-100 bg-indigo-50/70 px-3 py-2 text-[12px] font-semibold text-indigo-900">
             <span className="font-black">KPO Taller</span>: equipos por etapa en{' '}
-            <span className="font-black">{timeRange}</span>. Clic en la{' '}
-            <span className="font-black">Meta</span> para editarla y recalcular el %.
+            <span className="font-black">{timeRange}</span>. La{' '}
+            <span className="font-black">Meta</span> se define en{' '}
+            <span className="font-black">Dashboard → Rendimiento</span> (clic en Meta).
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 px-4">
@@ -356,12 +235,8 @@ export function TallerKpiView({
                   )}
                   {porTecnico.map((r) => {
                     const pct = Number(r.porcentaje ?? 0);
-                    const meta = Number(r.meta ?? 0);
-                    const metaDiaria = Number(r.metaDiaria ?? 0);
+                    const meta = Number(r.meta ?? r.metaDiaria ?? 0);
                     const rowKey = r.user_id || r.tecnico;
-                    const isEditing =
-                      editingKey !== null &&
-                      (editingKey === r.user_id || editingKey === rowKey);
                     const pctColor =
                       pct >= 100
                         ? 'text-emerald-700'
@@ -397,48 +272,11 @@ export function TallerKpiView({
                         <td className="p-3 text-center font-black text-[#181c3a] bg-indigo-50/40 tabular-nums">
                           {r.totalEtapas}
                         </td>
-                        <td className="p-3 text-center">
-                          {isEditing ? (
-                            <div className="inline-flex items-center gap-1 justify-center">
-                              <input
-                                type="number"
-                                min={1}
-                                className="w-16 rounded border border-indigo-300 bg-white px-1.5 py-1 text-center text-xs font-bold text-[#181c3a] outline-none focus:border-indigo-500"
-                                value={editMetaValue}
-                                onChange={(e) => setEditMetaValue(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') void saveEditMeta(r);
-                                  if (e.key === 'Escape') setEditingKey(null);
-                                }}
-                                autoFocus
-                                disabled={savingMeta}
-                              />
-                              <Button
-                                variant="primary"
-                                size="sm"
-                                className="!px-2 !py-1 text-[10px]"
-                                disabled={savingMeta}
-                                onClick={() => void saveEditMeta(r)}
-                              >
-                                OK
-                              </Button>
-                            </div>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => void startEditMeta(r)}
-                              className="inline-flex items-center gap-1 rounded-md px-2 py-1 font-bold text-slate-700 tabular-nums hover:bg-indigo-50 hover:text-indigo-800"
-                              title="Clic para editar meta diaria"
-                            >
-                              {metaDiaria > 0 ? metaDiaria : '—'}
-                              {timeRange !== 'Hoy' && metaDiaria > 0 ? (
-                                <span className="text-[9px] font-semibold text-slate-400">
-                                  /día
-                                </span>
-                              ) : null}
-                              <Pencil className="h-3 w-3 text-slate-400" />
-                            </button>
-                          )}
+                        <td
+                          className="p-3 text-center font-bold text-slate-700 tabular-nums"
+                          title="Meta diaria definida en Dashboard → Rendimiento"
+                        >
+                          {meta > 0 ? meta : '—'}
                         </td>
                         <td className={`p-3 text-center font-black tabular-nums ${pctColor}`}>
                           {meta > 0 ? `${pct}%` : '—'}
@@ -453,7 +291,9 @@ export function TallerKpiView({
                                   : 'Bajo'}
                             </Badge>
                           ) : (
-                            <span className="text-slate-400">—</span>
+                            <span className="text-slate-400" title="Define la meta en Rendimiento">
+                              —
+                            </span>
                           )}
                         </td>
                       </tr>

@@ -1623,24 +1623,22 @@ export async function getEngineKPIs(timeRange: string = 'Hoy') {
       const totalEtapas = diagnostico + reacondicionado + reparacion + qc;
 
       const userId = resolveTecnicoUserId(tecnico);
-      const configured = userId ? targetByUserId.get(userId) : undefined;
+      // Meta solo desde Rendimiento (user_kpi_targets). Sin meta → % en blanco.
       const metaDiaria =
-        configured && configured > 0
-          ? configured
-          : diagnostico >= reparacion &&
-              diagnostico >= reacondicionado &&
-              diagnostico >= qc
-            ? goalFor('diagnostico', 100)
-            : reparacion >= reacondicionado && reparacion >= qc
-              ? goalFor('reparacion', 100)
-              : reacondicionado >= qc
-                ? goalFor('reacondicionado', 100)
-                : goalFor('qc', 100);
-      const scaled = scalePeriodGoals(metaDiaria, timeRange);
-      const meta = scaled.meta;
+        userId && (targetByUserId.get(userId) || 0) > 0
+          ? Number(targetByUserId.get(userId))
+          : 0;
+      const scaled = metaDiaria > 0 ? scalePeriodGoals(metaDiaria, timeRange) : null;
+      const meta = scaled?.meta ?? 0;
       const porcentaje = meta > 0 ? Math.round((totalEtapas / meta) * 100) : 0;
       const estadoMeta =
-        porcentaje >= 100 ? 'Meta' : porcentaje >= 80 ? 'Cerca' : 'Bajo';
+        meta <= 0
+          ? ''
+          : porcentaje >= 100
+            ? 'Meta'
+            : porcentaje >= 80
+              ? 'Cerca'
+              : 'Bajo';
 
       return {
         tecnico,

@@ -550,8 +550,12 @@ export async function readDailyUserProductionKpis(
       const backofficeOs = breakdown.clasificados + breakdown.clasificadosPx;
       const bodegaBoxes = breakdown.bodega;
 
-      // Equipos/día: taller OS | backoffice OS (CAC+PX) | cajas bodega — el mayor canal.
+      // Taller/backoffice = OS (equipos); bodega = cajas distintas ingresadas.
       const progress = Math.max(tallerTouch, backofficeOs, bodegaBoxes);
+      const progressLabel =
+        progress > 0 && bodegaBoxes >= tallerTouch && bodegaBoxes >= backofficeOs
+          ? 'cajas / día'
+          : 'equipos / día';
 
       const targetObj = targetsData.find((t) => t.user_id === u.id);
       const target = targetObj ? Number(targetObj.target_value) : 100;
@@ -563,7 +567,7 @@ export async function readDailyUserProductionKpis(
         target,
         progress,
         percentage: target > 0 ? Math.round((progress / target) * 100) : 0,
-        progressLabel: progressLabelForRole(roleStr),
+        progressLabel,
         breakdown,
       };
     });

@@ -591,7 +591,7 @@ export default function GeneralDashboardPage() {
                         </span>
                         <span className="text-[var(--heading)] tabular-nums shrink-0">
                           {kpi.progress}{' '}
-                          <span className="text-[var(--muted)]">equipos / día</span>
+                          <span className="text-[var(--muted)]">{kpi.progressLabel}</span>
                         </span>
                       </div>
                       {breakdown ? (
@@ -683,7 +683,7 @@ export default function GeneralDashboardPage() {
                           {kpi.role.replace('_', ' ')}
                         </p>
                         <p className="mt-1 text-[10px] font-black text-[var(--accent)] tabular-nums">
-                          {kpi.progress} equipos / día
+                          {kpi.progress} {kpi.progressLabel}
                         </p>
                         {formatKpiBreakdown(kpi) ? (
                           <p className="mt-0.5 text-[10px] font-semibold text-[var(--muted)]">

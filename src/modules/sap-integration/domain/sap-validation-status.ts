@@ -93,8 +93,9 @@ export function getSapStatusMeta(status: SapValidationState): SapStatusMeta {
         label: 'Pendiente Revisión',
         shortLabel: 'REV',
         className: 'border border-[var(--warning)]/30 bg-[var(--warning)]/15 text-[var(--warning)]',
-        canDispatch: false,
-        canTransfer: false,
+        // Despacho operativo (Conduce de salida) no exige cierre SAP.
+        canDispatch: true,
+        canTransfer: true,
       };
     case 'Obsoleto':
       return {
@@ -109,7 +110,8 @@ export function getSapStatusMeta(status: SapValidationState): SapStatusMeta {
         label: 'Pendiente Validación',
         shortLabel: 'PEN',
         className: 'border border-[var(--warning)]/30 bg-[var(--warning)]/15 text-[var(--warning)]',
-        canDispatch: false,
+        // Permite generar Conduce de salida sin validación SAP previa.
+        canDispatch: true,
         canTransfer: true,
       };
   }

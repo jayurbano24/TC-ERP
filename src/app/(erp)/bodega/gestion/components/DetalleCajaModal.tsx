@@ -41,11 +41,16 @@ export const DetalleCajaModal = memo(function DetalleCajaModal({
   onClose,
 }: Props) {
   const seriesCount = selectedBox.series?.length ?? 0;
-  const unitTotal = Math.max(selectedBox.cantidad || 0, selectedBox.unitCount || 0, seriesCount, 1);
   const uniqueEquipmentsCount =
     seriesCount > 0
-      ? new Set(selectedBox.series?.map((s: any) => s.service_orders?.id || s.serial_number)).size
+      ? new Set(
+          selectedBox.series?.map(
+            (s: any) => s.service_orders?.id || s.ordenServicio || s.serial_number || s.sn
+          )
+        ).size
       : selectedBox.unitCount || 0;
+  // Denominador = capacidad actual de la caja (tras salida parcial debe igualar equipos → Full).
+  const unitTotal = Math.max(Number(selectedBox.cantidad || 0), 1);
 
   // Lookups O(1) para evitar .find() por celda (importante con muchas unidades).
   const marcaMap = useMemo(() => new Map(catMarcas.map((b) => [b.id, b.name])), [catMarcas]);

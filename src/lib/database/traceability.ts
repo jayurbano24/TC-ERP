@@ -645,12 +645,12 @@ export async function getEquipmentTraceabilityHistory(params: {
     params.seriesIds.length > 0 || params.boxId
       ? (async () => {
           const rows: any[] = [];
+          const movSelect =
+            'id, created_at, movement_type, box_id, box_code, series_ids, performed_by, performed_by_name, notes, guide_number, target_location';
           if (params.boxId) {
             const { data } = await supabase
               .from('warehouse_movements')
-              .select(
-                'id, created_at, movement_type, box_id, series_ids, performed_by, performed_by_name, notes'
-              )
+              .select(movSelect)
               .eq('box_id', params.boxId)
               .order('created_at', { ascending: true })
               .limit(80);
@@ -660,9 +660,7 @@ export async function getEquipmentTraceabilityHistory(params: {
           if (params.seriesIds.length > 0) {
             const { data } = await supabase
               .from('warehouse_movements')
-              .select(
-                'id, created_at, movement_type, box_id, series_ids, performed_by, performed_by_name, notes'
-              )
+              .select(movSelect)
               .overlaps('series_ids', params.seriesIds)
               .order('created_at', { ascending: true })
               .limit(80);
@@ -741,13 +739,26 @@ export async function getEquipmentTraceabilityHistory(params: {
       actorName = receiverFallback;
     }
 
+    let auditComment = px?.comment || row.observations || row.action;
+    const actionUpper = String(row.action || '').toUpperCase();
+    if (
+      (actionUpper.includes('DESPACH') || actionUpper.includes('SALIDA')) &&
+      typeof payload.guide_number === 'string' &&
+      payload.guide_number.trim()
+    ) {
+      const g = payload.guide_number.trim();
+      if (!String(auditComment).includes(g)) {
+        auditComment = `Conduce ${g}${auditComment ? ` · ${auditComment}` : ''}`;
+      }
+    }
+
     const candidate: TraceabilityEvent = {
       id: `audit-${row.id}`,
       changed_at: row.created_at,
       action: row.action,
       status: px?.status || auditActionToStatus(row.action, payload),
       module: moduleLabel,
-      comment: px?.comment || row.observations || row.action,
+      comment: auditComment,
       actorName,
       source: 'audit',
     };
@@ -895,8 +906,23 @@ export async function getEquipmentTraceabilityHistory(params: {
         'Traslado / dispersión de caja';
     } else if (type === 'SALIDA') {
       status = 'dispatched';
-      comment =
-        (typeof mov.notes === 'string' && mov.notes.trim()) || 'Salida de bodega';
+      const conduce =
+        (typeof mov.guide_number === 'string' && mov.guide_number.trim()) ||
+        (typeof mov.target_location === 'string' &&
+        /^TC-INV-/i.test(mov.target_location.trim())
+          ? mov.target_location.trim()
+          : '') ||
+        '';
+      const note = typeof mov.notes === 'string' ? mov.notes.trim() : '';
+      const boxLabel =
+        (typeof mov.box_code === 'string' && mov.box_code.trim()) || boxCode || '';
+      comment = [
+        conduce ? `Conduce ${conduce}` : 'Salida de bodega',
+        boxLabel ? `Caja ${boxLabel}` : '',
+        note && !note.toLowerCase().includes('despacho') ? note : '',
+      ]
+        .filter(Boolean)
+        .join(' · ');
     }
 
     const actorName =

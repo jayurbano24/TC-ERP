@@ -634,7 +634,10 @@ export default function DespachoPage() {
     const sapStatus = scanServiceOrder?.sap_integration_status || 'Pendiente Validación';
     const sapDecision = sapValidationReader.authorize({ integrationStatus: sapStatus }, 'dispatch');
     if (!sapDecision.allowed) {
-      notify.error('Bloqueo operativo (Integración SAP)', { description: `El equipo no puede despacharse porque su estado es "${sapStatus}". Solo los equipos "Validado SAP" tienen permitido el despacho.`, duration: 0 });
+      notify.error('Bloqueo operativo (Integración SAP)', {
+        description: `El equipo no puede despacharse porque su estado es "${sapStatus}". Bloqueados: Sin Coincidencia y Obsoleto.`,
+        duration: 0,
+      });
       return;
     }
 
@@ -885,27 +888,56 @@ export default function DespachoPage() {
         minute: '2-digit',
       });
 
-      await printOutboundDetalle(
-        [
-          {
-            outboundCode: boxCode,
-            brandName,
-            modelName,
-            techName,
-            cantidad: data.equipos_count || data.items.length,
-            material: data.box?.material || hist.material || '',
-            valuation: data.box?.valuation || hist.valuation || '',
-          },
-        ],
-        {
-          fechaSalida,
-          numeroSalida: data.dispatch.guide_number || hist.guide_number || undefined,
-          trasladoSap: data.dispatch.traslado_sap || undefined,
-          notaEntrega: data.dispatch.nota_entrega || undefined,
-          destino: data.dispatch.destino || undefined,
-          origen: 'Tech Corps Guatemala S.A.',
-        }
-      );
+      const isIndividual = String(hist.dispatch_type || '').toLowerCase() === 'individual';
+      const detalleRows = isIndividual
+        ? data.items.map((item: {
+            serial_number?: string;
+            s1?: string;
+            material?: string;
+            valuation?: string;
+            brand_id?: string | null;
+            model_id?: string | null;
+          }) => {
+            const itemBrandId = item.brand_id || brandId;
+            const itemModelId = item.model_id || modelId;
+            const itemBrand = dbBrands.find((b) => b.id === itemBrandId)?.name || brandName;
+            const itemModel = dbModels.find((m) => m.id === itemModelId);
+            const itemModelName = itemModel?.name || modelName;
+            const itemTech =
+              dbTechs.find((t) => t.id === itemModel?.technology_id)?.name || techName;
+            const sn = String(item.serial_number || item.s1 || '').trim();
+            return {
+              outboundCode: boxCode,
+              brandName: itemBrand,
+              modelName: itemModelName,
+              techName: itemTech,
+              cantidad: 1,
+              material: item.material || data.box?.material || hist.material || '',
+              valuation: item.valuation || data.box?.valuation || hist.valuation || '',
+              series: sn ? [sn] : [],
+            };
+          })
+        : [
+            {
+              outboundCode: boxCode,
+              brandName,
+              modelName,
+              techName,
+              cantidad: data.equipos_count || data.items.length,
+              material: data.box?.material || hist.material || '',
+              valuation: data.box?.valuation || hist.valuation || '',
+            },
+          ];
+
+      await printOutboundDetalle(detalleRows, {
+        fechaSalida,
+        numeroSalida: data.dispatch.guide_number || hist.guide_number || undefined,
+        trasladoSap: data.dispatch.traslado_sap || undefined,
+        notaEntrega: data.dispatch.nota_entrega || undefined,
+        destino: data.dispatch.destino || undefined,
+        origen: 'Tech Corps Guatemala S.A.',
+        includeSeries: isIndividual,
+      });
 
       await printOutboundLabels(
         [
@@ -1884,6 +1916,7 @@ export default function DespachoPage() {
       {showSalidaModal && salidaBoxes.length > 0 && (
         <DespachoSalidaModal
           boxes={salidaBoxes}
+          dispatchType={dispatchType}
           onClose={() => setShowSalidaModal(false)}
           onDone={() => {
             setShowSalidaModal(false);

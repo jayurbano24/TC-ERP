@@ -1,3 +1,4 @@
+import { apiFetch, readApiJson } from '@/lib/http/apiFetch';
 import { groupSeriesToUiRows } from './warehouseSeriesUi';
 
 /** Descarga todas las series de una caja (paginación cursor) vía API V2. */
@@ -10,11 +11,8 @@ export async function fetchAllBoxSeries(boxId: string): Promise<any[]> {
     if (cursor) url.searchParams.set('cursor', cursor);
     url.searchParams.set('limit', '100');
 
-    const res = await fetch(url.toString(), { credentials: 'same-origin' });
-    const data = await res.json();
-    if (!res.ok || data.error) {
-      throw new Error(data.error || 'No se pudieron cargar las series de la caja');
-    }
+    const res = await apiFetch(url.toString());
+    const data = await readApiJson<{ items?: unknown[]; nextCursor?: string | null }>(res);
     all.push(...(data.items || []));
     if (!data.nextCursor) break;
     cursor = data.nextCursor;

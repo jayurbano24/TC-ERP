@@ -13,16 +13,17 @@ describe('DefaultSapValidationReader (gate de validación SAP)', () => {
     expect(reader.resolveStatus({ integrationStatus: 'algo-raro' })).toBe('Pendiente Validación');
   });
 
-  it('autoriza el despacho solo cuando el estado es "Validado SAP"', () => {
+  it('autoriza despacho con Validado SAP y Pendiente Validación (Conduce sin cierre SAP)', () => {
     const ok = reader.authorize({ integrationStatus: 'Validado SAP' }, 'dispatch');
     expect(ok.allowed).toBe(true);
     expect(ok.status).toBe('Validado SAP');
 
-    const blocked = reader.authorize({ integrationStatus: 'Pendiente Validación' }, 'dispatch');
-    expect(blocked.allowed).toBe(false);
-    if (!blocked.allowed) {
-      expect(blocked.reason).toContain('no se puede despachar');
-    }
+    const pending = reader.authorize({ integrationStatus: 'Pendiente Validación' }, 'dispatch');
+    expect(pending.allowed).toBe(true);
+    expect(pending.status).toBe('Pendiente Validación');
+
+    const review = reader.authorize({ integrationStatus: 'Pendiente Revisión' }, 'dispatch');
+    expect(review.allowed).toBe(true);
   });
 
   it('permite traslado en "Pendiente Validación" pero lo bloquea en "Sin Coincidencia"', () => {

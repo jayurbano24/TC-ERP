@@ -9,6 +9,8 @@ export type OutboundDetalleRow = {
   material?: string;
   valuation?: string;
   fechaSalida?: string;
+  /** Series primarias del equipo (S1 / SN). Se muestran en conduce individual. */
+  series?: string[];
 };
 
 export type OutboundDetalleMeta = {
@@ -18,6 +20,8 @@ export type OutboundDetalleMeta = {
   notaEntrega?: string;
   destino?: string;
   origen?: string;
+  /** Conduce individual: muestra columna Series. */
+  includeSeries?: boolean;
 };
 
 const escapeHtml = (s: string) =>
@@ -69,6 +73,9 @@ export async function printOutboundDetalle(
   const nota = String(meta.notaEntrega || '').trim() || '—';
   const origen = String(meta.origen || 'Tech Corps Guatemala S.A.').trim() || 'Tech Corps Guatemala S.A.';
   const destino = String(meta.destino || '').trim() || '—';
+  const includeSeries =
+    meta.includeSeries === true ||
+    rows.some((r) => Array.isArray(r.series) && r.series.some((s) => String(s || '').trim()));
 
   let totalEquipos = 0;
   let totalValorados = 0;
@@ -83,9 +90,15 @@ export async function printOutboundDetalle(
       const kind = valoracionKind(r.valuation);
       if (kind === 'val') totalValorados += qty;
       else if (kind === 'noval') totalNoValorados += qty;
+      const seriesHtml = (r.series || [])
+        .map((s) => String(s || '').trim())
+        .filter(Boolean)
+        .map((s) => escapeHtml(s))
+        .join('<br/>');
       return `
         <tr>
           <td class="mono">${escapeHtml(outboundNum)}</td>
+          ${includeSeries ? `<td class="mono series-cell">${seriesHtml || '—'}</td>` : ''}
           <td>${escapeHtml(r.brandName || '—')}</td>
           <td>${escapeHtml(r.modelName || '—')}</td>
           <td>${escapeHtml(r.techName || '—')}</td>
@@ -272,6 +285,7 @@ export async function printOutboundDetalle(
     }
     tbody tr:last-child td { border-bottom: none; }
     .mono { font-family: Consolas, "Courier New", monospace; }
+    .series-cell { font-size: 8pt; line-height: 1.35; word-break: break-all; }
     .num { text-align: right; font-variant-numeric: tabular-nums; }
 
     .badge {
@@ -374,6 +388,7 @@ export async function printOutboundDetalle(
       <thead>
         <tr>
           <th>Outbound</th>
+          ${includeSeries ? '<th>Series</th>' : ''}
           <th>Marca</th>
           <th>Modelo</th>
           <th>Tecnología</th>

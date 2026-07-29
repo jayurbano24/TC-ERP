@@ -127,12 +127,35 @@ export function resolveWarehouseStatusLabel(status: string | null | undefined): 
   }
 }
 
-/** Cajas operativas de Gestión de Bodega (excluye taller, scrap, despacho, eliminado). */
+/**
+ * Cajas de staging de despacho / salida (no son stock de Bodega Central).
+ * Ej.: cajas LEGACY creadas en Despacho con rack_location = OUTBOUND.
+ */
+export function isOutboundStagingRack(rack: string | null | undefined): boolean {
+  const r = String(rack || '').trim().toUpperCase();
+  if (!r) return false;
+  if (r === 'OUTBOUND' || r === 'DESPACHO' || r === 'SALIDA') return true;
+  if (r.startsWith('SALIDA')) return true;
+  return false;
+}
+
+/** Cajas de Bodega SCRAP (transferencia o despacho scrap). */
+export function isScrapStagingRack(rack: string | null | undefined): boolean {
+  const r = String(rack || '').trim().toUpperCase();
+  if (!r) return false;
+  if (r === 'SCRAP' || r === 'SCRAPS') return true;
+  if (r.startsWith('SCRAP')) return true;
+  return false;
+}
+
+/** Cajas operativas de Gestión de Bodega (excluye taller, scrap, despacho/outbound, eliminado). */
 export function isBodegaOperationalRack(rack: string | null | undefined): boolean {
   const r = String(rack || '').trim().toUpperCase();
   if (!r) return true;
-  if (r === 'ELIMINADO' || r === 'DESPACHO' || r === 'SCRAP') return false;
-  if (r.startsWith('TALLER')) return false;
+  if (r === 'ELIMINADO' || r === 'DESPACHO' || r === 'OUTBOUND' || r === 'SCRAP' || r === 'SCRAPS' || r === 'SALIDA') {
+    return false;
+  }
+  if (r.startsWith('TALLER') || r.startsWith('SALIDA') || r.startsWith('SCRAP')) return false;
   return true;
 }
 
@@ -1101,6 +1124,47 @@ export async function transferSpecificSeriesToArea(boxId: string, seriesNumbers:
   return { success: true };
 }
 
+/** Expande SNs seleccionados a todas las series del mismo equipo (S1–S4 / allSeries). */
+export function expandSelectedSeriesForOs(
+  boxSeries: Array<{
+    sn?: string;
+    serial_number?: string;
+    s1?: string;
+    s2?: string;
+    s3?: string;
+    s4?: string;
+    allSeries?: string[];
+  }> | null | undefined,
+  selected: string[]
+): string[] {
+  const norm = (v: string | null | undefined) =>
+    String(v || '')
+      .trim()
+      .toUpperCase()
+      .replace(/\s+/g, '');
+  const selectedSet = new Set((selected || []).map(norm).filter(Boolean));
+  const out = new Set<string>(selectedSet);
+
+  for (const row of boxSeries || []) {
+    const candidates = [
+      row.serial_number,
+      row.sn,
+      row.s1,
+      row.s2,
+      row.s3,
+      row.s4,
+      ...(Array.isArray(row.allSeries) ? row.allSeries : []),
+    ]
+      .map(norm)
+      .filter(Boolean);
+    if (candidates.some((c) => selectedSet.has(c))) {
+      for (const c of candidates) out.add(c);
+    }
+  }
+
+  return [...out];
+}
+
 export async function dispatchSpecificSeries(
   boxId: string,
   seriesNumbers: string[],
@@ -1109,50 +1173,63 @@ export async function dispatchSpecificSeries(
   dispatchBatchId?: string
 ) {
   invalidateInventoryBoxesCache();
-  const supabase = getSupabaseBrowserClient();
-  if (!supabase) return { error: "Supabase not configured" };
 
-  const { operatorId, userName } = await resolveWarehouseOperator(supabase);
-
-  const uniqueSeries = [...new Set((seriesNumbers || []).map((s) => s?.trim().toUpperCase()).filter(Boolean))];
+  const uniqueSeries = [
+    ...new Set((seriesNumbers || []).map((s) => s?.trim().toUpperCase()).filter(Boolean)),
+  ];
   if (uniqueSeries.length === 0) {
     return { error: 'Debe seleccionar al menos una serie.' };
   }
 
-  const { data: targetSeries, error: fetchError } = await supabase
-    .from('series')
-    .select('id')
-    .in('serial_number', uniqueSeries);
+  // API server-side (service role) — evita cuelgue del RPC en browser / 401 infinito.
+  try {
+    const { apiFetch } = await import('@/lib/http/apiFetch');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 45_000);
+    const res = await apiFetch(`/api/v1/warehouse/boxes/${boxId}/dispatch-partial`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        serialNumbers: uniqueSeries,
+        destination: destination || '',
+        notes: notes || null,
+        dispatchBatchId: dispatchBatchId || null,
+      }),
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeout));
 
-  if (fetchError) return { error: fetchError.message };
+    const payload = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      success?: boolean;
+      dispatch_id?: string;
+      series_count?: number;
+      equipos_remaining?: number;
+      series_remaining?: number;
+      box_empty?: boolean;
+      guideNumber?: string;
+    };
 
-  const { data, error } = await supabase.rpc('warehouse_salida_parcial_tx', {
-    p_box_id: boxId,
-    p_serial_numbers: uniqueSeries,
-    p_destination: destination || '',
-    p_guide_number: destination || '',
-    p_operator_id: asUuidOrNull(operatorId),
-    p_operator_name: userName,
-    p_notes: notes || null,
-    p_idempotency_key: warehouseBoxIdempotencyKey(
-      boxId,
-      'salida',
-      `${destination}:${uniqueSeries.sort().join(',')}`
-    ),
-    p_dispatch_batch_id: asUuidOrNull(dispatchBatchId),
-  });
-
-  if (error) return { error: error.message };
-
-  const payload = data as { dispatch_id?: string };
-  if (payload?.dispatch_id && targetSeries?.length) {
-    const { logAudit } = await import('@/lib/database/audit');
-    for (const s of targetSeries) {
-      await logAudit('series', s.id, 'DESPACHO CREADO', { dispatch_id: payload.dispatch_id, destination });
+    if (res.status === 401) {
+      return { error: 'Sesión expirada. Vuelva a iniciar sesión e intente de nuevo.' };
     }
-  }
+    if (!res.ok) {
+      return { error: payload.error || `Error HTTP ${res.status}` };
+    }
+    if (!payload.series_count || payload.series_count < 1) {
+      return { error: 'Ninguna serie fue despachada. Verifique que pertenezcan a la caja.' };
+    }
 
-  return { success: true };
+    return {
+      success: true,
+      data: payload,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/abort/i.test(msg)) {
+      return { error: 'El despacho tardó demasiado. Verifique en Consulta y reintente si hace falta.' };
+    }
+    return { error: msg || 'Error inesperado al despachar series.' };
+  }
 }
 
 export async function getInventoryDetails() {

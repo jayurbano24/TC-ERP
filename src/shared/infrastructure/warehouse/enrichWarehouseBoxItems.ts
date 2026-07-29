@@ -350,7 +350,8 @@ export async function enrichWarehouseBoxItems(
 
     return {
       ...item,
-      capacity: item.capacity ?? (boxMeta?.capacity as number | undefined) ?? null,
+      // Preferir capacity fresca de boxes (evita valor stale del list RPC).
+      capacity: (boxMeta?.capacity as number | undefined) ?? item.capacity ?? null,
       equipos_count: item.equipos_count ?? null,
       deletion_status: (boxMeta?.deletion_status as string | undefined) ?? null,
       assigned_operator_id: assignedId,

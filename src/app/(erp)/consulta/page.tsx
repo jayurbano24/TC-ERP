@@ -405,6 +405,12 @@ export default function ConsultaPage() {
         setHistory(hist);
 
         const supabase = getSupabaseBrowserClient();
+        let outboundDispatch: {
+          guide_number: string;
+          dispatched_at: string | null;
+          dispatch_id: string | null;
+        } | null = null;
+
         if (supabase) {
           const knownSerials = [
             ...equipmentSerials,
@@ -425,14 +431,84 @@ export default function ConsultaPage() {
                 : siblings.map((s) => s.serial_number).filter(Boolean),
           }));
           setIngresoHistory(withSerials);
+
+          // Conduce de salida (despacho) del equipo / OS completo
+          if (siblingIds.length > 0) {
+            const { data: diRows } = await supabase
+              .from('dispatch_items')
+              .select(
+                'series_id, created_at, dispatches:dispatch_id(id, guide_number, dispatched_at, notes)'
+              )
+              .in('series_id', siblingIds)
+              .order('created_at', { ascending: false })
+              .limit(20);
+
+            type DispatchLite = {
+              id?: string;
+              guide_number?: string | null;
+              dispatched_at?: string | null;
+            };
+            let best: DispatchLite | null = null;
+            let bestAt = 0;
+            for (const row of diRows || []) {
+              const d = (
+                Array.isArray((row as { dispatches?: DispatchLite | DispatchLite[] }).dispatches)
+                  ? (row as { dispatches: DispatchLite[] }).dispatches[0]
+                  : (row as { dispatches?: DispatchLite }).dispatches
+              ) as DispatchLite | undefined;
+              const guide = String(d?.guide_number || '').trim();
+              if (!guide) continue;
+              const at = new Date(d?.dispatched_at || (row as { created_at?: string }).created_at || 0).getTime();
+              if (at >= bestAt) {
+                bestAt = at;
+                best = d || null;
+              }
+            }
+            if (best?.guide_number) {
+              outboundDispatch = {
+                guide_number: String(best.guide_number).trim(),
+                dispatched_at: best.dispatched_at || null,
+                dispatch_id: best.id || null,
+              };
+            }
+
+            // Fallback: movimiento SALIDA de bodega con guide_number (TC-INV-…)
+            if (!outboundDispatch) {
+              const { data: salidaRows } = await supabase
+                .from('warehouse_movements')
+                .select('guide_number, target_location, created_at')
+                .eq('movement_type', 'SALIDA')
+                .overlaps('series_ids', siblingIds)
+                .order('created_at', { ascending: false })
+                .limit(5);
+              for (const mov of salidaRows || []) {
+                const g = String(mov.guide_number || mov.target_location || '').trim();
+                if (g && /^TC-INV-/i.test(g)) {
+                  outboundDispatch = {
+                    guide_number: g,
+                    dispatched_at: mov.created_at || null,
+                    dispatch_id: null,
+                  };
+                  break;
+                }
+              }
+            }
+          }
         }
+
+        const isDispatched =
+          (preferredSibling.current_status ?? exactMatch.current_status) === 'dispatched';
 
         setSeriesData({
           ...exactMatch,
           current_status: preferredSibling.current_status ?? exactMatch.current_status,
-          current_box_id: preferredSibling.current_box_id ?? exactMatch.current_box_id,
+          current_box_id: isDispatched
+            ? null
+            : preferredSibling.current_box_id ?? exactMatch.current_box_id,
+          boxes: isDispatched || !preferredSibling.current_box_id ? null : exactMatch.boxes,
           receptions: reception,
           _trayCtx: trayCtx,
+          _outboundDispatch: outboundDispatch,
         });
       } else {
         setSeriesData(exactMatch);
@@ -823,8 +899,34 @@ export default function ConsultaPage() {
                     </div>
                     <div className="flex justify-between items-center text-sm border-t border-[var(--border)] pt-2 mt-2">
                       <span className="text-[var(--muted)]">Ubicación:</span>
-                      <span className="text-amber-400 font-bold">{seriesData.boxes ? seriesData.boxes.box_code : 'Sin Caja'}</span>
+                      <span
+                        className={
+                          seriesData.boxes?.box_code
+                            ? 'text-amber-400 font-bold'
+                            : seriesData._outboundDispatch?.guide_number ||
+                                seriesData.current_status === 'dispatched'
+                              ? 'text-emerald-400 font-bold'
+                              : 'text-amber-400 font-bold'
+                        }
+                      >
+                        {seriesData.boxes?.box_code
+                          ? seriesData.boxes.box_code
+                          : seriesData._outboundDispatch?.guide_number
+                            ? `Despachado · ${seriesData._outboundDispatch.guide_number}`
+                            : seriesData.current_status === 'dispatched'
+                              ? 'Despachado (sin conduce)'
+                              : 'Sin Caja'}
+                      </span>
                     </div>
+                    {(seriesData._outboundDispatch?.guide_number ||
+                      seriesData.current_status === 'dispatched') && (
+                      <div className="flex justify-between items-center text-sm rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2 py-2">
+                        <span className="text-[var(--muted)]">Conduce de Salida:</span>
+                        <span className="font-mono font-black text-emerald-400">
+                          {seriesData._outboundDispatch?.guide_number || '—'}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
 

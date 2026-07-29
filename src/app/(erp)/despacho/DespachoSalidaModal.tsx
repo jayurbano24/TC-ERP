@@ -29,6 +29,8 @@ export type SalidaBoxSummary = {
 
 type Props = {
   boxes: SalidaBoxSummary[];
+  /** Si es individual, el conduce lista Series por equipo. */
+  dispatchType?: 'massive' | 'individual' | 'master_box';
   onClose: () => void;
   onDone: () => void;
 };
@@ -177,7 +179,7 @@ async function loadBoxItems(boxDbId: string): Promise<DespachoBoxItem[]> {
   return loadBoxItemsViaSupabase(boxDbId);
 }
 
-export function DespachoSalidaModal({ boxes, onClose, onDone }: Props) {
+export function DespachoSalidaModal({ boxes, dispatchType = 'master_box', onClose, onDone }: Props) {
   const [channel, setChannel] = useState<ClientChannel>('CAC');
   const [clientId, setClientId] = useState('');
   const [trasladoSap, setTrasladoSap] = useState('');
@@ -217,8 +219,53 @@ export function DespachoSalidaModal({ boxes, onClose, onDone }: Props) {
       items: detailByBox[b.dbId] || [],
     }));
 
-  const buildDetalleRows = (targetBoxes: SalidaBoxSummary[]) =>
-    targetBoxes.map((b) => ({
+  const buildDetalleRows = (targetBoxes: SalidaBoxSummary[]) => {
+    if (dispatchType === 'individual') {
+      const rows: Array<{
+        outboundCode: string;
+        brandName?: string;
+        modelName?: string;
+        techName?: string;
+        cantidad: number;
+        material?: string;
+        valuation?: string;
+        series: string[];
+      }> = [];
+      for (const b of targetBoxes) {
+        const items = detailByBox[b.dbId] || [];
+        if (items.length === 0) {
+          const preview = (b.series_preview || [])
+            .map((s) => String(s || '').trim())
+            .filter(Boolean);
+          rows.push({
+            outboundCode: b.id,
+            brandName: b.brandName,
+            modelName: b.modelName,
+            techName: b.techName,
+            cantidad: Number(b.filled_count ?? b.unidades) || preview.length || 1,
+            material: b.material,
+            valuation: b.valuation,
+            series: preview,
+          });
+          continue;
+        }
+        for (const item of items) {
+          const sn = String(item.serial_number || item.s1 || '').trim();
+          rows.push({
+            outboundCode: b.id,
+            brandName: b.brandName,
+            modelName: b.modelName,
+            techName: b.techName,
+            cantidad: 1,
+            material: item.material || b.material,
+            valuation: item.valuation || b.valuation,
+            series: sn ? [sn] : [],
+          });
+        }
+      }
+      return rows;
+    }
+    return targetBoxes.map((b) => ({
       outboundCode: b.id,
       brandName: b.brandName,
       modelName: b.modelName,
@@ -227,6 +274,7 @@ export function DespachoSalidaModal({ boxes, onClose, onDone }: Props) {
       material: b.material,
       valuation: b.valuation,
     }));
+  };
 
   const handlePrintDetalle = async (
     targetBoxes: SalidaBoxSummary[] = boxes,
@@ -260,6 +308,7 @@ export function DespachoSalidaModal({ boxes, onClose, onDone }: Props) {
         notaEntrega: notaEntrega.trim() || undefined,
         destino: destinoLabel || undefined,
         origen: 'Tech Corps Guatemala S.A.',
+        includeSeries: dispatchType === 'individual',
       });
     } catch (e: any) {
       notify.error('No se pudo generar el Número de Salida', {

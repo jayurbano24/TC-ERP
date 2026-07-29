@@ -35,7 +35,7 @@ import {
   Truck,
   PackageMinus
 } from 'lucide-react';
-import { getInventoryBoxes, transferBoxesToArea, transferBoxesToAreaInBatches, startOrAppendBodegaScan, finalizeBodegaScan, listInProgressBodegaBoxes, requestBoxDeletion, addSeriesToBox, dispatchBoxFromWarehouse, dispatchSpecificSeries, transferSpecificSeriesToArea, canScanSeriesIntoWarehouse, resolveBoxDisplayStatus, getBoxHistory } from '@/modules/inventario/client/warehouseBoxes';
+import { getInventoryBoxes, transferBoxesToArea, transferBoxesToAreaInBatches, startOrAppendBodegaScan, finalizeBodegaScan, listInProgressBodegaBoxes, requestBoxDeletion, addSeriesToBox, dispatchBoxFromWarehouse, dispatchSpecificSeries, transferSpecificSeriesToArea, canScanSeriesIntoWarehouse, resolveBoxDisplayStatus, getBoxHistory, expandSelectedSeriesForOs } from '@/modules/inventario/client/warehouseBoxes';
 import { isBodegaOperationalRack } from '@/lib/database/warehouse';
 import { DispatchBatchSelector } from '@/modules/outbound-dispatch/components/DispatchBatchSelector';
 import { isHexagonalOutboundDispatchEnabled } from '@/modules/outbound-dispatch';
@@ -175,17 +175,31 @@ export default function BodegaGestionV2({
       setSelectedBox({ ...item, series: [] });
       setLoadingBoxDetail(true);
       try {
-        const capacity = Number(item.cantidad || item.capacity || 0);
+        const boxDbId = item.realDbId || item.id;
+        let capacity = Number(item.cantidad || item.capacity || 0);
+        // Capacity fresca de BD (tras salida parcial puede haber bajado 60→59).
+        const supabase = getSupabaseBrowserClient();
+        if (supabase && boxDbId) {
+          const { data: boxRow } = await supabase
+            .from('boxes')
+            .select('capacity')
+            .eq('id', boxDbId)
+            .maybeSingle();
+          if (boxRow?.capacity != null && Number(boxRow.capacity) > 0) {
+            capacity = Number(boxRow.capacity);
+          }
+        }
         const series = await ensureBoxSeriesLoaded(item);
         const equipos = series.length
           ? new Set(series.map((s: any) => s.service_orders?.id || s.ordenServicio || s.sn || s.serial_number)).size
           : Number(item.unitCount || 0);
+        const cap = capacity > 0 ? capacity : Math.max(equipos, 1);
         setSelectedBox({
           ...item,
-          cantidad: capacity > 0 ? capacity : Math.max(equipos, 1),
+          cantidad: cap,
           series,
           unitCount: equipos,
-          status: resolveBoxDisplayStatus(equipos, capacity),
+          status: resolveBoxDisplayStatus(equipos, cap),
         });
       } catch (err) {
         console.error(err);
@@ -208,8 +222,29 @@ export default function BodegaGestionV2({
       setLoadingDispatchSeries(true);
 
       try {
+        const boxId = item.realDbId || item.id;
+        // Evitar cache vacío previo (RLS / auth fallida) al reabrir despacho.
+        if (boxId) boxSeriesCache.current.delete(boxId);
         const series = await ensureBoxSeriesLoaded(item);
-        setShowDispatchModal({ ...item, series, unitCount: item.unitCount ?? series.length });
+        const equipos = series.length
+          ? new Set(
+              series.map(
+                (s: any) => s.service_orders?.id || s.ordenServicio || s.sn || s.serial_number
+              )
+            ).size
+          : Number(item.unitCount || 0);
+        setShowDispatchModal({
+          ...item,
+          series,
+          unitCount: equipos || Number(item.unitCount || 0),
+        });
+
+        if (series.length === 0 && Number(item.unitCount || 0) > 0) {
+          notify.warning('Series no cargadas', {
+            description:
+              'El conteo de la caja existe pero no se leyeron series. Prueba «Toda la caja» o reabre el modal.',
+          });
+        }
 
         const supabase = getSupabaseBrowserClient();
         if (supabase) {
@@ -524,8 +559,36 @@ export default function BodegaGestionV2({
     }));
   }, [statsData, techName]);
 
-  const handleExportReport = () => {
-    window.open('/api/v1/warehouse/boxes/export', '_blank');
+  const handleExportReport = async () => {
+    try {
+      const res = await apiFetch('/api/v1/warehouse/boxes/export');
+      if (isApiAuthFailure(res.status, null)) {
+        await haltForLoginRedirect();
+        return;
+      }
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => ({}))) as { error?: string; detail?: string };
+        notify.error(payload.error || 'Error generando reporte', {
+          description: payload.detail,
+        });
+        return;
+      }
+      const blob = await res.blob();
+      const today = new Date().toISOString().slice(0, 10);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Reporte_Detalle_Cajas_${today}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      notify.success('Reporte descargado');
+    } catch (err) {
+      notify.error('Error generando reporte', {
+        description: err instanceof Error ? err.message : undefined,
+      });
+    }
   };
 
   useEffect(() => {
@@ -642,25 +705,35 @@ export default function BodegaGestionV2({
           );
           error = res.error;
         } else {
+          const expanded = expandSelectedSeriesForOs(
+            seriesToCheck.length ? seriesToCheck : box?.series,
+            selectedSeriesForDispatch
+          );
           const res = await dispatchSpecificSeries(
             realDbId || boxId,
-            selectedSeriesForDispatch,
+            expanded,
             dispatchDestination,
             dispatchNotes,
             batchId
           );
           error = res.error;
+          if (!error && res.data?.equipos_remaining != null) {
+            notify.success('Despacho registrado', {
+              description: `Conduce ${dispatchDestination}. Equipos restantes en caja: ${res.data.equipos_remaining}.`,
+            });
+          }
         }
       }
       
       if (error) {
         notify.error('Error despachando', { description: String(error) });
       } else {
-        notify.success(dispatchAction === 'despacho' ? 'Despacho registrado' : 'Traslado registrado');
-        await refreshWarehouseLists();
-        if (dispatchAction === 'traslado' && dispatchArea === 'Diagnóstico') {
-          await queryClient.invalidateQueries({ queryKey: ['workshop-tab-counts'] });
+        const wasTrasladoDiagnostico =
+          dispatchAction === 'traslado' && dispatchArea === 'Diagnóstico';
+        if (dispatchAction !== 'despacho' || dispatchMode === 'all') {
+          notify.success(dispatchAction === 'despacho' ? 'Despacho registrado' : 'Traslado registrado');
         }
+        // Cerrar modal de inmediato; el refresh no debe dejar "Procesando…" colgado.
         setShowDispatchModal(null);
         setSelectedBox(null);
         setDispatchDestination('');
@@ -668,12 +741,20 @@ export default function BodegaGestionV2({
         setSelectedSeriesForDispatch([]);
         setDispatchMode('all');
         setDispatchAction('despacho');
+        void Promise.race([
+          refreshWarehouseLists(),
+          new Promise<void>((resolve) => setTimeout(resolve, 12_000)),
+        ]).catch(() => undefined);
+        if (wasTrasladoDiagnostico) {
+          void queryClient.invalidateQueries({ queryKey: ['workshop-tab-counts'] });
+        }
       }
     } catch (err) {
       console.error(err);
       notify.error("Error inesperado al despachar.");
+    } finally {
+      setIsDispatching(false);
     }
-    setIsDispatching(false);
   };
 
   useEffect(() => {
@@ -1680,7 +1761,23 @@ export default function BodegaGestionV2({
       subtitle="Control de racks, cajas homogéneas y movimientos de inventario de alta capacidad (+400K)."
       category="Bodega"
       actions={
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
+          <Link href="/bodega/salida" className="inline-flex">
+            <Button
+              variant="outline"
+              leftIcon={<PackageMinus className="w-4 h-4" />}
+            >
+              Bodega de Salida
+            </Button>
+          </Link>
+          <Link href="/bodega/scraps" className="inline-flex">
+            <Button
+              variant="outline"
+              leftIcon={<Trash2 className="w-4 h-4" />}
+            >
+              Bodega SCRAPS
+            </Button>
+          </Link>
           <Link href="/bodega/inventario" className="inline-flex">
             <Button 
               variant="outline" 

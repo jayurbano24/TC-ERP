@@ -6,12 +6,79 @@ import { Wrench, AlertTriangle, Search, CheckCircle, Activity, Clock, CheckCircl
 
 type TallerVista = 'realizado' | 'pendiente';
 
+type PorTecnicoRow = {
+  tecnico: string;
+  diagnostico: number;
+  reacondicionado: number;
+  reparacion: number;
+  qcAprobadas: number;
+  qcRechazadas: number;
+  qc: number;
+  totalEtapas: number;
+};
+
+/** Matriz KPO desde API o armada desde tablas por etapa (fallback). */
+function buildPorTecnico(data: any): PorTecnicoRow[] {
+  const fromApi = data?.tables?.porTecnico as PorTecnicoRow[] | undefined;
+  if (Array.isArray(fromApi) && fromApi.length > 0) return fromApi;
+
+  const map = new Map<string, PorTecnicoRow>();
+  const bump = (name: string, patch: Partial<PorTecnicoRow>) => {
+    if (!name || name === 'Sin registros') return;
+    let row = map.get(name);
+    if (!row) {
+      row = {
+        tecnico: name,
+        diagnostico: 0,
+        reacondicionado: 0,
+        reparacion: 0,
+        qcAprobadas: 0,
+        qcRechazadas: 0,
+        qc: 0,
+        totalEtapas: 0,
+      };
+      map.set(name, row);
+    }
+    Object.assign(row, {
+      diagnostico: row.diagnostico + (patch.diagnostico || 0),
+      reacondicionado: row.reacondicionado + (patch.reacondicionado || 0),
+      reparacion: row.reparacion + (patch.reparacion || 0),
+      qcAprobadas: row.qcAprobadas + (patch.qcAprobadas || 0),
+      qcRechazadas: row.qcRechazadas + (patch.qcRechazadas || 0),
+    });
+    row.qc = row.qcAprobadas + row.qcRechazadas;
+    row.totalEtapas = row.diagnostico + row.reacondicionado + row.reparacion + row.qc;
+  };
+
+  for (const r of data?.tables?.diagnostico || []) {
+    bump(r.tecnico, { diagnostico: Number(r.procesadas || 0) });
+  }
+  for (const r of data?.tables?.reacondicionado || []) {
+    bump(r.tecnico, { reacondicionado: Number(r.completadas || r.reacondicionadas || 0) });
+  }
+  for (const r of data?.tables?.reparacion || []) {
+    bump(r.tecnico, { reparacion: Number(r.reparadas || 0) });
+  }
+  for (const r of data?.tables?.cc || []) {
+    bump(r.inspector || r.tecnico, {
+      qcAprobadas: Number(r.aprobadas || 0),
+      qcRechazadas: Number(r.rechazadas || 0),
+    });
+  }
+
+  return [...map.values()]
+    .filter((r) => r.totalEtapas > 0)
+    .sort((a, b) => b.totalEtapas - a.totalEtapas);
+}
+
 export function TallerKpiView({ data, timeRange = 'Hoy' }: { data: any; timeRange?: string }) {
   const [vista, setVista] = useState<TallerVista>('realizado');
+  const [mostrarDetalleEtapas, setMostrarDetalleEtapas] = useState(false);
   if (!data) return null;
 
   const timeLabel = timeRange.toUpperCase();
   const isRealizado = vista === 'realizado';
+  const porTecnico = buildPorTecnico(data);
   const colaTotal =
     Number(data.pendientesDiagnostico || 0) +
     Number(data.pendientesCC || 0) +
@@ -27,11 +94,11 @@ export function TallerKpiView({ data, timeRange = 'Hoy' }: { data: any; timeRang
             <Wrench size={20} />
           </div>
           <div>
-            <h3 className="text-lg font-black text-[#181c3a]">Taller — resumen</h3>
+            <h3 className="text-lg font-black text-[#181c3a]">Taller — KPO por técnico</h3>
             <p className="text-[11px] font-semibold text-slate-500">
               {isRealizado
-                ? `Solo lo COMPLETADO en el periodo (${timeRange}) · 1 OS = 1 equipo`
-                : 'Solo la COLA ACTUAL (lo que aún falta) · no es del día'}
+                ? `Equipos completados por persona y etapa (${timeRange}) · 1 OS = 1 equipo`
+                : 'Cola actual (lo que aún falta) · no es del día'}
             </p>
           </div>
         </div>
@@ -75,9 +142,9 @@ export function TallerKpiView({ data, timeRange = 'Hoy' }: { data: any; timeRang
       {isRealizado ? (
         <>
           <div className="mx-4 mt-1 rounded-lg border border-indigo-100 bg-indigo-50/70 px-3 py-2 text-[12px] font-semibold text-indigo-900">
-            Vista <span className="font-black">Realizado</span>: números de abajo = equipos que{' '}
-            <span className="font-black">ya pasaron</span> la etapa en {timeRange}. No incluye lo que
-            queda en cola.
+            <span className="font-black">KPO Taller</span>: por cada técnico, cuántos equipos hizo en
+            Diag / Reacond / Rep / QC en <span className="font-black">{timeRange}</span>, y el{' '}
+            <span className="font-black">total del día</span> (suma de etapas).
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 px-4">
@@ -113,7 +180,101 @@ export function TallerKpiView({ data, timeRange = 'Hoy' }: { data: any; timeRang
             </Card>
           </div>
 
-          <div className="bg-white mx-4 mb-4 rounded-xl border border-slate-200 overflow-hidden grid grid-cols-1 lg:grid-cols-2">
+          {/* Matriz KPO principal */}
+          <div className="bg-white mx-4 rounded-xl border-2 border-indigo-200 overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-indigo-50 border-b border-indigo-100">
+              <span className="text-xs font-black uppercase tracking-widest text-indigo-900">
+                Por técnico · equipos por etapa ({timeRange})
+              </span>
+              <span className="text-[10px] font-bold text-indigo-700">
+                {porTecnico.length} técnicos · Total etapas:{' '}
+                {porTecnico.reduce((a, r) => a + r.totalEtapas, 0)}
+              </span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left min-w-[720px]">
+                <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
+                  <tr>
+                    <th className="p-3 font-bold sticky left-0 bg-slate-50">Técnico</th>
+                    <th className="p-3 font-bold text-center text-blue-700">Diagnóstico</th>
+                    <th className="p-3 font-bold text-center text-emerald-700">Reacondicionado</th>
+                    <th className="p-3 font-bold text-center text-amber-700">Reparación</th>
+                    <th className="p-3 font-bold text-center text-emerald-700">QC aprobó</th>
+                    <th className="p-3 font-bold text-center text-rose-700">QC rechazó</th>
+                    <th className="p-3 font-black text-center text-[#181c3a] bg-indigo-50/80">
+                      Total día
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {porTecnico.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="p-6 text-center text-slate-400 font-semibold">
+                        Sin trabajo de taller en {timeRange}
+                      </td>
+                    </tr>
+                  )}
+                  {porTecnico.map((r) => (
+                    <tr key={r.tecnico} className="border-b border-slate-50 hover:bg-slate-50/80">
+                      <td className="p-3 font-black text-[#181c3a] sticky left-0 bg-white">
+                        {r.tecnico}
+                      </td>
+                      <td className="p-3 text-center font-bold text-blue-600 tabular-nums">
+                        {r.diagnostico || '—'}
+                      </td>
+                      <td className="p-3 text-center font-bold text-emerald-600 tabular-nums">
+                        {r.reacondicionado || '—'}
+                      </td>
+                      <td className="p-3 text-center font-bold text-amber-600 tabular-nums">
+                        {r.reparacion || '—'}
+                      </td>
+                      <td className="p-3 text-center font-bold text-emerald-600 tabular-nums">
+                        {r.qcAprobadas || '—'}
+                      </td>
+                      <td className="p-3 text-center font-bold text-rose-600 tabular-nums">
+                        {r.qcRechazadas || '—'}
+                      </td>
+                      <td className="p-3 text-center font-black text-[#181c3a] bg-indigo-50/40 tabular-nums">
+                        {r.totalEtapas}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                {porTecnico.length > 0 && (
+                  <tfoot className="bg-slate-100 border-t border-slate-200 font-black text-[#181c3a]">
+                    <tr>
+                      <td className="p-3">TOTAL TALLER</td>
+                      <td className="p-3 text-center text-blue-700">{data.diagnosticadas}</td>
+                      <td className="p-3 text-center text-emerald-700">{data.reacondicionadas}</td>
+                      <td className="p-3 text-center text-amber-700">{data.reparadas}</td>
+                      <td className="p-3 text-center text-emerald-700">{data.aprobadasCC}</td>
+                      <td className="p-3 text-center text-rose-700">{data.rechazadasCC}</td>
+                      <td className="p-3 text-center bg-indigo-100">
+                        {Number(data.diagnosticadas || 0) +
+                          Number(data.reacondicionadas || 0) +
+                          Number(data.reparadas || 0) +
+                          Number(data.aprobadasCC || 0) +
+                          Number(data.rechazadasCC || 0)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+          </div>
+
+          <div className="mx-4">
+            <button
+              type="button"
+              onClick={() => setMostrarDetalleEtapas((v) => !v)}
+              className="w-full py-2.5 text-[10px] font-black uppercase tracking-widest text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
+            >
+              {mostrarDetalleEtapas ? 'Ocultar detalle por etapa (metas)' : 'Ver detalle por etapa + metas'}
+            </button>
+          </div>
+
+          {mostrarDetalleEtapas && (
+          <div className="bg-white mx-4 mb-2 rounded-xl border border-slate-200 overflow-hidden grid grid-cols-1 lg:grid-cols-2">
             {/* Diagnóstico */}
             <div className="border-r border-b border-slate-100 flex flex-col">
               <div className="flex justify-between items-center p-3 bg-blue-50/50 border-b border-slate-100">
@@ -303,6 +464,7 @@ export function TallerKpiView({ data, timeRange = 'Hoy' }: { data: any; timeRang
               </table>
             </div>
           </div>
+          )}
 
           <div className="bg-white mx-4 mb-4 rounded-xl border border-slate-200 overflow-hidden">
             <div className="flex justify-between items-center p-3 bg-slate-50 border-b border-slate-200">

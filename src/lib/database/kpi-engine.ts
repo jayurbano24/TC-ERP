@@ -1549,6 +1549,37 @@ export async function getEngineKPIs(timeRange: string = 'Hoy') {
     ...tallerTechStats[t],
   }));
 
+  /** KPO por técnico: equipos (OS) por etapa + total del periodo. */
+  const tecnicoNames = new Set<string>([
+    ...Object.keys(diagData.userMap),
+    ...Object.keys(reacData.userMap),
+    ...Object.keys(repData.userMap),
+    ...Object.keys(ccAproData.userMap),
+    ...Object.keys(ccRechData.userMap),
+  ]);
+  const porTecnicoTable = [...tecnicoNames]
+    .map((tecnico) => {
+      const diagnostico = diagData.userMap[tecnico]?.size || 0;
+      const reacondicionado = reacData.userMap[tecnico]?.size || 0;
+      const reparacion = repData.userMap[tecnico]?.size || 0;
+      const qcAprobadas = ccAproData.userMap[tecnico]?.size || 0;
+      const qcRechazadas = ccRechData.userMap[tecnico]?.size || 0;
+      const qc = qcAprobadas + qcRechazadas;
+      const totalEtapas = diagnostico + reacondicionado + reparacion + qc;
+      return {
+        tecnico,
+        diagnostico,
+        reacondicionado,
+        reparacion,
+        qcAprobadas,
+        qcRechazadas,
+        qc,
+        totalEtapas,
+      };
+    })
+    .filter((r) => r.totalEtapas > 0)
+    .sort((a, b) => b.totalEtapas - a.totalEtapas);
+
   const tallerWip =
     wipInWorkshop + wipInQc + wipInValidation + wipControl + wipReady + wipIrreparable + wipScrapped;
 
@@ -1628,6 +1659,8 @@ export async function getEngineKPIs(timeRange: string = 'Hoy') {
       aprobadasCC: ccAproData.total,
       rechazadasCC: ccRechData.total,
       tables: {
+        /** Matriz KPO: c/técnico × etapa + total del día/periodo. */
+        porTecnico: porTecnicoTable,
         diagnostico: diagnosticoTable,
         reacondicionado: reacondicionadoTable,
         reparacion: reparacionTable,

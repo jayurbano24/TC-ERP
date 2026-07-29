@@ -62,21 +62,46 @@ const DEFAULT_METRICS: DashboardMetrics = {
 const DEFAULT_STORAGE = { ingresados: 0, despachados: 0, sinMovimiento60: 0, sinMovimiento90: 0 };
 const RENDIMIENTO_PREVIEW = 6;
 
+type ProduccionCanal = 'todos' | 'taller' | 'backoffice' | 'bodega';
+
+function progressForCanal(kpi: UserKPI, canal: ProduccionCanal): number {
+  if (canal === 'todos') return kpi.progress;
+  const ch = kpi.channels;
+  if (!ch) {
+    const b = kpi.breakdown;
+    if (!b) return 0;
+    if (canal === 'taller') {
+      return Math.max(b.diagnostico, b.reparacion, b.reacondicionado, b.qc);
+    }
+    if (canal === 'backoffice') return b.clasificados + b.clasificadosPx;
+    return b.bodega;
+  }
+  if (canal === 'taller') return ch.taller;
+  if (canal === 'backoffice') return ch.backoffice;
+  return ch.bodega;
+}
+
 /** Chips de desglose diario (solo etapas con valor > 0). */
-function formatKpiBreakdown(kpi: UserKPI): string {
+function formatKpiBreakdown(kpi: UserKPI, canal: ProduccionCanal = 'todos'): string {
   const b = kpi.breakdown;
   if (!b) return '';
   const parts: string[] = [];
-  if (b.diagnostico > 0) parts.push(`Diag ${b.diagnostico}`);
-  if (b.reparacion > 0) parts.push(`Rep ${b.reparacion}`);
-  if (b.reacondicionado > 0) parts.push(`Reacond ${b.reacondicionado}`);
-  if (b.qc > 0) parts.push(`QC ${b.qc}`);
-  if (b.clasificados > 0) parts.push(`CAC ${b.clasificados}`);
-  if (b.clasificadosPx > 0) parts.push(`PX ${b.clasificadosPx}`);
-  if (b.bodega > 0) {
-    const cajas =
-      b.bodegaCajas > 0 ? ` (${b.bodegaCajas} caja${b.bodegaCajas === 1 ? '' : 's'})` : '';
-    parts.push(`Bodega ${b.bodega}${cajas}`);
+  if (canal === 'todos' || canal === 'taller') {
+    if (b.diagnostico > 0) parts.push(`Diag ${b.diagnostico}`);
+    if (b.reparacion > 0) parts.push(`Rep ${b.reparacion}`);
+    if (b.reacondicionado > 0) parts.push(`Reacond ${b.reacondicionado}`);
+    if (b.qc > 0) parts.push(`QC ${b.qc}`);
+  }
+  if (canal === 'todos' || canal === 'backoffice') {
+    if (b.clasificados > 0) parts.push(`CAC ${b.clasificados}`);
+    if (b.clasificadosPx > 0) parts.push(`PX ${b.clasificadosPx}`);
+  }
+  if (canal === 'todos' || canal === 'bodega') {
+    if (b.bodega > 0) {
+      const cajas =
+        b.bodegaCajas > 0 ? ` (${b.bodegaCajas} caja${b.bodegaCajas === 1 ? '' : 's'})` : '';
+      parts.push(`Bodega ${b.bodega}${cajas}`);
+    }
   }
   return parts.join(' · ');
 }
@@ -120,6 +145,7 @@ export default function GeneralDashboardPage() {
   const [timeRange, setTimeRange] = useState('Hoy');
   const [rendimientoExpanded, setRendimientoExpanded] = useState(false);
   const [produccionExpanded, setProduccionExpanded] = useState(false);
+  const [produccionCanal, setProduccionCanal] = useState<ProduccionCanal>('todos');
   
   const [sortConfig, setSortConfig] = useState<{key: string, direction: 'asc'|'desc'} | null>(null);
 
@@ -190,7 +216,13 @@ export default function GeneralDashboardPage() {
 
   const kpis = kpisQuery.data ?? EMPTY_KPIS;
   const periodLabel = React.useMemo(() => formatDashboardPeriod(timeRange), [timeRange]);
-  const kpisConTrabajo = React.useMemo(() => kpis.filter((k) => k.progress > 0), [kpis]);
+  const kpisConTrabajo = React.useMemo(() => {
+    const scored = kpis
+      .map((k) => ({ kpi: k, score: progressForCanal(k, produccionCanal) }))
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score);
+    return scored.map((x) => x.kpi);
+  }, [kpis, produccionCanal]);
   const produccionKpis = React.useMemo(
     () =>
       produccionExpanded
@@ -205,6 +237,11 @@ export default function GeneralDashboardPage() {
         : kpisConTrabajo.slice(0, RENDIMIENTO_PREVIEW),
     [kpisConTrabajo, rendimientoExpanded]
   );
+
+  React.useEffect(() => {
+    setProduccionExpanded(false);
+    setRendimientoExpanded(false);
+  }, [produccionCanal, timeRange]);
   const metrics = metricsQuery.data ?? DEFAULT_METRICS;
   const bespokeData = engineQuery.data ?? null;
   const pipelineProjection = pipelineQuery.data?.pipeline ?? null;
@@ -561,7 +598,7 @@ export default function GeneralDashboardPage() {
 
             {/* Producción por Personas */}
             <Card className="p-8 border-2 border-[var(--border)] shadow-sm">
-              <div className="flex items-center justify-between mb-8 gap-3">
+              <div className="flex items-center justify-between mb-4 gap-3">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2 mb-1">
                     <h3 className="text-xl font-black text-[var(--heading)]">Producción por Personas</h3>
@@ -571,18 +608,52 @@ export default function GeneralDashboardPage() {
                   </div>
                   <p className="text-xs text-[var(--muted)] font-medium">
                     Periodo: <span className="font-bold text-[var(--heading)]">{periodLabel.detail}</span>
-                    {' · '}Equipos/día (1 OS = 1 equipo): taller + CAC/PX + ingreso bodega
+                    {produccionCanal === 'taller'
+                      ? ' · Solo taller (misma base que pestaña KPI Taller)'
+                      : produccionCanal === 'backoffice'
+                        ? ' · Solo CAC/PX clasificados'
+                        : produccionCanal === 'bodega'
+                          ? ' · Solo ingreso a bodega'
+                          : ' · Todos los canales (por eso Joshay/Steven salen arriba)'}
                   </p>
                 </div>
                 <Users className="w-5 h-5 text-[var(--muted)] shrink-0" />
               </div>
 
+              <div className="mb-6 inline-flex flex-wrap rounded-lg border border-[var(--border)] bg-[var(--surface-hover)] p-0.5">
+                {(
+                  [
+                    ['todos', 'Todos'],
+                    ['taller', 'Taller'],
+                    ['backoffice', 'Backoffice'],
+                    ['bodega', 'Bodega'],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setProduccionCanal(id)}
+                    className={`rounded-md px-3 py-1.5 text-[10px] font-black uppercase tracking-wide transition-colors ${
+                      produccionCanal === id
+                        ? 'bg-[var(--heading)] text-white shadow-sm'
+                        : 'text-[var(--muted)] hover:bg-[var(--surface)] hover:text-[var(--heading)]'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
               <div className="space-y-6">
                 {produccionKpis.map((kpi, idx) => {
-                  const max = Math.max(...kpisConTrabajo.map(k => k.progress), 1);
-                  const percent = (kpi.progress / max) * 100;
+                  const score = progressForCanal(kpi, produccionCanal);
+                  const max = Math.max(
+                    ...kpisConTrabajo.map((k) => progressForCanal(k, produccionCanal)),
+                    1
+                  );
+                  const percent = (score / max) * 100;
                   const colors = ['bg-[var(--accent)]', 'bg-[var(--success)]', 'bg-[var(--warning)]', 'bg-[var(--muted)]', 'bg-[var(--danger)]'];
-                  const breakdown = formatKpiBreakdown(kpi);
+                  const breakdown = formatKpiBreakdown(kpi, produccionCanal);
                   
                   return (
                     <div key={kpi.user_id || kpi.name}>
@@ -594,8 +665,8 @@ export default function GeneralDashboardPage() {
                           </span>
                         </span>
                         <span className="text-[var(--heading)] tabular-nums shrink-0">
-                          {kpi.progress}{' '}
-                          <span className="text-[var(--muted)]">{kpi.progressLabel}</span>
+                          {score}{' '}
+                          <span className="text-[var(--muted)]">equipos / día</span>
                         </span>
                       </div>
                       {breakdown ? (
@@ -650,26 +721,31 @@ export default function GeneralDashboardPage() {
             </h3>
             <p className="mt-1 text-xs text-[var(--muted)]">
               Periodo: <span className="font-bold text-[var(--heading)]">{periodLabel.detail}</span>
-              {' · '}Equipos/día vs meta (1 equipo = 1 OS)
+              {' · '}Canal:{' '}
+              <span className="font-bold text-[var(--heading)]">{produccionCanal}</span>
+              {' · '}vs meta (1 OS = 1 equipo)
             </p>
           </div>
 
           <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto px-6 py-4">
             <div className="space-y-6">
             {rendimientoKpis.map((kpi) => {
-              const statusLabel = kpi.percentage >= 90 ? 'TOP' : kpi.percentage >= 50 ? 'AVG' : 'LOW';
+              const score = progressForCanal(kpi, produccionCanal);
+              const pct = kpi.target > 0 ? Math.round((score / kpi.target) * 100) : 0;
+              const statusLabel = pct >= 90 ? 'TOP' : pct >= 50 ? 'AVG' : 'LOW';
               const statusColor =
-                kpi.percentage >= 90
+                pct >= 90
                   ? 'border-[var(--success)]/30 bg-[var(--success)]/15 text-[var(--success)]'
-                  : kpi.percentage >= 50
+                  : pct >= 50
                     ? 'border-[var(--warning)]/30 bg-[var(--warning)]/15 text-[var(--warning)]'
                     : 'border-[var(--danger)]/30 bg-[var(--danger)]/15 text-[var(--danger)]';
               const barColor =
-                kpi.percentage >= 90
+                pct >= 90
                   ? 'bg-[var(--success)]'
-                  : kpi.percentage >= 50
+                  : pct >= 50
                     ? 'bg-[var(--accent)]'
                     : 'bg-[var(--danger)]';
+              const breakdown = formatKpiBreakdown(kpi, produccionCanal);
 
               return (
                 <div
@@ -687,11 +763,11 @@ export default function GeneralDashboardPage() {
                           {kpi.role.replace('_', ' ')}
                         </p>
                         <p className="mt-1 text-[10px] font-black text-[var(--accent)] tabular-nums">
-                          {kpi.progress} {kpi.progressLabel}
+                          {score} equipos / día
                         </p>
-                        {formatKpiBreakdown(kpi) ? (
+                        {breakdown ? (
                           <p className="mt-0.5 text-[10px] font-semibold text-[var(--muted)]">
-                            {formatKpiBreakdown(kpi)}
+                            {breakdown}
                           </p>
                         ) : null}
                       </div>
@@ -730,20 +806,20 @@ export default function GeneralDashboardPage() {
                   <div>
                     <div className="mb-2 flex justify-between text-[10px] font-black tracking-widest text-[var(--muted)] uppercase">
                       <span>
-                        Progreso Meta ({kpi.progress}/{kpi.target})
+                        Progreso Meta ({score}/{kpi.target})
                       </span>
                       <span
                         className={
-                          kpi.percentage >= 90 ? 'text-[var(--success)]' : 'text-[var(--foreground)]'
+                          pct >= 90 ? 'text-[var(--success)]' : 'text-[var(--foreground)]'
                         }
                       >
-                        {kpi.percentage}%
+                        {pct}%
                       </span>
                     </div>
                     <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--surface-hover)]">
                       <div
                         className={`h-full rounded-full transition-all duration-1000 ${barColor}`}
-                        style={{ width: `${Math.min(kpi.percentage, 100)}%` }}
+                        style={{ width: `${Math.min(pct, 100)}%` }}
                       />
                     </div>
                   </div>

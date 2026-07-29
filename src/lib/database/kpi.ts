@@ -17,6 +17,13 @@ export type UserKpiBreakdown = {
   bodegaCajas: number;
 };
 
+/** Canales de producción diaria (OS / equipos), para filtrar Dashboard vs KPI Taller. */
+export type UserKpiChannels = {
+  taller: number;
+  backoffice: number;
+  bodega: number;
+};
+
 export type UserKPI = {
   user_id: string;
   name: string;
@@ -28,6 +35,8 @@ export type UserKPI = {
   progressLabel: string;
   /** Equipos por etapa en el periodo (opc.). */
   breakdown?: UserKpiBreakdown;
+  /** Totales por canal (taller = comparable a pestaña KPI Taller). */
+  channels?: UserKpiChannels;
 };
 
 type ProfileRow = {

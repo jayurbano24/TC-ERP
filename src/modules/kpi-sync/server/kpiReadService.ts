@@ -566,8 +566,13 @@ export async function readDailyUserProductionKpis(
       const tallerTouch = touchOsByUser.get(u.id)?.size ?? 0;
       const backofficeOs = breakdown.clasificados + breakdown.clasificadosPx;
       const bodegaOs = breakdown.bodega;
+      const channels = {
+        taller: tallerTouch,
+        backoffice: backofficeOs,
+        bodega: bodegaOs,
+      };
 
-      // Todo en equipos (OS), incluida bodega.
+      // Ranking global: mayor canal. Para comparar con KPI Taller usar channels.taller.
       const progress = Math.max(tallerTouch, backofficeOs, bodegaOs);
 
       const targetObj = targetsData.find((t) => t.user_id === u.id);
@@ -582,6 +587,7 @@ export async function readDailyUserProductionKpis(
         percentage: target > 0 ? Math.round((progress / target) * 100) : 0,
         progressLabel: 'equipos / día',
         breakdown,
+        channels,
       };
     });
 

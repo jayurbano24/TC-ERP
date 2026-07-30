@@ -21,6 +21,10 @@ export function normalizeSerial(valor: unknown): string {
 
   return str
     .trim()
+    // Excel / OCR a veces antepone + ( ) - al exportar o pegar
+    .replace(/^[\uFEFF\+]+/, '')
+    .replace(/^[(\[{]+/, '')
+    .replace(/[)\]}]+$/, '')
     .replace(/[\r\n\t]/g, '')
     .replace(/\s+/g, '')
     .toUpperCase()

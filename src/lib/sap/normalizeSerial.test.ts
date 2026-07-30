@@ -22,4 +22,11 @@ describe('normalizeSerial', () => {
   it('expands scientific notation from Excel', () => {
     expect(normalizeSerial('1.23E+5')).toBe('123000');
   });
+
+  it('strips leading + ( ) junk from Excel/OCR', () => {
+    expect(normalizeSerial('+C1ZTERRTMJ8605052')).toBe('C1ZTERRTMJ8605052');
+    expect(normalizeSerial('(HEATV45500261873')).toBe('HEATV45500261873');
+    expect(normalizeSerial('[ABC123]')).toBe('ABC123');
+  });
 });
+

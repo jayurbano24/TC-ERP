@@ -368,8 +368,9 @@ export default function IntegracionSapPage() {
       a.click();
       URL.revokeObjectURL(url);
       notify.success('Exportación lista', {
-        description: 'CSV con series Sin Coincidencia, OS, caja y rack.',
+        description: 'CSV de equipos Sin Coincidencia (todas sus series S1–S4), caja y rack.',
       });
+
     } catch (err) {
       notify.error('No se pudo exportar', {
         description: err instanceof Error ? err.message : 'Error desconocido',
@@ -548,7 +549,7 @@ export default function IntegracionSapPage() {
               </div>
             </div>
             <p className="text-[10px] font-bold text-[var(--muted)]">
-              {(kpis?.seriesSinMatch ?? 0).toLocaleString()} series ·{' '}
+              {(kpis?.seriesSinMatch ?? 0).toLocaleString()} series de esos OS ·{' '}
               {equiposBase ? Math.round((kpis.sinCoincidencia / equiposBase) * 100) : 0}% equipos
             </p>
             <Button

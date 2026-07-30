@@ -3,9 +3,9 @@
 import React, { useState, useRef } from 'react';
 import { 
   Database, UploadCloud, Activity, LayoutDashboard, History, Settings, FileSpreadsheet, 
-  Search, ArrowRightLeft, FileWarning, CheckCircle2, AlertTriangle, Loader2
+  Search, ArrowRightLeft, FileWarning, CheckCircle2, AlertTriangle, Loader2, Download
 } from 'lucide-react';
-import { Card, Button, Badge, DataTable, type DataTableColumn } from '@/components/ui';
+import { Card, Button, Badge, DataTable, type DataTableColumn, notify } from '@/components/ui';
 import { erpTab, erpSoftStat, erpInputClass } from '@/lib/design/tokens';
 import { apiFetch } from '@/lib/http/apiFetch';
 import { useQuery } from '@tanstack/react-query';
@@ -348,6 +348,36 @@ export default function IntegracionSapPage() {
   const [queryResult, setQueryResult] = useState<any>(null);
   const [isQuerying, setIsQuerying] = useState(false);
   const [queryError, setQueryError] = useState<string | null>(null);
+  const [exportingUnmatched, setExportingUnmatched] = useState(false);
+
+  const handleExportUnmatched = async () => {
+    setExportingUnmatched(true);
+    try {
+      const res = await apiFetch('/api/sap/unmatched?format=csv');
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(
+          (err as { error?: string }).error || `Error HTTP ${res.status}`
+        );
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `sap-sin-coincidencia-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      notify.success('Exportación lista', {
+        description: 'CSV con series Sin Coincidencia, OS, caja y rack.',
+      });
+    } catch (err) {
+      notify.error('No se pudo exportar', {
+        description: err instanceof Error ? err.message : 'Error desconocido',
+      });
+    } finally {
+      setExportingUnmatched(false);
+    }
+  };
 
   const handleQuery = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -507,7 +537,7 @@ export default function IntegracionSapPage() {
             <p className="text-[10px] font-bold text-[var(--muted)]">Sin sync o sin serie ligada</p>
           </Card>
 
-          <Card className="p-5 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)] flex flex-col justify-between h-32">
+          <Card className="p-5 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)] flex flex-col justify-between min-h-32 gap-2">
             <div className="flex justify-between items-start">
               <div>
                 <p className="text-[10px] font-black text-[var(--muted)] uppercase tracking-widest mb-1">Sin coincidencia</p>
@@ -521,6 +551,21 @@ export default function IntegracionSapPage() {
               {(kpis?.seriesSinMatch ?? 0).toLocaleString()} series ·{' '}
               {equiposBase ? Math.round((kpis.sinCoincidencia / equiposBase) * 100) : 0}% equipos
             </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={exportingUnmatched || !(kpis?.seriesSinMatch || kpis?.sinCoincidencia)}
+              onClick={() => void handleExportUnmatched()}
+              className="w-full mt-1 text-[10px] font-black uppercase tracking-widest gap-2"
+            >
+              {exportingUnmatched ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Download className="w-3.5 h-3.5" />
+              )}
+              Exportar series + ubicación
+            </Button>
           </Card>
         </div>
 

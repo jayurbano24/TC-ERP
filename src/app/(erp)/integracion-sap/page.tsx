@@ -293,8 +293,11 @@ async function runSapMatchingPipeline(
   }
 
   if (syncData.mode === 'legacy') {
-    logProcess('Aviso: sync legacy (aplica migración 098 en Supabase para reset set-based).');
-  } else if (syncData.stats && typeof syncData.stats === 'object') {
+    logProcess('Aviso: sync legacy. Para G985 grandes aplique migración 184 en Supabase.');
+  } else if (syncData.mode === 'chunked') {
+    logProcess('Sync por lotes (chunked) — apto para G985 grandes.');
+  }
+  if (syncData.stats && typeof syncData.stats === 'object') {
     const st = syncData.stats as Record<string, number>;
     logProcess(
       `BD: ${st.seriesMatched} series OK · ${st.seriesUnmatched} sin match · ${st.equiposMatched} equipos OK · ${st.equiposUnmatched} sin match`

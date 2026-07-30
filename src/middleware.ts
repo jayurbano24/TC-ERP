@@ -26,7 +26,7 @@ const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() ?? '
 /** Ventana de rate limiting (SEC-03). */
 const RATE_WINDOW_MS = 60_000;
 /** Cupo por defecto por IP para `/api/*` autenticadas (uso normal de la UI). */
-const RATE_LIMIT_DEFAULT = 150;
+const RATE_LIMIT_DEFAULT = 300;
 /** Cupo estricto para endpoints costosos (consultas SAP, sync, reportes/export). */
 const RATE_LIMIT_STRICT = 20;
 /** Prefijos de rutas costosas que reciben el cupo estricto. */
@@ -103,6 +103,16 @@ function applyRateLimitHeaders(res: NextResponse, result: RateLimitResult): Next
  * si se excedió, o el resultado (para añadir cabeceras informativas) si pasa.
  */
 function enforceRateLimit(req: NextRequest, pathname: string): NextResponse | RateLimitResult {
+  // Heartbeat de presencia: no debe competir con APIs pesadas ni provocar logout por 429.
+  if (pathname === '/api/user-session') {
+    return {
+      ok: true,
+      limit: 1000,
+      remaining: 999,
+      resetAt: Date.now() + RATE_WINDOW_MS,
+      retryAfterSec: 0,
+    };
+  }
   const strict = STRICT_PREFIXES.some((p) => pathname.startsWith(p));
   const limit = strict ? RATE_LIMIT_STRICT : RATE_LIMIT_DEFAULT;
   const bucket = strict ? 'strict' : 'default';
@@ -121,7 +131,7 @@ function enforceRateLimit(req: NextRequest, pathname: string): NextResponse | Ra
 }
 
 /** Evita 504 en Vercel si Supabase está caído o reiniciando tras upgrade. */
-const SUPABASE_AUTH_TIMEOUT_MS = 5_000;
+const SUPABASE_AUTH_TIMEOUT_MS = 10_000;
 
 async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -230,8 +240,11 @@ export async function middleware(req: NextRequest) {
   // cookie de sesión: sin cookie, getUser() genera 403 ruidosos en Edge/Vercel.
   let response = NextResponse.next({ request: { headers: requestHeaders } });
   let sessionUser: { id: string } | null = null;
+  /** true si Auth no respondió a tiempo pero hay cookie — no expulsar al login. */
+  let authTimedOutWithCookie = false;
+  const cookiePresent = hasSupabaseAuthCookie(req);
 
-  if (SUPABASE_URL && SUPABASE_ANON_KEY && hasSupabaseAuthCookie(req)) {
+  if (SUPABASE_URL && SUPABASE_ANON_KEY && cookiePresent) {
     const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       cookies: {
         getAll() {
@@ -256,17 +269,18 @@ export async function middleware(req: NextRequest) {
       if (data.user) {
         sessionUser = { id: data.user.id };
       } else if (error?.message === 'auth_timeout') {
-        // No limpiar cookies por timeout de red / Supabase lento
+        // Timeout de Supabase: NO limpiar cookies ni bloquear API (provocaba logout "de repente").
+        authTimedOutWithCookie = true;
         sessionUser = null;
       } else {
-        // Solo limpiar ante JWT claramente inválido/expirado. Errores genéricos
-        // de Auth no deben borrar cookies (provocaba bounce post-login).
+        // Solo limpiar ante revocación clara. "refresh token" genérico suele ser
+        // race de refresh paralelo y NO debe borrar cookies (expulsaba usuarios a mitad de proceso).
         const msg = (error?.message || '').toLowerCase();
         const definitive =
-          msg.includes('invalid') ||
-          msg.includes('expired') ||
           msg.includes('session missing') ||
-          msg.includes('refresh token');
+          msg.includes('refresh token not found') ||
+          msg.includes('invalid refresh token') ||
+          msg.includes('user from sub claim in jwt does not exist');
         if (definitive) {
           clearSupabaseAuthCookies(req, response);
         }
@@ -291,9 +305,13 @@ export async function middleware(req: NextRequest) {
     // SEC-01: sesión (cookies), cron interno, o Bearer JWT válido.
     // Cron ANTES de hasValidBearer: Vercel envía Bearer=<CRON_SECRET> y si se
     // valida primero contra Supabase Auth produce 403 en /auth/v1/user en cada tick.
+    // Fail-open si Auth hizo timeout pero hay cookie: el handler valida con requireApiUser.
     const cronOk = isCronInternalPath(pathname) && isValidCronSecret(req);
     const authed =
-      Boolean(sessionUser) || cronOk || (await hasValidBearer(req));
+      Boolean(sessionUser) ||
+      cronOk ||
+      authTimedOutWithCookie ||
+      (await hasValidBearer(req));
     if (!authed) {
       fireHttpStatusSample(401, { source: 'middleware', path: pathname });
       const denied = NextResponse.json({ error: 'No autenticado' }, { status: 401 });

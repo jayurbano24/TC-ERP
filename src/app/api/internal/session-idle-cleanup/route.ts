@@ -1,5 +1,5 @@
 /**
- * Cron: expulsa usuarios ERP sin actividad > 45 min.
+ * Cron: limpia filas de presencia ERP idle (ver SESSION_IDLE_MINUTES).
  * Protegido por CRON_SECRET. Vercel Cron invoca GET.
  */
 import { NextResponse } from 'next/server';

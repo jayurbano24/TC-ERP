@@ -1,5 +1,30 @@
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 
+/** Un solo refresh en vuelo: evita races de refresh-token que borran la sesión. */
+let refreshInFlight: Promise<string | null> | null = null;
+
+async function refreshAccessToken(): Promise<string | null> {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    try {
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase) return null;
+      const { data, error } = await supabase.auth.refreshSession();
+      if (error) {
+        console.warn('[apiFetch] refreshSession:', error.message);
+        return null;
+      }
+      return data.session?.access_token ?? null;
+    } catch (err) {
+      console.warn('[apiFetch] refreshSession failed', err);
+      return null;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+  return refreshInFlight;
+}
+
 async function attachAuthHeaders(headers: Headers): Promise<void> {
   try {
     const supabase = getSupabaseBrowserClient();
@@ -9,9 +34,7 @@ async function attachAuthHeaders(headers: Headers): Promise<void> {
     let token = data.session?.access_token;
 
     if (!token) {
-      const refreshed = await supabase.auth.refreshSession();
-      data = refreshed.data;
-      token = data.session?.access_token ?? undefined;
+      token = (await refreshAccessToken()) ?? undefined;
     }
 
     if (token) {
@@ -45,10 +68,7 @@ export async function apiFetch(input: string, init: RequestInit = {}): Promise<R
   if (res.status !== 401) return res;
 
   try {
-    const supabase = getSupabaseBrowserClient();
-    if (!supabase) return res;
-    const refreshed = await supabase.auth.refreshSession();
-    const token = refreshed.data.session?.access_token;
+    const token = await refreshAccessToken();
     if (!token) return res;
 
     const retryHeaders = new Headers(init.headers);
@@ -76,11 +96,17 @@ function extractApiErrorText(errorBody: unknown): string {
   return parts.join(' ');
 }
 
-/** True si la API respondió sesión inválida / middleware 401. */
+/** True si la API respondió sesión Auth inválida (no errores de negocio 401). */
 export function isApiAuthFailure(status: number, errorBody: unknown): boolean {
-  if (status === 401) return true;
-  return /no autenticado|not authenticated|session[_ ]?expired/i.test(
-    extractApiErrorText(errorBody)
+  if (status !== 401) {
+    return /not authenticated|session[_ ]?expired/i.test(extractApiErrorText(errorBody));
+  }
+  const text = extractApiErrorText(errorBody);
+  // Kick de presencia ≠ sesión Auth muerta (el shell re-registra).
+  if (/SESSION_GONE|SESSION_IDLE/i.test(text)) return false;
+  // Solo bounce a login ante denegación explícita de Auth.
+  return /no autenticado|not authenticated|session[_ ]?expired|jwt|unauthori[sz]ed/i.test(
+    text || 'no autenticado'
   );
 }
 

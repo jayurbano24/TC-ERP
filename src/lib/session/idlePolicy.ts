@@ -1,5 +1,9 @@
-/** Idle máximo sin actividad antes de expulsar del ERP (minutos). */
-export const SESSION_IDLE_MINUTES = 45;
+/**
+ * Idle máximo sin presencia antes de expulsar del ERP (minutos).
+ * Con pestaña visible el heartbeat renueva `last_seen`; este tope aplica
+ * sobre todo cuando la pestaña está en segundo plano / PC bloqueada.
+ */
+export const SESSION_IDLE_MINUTES = 240;
 
 /** Intervalo del heartbeat de presencia mientras hay actividad (ms). */
 export const SESSION_HEARTBEAT_MS = 60_000;

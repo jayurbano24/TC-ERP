@@ -136,19 +136,23 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
     async function loadUser() {
       try {
         const supabase = getSupabaseBrowserClient();
-        const session = supabase ? (await supabase.auth.getSession()).data.session : null;
-
         if (!supabase) {
-          if (!session?.user) router.push('/');
-          return;
-        }
-
-        if (!session?.user) {
           router.push('/');
           return;
         }
 
-        const userId = session.user.id;
+        // getUser valida JWT; si falla, un refresh evita bounce falso en cold start.
+        let user = (await supabase.auth.getUser()).data.user;
+        if (!user) {
+          const { data: refreshed } = await supabase.auth.refreshSession();
+          user = refreshed.session?.user ?? null;
+        }
+        if (!user) {
+          router.push('/');
+          return;
+        }
+
+        const userId = user.id;
         // Gracia de sesión: marcar usuario conocido (sin expulsar por fallos de user_sessions).
         markUser(userId);
 
@@ -178,17 +182,18 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
               }
             } else if (sessionData) {
               if (isSessionIdle(sessionData.last_seen ?? sessionData.created_at)) {
-                await supabase.from('user_sessions').delete().eq('id', localSessionId);
-                handleLogout();
-                return;
-              }
-
-              const sessionAgeHours =
-                (Date.now() - new Date(sessionData.created_at).getTime()) / (1000 * 60 * 60);
-              if (sessionAgeHours > 16) {
+                // Presencia idle: renovar fila, NO cerrar Auth (evita bounce al recargar).
                 await supabase.from('user_sessions').delete().eq('id', localSessionId);
                 localStorage.removeItem('tcerp_session_id');
                 await registerUserSession(userId);
+              } else {
+                const sessionAgeHours =
+                  (Date.now() - new Date(sessionData.created_at).getTime()) / (1000 * 60 * 60);
+                if (sessionAgeHours > 16) {
+                  await supabase.from('user_sessions').delete().eq('id', localSessionId);
+                  localStorage.removeItem('tcerp_session_id');
+                  await registerUserSession(userId);
+                }
               }
             }
           }
@@ -236,7 +241,8 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // Presencia: solo renueva last_seen con actividad real; idle > 45 min → logout.
+  // Presencia: con pestaña visible se renueva last_seen (el ERP abierto cuenta como sesión activa).
+  // Idle largo / pestaña oculta → logout. Kick real solo SESSION_GONE / SESSION_IDLE.
   useEffect(() => {
     if (!currentUser?.id || currentUser.id === 'dev-user') return;
 
@@ -270,23 +276,42 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
         const sessionId = localStorage.getItem('tcerp_session_id');
         if (!sessionId) return;
 
+        const visible = document.visibilityState === 'visible';
         const idleMs = Date.now() - lastActivityAt;
-        if (idleMs >= SESSION_IDLE_MINUTES * 60_000) {
+
+        // Pestaña oculta + sin actividad → idle local.
+        if (!visible && idleMs >= SESSION_IDLE_MINUTES * 60_000) {
+          handleLogout();
+          return;
+        }
+        // Pestaña visible pero sin interacción por mucho tiempo (PC abandonada).
+        if (visible && idleMs >= SESSION_IDLE_MINUTES * 60_000) {
           handleLogout();
           return;
         }
 
-        // Sin actividad reciente: no renovar last_seen (cron + idle local expulsan).
-        if (idleMs > SESSION_HEARTBEAT_MS) return;
-        if (document.visibilityState === 'hidden') return;
+        // Renovar presencia mientras el ERP esté abierto (visible), no solo con mouse.
+        if (!visible) return;
         if (Date.now() - lastTouchSentAt < SESSION_HEARTBEAT_MS) return;
 
         lastTouchSentAt = Date.now();
         const ok = await touchUserSession(sessionId);
         if (!ok && !disposed) {
-          // Single-PC / idle: otra máquina tomó la sesión o expiró.
-          // NO re-registrar aquí (robaría la sesión activa del otro PC).
+          // Presencia invalidada: si Auth sigue viva, re-registrar (usuario activo en esta PC).
+          // Solo cerrar Auth si el JWT también murió.
           localStorage.removeItem('tcerp_session_id');
+          try {
+            const supabase = getSupabaseBrowserClient();
+            const authUser = supabase
+              ? (await supabase.auth.getUser()).data.user
+              : null;
+            if (authUser?.id) {
+              const renewed = await registerUserSession(authUser.id);
+              if (renewed) return;
+            }
+          } catch {
+            /* fall through a logout */
+          }
           handleLogout();
         }
       })();

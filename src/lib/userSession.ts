@@ -43,8 +43,19 @@ export async function registerUserSession(userId: string): Promise<string | null
   return data.id as string;
 }
 
+function isPresenceKick(status: number, body: unknown): boolean {
+  if (status !== 401) return false;
+  const err =
+    body && typeof body === 'object' && 'error' in body
+      ? String((body as { error?: unknown }).error || '')
+      : '';
+  return err === 'SESSION_GONE' || err === 'SESSION_IDLE';
+}
+
 /**
- * Heartbeat de presencia. `true` = sesión vigente; `false` = idle/expulsado → logout.
+ * Heartbeat de presencia.
+ * `true` = mantener sesión Auth (incluye fallos transitorios 429/5xx/red).
+ * `false` = expulsión real (otra PC / idle del servidor).
  */
 export async function touchUserSession(sessionId: string): Promise<boolean> {
   if (!sessionId) return false;
@@ -54,8 +65,21 @@ export async function touchUserSession(sessionId: string): Promise<boolean> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId }),
     });
-    if (res.status === 401) return false;
-    return res.ok;
+
+    if (res.ok) return true;
+
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      body = null;
+    }
+
+    // Solo expulsar ante kick explícito de presencia. Nunca por 429/500/timeouts.
+    if (isPresenceKick(res.status, body)) return false;
+
+    console.warn('[user-session] touch no-ok (se mantiene sesión Auth)', res.status, body);
+    return true;
   } catch {
     return true; // no expulsar por fallo de red transitorio
   }

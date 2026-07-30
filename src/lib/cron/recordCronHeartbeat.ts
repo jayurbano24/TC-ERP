@@ -34,7 +34,7 @@ const CRON_META: Record<
   },
   cron_session_idle_cleanup: {
     intervalMinutes: 5,
-    description: 'Heartbeat: limpia sesiones ERP idle > 45 min',
+    description: 'Heartbeat: limpia sesiones ERP idle (idlePolicy)',
   },
 }
 

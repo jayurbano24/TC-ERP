@@ -53,6 +53,52 @@ const SAP_HISTORY_COLUMNS: DataTableColumn<any>[] = [
 
 type UploadStatus = 'idle' | 'parsing' | 'hashing' | 'fetching' | 'matching' | 'syncing' | 'done' | 'error';
 
+const yieldUi = () => new Promise<void>((r) => setTimeout(r, 0));
+
+async function apiFetchJsonWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number
+): Promise<Record<string, unknown>> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await apiFetch(url, { ...init, signal: controller.signal });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      if (res.status === 429) {
+        throw new Error('Demasiadas solicitudes. Espere 10–20 s y vuelva a cargar el archivo.');
+      }
+      if (res.status === 401) {
+        throw new Error('Sesión expirada durante la carga. Vuelva a iniciar sesión e intente de nuevo.');
+      }
+      const issueHint =
+        Array.isArray(data.issues) && data.issues.length > 0
+          ? ` (${(data.issues as Array<{ path?: string; message?: string }>)
+              .slice(0, 3)
+              .map((x) => `${x.path || '?'}: ${x.message || ''}`)
+              .join('; ')})`
+          : '';
+      throw new Error(String(data.error || `Error HTTP ${res.status}`) + issueHint);
+    }
+    return data;
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error(
+        `Tiempo de espera agotado (${Math.round(timeoutMs / 1000)}s). Reintente; si el Excel es muy grande, exporte a CSV o divídalo.`
+      );
+    }
+    if (err instanceof Error && /abort/i.test(err.message)) {
+      throw new Error(
+        `Tiempo de espera agotado (${Math.round(timeoutMs / 1000)}s). Reintente; si el Excel es muy grande, exporte a CSV o divídalo.`
+      );
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function runSapMatchingPipeline(
   file: File,
   rows: SapUploadRow[],
@@ -65,6 +111,7 @@ async function runSapMatchingPipeline(
   logProcess(`Estructura validada (${format.toUpperCase()}). Filas con serie: ${rows.length}`);
 
   setUploadStatus('matching');
+  await yieldUi();
 
   // Series únicas + material + valoración según layout real G985
   // Material = código; Valoración = Lote / Lote de stock (VALORADO|NOVALORAD)
@@ -86,9 +133,13 @@ async function runSapMatchingPipeline(
   }
 
   logProcess(`Series únicas SAP: ${serials.length} (de ${rows.length} filas)`);
-  logProcess('Cruce paulativo por lotes (solo coincidencias → bajo egress)...');
+  if (serials.length > 40_000) {
+    logProcess('Aviso: archivo muy grande (>40k series). El cruce puede tardar varios minutos.');
+  }
+  logProcess('Cruce por lotes (solo coincidencias → bajo egress)...');
 
-  const BATCH = 1500;
+  // Lotes más chicos: menos riesgo de timeout / body grande por request.
+  const BATCH = 800;
   type MatchRow = {
     id: string;
     serial_number: string;
@@ -111,31 +162,46 @@ async function runSapMatchingPipeline(
     }
     const batchNo = Math.floor(i / BATCH) + 1;
     logProcess(`Lote ${batchNo}/${totalBatches}: ${chunk.length} series...`);
+    await yieldUi();
 
-    const res = await apiFetch('/api/sap/match-batch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        serials: chunk,
-        materials: batchMaterials,
-        valuations: batchValuations,
-      }),
-    });
-    const data = await res.json();
-    if (!data.success) {
-      const issueHint =
-        Array.isArray(data.issues) && data.issues.length > 0
-          ? ` (${data.issues
-              .slice(0, 3)
-              .map((x: { path?: string; message?: string }) => `${x.path || '?'}: ${x.message || ''}`)
-              .join('; ')})`
-          : '';
-      throw new Error((data.error || 'Error en lote de cruce') + issueHint);
+    let data: Record<string, unknown> | null = null;
+    let lastErr: unknown = null;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        data = await apiFetchJsonWithTimeout(
+          '/api/sap/match-batch',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              serials: chunk,
+              materials: batchMaterials,
+              valuations: batchValuations,
+            }),
+          },
+          120_000
+        );
+        lastErr = null;
+        break;
+      } catch (err) {
+        lastErr = err;
+        if (attempt < 2) {
+          logProcess(`  ↻ Reintento lote ${batchNo} tras error transitorio...`);
+          await new Promise((r) => setTimeout(r, 1_500));
+        }
+      }
     }
-    allMatches.push(...(data.matches || []));
-    totalQueries += data.stats?.queries || 0;
-    totalElapsed += data.stats?.elapsedMs || 0;
-    logProcess(`  → ${data.stats?.matches || 0} coincidencias (queries: ${data.stats?.queries || 0})`);
+    if (lastErr || !data) throw lastErr instanceof Error ? lastErr : new Error('Error en lote de cruce');
+
+    if (!data.success) {
+      throw new Error(String(data.error || 'Error en lote de cruce'));
+    }
+    const matches = (data.matches || []) as MatchRow[];
+    allMatches.push(...matches);
+    const stats = (data.stats || {}) as { queries?: number; elapsedMs?: number; matches?: number };
+    totalQueries += stats.queries || 0;
+    totalElapsed += stats.elapsedMs || 0;
+    logProcess(`  → ${stats.matches ?? matches.length} coincidencias (queries: ${stats.queries || 0})`);
   }
 
   // Agregar por equipo (solo matches)
@@ -187,7 +253,6 @@ async function runSapMatchingPipeline(
     }
   }
 
-  // noEncontrados se calcula en BD al reset; aquí reportamos equipos con match
   logProcess(
     `Resumen: ${matchedSeries.length} series validadas · ${validados} equipos OK · ${inconsistencias} inconsistentes · queries=${totalQueries} · ${totalElapsed}ms`
   );
@@ -199,37 +264,43 @@ async function runSapMatchingPipeline(
 
   setUploadStatus('syncing');
   logProcess('Sincronizando (solo matches + reset set-based en BD)...');
+  await yieldUi();
 
-  const syncRes = await apiFetch('/api/sap/sync-matches', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      fileInfo: { name: file.name, hash, totalRows: rows.length, user: 'Usuario Activo' },
-      results: {
-        encontrados: validados,
-        noEncontrados: 0,
-        inconsistencias,
-        timeStr: `${Math.max(1, Math.round(totalElapsed / 1000))} s`,
-      },
-      matchedSeries,
-      matchedEquipos,
-      validationDetails,
-      resetUnmatched: true,
-    }),
-  });
-  const syncData = await syncRes.json();
+  const syncData = await apiFetchJsonWithTimeout(
+    '/api/sap/sync-matches',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fileInfo: { name: file.name, hash, totalRows: rows.length, user: 'Usuario Activo' },
+        results: {
+          encontrados: validados,
+          noEncontrados: 0,
+          inconsistencias,
+          timeStr: `${Math.max(1, Math.round(totalElapsed / 1000))} s`,
+        },
+        matchedSeries,
+        matchedEquipos,
+        validationDetails,
+        resetUnmatched: true,
+      }),
+    },
+    240_000
+  );
+
   if (!syncData.success) {
-    throw new Error(syncData.error || 'Error al sincronizar');
+    throw new Error(String(syncData.error || 'Error al sincronizar'));
   }
 
   if (syncData.mode === 'legacy') {
     logProcess('Aviso: sync legacy (aplica migración 098 en Supabase para reset set-based).');
-  } else if (syncData.stats) {
+  } else if (syncData.stats && typeof syncData.stats === 'object') {
+    const st = syncData.stats as Record<string, number>;
     logProcess(
-      `BD: ${syncData.stats.seriesMatched} series OK · ${syncData.stats.seriesUnmatched} sin match · ${syncData.stats.equiposMatched} equipos OK · ${syncData.stats.equiposUnmatched} sin match`
+      `BD: ${st.seriesMatched} series OK · ${st.seriesUnmatched} sin match · ${st.equiposMatched} equipos OK · ${st.equiposUnmatched} sin match`
     );
   }
-  logProcess(`Sincronización exitosa (${syncData.mode || 'ok'}).`);
+  logProcess(`Sincronización exitosa (${String(syncData.mode || 'ok')}).`);
   setUploadStatus('done');
 }
 
@@ -245,12 +316,13 @@ export default function IntegracionSapPage() {
   const dashboardQuery = useQuery({
     queryKey: ['sap-dashboard'],
     queryFn: async () => {
-      const res = await apiFetch('/api/sap/dashboard');
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error || 'Error al cargar dashboard SAP');
+      const data = await apiFetchJsonWithTimeout('/api/sap/dashboard', {}, 45_000);
+      if (!data.success) throw new Error(String(data.error || 'Error al cargar dashboard SAP'));
       return data;
     },
     enabled: activeTab === 'dashboard',
+    retry: 1,
+    staleTime: 60_000,
   });
   const dashboardData = dashboardQuery.data ?? null;
   const isLoadingDashboard = dashboardQuery.isLoading;
@@ -258,12 +330,13 @@ export default function IntegracionSapPage() {
   const historyQuery = useQuery({
     queryKey: ['sap-history'],
     queryFn: async () => {
-      const res = await apiFetch('/api/sap/history');
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error || 'Error al cargar historial SAP');
+      const data = await apiFetchJsonWithTimeout('/api/sap/history?limit=100', {}, 45_000);
+      if (!data.success) throw new Error(String(data.error || 'Error al cargar historial SAP'));
       return (data.data ?? []) as any[];
     },
     enabled: activeTab === 'historial',
+    retry: 1,
+    staleTime: 30_000,
   });
   const historyData = historyQuery.data ?? EMPTY_SAP_HISTORY;
   const isLoadingHistory = historyQuery.isLoading;
@@ -309,12 +382,18 @@ export default function IntegracionSapPage() {
     setUploadStatus('parsing');
     setProgressLog([]);
     setErrorMsg(null);
-    logProcess(`Archivo seleccionado: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+    const sizeMb = file.size / 1024 / 1024;
+    logProcess(`Archivo seleccionado: ${file.name} (${sizeMb.toFixed(2)} MB)`);
+    if (sizeMb > 20) {
+      logProcess('Aviso: archivo >20 MB. Preferible exportar CSV o dividir el Excel.');
+    }
 
     try {
-      logProcess('Validando estructura y leyendo archivo...');
+      logProcess('Validando estructura y leyendo archivo (puede tardar en Excel grandes)...');
+      await yieldUi();
       const { rows, hash, format } = await parseSapUploadFile(file);
-      logProcess(`Hash calculado: ${hash}`);
+      logProcess(`Lectura OK · ${rows.length} filas con serie · hash ${hash.slice(0, 12)}…`);
+      await yieldUi();
 
       await runSapMatchingPipeline(
         file,
@@ -327,6 +406,7 @@ export default function IntegracionSapPage() {
       );
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Error al procesar archivo';
+      logProcess(`ERROR: ${message}`);
       setErrorMsg(message);
       setUploadStatus('error');
     } finally {
@@ -340,6 +420,30 @@ export default function IntegracionSapPage() {
         <div className="flex flex-col items-center justify-center min-h-[400px]">
           <Loader2 className="w-12 h-12 text-[var(--accent)] animate-spin" />
           <p className="mt-4 text-xs font-bold text-[var(--muted)] uppercase tracking-widest">Cargando métricas...</p>
+        </div>
+      );
+    }
+
+    if (dashboardQuery.isError) {
+      return (
+        <div className={`${erpSoftStat.danger} p-6 rounded-2xl flex items-start gap-3`}>
+          <AlertTriangle className="w-5 h-5 shrink-0" />
+          <div>
+            <p className="text-sm font-black uppercase tracking-widest mb-1">No se pudo cargar el dashboard</p>
+            <p className="text-xs font-bold opacity-90">
+              {dashboardQuery.error instanceof Error
+                ? dashboardQuery.error.message
+                : 'Error desconocido'}
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              className="mt-4"
+              onClick={() => void dashboardQuery.refetch()}
+            >
+              Reintentar
+            </Button>
+          </div>
         </div>
       );
     }
@@ -520,6 +624,20 @@ export default function IntegracionSapPage() {
         <h3 className="text-xl font-black text-[var(--heading)] uppercase tracking-tight mb-6">Historial de Validaciones</h3>
         {isLoadingHistory ? (
           <div className="flex justify-center items-center py-12"><Loader2 className="w-8 h-8 animate-spin text-[var(--accent)]" /></div>
+        ) : historyQuery.isError ? (
+          <div className={`${erpSoftStat.danger} p-4 rounded-xl flex items-start gap-3`}>
+            <AlertTriangle className="w-5 h-5 shrink-0" />
+            <div>
+              <p className="text-sm font-bold mb-2">
+                {historyQuery.error instanceof Error
+                  ? historyQuery.error.message
+                  : 'No se pudo cargar el historial'}
+              </p>
+              <Button type="button" variant="outline" onClick={() => void historyQuery.refetch()}>
+                Reintentar
+              </Button>
+            </div>
+          </div>
         ) : (
           <DataTable
             columns={SAP_HISTORY_COLUMNS}

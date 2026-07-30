@@ -7,7 +7,8 @@ import { ROLES_RETURNS_SAP } from '@/shared/authz/roleGuard';
 import { parseJsonBody } from '@/shared/validation/parseRequest';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+/** Sync G985 completo puede superar 60s con muchos matches. */
+export const maxDuration = 300;
 
 /**
  * Sync compacto: solo series/equipos con match + reset set-based en BD.

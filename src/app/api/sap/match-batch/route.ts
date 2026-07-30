@@ -6,7 +6,8 @@ import { parseJsonBody } from '@/shared/validation/parseRequest';
 import { normalizeSerial } from '@/lib/sap/normalizeSerial';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+/** Lotes grandes / DB lenta — Pro plan permite hasta 300s. */
+export const maxDuration = 300;
 
 /** Lote pequeño: bajo egress (solo coincidencias) y sin body gigante. */
 const BatchSchema = z.object({

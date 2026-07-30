@@ -31,9 +31,8 @@ const RATE_LIMIT_DEFAULT = 300;
 const RATE_LIMIT_STRICT = 20;
 /** Prefijos de rutas costosas que reciben el cupo estricto. */
 const STRICT_PREFIXES = [
-  '/api/sap/query',
+  // query forense puede ser frecuente; no meter history (bloqueaba la pestaña Historial).
   '/api/sap/sync',
-  '/api/sap/history',
   '/api/reports',
   '/api/backoffice/cac-history/export',
 ];

@@ -2,6 +2,7 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { logAdvancedAudit } from "@/lib/database/audit";
 import { sanitizeOrFilterValue } from "@/lib/database/postgrestSafe";
 import { expandBoxCodeSearchVariants } from "@/modules/inventario/client/warehouseBoxDisplay";
+import { normalizeSerial } from "@/lib/sap/normalizeSerial";
 
 /**
  * Tope de seguridad para consultas de series sin paginación server-side.
@@ -73,6 +74,59 @@ export async function searchSeriesDetailed(filters: { os?: string, imei?: string
     return new Set<string>((data || []).map((r: any) => r.id));
   };
 
+  /** Misma cobertura que PX (OS activa): SN, normalizado, s2–s4 y main_serial del OS. */
+  const seriesIdsByImei = async (raw: string): Promise<Set<string>> => {
+    const v = sanitizeOrFilterValue(raw);
+    if (!v) return new Set<string>();
+    const norm = normalizeSerial(v);
+    const out = new Set<string>();
+
+    const absorb = (rows: { id: string }[] | null | undefined) => {
+      for (const row of rows || []) {
+        if (row?.id) out.add(row.id);
+      }
+    };
+
+    const { data: bySn, error: bySnErr } = await supabase
+      .from('series')
+      .select('id')
+      .or(
+        [
+          `serial_number.ilike.${v}`,
+          norm ? `serial_normalized.eq.${norm}` : '',
+          `serial_number.ilike.%${v}%`,
+        ]
+          .filter(Boolean)
+          .join(',')
+      )
+      .limit(CANDIDATE_LIMIT);
+    if (bySnErr) throw bySnErr;
+    absorb(bySn);
+
+    const { data: byMain, error: byMainErr } = await supabase
+      .from('service_orders')
+      .select('id')
+      .or(`main_serial.ilike.${v},main_serial.ilike.%${v}%`)
+      .limit(CANDIDATE_LIMIT);
+    if (byMainErr) throw byMainErr;
+    const viaOs = await seriesIdsByForeign(
+      'service_order_id',
+      (byMain || []).map((r: { id: string }) => r.id)
+    );
+    viaOs.forEach((id) => out.add(id));
+
+    const { data: byLegacy, error: byLegacyErr } = await supabase
+      .from('series')
+      .select('id')
+      .or(`s2.ilike.%${v}%,s3.ilike.%${v}%,s4.ilike.%${v}%`)
+      .limit(CANDIDATE_LIMIT);
+    if (!byLegacyErr) {
+      absorb(byLegacy);
+    }
+
+    return out;
+  };
+
   // Filtros que dependen de `receptions` (doble vía: serie.current_reception_id
   // O serie.service_order_id -> service_orders.reception_id).
   const seriesIdsByReception = async (orExpr: string): Promise<Set<string>> => {
@@ -92,17 +146,7 @@ export async function searchSeriesDetailed(filters: { os?: string, imei?: string
   try {
     // IMEI / Serie: columnas directas en `series`.
     if (filters.imei) {
-      const v = sanitizeOrFilterValue(filters.imei);
-      if (v) {
-        const { data, error } = await supabase
-          .from('series').select('id')
-          .or(`serial_number.ilike.%${v}%,s2.ilike.%${v}%,s3.ilike.%${v}%,s4.ilike.%${v}%`)
-          .limit(CANDIDATE_LIMIT);
-        if (error) throw error;
-        idSets.push(new Set<string>((data || []).map((r: any) => r.id)));
-      } else {
-        idSets.push(new Set<string>());
-      }
+      idSets.push(await seriesIdsByImei(filters.imei));
     }
 
     // Caja: boxes.box_code -> series.current_box_id.

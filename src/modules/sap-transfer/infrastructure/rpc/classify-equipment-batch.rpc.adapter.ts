@@ -11,9 +11,18 @@ import { auditClassifiedSeries, auditClassifyBatchCompleted } from '../audit';
 function formatSkippedError(err: ClassifyUnitSkipError): string {
   const serial = String(err.main_serial || err.serial || '').trim();
   const detail = String(err.error || '').trim();
-  if (serial && detail) return `Serie duplicada: ${serial}. ${detail}`;
-  if (serial) return `Serie duplicada: ${serial} ya está registrada con una orden de servicio abierta.`;
-  return detail || 'Serie duplicada: una serie del lote ya está registrada.';
+  if (detail) {
+    const human = humanizeClassifyEquipmentError(
+      serial && !/serie duplicada/i.test(detail) ? `Serie duplicada: ${serial}. ${detail}` : detail
+    );
+    return human.description;
+  }
+  if (serial) {
+    return humanizeClassifyEquipmentError(
+      `Serie duplicada: ${serial} ya está registrada con una orden de servicio abierta.`
+    ).description;
+  }
+  return humanizeClassifyEquipmentError('Serie duplicada: una serie del lote ya está registrada.').description;
 }
 
 export class ClassifyEquipmentBatchRpcAdapter implements IClassifyBatchGateway {
@@ -83,7 +92,7 @@ export class ClassifyEquipmentBatchRpcAdapter implements IClassifyBatchGateway {
       skippedErrors.length > 0
         ? formatSkippedError(skippedErrors[0])
         : unitsSkipped > 0 && serviceOrders.length < params.units.length
-          ? `Serie duplicada: ${params.units.length - serviceOrders.length} equipo(s) no se pudieron ingresar porque ya tienen orden de servicio abierta.`
+          ? `Serie duplicada: ${params.units.length - serviceOrders.length} equipo(s) no se pudieron ingresar. Revise duplicados en el lote o series ya registradas en TC.`
           : undefined;
 
     return {

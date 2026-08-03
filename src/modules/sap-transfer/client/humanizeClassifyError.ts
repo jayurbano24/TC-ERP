@@ -47,21 +47,35 @@ export function humanizeClassifyEquipmentError(raw: string | null | undefined): 
 
   if (isDuplicateClassifyError(text)) {
     const serial = extractSerial(text);
-    const serialPart = serial ? ` (${serial})` : '';
 
-    if (/mismo lote/i.test(text)) {
+    if (/mismo lote|está repetida|repetida en este/i.test(text)) {
       return {
-        title: 'Serie duplicada en el manifiesto',
-        description: `La serie${serialPart} está repetida en este mismo lote. Quite el duplicado e intente de nuevo.`,
+        title: 'Duplicado en el mismo lote',
+        description: serial
+          ? `La serie ${serial} está repetida en esta caja o guía. Quite el duplicado e intente de nuevo.`
+          : 'Hay una serie repetida en esta caja o guía. Quite el duplicado e intente de nuevo.',
+        isDuplicate: true,
+      };
+    }
+
+    const looksLikeTcInventoryDuplicate =
+      /orden de servicio|orden abierta|inventario|ya está registrada|ya fue clasificada/i.test(text);
+
+    if (!looksLikeTcInventoryDuplicate) {
+      return {
+        title: 'Duplicado en el mismo lote',
+        description: serial
+          ? `La serie ${serial} está repetida en esta caja o guía. Quite el duplicado e intente de nuevo.`
+          : 'Hay una serie repetida en esta caja o guía. Quite el duplicado e intente de nuevo.',
         isDuplicate: true,
       };
     }
 
     return {
-      title: 'Serie duplicada',
+      title: 'Serie ya registrada en TC',
       description: serial
-        ? `La serie ${serial} ya está registrada con una orden de servicio abierta. No se puede ingresar de nuevo hasta cerrar o despachar ese ciclo.`
-        : 'Una o más series ya están registradas con una orden de servicio abierta. No se pueden ingresar de nuevo hasta cerrar o despachar ese ciclo.',
+        ? `La serie ${serial} ya tiene una orden de servicio abierta en el sistema. Cierre o despache ese ciclo antes de ingresarla de nuevo.`
+        : 'Una o más series ya tienen orden de servicio abierta en el sistema. Cierre o despache ese ciclo antes de ingresarlas de nuevo.',
       isDuplicate: true,
     };
   }

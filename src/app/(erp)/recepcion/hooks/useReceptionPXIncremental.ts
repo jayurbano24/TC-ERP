@@ -468,14 +468,20 @@ export function useReceptionPXIncremental({
 
       const validScans = currentScans.map((s) => s?.trim().toUpperCase()).filter(Boolean);
       if (new Set(validScans).size !== validScans.length) {
-        notify.warning('Ha ingresado series duplicadas en los campos de escaneo.');
+        notify.warning('Duplicado en el mismo equipo', {
+          description:
+            'Las series S1–S4 no pueden repetirse en un mismo escaneo. Corrija la grilla e intente de nuevo.',
+        });
         return;
       }
 
       const scannedSet = buildScannedSerialSet(liveSeries);
       const isDuplicateInScanned = validScans.some((v) => scannedSet.has(v));
       if (isDuplicateInScanned) {
-        notify.warning('Una o más series ya fueron escaneadas en esta recepción.');
+        notify.warning('Duplicado en el mismo lote', {
+          description:
+            'Una o más series ya fueron capturadas en esta recepción o caja PX. Quite el duplicado de la grilla.',
+        });
         return;
       }
 

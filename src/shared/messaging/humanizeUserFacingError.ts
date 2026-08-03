@@ -52,19 +52,64 @@ export function humanizeUserFacingError(
 
   if (isDuplicateError(blob)) {
     const serial = extractSerial(combined);
-    if (/mismo lote|está repetida/i.test(combined)) {
+
+    if (
+      /duplicate_in_equipment|duplicadas en el mismo equipo|mismo equipo/i.test(blob)
+    ) {
       return {
-        title: 'Serie duplicada',
+        title: 'Duplicado en el mismo equipo',
         description: serial
-          ? `La serie ${serial} está repetida en este mismo lote. Quite el duplicado e intente de nuevo.`
-          : 'Hay una serie repetida en este mismo lote. Quite el duplicado e intente de nuevo.',
+          ? `La serie ${serial} está repetida en las series de un mismo equipo (S1–S4). Corrija el escaneo.`
+          : 'Hay series repetidas en un mismo equipo (S1–S4). Corrija el escaneo.',
       };
     }
+
+    if (/duplicate_in_reception|duplicadas en esta recepción|esta recepción/i.test(blob)) {
+      return {
+        title: 'Duplicado en esta recepción',
+        description: serial
+          ? `La serie ${serial} ya fue capturada en esta recepción o caja PX.`
+          : 'Una serie ya fue capturada en esta recepción o caja PX.',
+      };
+    }
+
+    if (/duplicate_global|serie en inventario activo/i.test(blob)) {
+      return {
+        title: 'Serie ya registrada en TC',
+        description: serial
+          ? `La serie ${serial} ya está en inventario con una orden abierta.`
+          : 'La serie ya está en inventario con una orden abierta.',
+      };
+    }
+
+    if (/mismo lote|está repetida|repetida en este/i.test(combined)) {
+      return {
+        title: 'Duplicado en el mismo lote',
+        description: serial
+          ? `La serie ${serial} está repetida en esta caja o guía. Quite el duplicado e intente de nuevo.`
+          : 'Hay una serie repetida en esta caja o guía. Quite el duplicado e intente de nuevo.',
+      };
+    }
+
+    const looksLikeTcInventoryDuplicate =
+      /orden de servicio|orden abierta|inventario|duplicate_global|uniq_service_orders|ya está registrada|ya fue clasificada/i.test(
+        combined
+      );
+
+    if (!looksLikeTcInventoryDuplicate) {
+      return {
+        title: 'Duplicado en el mismo lote',
+        description: serial
+          ? `La serie ${serial} ya aparece en esta recepción o en las series del equipo (S1–S4). No está duplicada en inventario TC; corrija el escaneo en la grilla.`
+          : 'La serie ya aparece en esta recepción o en el mismo equipo. Corrija duplicados en la grilla antes de guardar.',
+      };
+    }
+
     return {
-      title: 'Serie duplicada',
+      title: 'Serie ya registrada en TC',
       description: serial
-        ? `La serie ${serial} ya está registrada con una orden de servicio abierta. No se puede ingresar de nuevo hasta cerrar o despachar ese ciclo.`
-        : 'Una o más series ya están registradas con una orden de servicio abierta. No se pueden ingresar de nuevo hasta cerrar o despachar ese ciclo.',
+        ? `La serie ${serial} ya tiene una orden de servicio abierta. Cierre o despache ese ciclo antes de ingresarla de nuevo.`
+        : 'Una o más series ya tienen orden de servicio abierta. Cierre o despache ese ciclo antes de ingresarlas de nuevo.',
     };
   }
 

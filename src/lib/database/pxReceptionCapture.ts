@@ -592,13 +592,13 @@ export async function getPxReceptionSnapshot(
 export function mapRpcCaptureError(message: string): string {
   const msg = message || '';
   if (msg.includes('DUPLICATE_IN_RECEPTION')) {
-    return 'Una o más series ya fueron capturadas en esta recepción.';
+    return 'Serie repetida en esta recepción PX (mismo lote). Ya fue capturada en esta caja o recepción.';
   }
   if (msg.includes('DUPLICATE_GLOBAL')) {
-    return msg.replace(/^.*DUPLICATE_GLOBAL:\s*/i, '🚫 Serie en inventario activo: ');
+    return msg.replace(/^.*DUPLICATE_GLOBAL:\s*/i, 'Serie ya en inventario TC (orden abierta): ');
   }
   if (msg.includes('DUPLICATE_IN_EQUIPMENT')) {
-    return 'Series duplicadas en el mismo equipo.';
+    return 'Serie repetida en el mismo equipo (mismo lote de caja). Revise que S1–S4 no estén duplicadas.';
   }
   if (msg.includes('BOX_FULL')) {
     return 'La caja alcanzó su capacidad declarada.';

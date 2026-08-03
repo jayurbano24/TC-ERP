@@ -94,6 +94,7 @@ export async function POST(
     series_count?: number;
     equipos_remaining?: number;
     series_remaining?: number;
+    capacity?: number;
     box_empty?: boolean;
   };
 
@@ -104,9 +105,27 @@ export async function POST(
     );
   }
 
+  // Cinturón: aunque el RPC ya sincroniza, forzar capacity = equipos restantes
+  // para que ninguna salida parcial deje la caja en PARCIAL N/capacidad_vieja.
+  let capacitySync: {
+    equipos_remaining?: number;
+    series_remaining?: number;
+    capacity?: number;
+    box_empty?: boolean;
+  } | null = null;
+  const { data: syncData, error: syncErr } = await db.rpc('warehouse_sync_box_capacity', {
+    p_box_id: boxId,
+  });
+  if (syncErr) {
+    console.warn('[dispatch-partial] capacity sync skipped:', syncErr.message);
+  } else {
+    capacitySync = syncData as typeof capacitySync;
+  }
+
   return NextResponse.json({
     success: true,
     guideNumber: destination,
     ...payload,
+    ...(capacitySync || {}),
   });
 }

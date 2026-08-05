@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { Badge, Button, Card, DataTable, type DataTableColumn, notify } from '@/components/ui';
@@ -9,23 +9,32 @@ import { apiFetch, haltForLoginRedirect, isApiAuthFailure, readApiJson } from '@
 import { formatWarehouseBoxId } from '@/modules/inventario/client/warehouseBoxDisplay';
 import { resolveBoxDisplayStatus } from '@/modules/inventario/client/warehouseBoxes';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
-import { MapPin, PackageMinus, Truck, RefreshCw, Warehouse } from 'lucide-react';
+import {
+  MapPin,
+  PackageMinus,
+  Truck,
+  RefreshCw,
+  Warehouse,
+  Download,
+  FileSpreadsheet,
+  CheckSquare,
+  Square,
+  Eye,
+} from 'lucide-react';
+import {
+  OutboundBoxDetailDrawer,
+  loadOutboundBoxSeries,
+} from './OutboundBoxDetailDrawer';
+import type { OutboundBoxRow } from './outboundSalidaTypes';
+import { downloadOutboundBoxExcel } from '@/lib/api/downloadOutboundBoxExcel';
 
-type OutboundBoxRow = {
-  id: string;
-  displayId: string;
-  displayIdFull: string;
-  isLegacyBoxCode: boolean;
-  realDbId: string;
-  rack: string;
+type ModelSummaryRow = {
+  key: string;
+  techName: string;
   marcaLabel: string;
   modeloLabel: string;
-  techName: string;
+  boxCount: number;
   unitCount: number;
-  capacity: number;
-  status: string;
-  usuarioIngreso: string;
-  fechaIngreso: string;
 };
 
 type ApiBox = {
@@ -64,6 +73,20 @@ async function fetchOutboundPage({
 export default function BodegaSalidaPage() {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebouncedValue(search, 300);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [exporting, setExporting] = useState(false);
+  const [detailBox, setDetailBox] = useState<OutboundBoxRow | null>(null);
+  const [detailSeries, setDetailSeries] = useState<any[]>([]);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  const openBoxDetail = useCallback(async (row: OutboundBoxRow) => {
+    setDetailBox(row);
+    setDetailSeries([]);
+    setDetailLoading(true);
+    const ui = await loadOutboundBoxSeries(row.realDbId);
+    setDetailSeries(ui);
+    setDetailLoading(false);
+  }, []);
 
   const query = useInfiniteQuery({
     queryKey: ['warehouse-outbound-boxes', debouncedSearch],
@@ -105,23 +128,129 @@ export default function BodegaSalidaPage() {
     });
   }, [query.data]);
 
+  const totals = useMemo(() => {
+    const totalBoxes = rows.length;
+    const totalUnits = rows.reduce((acc, r) => acc + r.unitCount, 0);
+    return { totalBoxes, totalUnits };
+  }, [rows]);
+
+  const modelSummary = useMemo((): ModelSummaryRow[] => {
+    const map = new Map<string, ModelSummaryRow>();
+    for (const r of rows) {
+      const key = `${r.techName}|${r.marcaLabel}|${r.modeloLabel}`;
+      const prev = map.get(key);
+      if (prev) {
+        prev.boxCount += 1;
+        prev.unitCount += r.unitCount;
+      } else {
+        map.set(key, {
+          key,
+          techName: r.techName,
+          marcaLabel: r.marcaLabel,
+          modeloLabel: r.modeloLabel,
+          boxCount: 1,
+          unitCount: r.unitCount,
+        });
+      }
+    }
+    return [...map.values()].sort((a, b) => b.unitCount - a.unitCount);
+  }, [rows]);
+
+  const toggleSelect = useCallback((realDbId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(realDbId)) next.delete(realDbId);
+      else next.add(realDbId);
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAllVisible = useCallback(() => {
+    setSelectedIds((prev) => {
+      if (prev.size === rows.length && rows.every((r) => prev.has(r.realDbId))) {
+        return new Set();
+      }
+      return new Set(rows.map((r) => r.realDbId));
+    });
+  }, [rows]);
+
+  const runExport = useCallback(
+    async (boxIds: string[], label: string) => {
+      setExporting(true);
+      try {
+        await downloadOutboundBoxExcel(boxIds, label, { filePrefix: 'Bodega_Salida' });
+        notify.success('Excel generado', {
+          description: `${boxIds.length} caja(s) · hojas Detalle + Resumen por modelo.`,
+        });
+      } catch (err) {
+        notify.error('No se pudo exportar', {
+          description: err instanceof Error ? err.message : 'Error desconocido',
+        });
+      } finally {
+        setExporting(false);
+      }
+    },
+    []
+  );
+
+  const allVisibleSelected =
+    rows.length > 0 && rows.every((r) => selectedIds.has(r.realDbId));
+
   const columns = useMemo((): DataTableColumn<OutboundBoxRow>[] => {
     return [
+      {
+        id: 'select',
+        header: (
+          <button
+            type="button"
+            className="inline-flex items-center text-[var(--sidebar-foreground)]/90"
+            title={allVisibleSelected ? 'Quitar selección' : 'Seleccionar visibles'}
+            onClick={toggleSelectAllVisible}
+          >
+            {allVisibleSelected ? (
+              <CheckSquare className="h-4 w-4" />
+            ) : (
+              <Square className="h-4 w-4" />
+            )}
+          </button>
+        ),
+        width: '44px',
+        cell: (item) => (
+          <button
+            type="button"
+            className="inline-flex items-center text-[var(--accent)]"
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleSelect(item.realDbId);
+            }}
+            aria-label={`Seleccionar caja ${item.displayId}`}
+          >
+            {selectedIds.has(item.realDbId) ? (
+              <CheckSquare className="h-4 w-4" />
+            ) : (
+              <Square className="h-4 w-4 text-[var(--muted)]" />
+            )}
+          </button>
+        ),
+      },
       {
         id: 'caja',
         header: 'ID Caja',
         width: '160px',
         cell: (item) => (
-          <div className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate font-bold text-[var(--foreground)]" title={item.displayIdFull}>
-              {item.displayId}
-            </span>
+          <button
+            type="button"
+            className="truncate text-left font-bold text-[var(--accent)] hover:underline"
+            title={item.displayIdFull}
+            onClick={() => void openBoxDetail(item)}
+          >
+            {item.displayId}
             {item.isLegacyBoxCode && (
-              <Badge variant="yellow" className="shrink-0 px-1.5 text-[8px] font-black tracking-wide">
+              <Badge variant="yellow" className="ml-1.5 shrink-0 px-1.5 text-[8px] font-black tracking-wide">
                 LEGACY
               </Badge>
             )}
-          </div>
+          </button>
         ),
       },
       {
@@ -196,8 +325,49 @@ export default function BodegaSalidaPage() {
           </span>
         ),
       },
+      {
+        id: 'acciones',
+        header: 'Acciones',
+        width: '100px',
+        align: 'center',
+        cell: (item) => (
+          <div className="flex items-center justify-center gap-1">
+            <button
+              type="button"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--accent)] hover:bg-[var(--surface-hover)]"
+              title="Ver series pistoleadas"
+              onClick={(e) => {
+                e.stopPropagation();
+                void openBoxDetail(item);
+              }}
+            >
+              <Eye className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
+              disabled={exporting}
+              title="Descargar Excel de esta caja"
+              onClick={(e) => {
+                e.stopPropagation();
+                void runExport([item.realDbId], item.displayId.replace(/[^\w.-]+/g, '_'));
+              }}
+            >
+              <Download className="h-4 w-4" />
+            </button>
+          </div>
+        ),
+      },
     ];
-  }, []);
+  }, [
+    allVisibleSelected,
+    exporting,
+    runExport,
+    selectedIds,
+    toggleSelect,
+    openBoxDetail,
+    toggleSelectAllVisible,
+  ]);
 
   return (
     <ModulePage
@@ -230,7 +400,83 @@ export default function BodegaSalidaPage() {
           <RefreshCw className="h-3.5 w-3.5" />
           Actualizar
         </Button>
+        <Button
+          variant="primary"
+          size="sm"
+          className="gap-1.5 ml-auto"
+          disabled={exporting || selectedIds.size === 0}
+          onClick={() =>
+            void runExport([...selectedIds], `${selectedIds.size}_cajas_seleccionadas`)
+          }
+        >
+          <FileSpreadsheet className="h-3.5 w-3.5" />
+          Reporte Excel ({selectedIds.size})
+        </Button>
       </div>
+
+      <div className="mb-4 grid grid-cols-1 gap-3 lg:grid-cols-3">
+        <Card className="border-2 border-[var(--border)] p-4">
+          <p className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)]">
+            Cajas en pantalla
+          </p>
+          <p className="mt-1 text-3xl font-black text-[var(--heading)]">{totals.totalBoxes}</p>
+          <p className="text-[10px] font-bold text-[var(--muted)]">
+            Use “Cargar más” si faltan cajas en la lista.
+          </p>
+        </Card>
+        <Card className="border-2 border-accent/30 p-4">
+          <p className="text-[10px] font-black uppercase tracking-widest text-[var(--accent)]">
+            Equipos a salir (total)
+          </p>
+          <p className="mt-1 text-3xl font-black text-[var(--heading)]">{totals.totalUnits}</p>
+          <p className="text-[10px] font-bold text-[var(--muted)]">Suma de equipos en cajas cargadas</p>
+        </Card>
+        <Card className="border-2 border-[var(--border)] p-4">
+          <p className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)]">
+            Selección para reporte
+          </p>
+          <p className="mt-1 text-3xl font-black text-[var(--heading)]">{selectedIds.size}</p>
+          <p className="text-[10px] font-bold text-[var(--muted)]">
+            Marque cajas y use “Reporte Excel”
+          </p>
+        </Card>
+      </div>
+
+      {modelSummary.length > 0 && (
+        <Card padding="none" className="mb-4 overflow-hidden border border-[var(--border)]">
+          <div className="border-b border-[var(--border)] bg-[var(--surface-hover)] px-4 py-3">
+            <h3 className="text-xs font-black uppercase tracking-widest text-[var(--heading)]">
+              Detalle por modelo (cajas cargadas)
+            </h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-[var(--sidebar)] text-[10px] font-black uppercase tracking-wider text-[var(--sidebar-foreground)]/80">
+                <tr>
+                  <th className="px-4 py-2">Tecnología</th>
+                  <th className="px-4 py-2">Marca</th>
+                  <th className="px-4 py-2">Modelo</th>
+                  <th className="px-4 py-2 text-right">Cajas</th>
+                  <th className="px-4 py-2 text-right">Equipos</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--border)]">
+                {modelSummary.map((m) => (
+                  <tr key={m.key} className="hover:bg-[var(--surface-hover)]">
+                    <td className="px-4 py-2 font-semibold text-[var(--accent)]">{m.techName}</td>
+                    <td className="px-4 py-2 font-bold">{m.marcaLabel}</td>
+                    <td className="px-4 py-2 font-bold">{m.modeloLabel}</td>
+                    <td className="px-4 py-2 text-right font-mono">{m.boxCount}</td>
+                    <td className="px-4 py-2 text-right font-mono font-black text-[var(--heading)]">
+                      {m.unitCount}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
 
       <ModuleToolbar
         searchValue={search}
@@ -251,9 +497,11 @@ export default function BodegaSalidaPage() {
           rowHeight={44}
           compact
           maxBodyHeight={720}
-          minWidth={1000}
+          minWidth={1120}
           headerClassName="border-b border-[var(--sidebar)] bg-[var(--sidebar)]"
           headerTextClassName="text-[var(--sidebar-foreground)]/80"
+          rowClassName={() => 'cursor-pointer hover:bg-[var(--surface-hover)]/80'}
+          onRowClick={(item) => void openBoxDetail(item)}
           emptyMessage={
             query.isLoading ? 'Cargando…' : 'Sin cajas en Bodega de Salida'
           }
@@ -270,6 +518,17 @@ export default function BodegaSalidaPage() {
           </div>
         )}
       </Card>
+
+      {detailBox && (
+        <OutboundBoxDetailDrawer
+          box={detailBox}
+          loading={detailLoading}
+          seriesRows={detailSeries}
+          exporting={exporting}
+          onClose={() => setDetailBox(null)}
+          onExportExcel={(id, label) => void runExport([id], label)}
+        />
+      )}
     </ModulePage>
   );
 }

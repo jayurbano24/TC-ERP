@@ -1,3 +1,5 @@
+import { buildEquipmentSerialSlots } from '@/lib/sap/equipmentSerialSlots';
+
 /** Agrupa series enriquecidas por OS → filas UI (S1–S4) para detalle de caja. */
 export function groupSeriesToUiRows(rawSeries: any[]): any[] {
   const grouped = (rawSeries || []).reduce((acc: Record<string, any[]>, s: any) => {
@@ -12,6 +14,24 @@ export function groupSeriesToUiRows(rawSeries: any[]): any[] {
       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     );
     const main = group[0];
+    const mainSerial =
+      main.service_orders?.main_serial ||
+      main.service_orders?.main_serial_number ||
+      null;
+    const slots = buildEquipmentSerialSlots(
+      group.map((g) => ({
+        id: String(g.id),
+        serial_number: g.serial_number,
+        material: g.material,
+        valuation: g.valuation,
+        created_at: g.created_at,
+        s2: g.s2,
+        s3: g.s3,
+        s4: g.s4,
+      })),
+      mainSerial
+    );
+    const slotPrimary = slots.primary;
     const notes = main.receptions?.notes || '';
     const normalizedNotes = String(notes).replace(/\\n/g, '\n');
     const seriesNotes = String(main.notes || '').replace(/\\n/g, '\n');
@@ -48,13 +68,13 @@ export function groupSeriesToUiRows(rawSeries: any[]): any[] {
 
     return {
       notes: main.notes,
-      sn: main.serial_number,
-      serial_number: main.serial_number,
-      s1: group[0]?.serial_number || '',
-      s2: group[1]?.serial_number || '',
-      s3: group[2]?.serial_number || '',
-      s4: group[3]?.serial_number || '',
-      allSeries: group.map((g) => g.serial_number),
+      sn: slotPrimary.serial_number || main.serial_number,
+      serial_number: slotPrimary.serial_number || main.serial_number,
+      s1: slots.s1,
+      s2: slots.s2,
+      s3: slots.s3,
+      s4: slots.s4,
+      allSeries: [slots.s1, slots.s2, slots.s3, slots.s4].filter(Boolean),
       material: main.material || '',
       lote: main.valuation || '',
       marca: brandId,

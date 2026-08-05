@@ -1,9 +1,18 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, startTransition } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
-import { Card, Badge, Button, notify, confirmDialog, DataTable, type DataTableColumn } from '@/components/ui';
+import {
+  Card,
+  Badge,
+  Button,
+  notify,
+  confirmDialog,
+  DataTable,
+  TablePagination,
+  type DataTableColumn,
+} from '@/components/ui';
 import { erpTab, erpTableHeader, erpTableHeaderText, erpFieldClass, erpLabelClass } from '@/lib/design/tokens';
 import { apiFetch } from '@/lib/http/apiFetch';
 import { sapValidationReader } from '@/modules/sap-integration';
@@ -40,6 +49,7 @@ import {
 } from 'lucide-react';
 
 import { fetchDespachoBoxItems } from '@/lib/api/despachoBoxItems';
+import { downloadOutboundBoxExcel } from '@/lib/api/downloadOutboundBoxExcel';
 import {
   fetchDespachoBoxesViaApi,
   fetchDespachoHistoryViaApi,
@@ -61,6 +71,8 @@ const SERIES_SIBLING_SELECT =
 
 const BOX_DESPACHO_SELECT =
   'id, box_code, brand_id, model_id, capacity, status, material, valuation, created_at';
+
+const DESPACHO_HISTORY_PAGE_SIZE = 25;
 
 type DispatchItem = {
   id: string;
@@ -285,6 +297,30 @@ export default function DespachoPage() {
     refetchOnWindowFocus: true,
   });
   const dispatchHistory = despachoQuery.data?.history ?? EMPTY_LIST;
+  const [historyPage, setHistoryPage] = useState(1);
+
+  const historyTotalCount = dispatchHistory.length;
+  const historyTotalPages = Math.max(1, Math.ceil(historyTotalCount / DESPACHO_HISTORY_PAGE_SIZE));
+  const historySafePage = Math.min(historyPage, historyTotalPages);
+
+  useEffect(() => {
+    if (historyPage > historyTotalPages) {
+      startTransition(() => setHistoryPage(historyTotalPages));
+    }
+  }, [historyPage, historyTotalPages]);
+
+  const onHistoryPageChange = useCallback((value: React.SetStateAction<number>) => {
+    startTransition(() => setHistoryPage(value));
+  }, []);
+
+  const dispatchHistoryPageItems = useMemo(() => {
+    const start = (historySafePage - 1) * DESPACHO_HISTORY_PAGE_SIZE;
+    return dispatchHistory.slice(start, start + DESPACHO_HISTORY_PAGE_SIZE);
+  }, [dispatchHistory, historySafePage]);
+
+  const historyStartItem =
+    historyTotalCount === 0 ? 0 : (historySafePage - 1) * DESPACHO_HISTORY_PAGE_SIZE + 1;
+  const historyEndItem = Math.min(historySafePage * DESPACHO_HISTORY_PAGE_SIZE, historyTotalCount);
 
   const refreshDispatches = () => queryClient.invalidateQueries({ queryKey: ['despacho-data'] });
 
@@ -298,6 +334,7 @@ export default function DespachoPage() {
   const [boxModel, setBoxModel] = useState('');
   const [boxTech, setBoxTech] = useState('');
   const [boxQty, setBoxQty] = useState<number | ''>('');
+  const [boxCount, setBoxCount] = useState<number | ''>(1);
   const [boxMaterial, setBoxMaterial] = useState('');
   const [boxValuation, setBoxValuation] = useState('');
   
@@ -318,6 +355,7 @@ export default function DespachoPage() {
   const dbModels: any[] = catalogsQuery.data?.models ?? EMPTY_LIST;
   const dbTechs: any[] = catalogsQuery.data?.techs ?? EMPTY_LIST;
   const [editBoxId, setEditBoxId] = useState<string | null>(null);
+  const [creatingBoxes, setCreatingBoxes] = useState(false);
 
   const outboundBrands = useMemo(
     () => filterBrandsByTechnologyId(dbBrands, dbModels, boxTech),
@@ -720,10 +758,20 @@ export default function DespachoPage() {
   };
 
   const handleCreateBox = async () => {
-    if (!boxBrand || !boxModel || !boxQty) return;
-    
+    if (!boxBrand || !boxModel || !boxQty || !boxTech) return;
+
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
+
+    const unitsPerBox = Number(boxQty);
+    if (!Number.isFinite(unitsPerBox) || unitsPerBox <= 0) {
+      notify.warning('Indique equipos por caja mayor a 0.');
+      return;
+    }
+
+    const boxesToCreate = editBoxId
+      ? 1
+      : Math.min(50, Math.max(1, Math.floor(Number(boxCount) || 1)));
 
     try {
       let receptionId;
@@ -739,7 +787,7 @@ export default function DespachoPage() {
         const { error } = await supabase.from('boxes').update({
           brand_id: boxBrand,
           model_id: boxModel,
-          capacity: Number(boxQty),
+          capacity: unitsPerBox,
           material: boxMaterial.trim() || null,
           valuation: boxValuation.trim() || null,
         }).eq('id', editBoxId);
@@ -751,6 +799,7 @@ export default function DespachoPage() {
           notify.success('Outbound actualizado.');
           setShowCreateBoxModal(false);
           setBoxBrand(''); setBoxModel(''); setBoxTech(''); setBoxQty('');
+          setBoxCount(1);
           setBoxMaterial(''); setBoxValuation('');
           setEditBoxId(null);
           await refreshDispatches();
@@ -758,45 +807,75 @@ export default function DespachoPage() {
         return;
       }
 
-      // Número Outbound único e irrepetible (RPC next_outbound_code → OB-000001…)
+      setCreatingBoxes(true);
+      const createdCodes: string[] = [];
       let lastError: string | null = null;
-      for (let attempt = 0; attempt < 5; attempt++) {
-        let boxCode: string;
-        try {
-          boxCode = await allocateOutboundCode();
-        } catch (e: any) {
-          lastError = e?.message || 'No se pudo generar código Outbound';
-          break;
+
+      for (let n = 0; n < boxesToCreate; n++) {
+        let inserted = false;
+        for (let attempt = 0; attempt < 5; attempt++) {
+          let boxCode: string;
+          try {
+            boxCode = await allocateOutboundCode();
+          } catch (e: unknown) {
+            lastError = e instanceof Error ? e.message : 'No se pudo generar código Outbound';
+            break;
+          }
+          const { error } = await supabase.from('boxes').insert({
+            reception_id: receptionId,
+            box_code: boxCode,
+            brand_id: boxBrand,
+            model_id: boxModel,
+            capacity: unitsPerBox,
+            material: boxMaterial.trim() || null,
+            valuation: boxValuation.trim() || null,
+            status: 'open',
+            rack_location: 'OUTBOUND',
+          });
+
+          if (!error) {
+            createdCodes.push(boxCode);
+            inserted = true;
+            break;
+          }
+
+          lastError = error.message;
+          if (!/duplicate|unique|box_code/i.test(error.message)) {
+            break;
+          }
         }
-        const { error } = await supabase.from('boxes').insert({
-          reception_id: receptionId,
-          box_code: boxCode,
-          brand_id: boxBrand,
-          model_id: boxModel,
-          capacity: Number(boxQty),
-          material: boxMaterial.trim() || null,
-          valuation: boxValuation.trim() || null,
-          status: 'open',
-          rack_location: 'OUTBOUND',
+        if (!inserted) break;
+      }
+
+      setCreatingBoxes(false);
+
+      if (createdCodes.length === boxesToCreate) {
+        if (boxesToCreate === 1) {
+          notify.success(`Outbound ${createdCodes[0]} creado.`);
+        } else {
+          notify.success(`${createdCodes.length} Outbounds creados.`, {
+            description: `${createdCodes[0]} … ${createdCodes[createdCodes.length - 1]}`,
+          });
+        }
+        setShowCreateBoxModal(false);
+        setBoxBrand(''); setBoxModel(''); setBoxTech(''); setBoxQty('');
+        setBoxCount(1);
+        setBoxMaterial(''); setBoxValuation('');
+        await refreshDispatches();
+        return;
+      }
+
+      if (createdCodes.length > 0) {
+        notify.warning(`Se crearon ${createdCodes.length} de ${boxesToCreate} cajas.`, {
+          description: lastError || 'Revise la lista y reintente el resto.',
         });
-
-        if (!error) {
-          notify.success(`Outbound ${boxCode} creado.`);
-          setShowCreateBoxModal(false);
-          setBoxBrand(''); setBoxModel(''); setBoxTech(''); setBoxQty('');
-          setBoxMaterial(''); setBoxValuation('');
-          await refreshDispatches();
-          return;
-        }
-
-        lastError = error.message;
-        if (!/duplicate|unique|box_code/i.test(error.message)) {
-          break;
-        }
+        await refreshDispatches();
+        return;
       }
 
       notify.error('Error al crear Outbound', { description: lastError || 'Código no disponible' });
     } catch (e) {
+      setCreatingBoxes(false);
       console.error(e);
       notify.error('Error inesperado al guardar Outbound.');
     }
@@ -834,6 +913,22 @@ export default function DespachoPage() {
     } catch (e) {
       console.error(e);
       notify.error('Error inesperado al eliminar.');
+    }
+  };
+
+  const handleExportOutboundBoxExcel = async (disp: DispatchItem) => {
+    if (!disp.dbId) {
+      notify.warning('Esta caja no tiene identificador para exportar.');
+      return;
+    }
+    try {
+      await downloadOutboundBoxExcel([disp.dbId], disp.id);
+      notify.success('Excel descargado.');
+    } catch (e) {
+      console.error(e);
+      notify.error('No se pudo exportar el Excel.', {
+        description: e instanceof Error ? e.message : 'Error desconocido',
+      });
     }
   };
 
@@ -1334,10 +1429,21 @@ export default function DespachoPage() {
     {
       id: 'acciones',
       header: 'Acciones',
-      width: '140px',
+      width: '180px',
       align: 'right',
       cell: (disp: DispatchItem) => (
         <div className="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              void handleExportOutboundBoxExcel(disp);
+            }}
+            className="w-8 h-8 flex items-center justify-center rounded-lg bg-sky-50 text-sky-700 hover:bg-sky-100 transition-colors"
+            title="Descargar Excel de la caja"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+          </button>
           <div
             onClick={(e) => { e.stopPropagation(); handleEditBox(disp); }}
             className="w-8 h-8 flex items-center justify-center rounded-lg bg-blue-100 text-blue-600 hover:bg-blue-200 cursor-pointer transition-colors"
@@ -1471,6 +1577,7 @@ export default function DespachoPage() {
           <Button variant="outline" onClick={() => {
             setEditBoxId(null);
             setBoxBrand(''); setBoxModel(''); setBoxTech(''); setBoxQty('');
+            setBoxCount(1);
             setBoxMaterial(''); setBoxValuation('');
             setShowCreateBoxModal(true);
           }} leftIcon={<Plus className="w-4 h-4" />}>
@@ -1613,7 +1720,11 @@ export default function DespachoPage() {
                   {editBoxId ? 'Editar Outbound' : 'Crear Outbound'}
                 </h2>
                 <button 
-                  onClick={() => setShowCreateBoxModal(false)}
+                  onClick={() => {
+                    setShowCreateBoxModal(false);
+                    setEditBoxId(null);
+                    setBoxCount(1);
+                  }}
                   className="text-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
                 >
                   <X className="w-5 h-5" />
@@ -1676,15 +1787,36 @@ export default function DespachoPage() {
                   </div>
                   
                   <div className="space-y-1.5">
-                    <label className={erpLabelClass}>Cantidad</label>
+                    <label className={erpLabelClass}>Equipos por caja</label>
                     <input 
                       type="number" 
-                      placeholder="Ej: 10"
+                      min={1}
+                      placeholder="Ej: 9"
                       className={erpFieldClass}
                       value={boxQty}
-                      onChange={e => setBoxQty(Number(e.target.value))}
+                      onChange={(e) => setBoxQty(e.target.value === '' ? '' : Number(e.target.value))}
                     />
                   </div>
+
+                  {!editBoxId ? (
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <label className={erpLabelClass}>Cantidad de cajas</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={50}
+                        placeholder="Ej: 5"
+                        className={erpFieldClass}
+                        value={boxCount}
+                        onChange={(e) =>
+                          setBoxCount(e.target.value === '' ? '' : Number(e.target.value))
+                        }
+                      />
+                      <p className="text-[11px] text-[var(--muted)] font-medium">
+                        Misma tecnología, marca, modelo, material y valoración en cada outbound (máx. 50).
+                      </p>
+                    </div>
+                  ) : null}
 
                   <div className="space-y-1.5">
                     <label className={erpLabelClass}>Material</label>
@@ -1747,12 +1879,30 @@ export default function DespachoPage() {
                   setShowCreateBoxModal(false);
                   setEditBoxId(null);
                   setBoxBrand(''); setBoxModel(''); setBoxTech(''); setBoxQty('');
+                  setBoxCount(1);
                   setBoxMaterial(''); setBoxValuation('');
                 }}>
                   Cancelar
                 </Button>
-                <Button variant="primary" onClick={handleCreateBox} disabled={!boxBrand || !boxModel || !boxQty || !boxTech}>
-                  {editBoxId ? 'Guardar Outbound' : 'Crear Outbound'}
+                <Button
+                  variant="primary"
+                  onClick={() => void handleCreateBox()}
+                  disabled={
+                    creatingBoxes ||
+                    !boxBrand ||
+                    !boxModel ||
+                    !boxQty ||
+                    !boxTech ||
+                    (!editBoxId && (Number(boxCount) < 1 || Number(boxCount) > 50))
+                  }
+                >
+                  {creatingBoxes
+                    ? 'Creando…'
+                    : editBoxId
+                      ? 'Guardar Outbound'
+                      : Number(boxCount) > 1
+                        ? `Crear ${Math.min(50, Math.floor(Number(boxCount) || 1))} Outbounds`
+                        : 'Crear Outbound'}
                 </Button>
               </div>
             </Card>
@@ -1899,7 +2049,7 @@ export default function DespachoPage() {
             <Card padding="none" className="overflow-hidden">
               <DataTable
                 columns={dispatchHistoryColumns}
-                data={dispatchHistory}
+                data={dispatchHistoryPageItems}
                 getRowId={(hist: any) => hist.id}
                 rowHeight={64}
                 maxBodyHeight={560}
@@ -1907,6 +2057,16 @@ export default function DespachoPage() {
                 headerClassName={erpTableHeader}
                 headerTextClassName={erpTableHeaderText}
                 emptyMessage="No hay historial de despachos registrados."
+              />
+              <TablePagination
+                totalCount={historyTotalCount}
+                page={historySafePage}
+                totalPages={historyTotalPages}
+                startItem={historyStartItem}
+                endItem={historyEndItem}
+                pageSize={DESPACHO_HISTORY_PAGE_SIZE}
+                onPageChange={onHistoryPageChange}
+                itemLabel="despachos"
               />
             </Card>
           </div>

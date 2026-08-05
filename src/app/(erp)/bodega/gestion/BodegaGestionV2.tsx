@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { Card, Badge, Button, DataTable, type DataTableColumn, notify, confirmDialog } from '@/components/ui';
+import React, { useState, useMemo, useEffect, useRef, useCallback, startTransition } from 'react';
+import { Card, Badge, Button, DataTable, TablePagination, type DataTableColumn, notify, confirmDialog } from '@/components/ui';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -66,6 +66,8 @@ function isWarehouseSummaryMissingError(message: unknown): boolean {
   return text.includes('warehouse_box_summary') && text.includes('schema cache');
 }
 
+const BODEGA_GESTION_PAGE_SIZE = 25;
+
 export default function BodegaGestionV2({
   onRequireMigration,
 }: {
@@ -100,6 +102,7 @@ export default function BodegaGestionV2({
   const [filterTech, setFilterTech] = useState('');
   const [filterModel, setFilterModel] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [inventoryPage, setInventoryPage] = useState(1);
   const fillStatusParam =
     filterStatus === 'Partial' ? 'partial' : filterStatus === 'Full' ? 'full' : undefined;
   const {
@@ -365,6 +368,9 @@ export default function BodegaGestionV2({
 
   const filteredInventory = useMemo(() => {
     return inventory.filter((item) => {
+      // Códigos libres / pre-correlativo (AppSheet, alias raros): no listar en gestión operativa
+      if (item.isLegacyBoxCode) return false;
+
       // Cajas ya en Taller/Scrap no pertenecen a Gestión de Bodega
       if (!isBodegaOperationalRack(item.rack)) return false;
 
@@ -405,6 +411,41 @@ export default function BodegaGestionV2({
       );
     });
   }, [inventory, filterTech, filterModel, filterStatus, debouncedSearch, brandName, modelName]);
+
+  useEffect(() => {
+    startTransition(() => setInventoryPage(1));
+  }, [debouncedSearch, filterTech, filterModel, filterStatus]);
+
+  const inventoryTotalCount = filteredInventory.length;
+  const inventoryTotalPages = Math.max(
+    1,
+    Math.ceil(inventoryTotalCount / BODEGA_GESTION_PAGE_SIZE)
+  );
+  const inventorySafePage = Math.min(inventoryPage, inventoryTotalPages);
+
+  useEffect(() => {
+    if (inventoryPage > inventoryTotalPages) {
+      startTransition(() => setInventoryPage(inventoryTotalPages));
+    }
+  }, [inventoryPage, inventoryTotalPages]);
+
+  const onInventoryPageChange = useCallback((value: React.SetStateAction<number>) => {
+    startTransition(() => setInventoryPage(value));
+  }, []);
+
+  const inventoryPageItems = useMemo(() => {
+    const start = (inventorySafePage - 1) * BODEGA_GESTION_PAGE_SIZE;
+    return filteredInventory.slice(start, start + BODEGA_GESTION_PAGE_SIZE);
+  }, [filteredInventory, inventorySafePage]);
+
+  const inventoryStartItem =
+    inventoryTotalCount === 0
+      ? 0
+      : (inventorySafePage - 1) * BODEGA_GESTION_PAGE_SIZE + 1;
+  const inventoryEndItem = Math.min(
+    inventorySafePage * BODEGA_GESTION_PAGE_SIZE,
+    inventoryTotalCount
+  );
 
   /** Modelos del catálogo para la tecnología elegida (cascada; sin duplicados por espacios/caso). */
   const modelFilterOptions = useMemo(() => {
@@ -1460,7 +1501,7 @@ export default function BodegaGestionV2({
     setTransferScanInput('');
   };
 
-  const pageBoxIds = filteredInventory.map((b: any) => b.id);
+  const pageBoxIds = inventoryPageItems.map((b: any) => b.id);
   const allPageSelected = pageBoxIds.length > 0 && pageBoxIds.every((id: string) => selectedBoxIds.includes(id));
 
   const inventoryColumns: DataTableColumn<any>[] = [
@@ -2072,7 +2113,7 @@ export default function BodegaGestionV2({
           <Card padding="none" className="overflow-hidden border-2 border-border shadow-sm">
             <DataTable
               columns={inventoryColumns}
-              data={filteredInventory}
+              data={inventoryPageItems}
               getRowId={(item) => item.id}
               onRowClick={(item) => void openBoxDetail(item)}
               rowHeight={44}
@@ -2083,11 +2124,32 @@ export default function BodegaGestionV2({
               headerTextClassName="text-[var(--sidebar-foreground)]/80"
               emptyMessage="No hay cajas en inventario"
             />
+            <TablePagination
+              totalCount={inventoryTotalCount}
+              page={inventorySafePage}
+              totalPages={inventoryTotalPages}
+              startItem={inventoryStartItem}
+              endItem={inventoryEndItem}
+              pageSize={BODEGA_GESTION_PAGE_SIZE}
+              onPageChange={onInventoryPageChange}
+              itemLabel={hasNextPage ? 'cajas (cargadas)' : 'cajas'}
+            />
             {hasNextPage && (
-              <div className="p-4 flex justify-center">
-                <Button variant="outline" onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
-                  {isFetchingNextPage ? 'Cargando más...' : 'Cargar más cajas'}
+              <div className="px-4 pb-4 flex flex-col items-center gap-2 border-t border-slate-100 bg-slate-50/30">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    queueMicrotask(() => {
+                      void fetchNextPage();
+                    });
+                  }}
+                  disabled={isFetchingNextPage}
+                >
+                  {isFetchingNextPage ? 'Cargando más...' : 'Cargar más cajas del servidor'}
                 </Button>
+                <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">
+                  Hay más registros; cargue o avance de página para traerlos
+                </span>
               </div>
             )}
           </Card>

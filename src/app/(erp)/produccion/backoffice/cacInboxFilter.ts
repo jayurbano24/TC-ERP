@@ -1,4 +1,5 @@
 import type { BackofficeReception } from './types';
+import { getInboxClassificationStats } from './operation/classificationGuideUtils';
 
 const EXCLUDED_INBOX_STATUSES = new Set([
   'RECIBIDO_BACKOFFICE',
@@ -15,7 +16,20 @@ const EXCLUDED_INBOX_STATUSES = new Set([
 export function shouldShowInCacInbox(r: BackofficeReception): boolean {
   const source = (r as BackofficeReception & { source?: string }).source;
   if (source === 'px' && r.status !== 'PENDIENTE_BACKOFFICE') return false;
-  if (EXCLUDED_INBOX_STATUSES.has(r.status)) return false;
+
+  // Eliminadas: nunca en bandeja activa (aunque queden guías 0/N en el lote).
+  if (r.status === 'ELIMINADO' || r.status === 'ELIMINADO POR BODEGA') {
+    return false;
+  }
+
+  const progress = getInboxClassificationStats(r);
+  const hasPendingGuides = progress.remaining > 0;
+
+  if (EXCLUDED_INBOX_STATUSES.has(r.status)) {
+    // Lote multi-guía: no ocultar si aún faltan guías por clasificar (p. ej. 28/37).
+    if (hasPendingGuides) return true;
+    return false;
+  }
 
   const units = r.received_units ?? 1;
   const isSingleBox = units <= 1;

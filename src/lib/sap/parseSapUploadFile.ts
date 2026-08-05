@@ -143,12 +143,47 @@ export type ParsedSapUpload = {
   format: 'csv' | 'xlsx';
 };
 
-/** Lee CSV o Excel SAP exportado y valida columnas obligatorias. */
-export async function parseSapUploadFile(file: File): Promise<ParsedSapUpload> {
-  const isExcel = isExcelSapFile(file);
+/** Índice compacto para cruce (evita reenviar filas completas al cliente). */
+export type SapUploadSerialIndex = {
+  serials: string[];
+  materials: Record<string, string>;
+  valuations: Record<string, string>;
+  rowCount: number;
+};
+
+export function buildSapSerialIndex(rows: SapUploadRow[]): SapUploadSerialIndex {
+  const serialSet = new Set<string>();
+  const materials: Record<string, string> = {};
+  const valuations: Record<string, string> = {};
+  for (const row of rows) {
+    const sn = String(row['Número de serie'] || '').trim();
+    if (!sn || sn.length > 80) continue;
+    serialSet.add(sn);
+    const mat = extractSapMaterial(row);
+    if (mat && !materials[sn]) materials[sn] = mat;
+    const valoracion = extractSapValuation(row);
+    if (valoracion && !valuations[sn]) valuations[sn] = valoracion;
+  }
+  const serials = Array.from(serialSet);
+  if (serials.length === 0) {
+    throw new Error('No se encontraron números de serie válidos en el archivo.');
+  }
+  return { serials, materials, valuations, rowCount: rows.length };
+}
+
+function isExcelFileName(name: string): boolean {
+  const lower = name.toLowerCase();
+  return lower.endsWith('.xlsx') || lower.endsWith('.xls');
+}
+
+/** Parseo en servidor o tests a partir de buffer + nombre de archivo. */
+export async function parseSapUploadBuffer(
+  buffer: ArrayBuffer,
+  fileName: string
+): Promise<ParsedSapUpload & SapUploadSerialIndex> {
+  const isExcel = isExcelFileName(fileName);
 
   if (isExcel) {
-    const buffer = await file.arrayBuffer();
     const hash = await sha256Hex(buffer);
     const { rows, headers } = parseXlsxBuffer(buffer);
     const missing = validateSapHeaders(headers);
@@ -158,10 +193,11 @@ export async function parseSapUploadFile(file: File): Promise<ParsedSapUpload> {
     if (rows.length === 0) {
       throw new Error('No hay filas con Número de serie en el archivo Excel.');
     }
-    return { rows, hash, format: 'xlsx' };
+    const index = buildSapSerialIndex(rows);
+    return { rows, hash, format: 'xlsx', ...index };
   }
 
-  const text = await file.text();
+  const text = new TextDecoder('utf-8').decode(buffer);
   const hash = await sha256Hex(text);
   const rows = parseCsvText(text);
   const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
@@ -170,5 +206,13 @@ export async function parseSapUploadFile(file: File): Promise<ParsedSapUpload> {
   if (missing.length > 0) {
     throw new Error(`Estructura inválida. Faltan las columnas: ${missing.join(', ')}`);
   }
-  return { rows, hash, format: 'csv' };
+  const index = buildSapSerialIndex(rows);
+  return { rows, hash, format: 'csv', ...index };
+}
+
+/** Lee CSV o Excel SAP exportado y valida columnas obligatorias. */
+export async function parseSapUploadFile(file: File): Promise<ParsedSapUpload> {
+  const buffer = await file.arrayBuffer();
+  const parsed = await parseSapUploadBuffer(buffer, file.name);
+  return { rows: parsed.rows, hash: parsed.hash, format: parsed.format };
 }

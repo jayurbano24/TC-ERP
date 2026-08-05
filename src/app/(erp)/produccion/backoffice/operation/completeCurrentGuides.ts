@@ -318,7 +318,9 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
 
         const cleanUpdate = {
           status: isDevolucion
-            ? 'BODEGA_DEVOLUCION'
+            ? allProcessed
+              ? 'BODEGA_DEVOLUCION'
+              : 'PENDIENTE DE CLASIFICAR'
             : allProcessed
               ? 'CLASIFICADA'
               : 'PENDIENTE DE CLASIFICAR',

@@ -33,7 +33,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ boxI
   let q = db
     .from('series')
     .select(
-      'id, serial_number, current_status, current_reception_id, service_order_id, model_id, brand_id, material, valuation, notes, sap_status, created_at'
+      'id, serial_number, s2, s3, s4, current_status, current_reception_id, service_order_id, model_id, brand_id, material, valuation, notes, sap_status, created_at'
     )
     .eq('current_box_id', boxId)
     .order('id', { ascending: true })
@@ -85,7 +85,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ boxI
       recIds,
       'id, guide_number, notes, carrier, received_by, status, created_at, source'
     ),
-    fetchMap('service_orders', osIds, 'id, os_label, reentry_count, sap_integration_status'),
+    fetchMap('service_orders', osIds, 'id, os_label, reentry_count, main_serial, sap_integration_status'),
     fetchMap('models', modelIds, 'id, name, technology_id, brand_id'),
   ]);
 

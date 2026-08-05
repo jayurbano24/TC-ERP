@@ -9,12 +9,7 @@ import { Card, Button, Badge, DataTable, type DataTableColumn, notify } from '@/
 import { erpTab, erpSoftStat, erpInputClass } from '@/lib/design/tokens';
 import { apiFetch } from '@/lib/http/apiFetch';
 import { useQuery } from '@tanstack/react-query';
-import {
-  parseSapUploadFile,
-  extractSapMaterial,
-  extractSapValuation,
-  type SapUploadRow,
-} from '@/lib/sap/parseSapUploadFile';
+import { SapIntegracionErrorBoundary } from './SapIntegracionErrorBoundary';
 
 // Referencia estable para la query mientras no hay datos.
 const EMPTY_SAP_HISTORY: any[] = [];
@@ -99,40 +94,42 @@ async function apiFetchJsonWithTimeout(
   }
 }
 
+type SapParseUploadResponse = {
+  success: boolean;
+  error?: string;
+  hash?: string;
+  format?: 'csv' | 'xlsx';
+  totalRows?: number;
+  serialCount?: number;
+  serials?: string[];
+  materials?: Record<string, string>;
+  valuations?: Record<string, string>;
+};
+
 async function runSapMatchingPipeline(
   file: File,
-  rows: SapUploadRow[],
-  hash: string,
-  format: string,
+  parsed: {
+    hash: string;
+    format: string;
+    totalRows: number;
+    serials: string[];
+    materials: Record<string, string>;
+    valuations: Record<string, string>;
+  },
   logProcess: (msg: string) => void,
   setUploadStatus: (s: UploadStatus) => void,
   _setErrorMsg: (msg: string | null) => void
 ) {
-  logProcess(`Estructura validada (${format.toUpperCase()}). Filas con serie: ${rows.length}`);
+  logProcess(`Estructura validada (${parsed.format.toUpperCase()}). Filas con serie: ${parsed.totalRows}`);
 
   setUploadStatus('matching');
   await yieldUi();
 
-  // Series únicas + material + valoración según layout real G985
-  // Material = código; Valoración = Lote / Lote de stock (VALORADO|NOVALORAD)
-  const serialSet = new Set<string>();
-  const materials: Record<string, string> = {};
-  const valuations: Record<string, string> = {};
-  for (const row of rows) {
-    const sn = String(row['Número de serie'] || '').trim();
-    if (!sn || sn.length > 80) continue;
-    serialSet.add(sn);
-    const mat = extractSapMaterial(row);
-    if (mat && !materials[sn]) materials[sn] = mat;
-    const valoracion = extractSapValuation(row);
-    if (valoracion && !valuations[sn]) valuations[sn] = valoracion;
-  }
-  const serials = Array.from(serialSet);
-  if (serials.length === 0) {
-    throw new Error('No se encontraron números de serie válidos en el archivo.');
-  }
+  const serials = parsed.serials;
+  const materials = parsed.materials;
+  const valuations = parsed.valuations;
 
-  logProcess(`Series únicas SAP: ${serials.length} (de ${rows.length} filas)`);
+  logProcess(`Series únicas SAP: ${serials.length} (de ${parsed.totalRows} filas)`);
   if (serials.length > 40_000) {
     logProcess('Aviso: archivo muy grande (>40k series). El cruce puede tardar varios minutos.');
   }
@@ -222,6 +219,7 @@ async function runSapMatchingPipeline(
     valuation: m.valuation,
   }));
   const validationDetails: Record<string, unknown>[] = [];
+  const auditCap = 5_000;
 
   for (const [equipoId, eqMatches] of seriesByEquipo) {
     const materialsFound = new Set(
@@ -236,10 +234,9 @@ async function runSapMatchingPipeline(
     }
     matchedEquipos.push({ id: equipoId, sap_integration_status: status });
 
-    // Detalle de auditoría solo de coincidencias (tope para no inflar el sync)
-    if (validationDetails.length < 5_000) {
+    if (validationDetails.length < auditCap) {
       eqMatches.forEach((m, idx) => {
-        if (validationDetails.length >= 5_000) return;
+        if (validationDetails.length >= auditCap) return;
         validationDetails.push({
           equipo_id: equipoId,
           tipo_serie: `S${idx + 1}`,
@@ -262,6 +259,11 @@ async function runSapMatchingPipeline(
     );
   }
 
+  if (matchedSeries.length > 3_000 && validationDetails.length > 0) {
+    validationDetails.length = 0;
+    logProcess('Detalle auditoría omitido (archivo grande) para reducir tamaño del sync.');
+  }
+
   setUploadStatus('syncing');
   logProcess('Sincronizando (solo matches + reset set-based en BD)...');
   await yieldUi();
@@ -272,7 +274,7 @@ async function runSapMatchingPipeline(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        fileInfo: { name: file.name, hash, totalRows: rows.length, user: 'Usuario Activo' },
+        fileInfo: { name: file.name, hash: parsed.hash, totalRows: parsed.totalRows, user: 'Usuario Activo' },
         results: {
           encontrados: validados,
           noEncontrados: 0,
@@ -307,7 +309,15 @@ async function runSapMatchingPipeline(
   setUploadStatus('done');
 }
 
-export default function IntegracionSapPage() {
+export default function IntegracionSapPageRoot() {
+  return (
+    <SapIntegracionErrorBoundary>
+      <IntegracionSapPage />
+    </SapIntegracionErrorBoundary>
+  );
+}
+
+function IntegracionSapPage() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'cargar' | 'historial' | 'consulta' | 'diferencias' | 'config'>('dashboard');
 
   const [uploadStatus, setUploadStatus] = useState<'idle' | 'parsing' | 'hashing' | 'fetching' | 'matching' | 'syncing' | 'done' | 'error'>('idle');
@@ -406,7 +416,10 @@ export default function IntegracionSapPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const logProcess = (msg: string) => {
-    setProgressLog(prev => [...prev, `${new Date().toLocaleTimeString()} - ${msg}`]);
+    setProgressLog((prev) => {
+      const next = [...prev, `${new Date().toLocaleTimeString()} - ${msg}`];
+      return next.length > 400 ? next.slice(-400) : next;
+    });
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -423,17 +436,43 @@ export default function IntegracionSapPage() {
     }
 
     try {
-      logProcess('Validando estructura y leyendo archivo (puede tardar en Excel grandes)...');
+      logProcess('Subiendo y validando en servidor (Excel G985 no se procesa en el navegador)...');
       await yieldUi();
-      const { rows, hash, format } = await parseSapUploadFile(file);
-      logProcess(`Lectura OK · ${rows.length} filas con serie · hash ${hash.slice(0, 12)}…`);
+
+      const form = new FormData();
+      form.append('file', file);
+      const parseRes = await apiFetch('/api/sap/parse-upload', {
+        method: 'POST',
+        body: form,
+      });
+      const parseJson = (await parseRes.json().catch(() => ({}))) as SapParseUploadResponse;
+      if (!parseRes.ok || !parseJson.success) {
+        throw new Error(parseJson.error || `Error al leer archivo (${parseRes.status})`);
+      }
+      if (
+        !parseJson.hash ||
+        !parseJson.format ||
+        !parseJson.serials?.length ||
+        parseJson.totalRows === undefined
+      ) {
+        throw new Error('Respuesta incompleta del servidor al parsear SAP.');
+      }
+
+      logProcess(
+        `Lectura OK · ${parseJson.totalRows} filas · ${parseJson.serials.length} series · hash ${parseJson.hash.slice(0, 12)}…`
+      );
       await yieldUi();
 
       await runSapMatchingPipeline(
         file,
-        rows,
-        hash,
-        format,
+        {
+          hash: parseJson.hash,
+          format: parseJson.format,
+          totalRows: parseJson.totalRows,
+          serials: parseJson.serials,
+          materials: parseJson.materials || {},
+          valuations: parseJson.valuations || {},
+        },
         logProcess,
         setUploadStatus,
         setErrorMsg
@@ -550,7 +589,7 @@ export default function IntegracionSapPage() {
             </div>
             <p className="text-[10px] font-bold text-[var(--muted)]">
               {(kpis?.seriesSinMatch ?? 0).toLocaleString()} series de esos OS ·{' '}
-              {equiposBase ? Math.round((kpis.sinCoincidencia / equiposBase) * 100) : 0}% equipos
+              {equiposBase ? Math.round(((kpis?.sinCoincidencia ?? 0) / equiposBase) * 100) : 0}% equipos
             </p>
             <Button
               type="button"

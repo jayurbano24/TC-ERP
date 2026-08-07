@@ -1,6 +1,6 @@
 import { tcTechcorpLogoPrintHtml } from '@/lib/brand/tcTechcorpLogoPrintHtml';
 
-/** Etiqueta outbound — una hoja: logo TECHCORP, meta tipo detalle, filas S1–S4 con barcodes. */
+/** Etiqueta outbound — altura de página según filas; meta + S1–S4 con barcodes. */
 
 export type OutboundLabelInput = {
   outboundCode: string;
@@ -28,12 +28,31 @@ type PrintCallbacks = {
 
 type BarcodeRenderer = (value: string, slot: 's1' | 's2' | 's3' | 's4') => string;
 
+type LabelMetrics = {
+  pageWidthMm: number;
+  pageHeightMm: number;
+  bcFrameMm: number;
+  rowMarginMm: number;
+  barHeightPx: number;
+  headFontPt: number;
+  metaFontPt: number;
+};
+
 const escapeHtml = (s: string) =>
   String(s)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+
+/** Nombre sugerido al guardar PDF desde impresión (p. ej. Outbound: 000064 OB-000064). */
+export function formatOutboundLabelDocumentTitle(outboundCode: string): string {
+  const raw = String(outboundCode || '').trim();
+  const m = raw.match(/^OB-(\d+)$/i);
+  const num = m ? m[1].padStart(6, '0') : raw.replace(/\D/g, '').padStart(6, '0') || '000000';
+  const code = m ? `OB-${m[1].padStart(6, '0')}` : raw.toUpperCase();
+  return `Outbound: ${num} ${code}`;
+}
 
 function formatValoracion(raw: string): string {
   const t = String(raw || '').trim();
@@ -50,6 +69,196 @@ function itemSlots(item: OutboundLabelInput['items'][number]): [string, string, 
     String(item.s3 || '').trim(),
     String(item.s4 || '').trim(),
   ];
+}
+
+/** Calcula tamaño de hoja TSC / PDF para que no se recorten filas (9+ equipos). */
+export function computeOutboundLabelMetrics(rowCount: number): LabelMetrics {
+  const rows = Math.max(1, rowCount);
+  const headerMm = 34;
+
+  if (rows <= 5) {
+    return {
+      pageWidthMm: 150,
+      pageHeightMm: 100,
+      bcFrameMm: 7,
+      rowMarginMm: 0.85,
+      barHeightPx: 28,
+      headFontPt: 13,
+      metaFontPt: 8.5,
+    };
+  }
+
+  if (rows <= 8) {
+    const rowMm = 9.4;
+    return {
+      pageWidthMm: 150,
+      pageHeightMm: Math.min(280, Math.ceil(headerMm + rows * rowMm + 8)),
+      bcFrameMm: 5.8,
+      rowMarginMm: 0.45,
+      barHeightPx: 22,
+      headFontPt: 12,
+      metaFontPt: 8,
+    };
+  }
+
+  const rowMm = 8.6;
+  return {
+    pageWidthMm: 150,
+    pageHeightMm: Math.min(297, Math.ceil(headerMm + rows * rowMm + 10)),
+    bcFrameMm: 5,
+    rowMarginMm: 0.35,
+    barHeightPx: 18,
+    headFontPt: 11,
+    metaFontPt: 7.5,
+  };
+}
+
+function buildLabelCss(metrics: LabelMetrics): string {
+  const { pageWidthMm, pageHeightMm, bcFrameMm, rowMarginMm, headFontPt, metaFontPt } = metrics;
+  return `
+    @page { size: ${pageWidthMm}mm ${pageHeightMm}mm; margin: 0; }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: ${pageWidthMm}mm;
+      min-height: ${pageHeightMm}mm;
+      height: auto;
+      overflow: visible;
+      background: #fff;
+      color: #000;
+      font-family: Arial, Helvetica, sans-serif;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .label {
+      width: ${pageWidthMm}mm;
+      min-height: ${pageHeightMm}mm;
+      height: auto;
+      padding: 2.5mm 3mm 3mm 3mm;
+      page-break-after: always;
+      break-after: page;
+      display: flex;
+      flex-direction: column;
+      overflow: visible;
+    }
+    .label:last-child {
+      page-break-after: auto;
+      break-after: auto;
+    }
+
+    .brand-bar {
+      display: flex;
+      align-items: center;
+      gap: 2.5mm;
+      padding-bottom: 1mm;
+      margin-bottom: 0.8mm;
+      flex-shrink: 0;
+    }
+    .brand-logo { height: 6.5mm; width: auto; flex-shrink: 0; }
+    .brand-name {
+      font-size: 12pt;
+      font-weight: 900;
+      letter-spacing: 1px;
+      color: #2e3165;
+      text-transform: uppercase;
+      line-height: 1;
+    }
+
+    .head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding-bottom: 1mm;
+      border-bottom: 1pt solid #000;
+      flex-shrink: 0;
+    }
+    .head-left {
+      font-size: ${headFontPt}pt;
+      font-weight: 900;
+      color: #0b1a3a;
+    }
+    .head-right {
+      font-size: ${Math.max(9, headFontPt - 2)}pt;
+      font-weight: 700;
+      color: #0b1a3a;
+    }
+
+    .meta {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      column-gap: 3mm;
+      row-gap: 0.45mm;
+      padding: 1.2mm 0 1mm 0;
+      border-bottom: 1pt solid #000;
+      font-size: ${metaFontPt}pt;
+      font-weight: 700;
+      line-height: 1.2;
+      color: #0b1a3a;
+      flex-shrink: 0;
+    }
+    .meta-k {
+      color: #475569;
+      font-weight: 800;
+      margin-right: 1mm;
+    }
+    .meta-wide { grid-column: 1 / -1; }
+
+    .series-table {
+      flex: 1 1 auto;
+      margin-top: 1mm;
+      overflow: visible;
+    }
+    .series-head,
+    .series-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      column-gap: 1.2mm;
+      align-items: end;
+    }
+    .series-head {
+      font-size: 6.5pt;
+      font-weight: 800;
+      color: #64748b;
+      text-transform: uppercase;
+      padding-bottom: 0.5mm;
+      margin-bottom: 0.6mm;
+      border-bottom: 0.5pt solid #94a3b8;
+    }
+    .series-row { margin-bottom: ${rowMarginMm}mm; }
+    .series-cell { min-width: 0; overflow: visible; }
+    .series-empty { padding-bottom: 1.5mm; }
+    .series-dash { font-size: 8pt; color: #cbd5e1; }
+
+    .bc-wrap { width: 100%; max-width: 35mm; text-align: left; }
+    .bc-frame {
+      height: ${bcFrameMm}mm;
+      min-height: ${bcFrameMm}mm;
+      display: flex;
+      align-items: flex-end;
+      overflow: visible;
+    }
+    .bc-wrap .bc {
+      display: block;
+      height: 100%;
+      width: auto;
+      max-width: 100%;
+      flex-shrink: 0;
+    }
+    .bc-text {
+      margin-top: 0.25mm;
+      font-size: 5.5pt;
+      font-weight: 700;
+      font-family: Consolas, "Courier New", monospace;
+      color: #334155;
+      line-height: 1.05;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 35mm;
+    }
+    .bc-text.slot-s1 { color: #047857; font-weight: 800; }
+  `;
 }
 
 function buildLabelHtml(opts: OutboundLabelInput, barcodeBlock: BarcodeRenderer): string | null {
@@ -113,7 +322,7 @@ function buildLabelHtml(opts: OutboundLabelInput, barcodeBlock: BarcodeRenderer)
       <div class="meta-line"><span class="meta-k">MARCA:</span> ${escapeHtml(brandName)}</div>
       <div class="meta-line"><span class="meta-k">MODELO:</span> ${escapeHtml(modelName)}</div>
       <div class="meta-line"><span class="meta-k">TECNOLOGÍA:</span> ${escapeHtml(techName)}</div>
-      <div class="meta-line"><span class="meta-k">Cantidad:</span> ${qty}</div>
+      <div class="meta-line"><span class="meta-k">Cantidad:</span> ${filled.length}${qty !== filled.length ? ` / ${qty}` : ''}</div>
       <div class="meta-line meta-wide"><span class="meta-k">Material:</span> ${escapeHtml(materialLabel)}</div>
       <div class="meta-line"><span class="meta-k">Valoración:</span> ${escapeHtml(valoracionLabel)}</div>
     </div>
@@ -125,203 +334,6 @@ function buildLabelHtml(opts: OutboundLabelInput, barcodeBlock: BarcodeRenderer)
   </div>`;
 }
 
-const LABEL_CSS = `
-    @page { size: 150mm 100mm; margin: 0; }
-    * { box-sizing: border-box; }
-    html, body {
-      margin: 0;
-      padding: 0;
-      width: 150mm;
-      height: 100mm;
-      overflow: hidden;
-      background: #fff;
-      color: #000;
-      font-family: Arial, Helvetica, sans-serif;
-      -webkit-print-color-adjust: exact;
-      print-color-adjust: exact;
-    }
-    .label {
-      width: 150mm;
-      height: 100mm;
-      max-height: 100mm;
-      padding: 2.5mm 3mm 2mm 3mm;
-      page-break-after: always;
-      break-after: page;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-    }
-    .label:last-child {
-      page-break-after: auto;
-      break-after: auto;
-    }
-
-    .brand-bar {
-      display: flex;
-      align-items: center;
-      gap: 2.5mm;
-      padding-bottom: 1.2mm;
-      margin-bottom: 1mm;
-      flex-shrink: 0;
-    }
-    .brand-logo {
-      height: 7mm;
-      width: auto;
-      flex-shrink: 0;
-    }
-    .brand-name {
-      font-size: 13pt;
-      font-weight: 900;
-      letter-spacing: 1px;
-      color: #2e3165;
-      text-transform: uppercase;
-      line-height: 1;
-    }
-
-    .head {
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      padding-bottom: 1.2mm;
-      border-bottom: 1pt solid #000;
-      flex-shrink: 0;
-    }
-    .head-left {
-      font-size: 13pt;
-      font-weight: 900;
-      color: #0b1a3a;
-    }
-    .head-right {
-      font-size: 10pt;
-      font-weight: 700;
-      color: #0b1a3a;
-    }
-
-    .meta {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      column-gap: 3mm;
-      row-gap: 0.6mm;
-      padding: 1.5mm 0 1.2mm 0;
-      border-bottom: 1pt solid #000;
-      font-size: 8.5pt;
-      font-weight: 700;
-      line-height: 1.25;
-      color: #0b1a3a;
-      flex-shrink: 0;
-    }
-    .meta-k {
-      color: #475569;
-      font-weight: 800;
-      margin-right: 1mm;
-    }
-    .meta-wide {
-      grid-column: 1 / -1;
-    }
-
-    .series-table {
-      flex: 1;
-      min-height: 0;
-      margin-top: 1.2mm;
-      overflow: hidden;
-    }
-    .series-head,
-    .series-row {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      column-gap: 1.2mm;
-      align-items: end;
-    }
-    .series-head {
-      font-size: 6.5pt;
-      font-weight: 800;
-      color: #64748b;
-      text-transform: uppercase;
-      letter-spacing: 0.2px;
-      padding-bottom: 0.6mm;
-      margin-bottom: 0.8mm;
-      border-bottom: 0.5pt solid #94a3b8;
-      flex-shrink: 0;
-    }
-    .series-h {
-      text-align: left;
-    }
-    .series-row {
-      margin-bottom: 0.9mm;
-    }
-    .label[data-rows="6"] .series-row,
-    .label[data-rows="7"] .series-row,
-    .label[data-rows="8"] .series-row,
-    .label[data-rows="9"] .series-row {
-      margin-bottom: 0.45mm;
-    }
-    .series-cell {
-      min-width: 0;
-      overflow: hidden;
-    }
-    .series-empty {
-      padding-bottom: 2mm;
-    }
-    .series-dash {
-      font-size: 8pt;
-      color: #cbd5e1;
-    }
-    .bc-wrap {
-      width: 100%;
-      max-width: 35mm;
-      text-align: left;
-    }
-    .bc-frame {
-      height: 7mm;
-      min-height: 7mm;
-      max-height: 7mm;
-      display: flex;
-      align-items: flex-end;
-      overflow: hidden;
-    }
-    .label[data-rows="6"] .bc-frame,
-    .label[data-rows="7"] .bc-frame,
-    .label[data-rows="8"] .bc-frame,
-    .label[data-rows="9"] .bc-frame {
-      height: 5.5mm;
-      min-height: 5.5mm;
-      max-height: 5.5mm;
-    }
-    .bc-wrap .bc {
-      display: block;
-      height: 100%;
-      width: auto;
-      max-width: 100%;
-      flex-shrink: 0;
-    }
-    .bc-text {
-      margin-top: 0.35mm;
-      font-size: 6pt;
-      font-weight: 700;
-      font-family: Consolas, "Courier New", monospace;
-      letter-spacing: 0;
-      color: #334155;
-      line-height: 1.05;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 35mm;
-      text-align: left;
-    }
-    .bc-text.slot-s1 {
-      color: #047857;
-      font-weight: 800;
-    }
-`;
-
-/** Altura de barras (px) por cantidad de filas — mismo grosor de módulo, sin estirar ancho. */
-function barcodeBarHeight(rowCount: number): number {
-  if (rowCount <= 5) return 28;
-  if (rowCount <= 7) return 22;
-  return 18;
-}
-
-/** Ajusta el ancho de módulo CODE128 para que el SVG quepa ~igual sin CSS stretch (escaneable). */
 function uniformModuleWidth(raw: string, targetPx: number): number {
   const estimatedModules = 106 + raw.length * 11;
   const w = targetPx / estimatedModules;
@@ -331,13 +343,18 @@ function uniformModuleWidth(raw: string, targetPx: number): number {
 const BARCODE_TARGET_WIDTH_PX = 112;
 const BARCODE_QUIET_MARGIN = 4;
 
-async function runPrintDocument(title: string, bodyHtml: string, onBarcodeError?: () => void) {
+async function runPrintDocument(
+  title: string,
+  bodyHtml: string,
+  metrics: LabelMetrics,
+  onBarcodeError?: () => void
+) {
   const html = `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8" />
   <title>${escapeHtml(title)}</title>
-  <style>${LABEL_CSS}</style>
+  <style>${buildLabelCss(metrics)}</style>
 </head>
 <body>
 ${bodyHtml}
@@ -374,7 +391,14 @@ ${bodyHtml}
   const win = iframe.contentWindow;
   if (!win) return;
 
-  await new Promise((r) => setTimeout(r, 250));
+  try {
+    doc.title = title;
+    win.document.title = title;
+  } catch {
+    /* ignore */
+  }
+
+  await new Promise((r) => setTimeout(r, 300));
   win.focus();
   win.print();
 
@@ -383,7 +407,7 @@ ${bodyHtml}
   }, 60_000);
 }
 
-/** Imprime una o varias etiquetas Outbound (una página TSC por caja). */
+/** Imprime una o varias etiquetas Outbound (hoja TSC ajustada al número de equipos). */
 export async function printOutboundLabels(
   labels: OutboundLabelInput[],
   callbacks?: PrintCallbacks
@@ -403,13 +427,17 @@ export async function printOutboundLabels(
     return;
   }
 
+  const rowCounts = labels.map(
+    (label) => label.items.filter((s) => itemSlots(s)[0]).length
+  );
+  const maxRows = Math.max(0, ...rowCounts);
+  const metrics = computeOutboundLabelMetrics(maxRows);
+
   const parts: string[] = [];
 
   for (const label of labels) {
     const filledCount = label.items.filter((s) => itemSlots(s)[0]).length;
     if (!filledCount) continue;
-
-    const barHeight = barcodeBarHeight(filledCount);
 
     const barcodeBlock: BarcodeRenderer = (value, slot) => {
       const raw = String(value || '').trim();
@@ -422,7 +450,7 @@ export async function printOutboundLabels(
           displayValue: false,
           margin: BARCODE_QUIET_MARGIN,
           width: moduleW,
-          height: barHeight,
+          height: metrics.barHeightPx,
           background: '#ffffff',
           lineColor: '#000000',
         });
@@ -450,11 +478,11 @@ export async function printOutboundLabels(
   }
 
   const title =
-    parts.length === 1
-      ? `Etiqueta Salida ${labels[0]?.outboundCode || ''}`
+    parts.length === 1 && labels[0]?.outboundCode
+      ? formatOutboundLabelDocumentTitle(labels[0].outboundCode)
       : `Etiquetas Salida (${parts.length})`;
 
-  await runPrintDocument(title, parts.join('\n'), onBarcodeError);
+  await runPrintDocument(title, parts.join('\n'), metrics, onBarcodeError);
 }
 
 export async function printOutboundLabel(

@@ -132,10 +132,25 @@ export const GET = withErrorHandler(
 
     const enriched: Array<Record<string, unknown>> = [];
     const processedOs = new Set<string>();
+    const osInBox = new Set(
+      rows.map((r) => (r.service_order_id ? String(r.service_order_id) : null)).filter(Boolean) as string[]
+    );
 
     for (const item of rows) {
       const osId = item.service_order_id ? String(item.service_order_id) : null;
       if (osId && processedOs.has(osId)) continue;
+
+      if (!osId) {
+        let siblingOfOsInBox = false;
+        for (const oid of osInBox) {
+          const sibs = siblingsByOs.get(oid) ?? [];
+          if (sibs.some((s) => s.id === item.id)) {
+            siblingOfOsInBox = true;
+            break;
+          }
+        }
+        if (siblingOfOsInBox) continue;
+      }
 
       if (osId) {
         processedOs.add(osId);

@@ -73,6 +73,7 @@ const BOX_DESPACHO_SELECT =
   'id, box_code, brand_id, model_id, capacity, status, material, valuation, created_at';
 
 const DESPACHO_HISTORY_PAGE_SIZE = 25;
+const DESPACHO_OUTBOUND_PAGE_SIZE = 20;
 
 type DispatchItem = {
   id: string;
@@ -298,6 +299,7 @@ export default function DespachoPage() {
   });
   const dispatchHistory = despachoQuery.data?.history ?? EMPTY_LIST;
   const [historyPage, setHistoryPage] = useState(1);
+  const [outboundPage, setOutboundPage] = useState(1);
 
   const historyTotalCount = dispatchHistory.length;
   const historyTotalPages = Math.max(1, Math.ceil(historyTotalCount / DESPACHO_HISTORY_PAGE_SIZE));
@@ -322,7 +324,8 @@ export default function DespachoPage() {
     historyTotalCount === 0 ? 0 : (historySafePage - 1) * DESPACHO_HISTORY_PAGE_SIZE + 1;
   const historyEndItem = Math.min(historySafePage * DESPACHO_HISTORY_PAGE_SIZE, historyTotalCount);
 
-  const refreshDispatches = () => queryClient.invalidateQueries({ queryKey: ['despacho-data'] });
+  const refreshDispatches = () =>
+    queryClient.invalidateQueries({ queryKey: ['despacho-data', 'v1'] });
 
   const [showDispatchForm, setShowDispatchForm] = useState(false);
   const [dispatchType, setDispatchType] = useState<'massive' | 'individual' | 'master_box'>('master_box');
@@ -490,8 +493,36 @@ export default function DespachoPage() {
 
   const dispatches = despachoQuery.data?.dispatches ?? (EMPTY_LIST as DispatchItem[]);
 
+  const outboundTotalCount = dispatches.length;
+  const outboundTotalPages = Math.max(1, Math.ceil(outboundTotalCount / DESPACHO_OUTBOUND_PAGE_SIZE));
+  const outboundSafePage = Math.min(outboundPage, outboundTotalPages);
+
+  useEffect(() => {
+    if (outboundPage > outboundTotalPages) {
+      startTransition(() => setOutboundPage(outboundTotalPages));
+    }
+  }, [outboundPage, outboundTotalPages]);
+
+  const onOutboundPageChange = useCallback((value: React.SetStateAction<number>) => {
+    startTransition(() => setOutboundPage(value));
+  }, []);
+
+  const dispatchPageItems = useMemo(() => {
+    const start = (outboundSafePage - 1) * DESPACHO_OUTBOUND_PAGE_SIZE;
+    return dispatches.slice(start, start + DESPACHO_OUTBOUND_PAGE_SIZE);
+  }, [dispatches, outboundSafePage]);
+
+  const outboundStartItem =
+    outboundTotalCount === 0 ? 0 : (outboundSafePage - 1) * DESPACHO_OUTBOUND_PAGE_SIZE + 1;
+  const outboundEndItem = Math.min(
+    outboundSafePage * DESPACHO_OUTBOUND_PAGE_SIZE,
+    outboundTotalCount
+  );
+
   const [selectedBox, setSelectedBox] = useState<DispatchItem | null>(null);
   const [selectedBoxIds, setSelectedBoxIds] = useState<Set<string>>(new Set());
+  const [exportingBoxReport, setExportingBoxReport] = useState(false);
+  const [exportingBulkExcel, setExportingBulkExcel] = useState(false);
   const [showSalidaModal, setShowSalidaModal] = useState(false);
   const [boxItems, setBoxItems] = useState<any[]>([]);
   const [scanSN, setScanSN] = useState('');
@@ -556,6 +587,18 @@ export default function DespachoPage() {
     try {
       const items = await fetchDespachoBoxItems(boxDbId);
       setBoxItems(items);
+      queryClient.setQueryData<{ history: unknown[]; dispatches: DispatchItem[] } | undefined>(
+        ['despacho-data', 'v1'],
+        (prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            dispatches: prev.dispatches.map((d) =>
+              d.dbId === boxDbId ? { ...d, filled_count: items.length } : d
+            ),
+          };
+        }
+      );
       return;
     } catch (e) {
       console.warn('[despacho] API box items fallback:', e);
@@ -932,6 +975,80 @@ export default function DespachoPage() {
     }
   };
 
+  const handleBulkOutboundExcelExport = async () => {
+    const fromSelection =
+      selectedBoxIds.size > 0
+        ? dispatches.filter((d) => d.dbId && selectedBoxIds.has(d.dbId))
+        : dispatches.filter((d) => d.dbId);
+
+    if (fromSelection.length === 0) {
+      notify.warning('No hay Outbound para exportar.');
+      return;
+    }
+
+    if (fromSelection.length > 200) {
+      notify.warning('Máximo 200 cajas por reporte.', {
+        description: 'Reduzca la selección o exporte por lotes desde operaciones.',
+      });
+      return;
+    }
+
+    const boxIds = fromSelection.map((d) => d.dbId!);
+    const selectionMode = selectedBoxIds.size > 0;
+    const baseLabel = selectionMode
+      ? `Seleccion_${fromSelection.length}_Outbound`
+      : `Masivo_${fromSelection.length}_Outbound`;
+
+    setExportingBulkExcel(true);
+    try {
+      await downloadOutboundBoxExcel(boxIds, baseLabel, { filePrefix: 'Reporte_Outbound' });
+      notify.success(
+        selectionMode ? 'Reporte Excel de selección descargado.' : 'Reporte Excel masivo descargado.',
+        {
+          description: `${fromSelection.length} caja(s) en un solo archivo · series S1–S4 por equipo.`,
+        }
+      );
+    } catch (e) {
+      console.error(e);
+      notify.error('No se pudo exportar el reporte Excel.', {
+        description: e instanceof Error ? e.message : 'Error desconocido',
+      });
+    } finally {
+      setExportingBulkExcel(false);
+    }
+  };
+
+  const handlePrintOutboundBoxPdf = async (disp: DispatchItem) => {
+    if (!disp.dbId) {
+      notify.warning('Esta caja no tiene identificador para imprimir.');
+      return;
+    }
+    try {
+      const items = await fetchDespachoBoxItems(disp.dbId);
+      const brandName = dbBrands.find((b) => b.id === disp.brand_id)?.name || 'N/A';
+      const model = dbModels.find((m) => m.id === disp.model_id);
+      const modelName = model?.name || 'N/A';
+      const techName = dbTechs.find((t) => t.id === model?.technology_id)?.name || 'N/A';
+      await printOutboundLabel({
+        outboundCode: disp.id,
+        brandName,
+        modelName,
+        techName,
+        capacity: Number(disp.unidades) || items.length,
+        boxMaterial: disp.material,
+        boxValuation: disp.valuation,
+        items,
+        onEmpty: () => notify.warning('No hay equipos en el Outbound para imprimir.'),
+        onBarcodeError: () => notify.error('No se pudo generar la etiqueta PDF.'),
+      });
+    } catch (e) {
+      console.error(e);
+      notify.error('No se pudo abrir la etiqueta PDF.', {
+        description: e instanceof Error ? e.message : 'Error desconocido',
+      });
+    }
+  };
+
   const handleScan = (e: React.FormEvent) => {
     e.preventDefault();
     if (!scanInput) return;
@@ -957,6 +1074,32 @@ export default function DespachoPage() {
       onEmpty: () => notify.warning('No hay equipos en el Outbound para imprimir.'),
       onBarcodeError: () => notify.error('No se pudo generar la etiqueta de impresión.'),
     });
+  };
+
+  const handleExportBoxReport = async () => {
+    if (!selectedBox?.dbId) {
+      notify.warning('Esta caja no tiene identificador para exportar.');
+      return;
+    }
+    if (boxItems.length === 0) {
+      notify.warning('No hay equipos en la caja para el reporte.');
+      return;
+    }
+    setExportingBoxReport(true);
+    try {
+      await downloadOutboundBoxExcel([selectedBox.dbId], selectedBox.id, {
+        filePrefix: 'Reporte_Outbound',
+      });
+      notify.success('Reporte masivo de caja descargado.', {
+        description: 'Excel con datos de caja y series S1–S4 por equipo.',
+      });
+    } catch (e) {
+      notify.error('No se pudo exportar el reporte.', {
+        description: e instanceof Error ? e.message : 'Error desconocido',
+      });
+    } finally {
+      setExportingBoxReport(false);
+    }
   };
 
   const handleReprintHistory = async (hist: any) => {
@@ -1136,8 +1279,8 @@ export default function DespachoPage() {
           </Button>
         }
       >
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="space-y-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:items-stretch">
+          <div className="space-y-6 lg:max-h-[calc(100dvh-10rem)] lg:overflow-y-auto custom-scrollbar">
             <Card className="p-6 space-y-6">
               <h3 className="font-bold text-slate-800">Escáner de Series</h3>
               <form onSubmit={handleScanToBox} className="space-y-4">
@@ -1194,9 +1337,20 @@ export default function DespachoPage() {
                   <span className="font-medium text-sm font-mono">{selectedBox.valuation || boxItems[0]?.valuation || '—'}</span>
                 </div>
               </div>
-              <Button onClick={printBoxLabel} className="w-full mt-4" variant="outline">
-                <FileText className="w-4 h-4 mr-2" /> PDF Imprimir Etiqueta
-              </Button>
+              <div className="flex flex-col gap-2 mt-4">
+                <Button onClick={() => void printBoxLabel()} className="w-full" variant="outline">
+                  <FileText className="w-4 h-4 mr-2" /> PDF Imprimir Etiqueta
+                </Button>
+                <Button
+                  onClick={() => void handleExportBoxReport()}
+                  className="w-full"
+                  variant="outline"
+                  disabled={exportingBoxReport || boxItems.length === 0}
+                >
+                  <FileSpreadsheet className="w-4 h-4 mr-2" />
+                  {exportingBoxReport ? 'Generando Excel…' : 'Descargar reporte masivo de caja'}
+                </Button>
+              </div>
             </Card>
 
             <Card className="p-6">
@@ -1235,38 +1389,38 @@ export default function DespachoPage() {
             </Card>
           </div>
 
-          <div className="lg:col-span-2">
-            <Card className="p-0 overflow-hidden h-[600px] flex flex-col">
-              <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+          <div className="lg:col-span-2 flex flex-col min-h-[min(calc(100dvh-10rem),1400px)]">
+            <Card className="p-0 overflow-hidden flex-1 flex flex-col min-h-[720px] lg:min-h-[calc(100dvh-10rem)]">
+              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
                 <h3 className="font-bold text-slate-800">Contenido Outbound</h3>
               </div>
-              <div className="flex-1 overflow-y-auto overflow-x-auto custom-scrollbar">
+              <div className="flex-1 min-h-[calc(2.25rem*25+3rem)] overflow-y-auto overflow-x-auto custom-scrollbar">
                 <table className="w-full text-left">
-                  <thead className={`sticky top-0 ${erpTableHeader} backdrop-blur`}>
+                  <thead className={`sticky top-0 z-10 ${erpTableHeader} backdrop-blur`}>
                     <tr>
-                      <th className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest ${erpTableHeaderText}`}>#</th>
-                      <th className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest ${erpTableHeaderText}`}>S1 / SN</th>
-                      <th className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest ${erpTableHeaderText}`}>S2</th>
-                      <th className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest ${erpTableHeaderText}`}>S3</th>
-                      <th className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest ${erpTableHeaderText}`}>S4</th>
-                      <th className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest ${erpTableHeaderText}`}>Material</th>
-                      <th className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest ${erpTableHeaderText}`}>Valoración</th>
-                      <th className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest ${erpTableHeaderText} text-right`}>Acciones</th>
+                      <th className={`px-4 py-2.5 text-[10px] font-black uppercase tracking-widest ${erpTableHeaderText}`}>#</th>
+                      <th className={`px-4 py-2.5 text-[10px] font-black uppercase tracking-widest ${erpTableHeaderText}`}>S1 / SN</th>
+                      <th className={`px-4 py-2.5 text-[10px] font-black uppercase tracking-widest ${erpTableHeaderText}`}>S2</th>
+                      <th className={`px-4 py-2.5 text-[10px] font-black uppercase tracking-widest ${erpTableHeaderText}`}>S3</th>
+                      <th className={`px-4 py-2.5 text-[10px] font-black uppercase tracking-widest ${erpTableHeaderText}`}>S4</th>
+                      <th className={`px-4 py-2.5 text-[10px] font-black uppercase tracking-widest ${erpTableHeaderText}`}>Material</th>
+                      <th className={`px-4 py-2.5 text-[10px] font-black uppercase tracking-widest ${erpTableHeaderText}`}>Valoración</th>
+                      <th className={`px-4 py-2.5 text-[10px] font-black uppercase tracking-widest ${erpTableHeaderText} text-right`}>Acciones</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {boxItems.map((item, idx) => (
                       <tr key={item.id} className="hover:bg-[var(--surface-hover)] transition-colors">
-                        <td className="px-6 py-4 text-xs font-bold text-slate-500">{boxItems.length - idx}</td>
-                        <td className="px-6 py-4">
+                        <td className="px-4 py-2 text-xs font-bold text-slate-500">{boxItems.length - idx}</td>
+                        <td className="px-4 py-2">
                           <span className="font-mono font-bold text-emerald-600 text-sm">{item.s1 || item.serial_number}</span>
                         </td>
-                        <td className="px-6 py-4 font-mono text-xs text-slate-400">{item.s2 || '---'}</td>
-                        <td className="px-6 py-4 font-mono text-xs text-slate-400">{item.s3 || '---'}</td>
-                        <td className="px-6 py-4 font-mono text-xs text-slate-400">{item.s4 || '---'}</td>
-                        <td className="px-6 py-4 font-mono text-xs text-slate-600">{item.material || '---'}</td>
-                        <td className="px-6 py-4 font-mono text-xs text-slate-600">{item.valuation || '---'}</td>
-                        <td className="px-6 py-4 text-right">
+                        <td className="px-4 py-2 font-mono text-xs text-slate-400">{item.s2 || '---'}</td>
+                        <td className="px-4 py-2 font-mono text-xs text-slate-400">{item.s3 || '---'}</td>
+                        <td className="px-4 py-2 font-mono text-xs text-slate-400">{item.s4 || '---'}</td>
+                        <td className="px-4 py-2 font-mono text-xs text-slate-600">{item.material || '---'}</td>
+                        <td className="px-4 py-2 font-mono text-xs text-slate-600">{item.valuation || '---'}</td>
+                        <td className="px-4 py-2 text-right">
                           <button onClick={() => handleRemoveFromBox(item.id)} className="text-rose-400 hover:text-rose-600 p-2 transition-colors" title="Eliminar de la caja">
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -1429,17 +1583,29 @@ export default function DespachoPage() {
     {
       id: 'acciones',
       header: 'Acciones',
-      width: '180px',
+      width: '240px',
       align: 'right',
       cell: (disp: DispatchItem) => (
-        <div className="flex items-center justify-end gap-2">
+        <div className="flex items-center justify-end gap-1.5">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              void handlePrintOutboundBoxPdf(disp);
+            }}
+            className="h-8 px-2 flex items-center justify-center gap-1 rounded-lg bg-slate-100 text-slate-800 hover:bg-slate-200 transition-colors shrink-0"
+            title="Imprimir etiqueta PDF"
+          >
+            <FileText className="w-3.5 h-3.5" />
+            <span className="text-[9px] font-black uppercase tracking-wide">PDF</span>
+          </button>
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation();
               void handleExportOutboundBoxExcel(disp);
             }}
-            className="w-8 h-8 flex items-center justify-center rounded-lg bg-sky-50 text-sky-700 hover:bg-sky-100 transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded-lg bg-sky-50 text-sky-700 hover:bg-sky-100 transition-colors shrink-0"
             title="Descargar Excel de la caja"
           >
             <FileSpreadsheet className="w-4 h-4" />
@@ -2008,6 +2174,19 @@ export default function DespachoPage() {
               onSearch={(v) => console.log(v)}
               addLabel="Nuevo Despacho"
             />
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                variant="outline"
+                leftIcon={<FileSpreadsheet className="w-4 h-4" />}
+                disabled={exportingBulkExcel || dispatches.every((d) => !d.dbId)}
+                onClick={() => void handleBulkOutboundExcelExport()}
+              >
+                {exportingBulkExcel
+                  ? 'Generando Excel…'
+                  : selectedBoxIds.size > 0
+                    ? `Excel selección (${selectedBoxIds.size})`
+                    : `Reporte Excel masivo (${dispatches.filter((d) => d.dbId).length})`}
+              </Button>
             {selectedBoxIds.size > 0 && (
               <div className="flex items-center gap-3">
                 <span className="text-xs font-bold text-slate-500">
@@ -2023,12 +2202,13 @@ export default function DespachoPage() {
                 </Button>
               </div>
             )}
+            </div>
           </div>
 
           <Card padding="none" className="overflow-hidden">
             <DataTable
               columns={dispatchColumns}
-              data={dispatches}
+              data={dispatchPageItems}
               getRowId={(disp: DispatchItem) => disp.id}
               onRowClick={(disp: DispatchItem) => handleSelectBox(disp)}
               rowClassName={(disp: DispatchItem) =>
@@ -2040,6 +2220,16 @@ export default function DespachoPage() {
               headerClassName={erpTableHeader}
               headerTextClassName={erpTableHeaderText}
               emptyMessage="No hay Outbound registrados."
+            />
+            <TablePagination
+              totalCount={outboundTotalCount}
+              page={outboundSafePage}
+              totalPages={outboundTotalPages}
+              startItem={outboundStartItem}
+              endItem={outboundEndItem}
+              pageSize={DESPACHO_OUTBOUND_PAGE_SIZE}
+              onPageChange={onOutboundPageChange}
+              itemLabel="Outbound"
             />
           </Card>
         </section>

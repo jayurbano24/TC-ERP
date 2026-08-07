@@ -1,4 +1,6 @@
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { aggregateOutboundBoxSeriesStats } from '@/lib/api/aggregateOutboundBoxSeriesStats';
+import { fetchDespachoBoxItems } from '@/lib/api/despachoBoxItems';
 
 export type DespachoBoxListItem = {
   id: string;
@@ -18,21 +20,9 @@ export type DespachoBoxListItem = {
   fecha: string;
 };
 
-function classifyValuation(raw: unknown): 'valorado' | 'novalorado' | 'otro' {
-  const s = String(raw ?? '').trim();
-  if (!s) return 'otro';
-  if (/novalorad|no\s*valorad/i.test(s)) return 'novalorado';
-  if (/valorado/i.test(s)) return 'valorado';
-  return 'otro';
-}
-
-function looksLikeSapSn(sn: string): boolean {
-  return /^\d{12,}$/.test(sn.trim());
-}
-
 /**
  * Recalcula equipos/valoración por Outbound con el cliente browser
- * (misma visibilidad RLS que el llenado). Evita listar 0 equipos cuando la caja sí tiene series.
+ * (misma visibilidad RLS que el llenado). Pagina series para evitar truncar en 1000 filas.
  */
 export async function enrichOutboundFilledCounts<T extends DespachoBoxListItem>(
   items: T[]
@@ -44,57 +34,13 @@ export async function enrichOutboundFilledCounts<T extends DespachoBoxListItem>(
   const boxIds = items.map((b) => b.dbId).filter(Boolean);
   if (boxIds.length === 0) return items;
 
-  const { data: seriesRows, error } = await supabase
-    .from('series')
-    .select('id, serial_number, current_box_id, material, valuation, service_order_id')
-    .in('current_box_id', boxIds);
-
-  if (error || !seriesRows) {
-    console.warn('[despacho] enrichOutboundFilledCounts:', error?.message);
+  let stats: Map<string, { filled_count: number; valorado_count: number; novalorado_count: number; series_preview: string[] }>;
+  try {
+    stats = await aggregateOutboundBoxSeriesStats(supabase, boxIds);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn('[despacho] enrichOutboundFilledCounts:', message);
     return items;
-  }
-
-  type Acc = { valuation: string; serials: string[] };
-  const groups = new Map<string, Acc>();
-
-  for (const s of seriesRows) {
-    const boxId = String(s.current_box_id);
-    const osKey = s.service_order_id ? String(s.service_order_id) : `solo:${s.id}`;
-    const gKey = `${boxId}|${osKey}`;
-    let acc = groups.get(gKey);
-    if (!acc) {
-      acc = { valuation: '', serials: [] };
-      groups.set(gKey, acc);
-    }
-    const v = String(s.valuation ?? '').trim();
-    if (!acc.valuation && v) acc.valuation = v;
-    const sn = String(s.serial_number || '').trim();
-    if (sn) acc.serials.push(sn);
-  }
-
-  const stats = new Map<
-    string,
-    { filled_count: number; valorado_count: number; novalorado_count: number; series_preview: string[] }
-  >();
-  for (const id of boxIds) {
-    stats.set(id, {
-      filled_count: 0,
-      valorado_count: 0,
-      novalorado_count: 0,
-      series_preview: [],
-    });
-  }
-
-  for (const [gKey, acc] of groups) {
-    const boxId = gKey.split('|')[0]!;
-    const st = stats.get(boxId);
-    if (!st) continue;
-    st.filled_count += 1;
-    const kind = classifyValuation(acc.valuation);
-    if (kind === 'valorado') st.valorado_count += 1;
-    if (kind === 'novalorado') st.novalorado_count += 1;
-    const sapSn = acc.serials.find((sn) => looksLikeSapSn(sn)) || acc.serials[0];
-    if (sapSn && st.series_preview.length < 6) st.series_preview.push(sapSn);
   }
 
   return items.map((b) => {
@@ -110,31 +56,74 @@ export async function enrichOutboundFilledCounts<T extends DespachoBoxListItem>(
   });
 }
 
-export async function fetchDespachoBoxesViaApi(): Promise<DespachoBoxListItem[]> {
-  const res = await fetch('/api/v1/despacho/boxes', { credentials: 'include' });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error ?? data.detail ?? `HTTP ${res.status}`);
+/** Alinea equipos con el detalle de llenado cuando el agregado del listado queda corto. */
+async function reconcilePartialOutboundFilledCounts(
+  boxes: DespachoBoxListItem[]
+): Promise<DespachoBoxListItem[]> {
+  const partial = boxes.filter((b) => b.unidades > 0 && (b.filled_count ?? 0) < b.unidades);
+  if (partial.length === 0) return boxes;
+
+  const updates = new Map<string, number>();
+  const batchSize = 6;
+  for (let i = 0; i < partial.length; i += batchSize) {
+    const slice = partial.slice(i, i + batchSize);
+    await Promise.all(
+      slice.map(async (b) => {
+        try {
+          const items = await fetchDespachoBoxItems(b.dbId);
+          updates.set(b.dbId, items.length);
+        } catch (err) {
+          console.warn('[despacho] reconcile filled_count', b.id, err);
+        }
+      })
+    );
   }
-  const mapped = (data.items ?? []).map((b: any) => ({
-    id: b.box_code,
-    dbId: b.id,
-    brand_id: b.brand_id,
-    model_id: b.model_id,
-    material: b.material ?? '',
-    valuation: b.valuation ?? '',
+
+  return boxes.map((b) => {
+    const n = updates.get(b.dbId);
+    if (n === undefined) return b;
+    return { ...b, filled_count: n };
+  });
+}
+
+export async function fetchDespachoBoxesViaApi(): Promise<DespachoBoxListItem[]> {
+  const mapBox = (b: Record<string, unknown>): DespachoBoxListItem => ({
+    id: String(b.box_code),
+    dbId: String(b.id),
+    brand_id: b.brand_id as string | undefined,
+    model_id: b.model_id as string | undefined,
+    material: String(b.material ?? ''),
+    valuation: String(b.valuation ?? ''),
     filled_count: Number(b.filled_count ?? 0),
     valorado_count: Number(b.valorado_count ?? 0),
     novalorado_count: Number(b.novalorado_count ?? 0),
-    series_preview: Array.isArray(b.series_preview) ? b.series_preview : [],
+    series_preview: Array.isArray(b.series_preview) ? (b.series_preview as string[]) : [],
     destino: 'Pendiente de asignar',
     tipo: 'Outbound' as const,
-    unidades: b.capacity || 0,
+    unidades: Number(b.capacity) || 0,
     estatus: b.status === 'open' ? ('Pendiente' as const) : ('En Ruta' as const),
-    fecha: new Date(b.created_at).toLocaleDateString(),
-  }));
+    fecha: new Date(String(b.created_at)).toLocaleDateString(),
+  });
 
-  return enrichOutboundFilledCounts(mapped);
+  const allMapped: DespachoBoxListItem[] = [];
+  let cursor: string | undefined;
+
+  for (let guard = 0; guard < 100; guard += 1) {
+    const params = new URLSearchParams({ limit: '100' });
+    if (cursor) params.set('cursor', cursor);
+    const res = await fetch(`/api/v1/despacho/boxes?${params}`, { credentials: 'include' });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error ?? data.detail ?? `HTTP ${res.status}`);
+    }
+    const items = (data.items ?? []) as Record<string, unknown>[];
+    allMapped.push(...items.map(mapBox));
+    const nextCursor = data.nextCursor as string | null | undefined;
+    if (!nextCursor) break;
+    cursor = nextCursor;
+  }
+
+  return reconcilePartialOutboundFilledCounts(allMapped);
 }
 
 export type DespachoHistoryRow = {

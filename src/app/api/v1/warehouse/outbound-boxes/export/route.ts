@@ -29,7 +29,7 @@ const QuerySchema = z.object({
         .map((id) => id.trim())
         .filter(Boolean)
     )
-    .pipe(z.array(z.string().uuid()).min(1).max(80)),
+    .pipe(z.array(z.string().uuid()).min(1).max(200)),
 });
 
 type SeriesRow = SerialPickRow & {
@@ -135,17 +135,34 @@ export async function GET(req: NextRequest) {
   const boxIds = parsed.data.boxIds;
   const db = getSupabaseServerClient();
 
-  const { data: boxRows, error: boxErr } = await db
-    .from('boxes')
-    .select('id, box_code, rack_location, capacity, created_at, brand_id, model_id')
-    .in('id', boxIds);
-  if (boxErr) {
-    return NextResponse.json({ error: 'QUERY_FAILED: ' + boxErr.message }, { status: 500 });
+  type BoxRow = {
+    id: string;
+    box_code: string | null;
+    rack_location: string | null;
+    capacity: number | null;
+    created_at: string | null;
+    brand_id: string | null;
+    model_id: string | null;
+  };
+
+  const boxRows: BoxRow[] = [];
+  const boxChunk = 80;
+  for (let i = 0; i < boxIds.length; i += boxChunk) {
+    const chunk = boxIds.slice(i, i + boxChunk);
+    const { data, error: boxErr } = await db
+      .from('boxes')
+      .select('id, box_code, rack_location, capacity, created_at, brand_id, model_id')
+      .in('id', chunk);
+    if (boxErr) {
+      return NextResponse.json({ error: 'QUERY_FAILED: ' + boxErr.message }, { status: 500 });
+    }
+    boxRows.push(...((data ?? []) as BoxRow[]));
   }
 
-  const staging = (boxRows ?? []).filter((b) =>
-    isOutboundStagingRack(b.rack_location as string | null)
-  );
+  const orderIndex = new Map(boxIds.map((id, idx) => [id, idx]));
+  const staging = boxRows
+    .filter((b) => isOutboundStagingRack(b.rack_location as string | null))
+    .sort((a, b) => (orderIndex.get(String(a.id)) ?? 0) - (orderIndex.get(String(b.id)) ?? 0));
   if (staging.length === 0) {
     return NextResponse.json({ error: 'No hay cajas OUTBOUND válidas para exportar' }, { status: 404 });
   }

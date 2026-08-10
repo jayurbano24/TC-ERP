@@ -35,7 +35,7 @@ import {
   Truck,
   PackageMinus
 } from 'lucide-react';
-import { getInventoryBoxes, transferBoxesToArea, transferBoxesToAreaInBatches, startOrAppendBodegaScan, finalizeBodegaScan, listInProgressBodegaBoxes, requestBoxDeletion, addSeriesToBox, dispatchBoxFromWarehouse, dispatchSpecificSeries, transferSpecificSeriesToArea, canScanSeriesIntoWarehouse, resolveBoxDisplayStatus, getBoxHistory, expandSelectedSeriesForOs } from '@/modules/inventario/client/warehouseBoxes';
+import { getInventoryBoxes, transferBoxesToArea, transferBoxesToAreaInBatches, startOrAppendBodegaScan, finalizeBodegaScan, listInProgressBodegaBoxes, requestBoxDeletion, addSeriesToBox, dispatchBoxFromWarehouse, dispatchSpecificSeries, transferSpecificSeriesToArea, canScanSeriesIntoWarehouse, resolveBoxDisplayStatus, resolveBoxListCapacity, getBoxHistory, expandSelectedSeriesForOs } from '@/modules/inventario/client/warehouseBoxes';
 import { isBodegaOperationalRack } from '@/lib/database/warehouse';
 import { DispatchBatchSelector } from '@/modules/outbound-dispatch/components/DispatchBatchSelector';
 import { isHexagonalOutboundDispatchEnabled } from '@/modules/outbound-dispatch';
@@ -286,7 +286,10 @@ export default function BodegaGestionV2({
        const boxIdFmt = formatWarehouseBoxId(boxCode, b.box_id);
        const tecnologiaId = b.technology_id ?? (b.sample_model_id ? techIdByModelId.get(b.sample_model_id) : undefined);
 
-       return {
+         const equipos = Number(b.equipos_count ?? b.series_count ?? 0);
+         const declaredCap = Number(b.capacity || 0);
+         const displayCap = resolveBoxListCapacity(equipos, declaredCap);
+         return {
          id: boxCode || b.box_id,
          displayId: boxIdFmt.primary,
          displayIdFull: boxIdFmt.full,
@@ -299,18 +302,15 @@ export default function BodegaGestionV2({
          modelo: b.sample_model_id || 'N/A',
          marcaLabel: b.brand_name || brandName(b.sample_brand_id),
          modeloLabel: b.model_name || modelName(b.sample_model_id),
-         cantidad: b.capacity || 0,
-         unitCount: Number(b.equipos_count ?? b.series_count ?? 0),
+         cantidad: displayCap,
+         unitCount: equipos,
          seriesRows: Number(b.series_count || 0),
          status: (() => {
            const rack = String(b.rack || '').toUpperCase();
            const code = String(b.label || b.box_code || '');
            if (rack === 'EN_PROCESO' || code.toUpperCase().startsWith('TMP-')) return 'Parcial';
            if (String(b.deletion_status || '') === 'pending_approval') return 'Pendiente Aprobación';
-           return resolveBoxDisplayStatus(
-             Number(b.equipos_count ?? b.series_count ?? 0),
-             Number(b.capacity || 0)
-           );
+           return resolveBoxDisplayStatus(equipos, displayCap);
          })(),
          deletionStatus: b.deletion_status || null,
          usuarioIngreso: b.ingreso_user_name || 'Sin registro',

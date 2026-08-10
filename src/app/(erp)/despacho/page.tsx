@@ -15,7 +15,7 @@ import {
 } from '@/components/ui';
 import { erpTab, erpTableHeader, erpTableHeaderText, erpFieldClass, erpLabelClass } from '@/lib/design/tokens';
 import { apiFetch } from '@/lib/http/apiFetch';
-import { sapValidationReader } from '@/modules/sap-integration';
+import { sapValidationReader, getSapStatusMeta, type SapValidationState } from '@/modules/sap-integration';
 import * as XLSX from 'xlsx';
 import { ModulePage, ModuleToolbar } from '@/components/module-page';
 import { DispatchBatchPanel } from './DispatchBatchPanel';
@@ -65,15 +65,17 @@ import { printOutboundLabel, printOutboundLabels } from './printOutboundLabel';
 import { printOutboundDetalle } from './printOutboundDetalle';
 
 const SERIES_BOX_SELECT =
-  'id, serial_number, service_order_id, current_status, current_box_id, brand_id, model_id, material, valuation, updated_at, created_at';
+  'id, serial_number, service_order_id, current_status, current_box_id, brand_id, model_id, material, valuation, sap_status, updated_at, created_at';
 const SERIES_SIBLING_SELECT =
-  'id, serial_number, service_order_id, material, valuation, created_at';
+  'id, serial_number, service_order_id, material, valuation, sap_status, created_at';
 
 const BOX_DESPACHO_SELECT =
   'id, box_code, brand_id, model_id, capacity, status, material, valuation, created_at';
 
 const DESPACHO_HISTORY_PAGE_SIZE = 25;
 const DESPACHO_OUTBOUND_PAGE_SIZE = 20;
+/** Límite API export outbound-boxes (un solo XLSX). */
+const DESPACHO_OUTBOUND_EXCEL_MAX_BOXES = 200;
 
 type DispatchItem = {
   id: string;
@@ -159,46 +161,64 @@ function materialsConflict(
 }
 
 /**
- * La serie debe pertenecer al Material/Valoración de la caja cuando la caja
- * (o el contenido ya pistoleado) ya tiene esos valores definidos.
- * Vacío en la serie ≠ coincide: no se permite meter otro / sin dato SAP.
+ * Material/Valoración vs caja. Si faltan en serie, distingue «sin validar SAP» vs dato SAP ausente.
  */
-function seriesMatchesBoxMaterialValuation(
-  seriesMat: unknown,
-  seriesVal: unknown,
+function checkOutboundScanMaterialValuation(
+  eqMaterial: unknown,
+  eqValuation: unknown,
   boxMat: unknown,
-  boxVal: unknown
-): { ok: true } | { ok: false; reason: string } {
-  const sm = normMatLot(seriesMat);
-  const sv = normMatLot(seriesVal);
+  boxVal: unknown,
+  sapUnitStatus: SapValidationState
+): { ok: true } | { ok: false; title: string; description: string } {
+  const sm = normMatLot(eqMaterial);
+  const sv = normMatLot(eqValuation);
   const bm = normMatLot(boxMat);
   const bv = normMatLot(boxVal);
+  const sapLabel = getSapStatusMeta(sapUnitStatus).label;
 
   if (bm) {
     if (!sm) {
+      if (sapUnitStatus !== 'Validado SAP') {
+        return {
+          ok: false,
+          title: 'Integración SAP pendiente',
+          description: `Estado en motor SAP: «${sapLabel}». Sin validación SAP la serie no trae Material. Esta caja exige Material [${bm}]. Valide el equipo en Integración SAP (match / Excel G985) y vuelva a pistolear.`,
+        };
+      }
       return {
         ok: false,
-        reason: `La serie no tiene Material SAP. La caja exige Material [${bm}].`,
+        title: 'Material SAP no disponible',
+        description: `El equipo figura «${sapLabel}» pero ninguna serie del OS tiene Material en BD. La caja exige [${bm}]. Re-sincronice Integración SAP o corrija la serie.`,
       };
     }
     if (sm !== bm) {
       return {
         ok: false,
-        reason: `Material distinto. Serie [${sm}] · Caja [${bm}].`,
+        title: 'Material/Valoración no permitido',
+        description: `Material distinto. Serie [${sm}] · Caja [${bm}].`,
       };
     }
   }
   if (bv) {
     if (!sv) {
+      if (sapUnitStatus !== 'Validado SAP') {
+        return {
+          ok: false,
+          title: 'Integración SAP pendiente',
+          description: `Estado en motor SAP: «${sapLabel}». Sin validación SAP la serie no trae Valoración. Esta caja exige Valoración [${bv}]. Valide el equipo en Integración SAP y vuelva a pistolear.`,
+        };
+      }
       return {
         ok: false,
-        reason: `La serie no tiene Valoración SAP. La caja exige Valoración [${bv}].`,
+        title: 'Valoración SAP no disponible',
+        description: `El equipo figura «${sapLabel}» pero ninguna serie del OS tiene Valoración en BD. La caja exige [${bv}]. Re-sincronice Integración SAP o corrija la serie.`,
       };
     }
     if (sv !== bv) {
       return {
         ok: false,
-        reason: `Valoración distinta. Serie [${sv}] · Caja [${bv}].`,
+        title: 'Material/Valoración no permitido',
+        description: `Valoración distinta. Serie [${sv}] · Caja [${bv}].`,
       };
     }
   }
@@ -538,13 +558,25 @@ export default function DespachoPage() {
     });
   };
 
-  const toggleSelectAll = (checked: boolean) => {
-    if (!checked) {
+  const toggleSelectPageHeader = () => {
+    const pageIds = dispatchPageItems
+      .map((d) => d.dbId)
+      .filter((id): id is string => Boolean(id));
+    if (pageIds.length === 0) return;
+
+    const allPageInSelection = pageIds.every((id) => selectedBoxIds.has(id));
+    if (allPageInSelection) {
       setSelectedBoxIds(new Set());
       return;
     }
-    setSelectedBoxIds(new Set(dispatches.filter((d) => d.dbId).map((d) => d.dbId!)));
+    setSelectedBoxIds((prev) => {
+      const next = new Set(prev);
+      for (const id of pageIds) next.add(id);
+      return next;
+    });
   };
+
+  const clearBoxSelection = () => setSelectedBoxIds(new Set());
 
   const selectedBoxes = dispatches.filter((d) => d.dbId && selectedBoxIds.has(d.dbId));
 
@@ -710,19 +742,7 @@ export default function DespachoPage() {
       notify.warning('La marca o modelo del equipo no coinciden con la caja.'); return;
     }
 
-    // 1. Validar Matriz de Bloqueos SAP (gate vía port sap-integration)
-    const scanServiceOrder = getJoinedServiceOrder(sData);
-    const sapStatus = scanServiceOrder?.sap_integration_status || 'Pendiente Validación';
-    const sapDecision = sapValidationReader.authorize({ integrationStatus: sapStatus }, 'dispatch');
-    if (!sapDecision.allowed) {
-      notify.error('Bloqueo operativo (Integración SAP)', {
-        description: `El equipo no puede despacharse porque su estado es "${sapStatus}". Bloqueados: Sin Coincidencia y Obsoleto.`,
-        duration: 0,
-      });
-      return;
-    }
-
-    // 2. Hermanas + Material/Valoración coalescidos (SAP a veces llena solo una)
+    // 1. Hermanas (OS) — necesarias para SAP S1–S4 y material coalescido
     let siblings: any[] = [];
     let idsToUpdate = [sData.id];
     if (sData.service_order_id) {
@@ -735,23 +755,46 @@ export default function DespachoPage() {
         idsToUpdate = sibRows.map((s) => s.id);
       }
     }
+
+    const scanServiceOrder = getJoinedServiceOrder(sData);
+    const sapSeriesStatuses = [
+      (sData as { sap_status?: string | null }).sap_status,
+      ...siblings.map((s: { sap_status?: string | null }) => s.sap_status),
+    ];
+    const sapUnitStatus = sapValidationReader.resolveStatus({
+      integrationStatus: scanServiceOrder?.sap_integration_status,
+      seriesStatuses: sapSeriesStatuses,
+    });
+    const sapDecision = sapValidationReader.authorize(
+      { integrationStatus: scanServiceOrder?.sap_integration_status, seriesStatuses: sapSeriesStatuses },
+      'dispatch'
+    );
+    if (!sapDecision.allowed) {
+      const sapLabel = getSapStatusMeta(sapDecision.status).label;
+      notify.error('Bloqueo operativo (Integración SAP)', {
+        description: `No se puede pistoleo en Outbound: estado «${sapLabel}». Sin Coincidencia y Obsoleto están bloqueados para despacho.`,
+        duration: 0,
+      });
+      return;
+    }
+
     const { material: eqMaterial, valuation: eqValuation } = coalesceMaterialLote([
       sData,
       ...siblings,
     ]);
-
-    // 3. Debe coincidir con Material/Valoración de la caja (declarado o ya pistoleado)
     const boxMatRef = selectedBox.material || (boxItems[0]?.material ?? '');
     const boxLotRef = selectedBox.valuation || (boxItems[0]?.valuation ?? '');
-    const match = seriesMatchesBoxMaterialValuation(
+
+    const matVal = checkOutboundScanMaterialValuation(
       eqMaterial,
       eqValuation,
       boxMatRef,
-      boxLotRef
+      boxLotRef,
+      sapUnitStatus
     );
-    if (!match.ok) {
-      notify.error('Material/Valoración no permitido', {
-        description: match.reason,
+    if (!matVal.ok) {
+      notify.error(matVal.title, {
+        description: matVal.description,
         duration: 0,
       });
       return;
@@ -769,7 +812,13 @@ export default function DespachoPage() {
       notify.warning('La caja ya está llena.'); return;
     }
 
-    const { error } = await supabase.from('series').update({ current_box_id: selectedBox.dbId }).in('id', idsToUpdate);
+    const patch: { current_box_id: string; material?: string; valuation?: string } = {
+      current_box_id: selectedBox.dbId,
+    };
+    if (normMatLot(eqMaterial)) patch.material = normMatLot(eqMaterial);
+    if (normMatLot(eqValuation)) patch.valuation = normMatLot(eqValuation);
+
+    const { error } = await supabase.from('series').update(patch).in('id', idsToUpdate);
     if (error) {
       notify.error('Error al asignar equipo a la caja.');
     } else {
@@ -986,9 +1035,9 @@ export default function DespachoPage() {
       return;
     }
 
-    if (fromSelection.length > 200) {
-      notify.warning('Máximo 200 cajas por reporte.', {
-        description: 'Reduzca la selección o exporte por lotes desde operaciones.',
+    if (fromSelection.length > DESPACHO_OUTBOUND_EXCEL_MAX_BOXES) {
+      notify.warning(`Máximo ${DESPACHO_OUTBOUND_EXCEL_MAX_BOXES} cajas por reporte.`, {
+        description: 'Reduzca la selección, use «Limpiar selección» o exporte por lotes.',
       });
       return;
     }
@@ -1444,8 +1493,14 @@ export default function DespachoPage() {
     );
   }
 
-  const allSelected = dispatches.length > 0 && selectedBoxIds.size === dispatches.filter((d) => d.dbId).length;
-  const someSelected = selectedBoxIds.size > 0 && !allSelected;
+  const outboundPageSelectableIds = dispatchPageItems
+    .map((d) => d.dbId)
+    .filter((id): id is string => Boolean(id));
+  const allPageSelected =
+    outboundPageSelectableIds.length > 0 &&
+    outboundPageSelectableIds.every((id) => selectedBoxIds.has(id));
+  const somePageSelected =
+    outboundPageSelectableIds.some((id) => selectedBoxIds.has(id)) && !allPageSelected;
 
   const dispatchColumns: DataTableColumn<any>[] = [
     {
@@ -1453,14 +1508,18 @@ export default function DespachoPage() {
       header: (
         <input
           type="checkbox"
-          checked={allSelected}
+          checked={allPageSelected}
           ref={(el) => {
-            if (el) el.indeterminate = someSelected;
+            if (el) el.indeterminate = somePageSelected;
           }}
-          onChange={(e) => toggleSelectAll(e.target.checked)}
+          onChange={() => toggleSelectPageHeader()}
           onClick={(e) => e.stopPropagation()}
           className="w-4 h-4 accent-[var(--primary)]"
-          title="Seleccionar todos"
+          title={
+            allPageSelected || somePageSelected
+              ? 'Quitar toda la selección'
+              : 'Seleccionar Outbound de esta página'
+          }
         />
       ),
       width: '44px',
@@ -2192,6 +2251,9 @@ export default function DespachoPage() {
                 <span className="text-xs font-bold text-slate-500">
                   {selectedBoxIds.size} Outbound · {selectedBoxes.reduce((n, b) => n + (b.filled_count ?? 0), 0)} equipos
                 </span>
+                <Button variant="outline" size="sm" onClick={clearBoxSelection}>
+                  Limpiar selección
+                </Button>
                 <Button
                   variant="primary"
                   className="bg-emerald-600 hover:bg-emerald-700 text-white"

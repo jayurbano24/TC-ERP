@@ -610,7 +610,10 @@ export default function TallerPage() {
           const loc = await locateWorkshopEquipmentViaApi(singleToken);
           if (seq !== tasksFetchSeqRef.current) return;
           setLocateHint(
-            loc.found && loc.tab && loc.tab !== workshopTab ? loc : null
+            loc.found &&
+              (loc.outsideWorkshop || (Boolean(loc.tab) && loc.tab !== workshopTab))
+              ? loc
+              : null
           );
         } catch {
           if (seq === tasksFetchSeqRef.current) setLocateHint(null);
@@ -1119,19 +1122,36 @@ ${funcNotes || 'Ninguno evaluado'}
 
             return (
               <div className="space-y-6">
-                {locateHint?.found && locateHint.tab && locateHint.tabLabel && (
+                {locateHint?.found && (locateHint.outsideWorkshop || (locateHint.tab && locateHint.tabLabel)) && (
                   <div className="flex flex-col justify-between gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-6 py-4 sm:flex-row sm:items-center">
                     <p className="text-sm font-bold text-[var(--heading)]">
-                      {locateHint.osLabel || locateHint.serial} está en{' '}
-                      <span className="text-amber-600 dark:text-amber-400">{locateHint.tabLabel}</span>
-                      {locateHint.tab !== activeTab && (
+                      {locateHint.outsideWorkshop ? (
                         <>
-                          , no en {tabs.find((t) => t.id === activeTab)?.label || 'esta pestaña'}.
-                          {' '}La cola de Taller es compartida — todos los operadores ven los mismos equipos.
+                          {locateHint.osLabel || locateHint.serial}{' '}
+                          <span className="text-amber-600 dark:text-amber-400">
+                            {locateHint.message ||
+                              'está en Bodega Central; no ha sido despachado a Taller.'}
+                          </span>
+                          {locateHint.locationLabel ? (
+                            <span className="mt-1 block text-xs font-semibold text-[var(--muted)]">
+                              Ubicación: {locateHint.locationLabel}
+                            </span>
+                          ) : null}
+                        </>
+                      ) : (
+                        <>
+                          {locateHint.osLabel || locateHint.serial} está en{' '}
+                          <span className="text-amber-600 dark:text-amber-400">{locateHint.tabLabel}</span>
+                          {locateHint.tab !== activeTab && (
+                            <>
+                              , no en {tabs.find((t) => t.id === activeTab)?.label || 'esta pestaña'}.
+                              {' '}La cola de Taller es compartida — todos los operadores ven los mismos equipos.
+                            </>
+                          )}
                         </>
                       )}
                     </p>
-                    {locateHint.tab !== activeTab && (
+                    {!locateHint.outsideWorkshop && locateHint.tab && locateHint.tab !== activeTab && (
                       <Button
                         variant="outline"
                         className="border-amber-300 text-amber-800 font-black uppercase text-[10px] shrink-0"

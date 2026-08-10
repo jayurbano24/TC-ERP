@@ -5,6 +5,8 @@ import { logOnlyRoleCheck, ROLES_BODEGA_DESPACHO } from '@/shared/authz/roleGuar
 import { enrichWarehouseBoxItems } from '@/shared/infrastructure/warehouse/enrichWarehouseBoxItems';
 import { isBodegaOperationalRack } from '@/lib/database/warehouse';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
+import { applyAccurateEquiposToWarehouseBoxItems } from '@/lib/api/warehouseBoxListCounts';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 const ListBoxesQuery = z.object({
   cursor: z.string().uuid().optional(),
@@ -30,6 +32,18 @@ function isMissingRpcError(error: { message?: string; code?: string } | null): b
 
 function onlyBodegaRows<T extends { rack?: string | null }>(rows: T[]): T[] {
   return rows.filter((row) => isBodegaOperationalRack(row.rack));
+}
+
+async function finalizeWarehouseBoxList<T extends { box_id: string; capacity?: number | null; equipos_count?: number | null; series_count?: number | null }>(
+  db: SupabaseClient,
+  items: T[]
+): Promise<T[]> {
+  try {
+    return await applyAccurateEquiposToWarehouseBoxItems(db, items);
+  } catch (err) {
+    console.warn('[warehouse/boxes] applyAccurateEquiposToWarehouseBoxItems:', err);
+    return items;
+  }
 }
 
 export async function GET(req: NextRequest) {
@@ -224,9 +238,10 @@ export async function GET(req: NextRequest) {
     const sorted = [...enriched].sort((a, b) => String(a.box_id).localeCompare(String(b.box_id)));
     const page = sorted.slice(0, limit);
     const nextCursor = sorted.length > limit ? page[page.length - 1]?.box_id ?? null : null;
+    const pageAccurate = await finalizeWarehouseBoxList(db, page);
 
     return NextResponse.json({
-      items: page,
+      items: pageAccurate,
       nextCursor,
     });
   }
@@ -241,9 +256,10 @@ export async function GET(req: NextRequest) {
       const hasMore = rows.length > limit;
       const items = hasMore ? rows.slice(0, -1) : rows;
       const enriched = await enrichWarehouseBoxItems(supabase, items);
+      const accurate = await finalizeWarehouseBoxList(supabase, enriched);
       return NextResponse.json({
-        items: enriched,
-        nextCursor: hasMore ? enriched[enriched.length - 1]?.box_id : null,
+        items: accurate,
+        nextCursor: hasMore ? accurate[accurate.length - 1]?.box_id : null,
       });
     }
 
@@ -255,9 +271,10 @@ export async function GET(req: NextRequest) {
       const hasMore = rows.length > limit;
       const items = hasMore ? rows.slice(0, -1) : rows;
       const enriched = await enrichWarehouseBoxItems(supabase, items);
+      const accurate = await finalizeWarehouseBoxList(supabase, enriched);
       return NextResponse.json({
-        items: enriched,
-        nextCursor: hasMore ? enriched[enriched.length - 1]?.box_id : null,
+        items: accurate,
+        nextCursor: hasMore ? accurate[accurate.length - 1]?.box_id : null,
       });
     }
     if (!isMissingRpcError(partialRpc.error) && !isMissingRpcError(inProgress.error)) {
@@ -268,25 +285,71 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  let { data, error } = await supabase.rpc('warehouse_list_boxes_page', {
-    p_cursor: cursor ?? null,
-    p_limit: limit + 1,
-    p_search: search ?? null,
-    p_fill_status: fillParam,
-  });
+  // Si SQL aún no excluye OUTBOUND (178/179 pendientes), el RPC trae staging primero
+  // y onlyBodegaRows vacía la página. Paginar hasta llenar `limit` operativas.
+  const PAGE_FETCH = Math.min(Math.max(limit + 1, 40), 200);
+  const MAX_FETCH_ROUNDS = 12;
+  const collected: Array<Record<string, unknown> & { box_id: string; rack?: string | null }> = [];
+  let pageCursor: string | null = cursor ?? null;
+  let rpcMissing = false;
+  let lastError: { message?: string; code?: string } | null = null;
+  let sawRawRows = false;
+  let exhausted = false;
 
-  // Compat: overload 4 args aún no aplicada → firma de 3 args
-  if (error && isMissingRpcError(error)) {
-    const legacy = await supabase.rpc('warehouse_list_boxes_page', {
-      p_cursor: cursor ?? null,
-      p_limit: limit + 1,
+  for (let round = 0; round < MAX_FETCH_ROUNDS && collected.length <= limit; round += 1) {
+    let { data, error } = await supabase.rpc('warehouse_list_boxes_page', {
+      p_cursor: pageCursor,
+      p_limit: PAGE_FETCH,
       p_search: search ?? null,
+      p_fill_status: fillParam,
     });
-    data = legacy.data;
-    error = legacy.error;
+
+    if (error && isMissingRpcError(error)) {
+      const legacy = await supabase.rpc('warehouse_list_boxes_page', {
+        p_cursor: pageCursor,
+        p_limit: PAGE_FETCH,
+        p_search: search ?? null,
+      });
+      data = legacy.data;
+      error = legacy.error;
+    }
+
+    if (error && isMissingRpcError(error)) {
+      rpcMissing = true;
+      lastError = error;
+      break;
+    }
+
+    if (error) {
+      console.error('Error in GET /api/v1/warehouse/boxes:', error);
+      return NextResponse.json({ error: 'QUERY_FAILED: ' + error.message }, { status: 500 });
+    }
+
+    const raw = (data ?? []) as Array<Record<string, unknown> & { box_id: string; rack?: string | null }>;
+    if (raw.length === 0) {
+      exhausted = true;
+      break;
+    }
+    sawRawRows = true;
+
+    const kept = onlyBodegaRows(raw);
+    for (const row of kept) {
+      if (collected.length > limit) break;
+      if (collected.some((x) => x.box_id === row.box_id)) continue;
+      collected.push(row);
+    }
+
+    const lastRaw = raw[raw.length - 1];
+    pageCursor = lastRaw?.box_id ? String(lastRaw.box_id) : null;
+    if (!pageCursor || raw.length < PAGE_FETCH) {
+      exhausted = true;
+      break;
+    }
+    // Si esta ronda no aportó operativas, seguir (p. ej. bloque de OUTBOUND).
+    if (kept.length === 0) continue;
   }
 
-  if (error && isMissingRpcError(error)) {
+  if (rpcMissing) {
     let q = supabase
       .from('warehouse_box_summary')
       .select('box_id, rack, label, series_count, sample_status, sample_brand_id, sample_model_id, sample_service_order_id, last_movement_at')
@@ -305,25 +368,24 @@ export async function GET(req: NextRequest) {
     const hasMoreFb = rowsFb.length > limit;
     const itemsFb = hasMoreFb ? rowsFb.slice(0, -1) : rowsFb;
     const enrichedFb = await enrichWarehouseBoxItems(supabase, itemsFb);
+    const accurateFb = await finalizeWarehouseBoxList(supabase, enrichedFb);
     return NextResponse.json({
-      items: enrichedFb,
-      nextCursor: hasMoreFb ? enrichedFb[enrichedFb.length - 1]?.box_id : null,
+      items: accurateFb,
+      nextCursor: hasMoreFb ? accurateFb[accurateFb.length - 1]?.box_id : null,
       migrationHint: fillParam === 'partial' ? '129_warehouse_list_boxes_fill_status' : undefined,
     });
   }
 
-  if (error) {
-    console.error('Error in GET /api/v1/warehouse/boxes:', error);
-    return NextResponse.json({ error: 'QUERY_FAILED: ' + error.message }, { status: 500 });
-  }
-
-  const rows = onlyBodegaRows(data ?? []);
-  const hasMore = rows.length > limit;
-  const items = hasMore ? rows.slice(0, -1) : rows;
+  const hasMore = collected.length > limit || (sawRawRows && !exhausted && collected.length >= limit);
+  const items = hasMore ? collected.slice(0, limit) : collected;
   const enriched = await enrichWarehouseBoxItems(supabase, items);
+  const accurate = await finalizeWarehouseBoxList(supabase, enriched);
 
   return NextResponse.json({
-    items: enriched,
-    nextCursor: hasMore ? enriched[enriched.length - 1]?.box_id : null,
+    items: accurate,
+    nextCursor: hasMore ? accurate[accurate.length - 1]?.box_id ?? null : null,
+    ...(sawRawRows && accurate.length === 0
+      ? { migrationHint: '197_fix_bodega_operational_rack_exclude_outbound' }
+      : {}),
   });
 }

@@ -1,14 +1,12 @@
 import { NextResponse } from 'next/server';
 import { parseSapUploadBuffer } from '@/lib/sap/parseSapUploadFile';
+import { SAP_PARSE_UPLOAD_MAX_BYTES, SAP_PARSE_UPLOAD_MAX_MB } from '@/lib/sap/sapUploadLimits';
 import { requireApiUser } from '@/shared/infrastructure/http/requireApiUser';
 import { logOnlyRoleCheck, ROLES_RETURNS_SAP } from '@/shared/authz/roleGuard';
 
 export const dynamic = 'force-dynamic';
 /** Excel G985 grandes: parseo en Node, no en el navegador. */
 export const maxDuration = 120;
-
-/** Límite Vercel ~4.5 MB por request; G985 muy grande → exportar CSV. */
-const MAX_BYTES = 4 * 1024 * 1024;
 
 export async function POST(request: Request) {
   const auth = await requireApiUser(request);
@@ -37,11 +35,11 @@ export async function POST(request: Request) {
     );
   }
 
-  if (file.size > MAX_BYTES) {
+  if (file.size > SAP_PARSE_UPLOAD_MAX_BYTES) {
     return NextResponse.json(
       {
         success: false,
-        error: `Archivo demasiado grande (${(file.size / 1024 / 1024).toFixed(1)} MB). Máximo ${MAX_BYTES / 1024 / 1024} MB.`,
+        error: `Archivo demasiado grande (${(file.size / 1024 / 1024).toFixed(1)} MB). Máximo ${SAP_PARSE_UPLOAD_MAX_MB} MB. Si supera el límite, exporte a CSV desde SAP o divida el Excel.`,
       },
       { status: 413 }
     );

@@ -107,6 +107,15 @@ export type WorkshopLocateResult = {
   osLabel: string | null;
   serial: string | null;
   serviceOrderId: string | null;
+  /**
+   * Stock en Bodega Central / recepción sin ingreso a Taller.
+   * No mapear a pestaña Equipo Listo (esa cola exige auditoría QC/taller).
+   */
+  outsideWorkshop?: boolean;
+  locationLabel?: string | null;
+  message?: string | null;
+  boxCode?: string | null;
+  rack?: string | null;
 };
 
 function sanitizeWorkshopSearch(raw: string): string {
@@ -217,27 +226,35 @@ async function searchWorkshopSeriesMultiInTab(
   return groupWorkshopSeriesRows(rows);
 }
 
+const EMPTY_LOCATE: WorkshopLocateResult = {
+  found: false,
+  tab: null,
+  tabLabel: null,
+  status: null,
+  osLabel: null,
+  serial: null,
+  serviceOrderId: null,
+  outsideWorkshop: false,
+  locationLabel: null,
+  message: null,
+  boxCode: null,
+  rack: null,
+};
+
 /** Ubica un equipo en cualquier etapa de Taller por serie u OS. */
 export async function locateWorkshopEquipment(
   supabase: SupabaseClient,
   rawQuery: string
 ): Promise<WorkshopLocateResult> {
   const query = sanitizeWorkshopSearch(rawQuery);
-  if (!query) {
-    return {
-      found: false,
-      tab: null,
-      tabLabel: null,
-      status: null,
-      osLabel: null,
-      serial: null,
-      serviceOrderId: null,
-    };
-  }
+  if (!query) return { ...EMPTY_LOCATE };
+
+  const seriesSelect =
+    'id, serial_number, current_status, service_order_id, ingress_count, boxes(box_code, rack_location), service_orders(os_label)';
 
   const { data: bySerial } = await supabase
     .from('series')
-    .select('id, serial_number, current_status, service_order_id, service_orders(os_label)')
+    .select(seriesSelect)
     .or(
       `serial_number.ilike.%${query}%,s2.ilike.%${query}%,s3.ilike.%${query}%,s4.ilike.%${query}%`
     )
@@ -256,7 +273,7 @@ export async function locateWorkshopEquipment(
     if (osId) {
       const { data: byOs } = await supabase
         .from('series')
-        .select('id, serial_number, current_status, service_order_id, service_orders(os_label)')
+        .select(seriesSelect)
         .eq('service_order_id', osId)
         .order('updated_at', { ascending: false })
         .limit(1);
@@ -264,30 +281,94 @@ export async function locateWorkshopEquipment(
     }
   }
 
-  if (!hit) {
+  if (!hit) return { ...EMPTY_LOCATE };
+
+  const status = String(hit.current_status || '');
+  const osLabel = (hit.service_orders as { os_label?: string } | null)?.os_label || null;
+  const box = hit.boxes as { box_code?: string | null; rack_location?: string | null } | null;
+  const boxCode = box?.box_code ? String(box.box_code) : null;
+  const rack = box?.rack_location ? String(box.rack_location) : null;
+
+  // Bodega central ≠ Equipo Listo: solo con auditoría de Taller/QC entra a esa cola.
+  if (status === 'in_central_warehouse') {
+    const auditIds = await loadWorkshopAuditIds(supabase, [String(hit.id)]);
+    const hasWorkshopAudit = auditIds.has(String(hit.id));
+    const warehouseOnly = isWarehouseStockOnlyInCentral({
+      current_status: status,
+      ingress_count: hit.ingress_count as number | null,
+      boxes: box,
+      has_workshop_audit: hasWorkshopAudit,
+    });
+
+    if (!hasWorkshopAudit || warehouseOnly) {
+      const where =
+        rack || boxCode
+          ? `Bodega Central${boxCode ? ` · ${boxCode}` : ''}${rack ? ` · ${rack}` : ''}`
+          : 'Bodega Central';
+      return {
+        found: true,
+        tab: null,
+        tabLabel: null,
+        status,
+        osLabel,
+        serial: hit.serial_number as string,
+        serviceOrderId: (hit.service_order_id as string) || null,
+        outsideWorkshop: true,
+        locationLabel: where,
+        message:
+          'Está en Bodega Central; no ha sido despachado a Taller. No aparece en Diagnóstico ni en Equipo Listo.',
+        boxCode,
+        rack,
+      };
+    }
+
     return {
-      found: false,
-      tab: null,
-      tabLabel: null,
-      status: null,
-      osLabel: null,
-      serial: null,
-      serviceOrderId: null,
+      found: true,
+      tab: 'listo',
+      tabLabel: WORKSHOP_TAB_LABELS.listo,
+      status,
+      osLabel,
+      serial: hit.serial_number as string,
+      serviceOrderId: (hit.service_order_id as string) || null,
+      outsideWorkshop: false,
+      locationLabel: WORKSHOP_TAB_LABELS.listo,
+      message: null,
+      boxCode,
+      rack,
     };
   }
 
-  const status = String(hit.current_status || '');
   const tab = STATUS_TO_TAB[status] ?? null;
-  const osLabel = (hit.service_orders as { os_label?: string } | null)?.os_label || null;
+  if (!tab) {
+    return {
+      found: true,
+      tab: null,
+      tabLabel: null,
+      status,
+      osLabel,
+      serial: hit.serial_number as string,
+      serviceOrderId: (hit.service_order_id as string) || null,
+      outsideWorkshop: true,
+      locationLabel: status || 'Fuera de Taller',
+      message: `No está en la cola de Taller (estado: ${status || 'desconocido'}).`,
+      boxCode,
+      rack,
+    };
+  }
 
   return {
     found: true,
     tab,
-    tabLabel: tab ? WORKSHOP_TAB_LABELS[tab] : null,
+    tabLabel: WORKSHOP_TAB_LABELS[tab],
     status,
     osLabel,
     serial: hit.serial_number as string,
     serviceOrderId: (hit.service_order_id as string) || null,
+    outsideWorkshop: false,
+    locationLabel: WORKSHOP_TAB_LABELS[tab],
+    message: null,
+    boxCode,
+    rack,
   };
 }
 

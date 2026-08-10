@@ -60,6 +60,12 @@ export type WorkshopLocateResult = {
   osLabel: string | null;
   serial: string | null;
   serviceOrderId: string | null;
+  /** Stock en Bodega Central sin paso por Taller (no es Equipo Listo). */
+  outsideWorkshop?: boolean;
+  locationLabel?: string | null;
+  message?: string | null;
+  boxCode?: string | null;
+  rack?: string | null;
 };
 
 export async function locateWorkshopEquipmentViaApi(

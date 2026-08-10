@@ -10,6 +10,7 @@ import { erpTab, erpSoftStat, erpInputClass } from '@/lib/design/tokens';
 import { apiFetch } from '@/lib/http/apiFetch';
 import { useQuery } from '@tanstack/react-query';
 import { SapIntegracionErrorBoundary } from './SapIntegracionErrorBoundary';
+import { SAP_PARSE_UPLOAD_MAX_BYTES, SAP_PARSE_UPLOAD_MAX_MB } from '@/lib/sap/sapUploadLimits';
 
 // Referencia estable para la query mientras no hay datos.
 const EMPTY_SAP_HISTORY: any[] = [];
@@ -431,6 +432,14 @@ function IntegracionSapPage() {
     setErrorMsg(null);
     const sizeMb = file.size / 1024 / 1024;
     logProcess(`Archivo seleccionado: ${file.name} (${sizeMb.toFixed(2)} MB)`);
+    if (file.size > SAP_PARSE_UPLOAD_MAX_BYTES) {
+      const msg = `Archivo demasiado grande (${sizeMb.toFixed(1)} MB). Máximo ${SAP_PARSE_UPLOAD_MAX_MB} MB. Exporte a CSV desde SAP o divida el Excel.`;
+      setErrorMsg(msg);
+      setUploadStatus('idle');
+      notify.error(msg);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
     if (sizeMb > 20) {
       logProcess('Aviso: archivo >20 MB. Preferible exportar CSV o dividir el Excel.');
     }

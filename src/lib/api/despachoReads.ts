@@ -1,6 +1,6 @@
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { aggregateOutboundBoxSeriesStats } from '@/lib/api/aggregateOutboundBoxSeriesStats';
-import { fetchDespachoBoxItems } from '@/lib/api/despachoBoxItems';
+import { apiFetch } from '@/lib/http/apiFetch';
 
 export type DespachoBoxListItem = {
   id: string;
@@ -34,7 +34,10 @@ export async function enrichOutboundFilledCounts<T extends DespachoBoxListItem>(
   const boxIds = items.map((b) => b.dbId).filter(Boolean);
   if (boxIds.length === 0) return items;
 
-  let stats: Map<string, { filled_count: number; valorado_count: number; novalorado_count: number; series_preview: string[] }>;
+  let stats: Map<
+    string,
+    { filled_count: number; valorado_count: number; novalorado_count: number; series_preview: string[] }
+  >;
   try {
     stats = await aggregateOutboundBoxSeriesStats(supabase, boxIds);
   } catch (error) {
@@ -56,38 +59,8 @@ export async function enrichOutboundFilledCounts<T extends DespachoBoxListItem>(
   });
 }
 
-/** Alinea equipos con el detalle de llenado cuando el agregado del listado queda corto. */
-async function reconcilePartialOutboundFilledCounts(
-  boxes: DespachoBoxListItem[]
-): Promise<DespachoBoxListItem[]> {
-  const partial = boxes.filter((b) => b.unidades > 0 && (b.filled_count ?? 0) < b.unidades);
-  if (partial.length === 0) return boxes;
-
-  const updates = new Map<string, number>();
-  const batchSize = 6;
-  for (let i = 0; i < partial.length; i += batchSize) {
-    const slice = partial.slice(i, i + batchSize);
-    await Promise.all(
-      slice.map(async (b) => {
-        try {
-          const items = await fetchDespachoBoxItems(b.dbId);
-          updates.set(b.dbId, items.length);
-        } catch (err) {
-          console.warn('[despacho] reconcile filled_count', b.id, err);
-        }
-      })
-    );
-  }
-
-  return boxes.map((b) => {
-    const n = updates.get(b.dbId);
-    if (n === undefined) return b;
-    return { ...b, filled_count: n };
-  });
-}
-
-export async function fetchDespachoBoxesViaApi(): Promise<DespachoBoxListItem[]> {
-  const mapBox = (b: Record<string, unknown>): DespachoBoxListItem => ({
+function mapApiBox(b: Record<string, unknown>): DespachoBoxListItem {
+  return {
     id: String(b.box_code),
     dbId: String(b.id),
     brand_id: b.brand_id as string | undefined,
@@ -103,27 +76,40 @@ export async function fetchDespachoBoxesViaApi(): Promise<DespachoBoxListItem[]>
     unidades: Number(b.capacity) || 0,
     estatus: b.status === 'open' ? ('Pendiente' as const) : ('En Ruta' as const),
     fecha: new Date(String(b.created_at)).toLocaleDateString(),
-  });
+  };
+}
 
+function dedupeByDbId(items: DespachoBoxListItem[]): DespachoBoxListItem[] {
+  const seen = new Set<string>();
+  const out: DespachoBoxListItem[] = [];
+  for (const item of items) {
+    if (!item.dbId || seen.has(item.dbId)) continue;
+    seen.add(item.dbId);
+    out.push(item);
+  }
+  return out;
+}
+
+export async function fetchDespachoBoxesViaApi(): Promise<DespachoBoxListItem[]> {
   const allMapped: DespachoBoxListItem[] = [];
   let cursor: string | undefined;
 
   for (let guard = 0; guard < 100; guard += 1) {
     const params = new URLSearchParams({ limit: '100' });
     if (cursor) params.set('cursor', cursor);
-    const res = await fetch(`/api/v1/despacho/boxes?${params}`, { credentials: 'include' });
+    const res = await apiFetch(`/api/v1/despacho/boxes?${params}`);
     const data = await res.json();
     if (!res.ok) {
-      throw new Error(data.error ?? data.detail ?? `HTTP ${res.status}`);
+      throw new Error(data.detail ?? data.error ?? `HTTP ${res.status}`);
     }
     const items = (data.items ?? []) as Record<string, unknown>[];
-    allMapped.push(...items.map(mapBox));
+    allMapped.push(...items.map(mapApiBox));
     const nextCursor = data.nextCursor as string | null | undefined;
     if (!nextCursor) break;
     cursor = nextCursor;
   }
 
-  return reconcilePartialOutboundFilledCounts(allMapped);
+  return dedupeByDbId(allMapped);
 }
 
 export type DespachoHistoryRow = {
@@ -166,7 +152,6 @@ export type DespachoHistoryReprint = {
     model_id?: string | null;
     material?: string | null;
     valuation?: string | null;
-    capacity?: number | null;
   } | null;
   items: Array<{
     id: string;
@@ -185,7 +170,7 @@ export type DespachoHistoryReprint = {
 };
 
 export async function fetchDespachoHistoryViaApi(): Promise<DespachoHistoryRow[]> {
-  const res = await fetch('/api/v1/despacho/history', { credentials: 'include' });
+  const res = await apiFetch('/api/v1/despacho/history');
   const data = await res.json();
   if (!res.ok) {
     throw new Error(data.error ?? data.detail ?? `HTTP ${res.status}`);
@@ -194,7 +179,7 @@ export async function fetchDespachoHistoryViaApi(): Promise<DespachoHistoryRow[]
 }
 
 export async function fetchDespachoHistoryReprint(dispatchId: string): Promise<DespachoHistoryReprint> {
-  const res = await fetch(`/api/v1/despacho/history/${dispatchId}/reprint`, { credentials: 'include' });
+  const res = await apiFetch(`/api/v1/despacho/history/${dispatchId}/reprint`);
   const data = await res.json();
   if (!res.ok) {
     throw new Error(data.error ?? data.detail ?? `HTTP ${res.status}`);
@@ -203,7 +188,7 @@ export async function fetchDespachoHistoryReprint(dispatchId: string): Promise<D
 }
 
 export async function fetchDespachoPendientesViaApi(): Promise<any[]> {
-  const res = await fetch('/api/v1/despacho/pendientes', { credentials: 'include' });
+  const res = await apiFetch('/api/v1/despacho/pendientes');
   const data = await res.json();
   if (!res.ok) {
     throw new Error(data.error ?? data.detail ?? `HTTP ${res.status}`);

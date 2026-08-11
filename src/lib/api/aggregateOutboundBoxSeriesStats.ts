@@ -31,10 +31,15 @@ type SeriesPick = {
   updated_at: string | null;
 };
 
-const SERIES_PAGE = 1000;
+/**
+ * PostgREST suele topear en 1000 filas: un `limit(1001)` queda en 1000 y
+ * `hasMore` nunca se activa → filled_count queda corto (8/9 con 9 equipos reales).
+ * Página < tope + cursor por id.
+ */
+const SERIES_PAGE = 500;
 
 /**
- * Cuenta equipos (OS) por caja outbound. Pagina series para no truncar en 1000 filas PostgREST.
+ * Cuenta equipos (OS) por caja outbound. Pagina series para no truncar en el tope PostgREST.
  */
 export async function aggregateOutboundBoxSeriesStats(
   supabase: SupabaseClient,
@@ -51,50 +56,55 @@ export async function aggregateOutboundBoxSeriesStats(
   }
   if (boxIds.length === 0) return statsByBox;
 
+  // Chunks de cajas: `.in(current_box_id)` con 100 UUID + miles de series es frágil.
+  const BOX_CHUNK = 25;
   type Acc = { valuation: string; serials: string[] };
   const groups = new Map<string, Acc>();
   const rowsByBox = new Map<string, SeriesPick[]>();
   for (const id of boxIds) rowsByBox.set(id, []);
 
-  let cursorId: string | undefined;
-  for (let guard = 0; guard < 500; guard += 1) {
-    let q = supabase
-      .from('series')
-      .select('id, serial_number, current_box_id, material, valuation, service_order_id, updated_at')
-      .in('current_box_id', boxIds)
-      .order('id', { ascending: true })
-      .limit(SERIES_PAGE + 1);
+  for (let bi = 0; bi < boxIds.length; bi += BOX_CHUNK) {
+    const boxChunk = boxIds.slice(bi, bi + BOX_CHUNK);
+    let cursorId: string | undefined;
+    for (let guard = 0; guard < 500; guard += 1) {
+      let q = supabase
+        .from('series')
+        .select('id, serial_number, current_box_id, material, valuation, service_order_id, updated_at')
+        .in('current_box_id', boxChunk)
+        .order('id', { ascending: true })
+        .limit(SERIES_PAGE + 1);
 
-    if (cursorId) q = q.gt('id', cursorId);
+      if (cursorId) q = q.gt('id', cursorId);
 
-    const { data, error } = await q;
-    if (error) throw error;
+      const { data, error } = await q;
+      if (error) throw error;
 
-    const chunk = (data ?? []) as SeriesPick[];
-    if (chunk.length === 0) break;
+      const chunk = (data ?? []) as SeriesPick[];
+      if (chunk.length === 0) break;
 
-    const hasMore = chunk.length > SERIES_PAGE;
-    const page = hasMore ? chunk.slice(0, SERIES_PAGE) : chunk;
+      const hasMore = chunk.length > SERIES_PAGE;
+      const page = hasMore ? chunk.slice(0, SERIES_PAGE) : chunk;
 
-    for (const s of page) {
-      const boxId = String(s.current_box_id);
-      if (!statsByBox.has(boxId)) continue;
-      rowsByBox.get(boxId)!.push(s);
-      const osKey = s.service_order_id ? String(s.service_order_id) : `solo:${s.id}`;
-      const gKey = `${boxId}|${osKey}`;
-      let acc = groups.get(gKey);
-      if (!acc) {
-        acc = { valuation: '', serials: [] };
-        groups.set(gKey, acc);
+      for (const s of page) {
+        const boxId = String(s.current_box_id);
+        if (!statsByBox.has(boxId)) continue;
+        rowsByBox.get(boxId)!.push(s);
+        const osKey = s.service_order_id ? String(s.service_order_id) : `solo:${s.id}`;
+        const gKey = `${boxId}|${osKey}`;
+        let acc = groups.get(gKey);
+        if (!acc) {
+          acc = { valuation: '', serials: [] };
+          groups.set(gKey, acc);
+        }
+        const v = String(s.valuation ?? '').trim();
+        if (!acc.valuation && v) acc.valuation = v;
+        const sn = String(s.serial_number || '').trim();
+        if (sn) acc.serials.push(sn);
       }
-      const v = String(s.valuation ?? '').trim();
-      if (!acc.valuation && v) acc.valuation = v;
-      const sn = String(s.serial_number || '').trim();
-      if (sn) acc.serials.push(sn);
-    }
 
-    cursorId = page[page.length - 1]?.id;
-    if (!hasMore) break;
+      cursorId = page[page.length - 1]?.id;
+      if (!hasMore) break;
+    }
   }
 
   for (const [gKey, acc] of groups) {

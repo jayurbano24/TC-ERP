@@ -6,7 +6,11 @@ import { ROLES_BODEGA_DESPACHO } from '@/shared/authz/roleGuard';
 import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
 import { estimateJsonBytes, logEgress } from '@/shared/infrastructure/http/egressLog';
 import { getCorrelationIdFromHeaders } from '@/shared/infrastructure/http/correlationId';
-import { aggregateOutboundBoxSeriesStats, type OutboundBoxSeriesStats } from '@/lib/api/aggregateOutboundBoxSeriesStats';
+import { resolveReadClient } from '@/shared/infrastructure/http/resolveReadClient';
+import {
+  aggregateOutboundBoxSeriesStats,
+  type OutboundBoxSeriesStats,
+} from '@/lib/api/aggregateOutboundBoxSeriesStats';
 
 const BOX_SELECT =
   'id, box_code, brand_id, model_id, capacity, status, rack_location, material, valuation, created_at';
@@ -14,6 +18,8 @@ const BOX_SELECT =
 const ListQuery = z.object({
   cursor: z.string().uuid().optional(),
   limit: z.coerce.number().int().min(1).max(BATCH_LIMITS.API_PAGE_MAX).default(100),
+  /** Filtro opcional por código Outbound (OB-000032, 32, etc.). */
+  q: z.string().trim().max(80).optional(),
 });
 
 export const GET = withErrorHandler(
@@ -24,11 +30,8 @@ export const GET = withErrorHandler(
 
     const auth = await requireApiUser(req);
     if (auth instanceof NextResponse) return auth;
-    const { supabase } = auth;
 
-    if (!supabase) {
-      return NextResponse.json({ error: 'SERVER_CLIENT_REQUIRED' }, { status: 500 });
-    }
+    const { client: supabase } = resolveReadClient(auth.supabase);
 
     const parsed = ListQuery.safeParse(Object.fromEntries(new URL(req.url).searchParams));
     if (!parsed.success) {
@@ -38,7 +41,7 @@ export const GET = withErrorHandler(
       );
     }
 
-    const { cursor, limit } = parsed.data;
+    const { cursor, limit, q: searchQ } = parsed.data;
 
     const { data: recData } = await supabase
       .from('receptions')
@@ -57,19 +60,49 @@ export const GET = withErrorHandler(
       .eq('status', 'open')
       .neq('rack_location', 'ELIMINADO')
       .order('created_at', { ascending: false })
-      .order('id', { ascending: true })
-      .limit(limit + 1);
+      .order('id', { ascending: false })
+      // Over-fetch: tras filtrar keyset (created_at,id) aún llenamos la página.
+      .limit(Math.min((limit + 1) * 3, 400));
 
-    if (cursor) q = q.lt('id', cursor);
+    if (searchQ) {
+      const raw = searchQ.replace(/%/g, '').trim();
+      const digits = raw.replace(/^OB-/i, '').replace(/^0+/i, '') || raw;
+      // "32" / "OB-32" / "OB-000032" → coincidencia por código
+      q = q.ilike('box_code', `%${digits}%`);
+    }
+
+    let cursorCreatedAt: string | null = null;
+    let cursorId: string | null = null;
+    if (cursor) {
+      const { data: cursorBox } = await supabase
+        .from('boxes')
+        .select('created_at, id')
+        .eq('id', cursor)
+        .maybeSingle();
+      if (cursorBox?.created_at) {
+        cursorCreatedAt = String(cursorBox.created_at);
+        cursorId = String(cursorBox.id);
+        q = q.lte('created_at', cursorCreatedAt);
+      }
+    }
 
     const { data, error } = await q;
     if (error) {
       return NextResponse.json({ error: 'QUERY_FAILED', detail: error.message }, { status: 500 });
     }
 
-    const rows = data ?? [];
+    let rows = data ?? [];
+    if (cursorCreatedAt && cursorId) {
+      rows = rows.filter((r) => {
+        const ts = String(r.created_at ?? '');
+        const id = String(r.id);
+        if (ts < cursorCreatedAt) return true;
+        if (ts > cursorCreatedAt) return false;
+        return id < cursorId;
+      });
+    }
     const hasMore = rows.length > limit;
-    const page = hasMore ? rows.slice(0, -1) : rows;
+    const page = hasMore ? rows.slice(0, limit) : rows;
     const boxIds = page.map((b) => b.id);
 
     let statsByBox = new Map<string, OutboundBoxSeriesStats>();
@@ -77,8 +110,9 @@ export const GET = withErrorHandler(
       try {
         statsByBox = await aggregateOutboundBoxSeriesStats(supabase, boxIds);
       } catch (seriesError) {
-        const message = seriesError instanceof Error ? seriesError.message : 'QUERY_FAILED';
-        return NextResponse.json({ error: 'QUERY_FAILED', detail: message }, { status: 500 });
+        // No tumbar el listado: la tabla debe pintar Outbounds aunque falle el conteo.
+        const message = seriesError instanceof Error ? seriesError.message : String(seriesError);
+        console.warn('[despacho/boxes] aggregateOutboundBoxSeriesStats:', message);
       }
     }
 

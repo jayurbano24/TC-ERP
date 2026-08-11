@@ -16,20 +16,31 @@ import {
   type SerialPickRow,
 } from '@/lib/sap/equipmentSerialSlots';
 
-export const maxDuration = 120;
+/** ETL largo: acumula cajas por fases internas → un solo XLSX. */
+export const maxDuration = 300;
 
+/** Un solo archivo Excel (fases internas de lectura, no varios descargas). */
+const OUTBOUND_EXPORT_MAX_BOXES = 1000;
+
+const BoxIdsSchema = z.array(z.string().uuid()).min(1).max(OUTBOUND_EXPORT_MAX_BOXES);
+
+/** Compat GET: query `boxIds=uuid,uuid` (solo lotes pequeños; preferir POST). */
 const QuerySchema = z.object({
   boxIds: z
     .string()
     .min(1)
-    .max(8000)
+    .max(16_000)
     .transform((s) =>
       s
         .split(',')
         .map((id) => id.trim())
         .filter(Boolean)
     )
-    .pipe(z.array(z.string().uuid()).min(1).max(200)),
+    .pipe(BoxIdsSchema),
+});
+
+const BodySchema = z.object({
+  boxIds: BoxIdsSchema,
 });
 
 type SeriesRow = SerialPickRow & {
@@ -40,6 +51,23 @@ type SeriesRow = SerialPickRow & {
   sap_status: string | null;
   current_box_id?: string | null;
 };
+
+function validationErrorResponse(error: z.ZodError): NextResponse {
+  const flat = error.flatten();
+  const messages = [
+    ...Object.values(flat.fieldErrors).flatMap((v) => v ?? []),
+    ...(flat.formErrors ?? []),
+  ].join(' ');
+  let detail = 'Parámetros de exportación inválidos.';
+  if (/too big|<=\s*\d+|maximum/i.test(messages)) {
+    detail = `Máximo ${OUTBOUND_EXPORT_MAX_BOXES} cajas por Excel. Reduzca el rango Desde–Hasta.`;
+  } else if (/uuid|invalid/i.test(messages)) {
+    detail = 'Uno o más IDs de caja no son UUID válidos.';
+  } else if (/too small|required|min/i.test(messages)) {
+    detail = 'Seleccione al menos una caja OUTBOUND para exportar.';
+  }
+  return NextResponse.json({ error: 'VALIDATION_ERROR', detail, issues: flat }, { status: 422 });
+}
 
 async function fetchAllSeriesInBox(db: SupabaseClient, boxId: string): Promise<SeriesRow[]> {
   const out: SeriesRow[] = [];
@@ -114,25 +142,7 @@ async function fetchSiblingsByServiceOrders(
   return byOs;
 }
 
-export async function GET(req: NextRequest) {
-  const auth = await requireApiUser(req);
-  if (auth instanceof NextResponse) return auth;
-
-  const roleCheck = await logOnlyRoleCheck(req, ROLES_BODEGA_DESPACHO, {
-    module: 'bodega',
-    action: 'export_outbound_boxes',
-  });
-  if (roleCheck) return roleCheck;
-
-  const parsed = QuerySchema.safeParse(Object.fromEntries(req.nextUrl.searchParams));
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: 'VALIDATION_ERROR', issues: parsed.error.flatten() },
-      { status: 422 }
-    );
-  }
-
-  const boxIds = parsed.data.boxIds;
+async function buildOutboundExportResponse(boxIds: string[]): Promise<NextResponse> {
   const db = getSupabaseServerClient();
 
   type BoxRow = {
@@ -170,34 +180,44 @@ export async function GET(req: NextRequest) {
   const candidates: WarehouseBoxListRow[] = [];
   const seriesByBox = new Map<string, SeriesRow[]>();
 
-  for (const b of staging) {
-    const id = String(b.id);
-    const series = await fetchAllSeriesInBox(db, id);
-    seriesByBox.set(id, series);
-    const osIds = new Set<string>();
-    let sampleBrand: string | null = b.brand_id as string | null;
-    let sampleModel: string | null = b.model_id as string | null;
-    let sampleOs: string | null = null;
-    for (const s of series) {
-      osIds.add(String(s.service_order_id || s.id));
-      if (!sampleOs) {
-        sampleBrand = s.brand_id ?? sampleBrand;
-        sampleModel = s.model_id ?? sampleModel;
-        sampleOs = s.service_order_id;
+  // Fases internas (ETL): lee series en paralelo por lotes; un solo workbook al final.
+  const SERIES_PHASE = 8;
+  for (let i = 0; i < staging.length; i += SERIES_PHASE) {
+    const phase = staging.slice(i, i + SERIES_PHASE);
+    const loaded = await Promise.all(
+      phase.map(async (b) => {
+        const id = String(b.id);
+        const series = await fetchAllSeriesInBox(db, id);
+        return { b, id, series };
+      })
+    );
+    for (const { b, id, series } of loaded) {
+      seriesByBox.set(id, series);
+      const osIds = new Set<string>();
+      let sampleBrand: string | null = b.brand_id as string | null;
+      let sampleModel: string | null = b.model_id as string | null;
+      let sampleOs: string | null = null;
+      for (const s of series) {
+        osIds.add(String(s.service_order_id || s.id));
+        if (!sampleOs) {
+          sampleBrand = s.brand_id ?? sampleBrand;
+          sampleModel = s.model_id ?? sampleModel;
+          sampleOs = s.service_order_id;
+        }
       }
+      candidates.push({
+        box_id: id,
+        rack: b.rack_location as string | null,
+        label: b.box_code as string | null,
+        capacity: b.capacity as number | null,
+        series_count: series.length,
+        equipos_count: osIds.size,
+        sample_brand_id: sampleBrand,
+        sample_model_id: sampleModel,
+        sample_service_order_id: sampleOs,
+        last_movement_at: null,
+      });
     }
-    candidates.push({
-      box_id: id,
-      rack: b.rack_location as string | null,
-      label: b.box_code as string | null,
-      capacity: b.capacity as number | null,
-      series_count: series.length,
-      equipos_count: osIds.size,
-      sample_brand_id: sampleBrand,
-      sample_model_id: sampleModel,
-      sample_service_order_id: sampleOs,
-      last_movement_at: null,
-    });
   }
 
   const enriched = await enrichWarehouseBoxItems(db, candidates);
@@ -206,8 +226,27 @@ export async function GET(req: NextRequest) {
   const detailRows: Record<string, string | number>[] = [];
   const summaryMap = new Map<
     string,
-    { tech: string; brand: string; model: string; boxes: Set<string>; units: number }
+    {
+      tech: string;
+      brand: string;
+      model: string;
+      boxes: Set<string>;
+      units: number;
+      equiposValorados: number;
+      equiposNoValorados: number;
+      equiposSinVal: number;
+    }
   >();
+  const boxSummaryRows: Record<string, string | number>[] = [];
+
+  function classifyValuationLabel(raw: string): 'VALORADO' | 'NO VALORADO' | 'SIN VALORACIÓN' {
+    const s = String(raw || '').trim();
+    if (!s) return 'SIN VALORACIÓN';
+    if (/novalorad|no\s*valorad/i.test(s)) return 'NO VALORADO';
+    if (/valorado/i.test(s)) return 'VALORADO';
+    // Lotes SAP distintos de NOVALORADO se tratan como valorados (ej. VALORADO / lote).
+    return 'VALORADO';
+  }
 
   for (const b of staging) {
     const boxId = String(b.id);
@@ -242,14 +281,22 @@ export async function GET(req: NextRequest) {
       model,
       boxes: new Set<string>(),
       units: 0,
+      equiposValorados: 0,
+      equiposNoValorados: 0,
+      equiposSinVal: 0,
     };
     sum.boxes.add(boxId);
-    sum.units += osIds.size || series.length;
-    summaryMap.set(sumKey, sum);
 
     const boxCode = meta?.label || boxId;
     const capacity = Number(meta?.capacity || 0);
     const equipos = Number(meta?.equipos_count ?? meta?.series_count ?? series.length);
+
+    let boxEquiposValorados = 0;
+    let boxEquiposNoValorados = 0;
+    let boxEquiposSinVal = 0;
+    const valuationLabels = new Set<string>();
+    let sampleMaterial = '';
+    let sampleValuation = '';
 
     if (series.length === 0) {
       detailRows.push({
@@ -269,9 +316,25 @@ export async function GET(req: NextRequest) {
         'Orden (OS)': '',
         Material: '',
         Valoración: '',
+        'Clase valoración': 'SIN VALORACIÓN',
         'Estado serie': '',
         'SAP serie': '',
       });
+      boxSummaryRows.push({
+        'Código Caja': boxCode,
+        Tecnología: tech,
+        Marca: brand,
+        Modelo: model,
+        Material: '',
+        'Valoración caja': '',
+        'Clase caja': 'VACÍA',
+        Equipos: 0,
+        Capacidad: capacity,
+        'Equipos VALORADO': 0,
+        'Equipos NO VALORADO': 0,
+        'Equipos sin valoración': 0,
+      });
+      summaryMap.set(sumKey, sum);
       continue;
     }
 
@@ -300,6 +363,15 @@ export async function GET(req: NextRequest) {
       const slots = buildEquipmentSerialSlots(group, mainSerial);
       const { material, valuation } = coalesceMaterialLote(group);
       const primary = slots.primary;
+      const valRaw = String(valuation || primary.valuation || '').trim();
+      const matRaw = String(material || primary.material || '').trim();
+      const valClass = classifyValuationLabel(valRaw);
+      if (valClass === 'VALORADO') boxEquiposValorados += 1;
+      else if (valClass === 'NO VALORADO') boxEquiposNoValorados += 1;
+      else boxEquiposSinVal += 1;
+      if (valRaw) valuationLabels.add(valRaw);
+      if (!sampleMaterial && matRaw) sampleMaterial = matRaw;
+      if (!sampleValuation && valRaw) sampleValuation = valRaw;
 
       const m = primary.model_id ? modelMap.get(String(primary.model_id)) : null;
       const bName = primary.brand_id
@@ -323,13 +395,53 @@ export async function GET(req: NextRequest) {
         S3: slots.s3,
         S4: slots.s4,
         'Orden (OS)': String(osRow?.os_label || ''),
-        Material: material || primary.material || '',
-        Valoración: valuation || primary.valuation || '',
+        Material: matRaw,
+        Valoración: valRaw,
+        'Clase valoración': valClass,
         'Estado serie': primary.current_status || '',
         'SAP serie': primary.sap_status || '',
       });
     }
+
+    sum.units += equipIdx;
+    sum.equiposValorados += boxEquiposValorados;
+    sum.equiposNoValorados += boxEquiposNoValorados;
+    sum.equiposSinVal += boxEquiposSinVal;
+    summaryMap.set(sumKey, sum);
+
+    let claseCaja: string = 'VACÍA';
+    if (equipIdx === 0) claseCaja = 'VACÍA';
+    else if (boxEquiposValorados > 0 && boxEquiposNoValorados === 0 && boxEquiposSinVal === 0) {
+      claseCaja = 'VALORADO';
+    } else if (boxEquiposNoValorados > 0 && boxEquiposValorados === 0 && boxEquiposSinVal === 0) {
+      claseCaja = 'NO VALORADO';
+    } else if (boxEquiposValorados > 0 && boxEquiposNoValorados > 0) {
+      claseCaja = 'MIXTO';
+    } else if (boxEquiposSinVal > 0 && boxEquiposValorados === 0 && boxEquiposNoValorados === 0) {
+      claseCaja = 'SIN VALORACIÓN';
+    } else {
+      claseCaja = 'MIXTO';
+    }
+
+    boxSummaryRows.push({
+      'Código Caja': boxCode,
+      Tecnología: tech,
+      Marca: brand,
+      Modelo: model,
+      Material: sampleMaterial,
+      'Valoración caja': [...valuationLabels].join(' | ') || sampleValuation,
+      'Clase caja': claseCaja,
+      Equipos: equipIdx,
+      Capacidad: capacity,
+      'Equipos VALORADO': boxEquiposValorados,
+      'Equipos NO VALORADO': boxEquiposNoValorados,
+      'Equipos sin valoración': boxEquiposSinVal,
+    });
   }
+
+  boxSummaryRows.sort((a, b) =>
+    String(a['Código Caja']).localeCompare(String(b['Código Caja']), 'es', { numeric: true })
+  );
 
   const summaryRows = [...summaryMap.values()]
     .sort((a, b) => b.units - a.units)
@@ -339,20 +451,49 @@ export async function GET(req: NextRequest) {
       Modelo: s.model,
       'Cajas OUTBOUND': s.boxes.size,
       'Equipos (total)': s.units,
+      'Equipos VALORADO': s.equiposValorados,
+      'Equipos NO VALORADO': s.equiposNoValorados,
+      'Equipos sin valoración': s.equiposSinVal,
     }));
 
   const totalEquipos = summaryRows.reduce((acc, r) => acc + Number(r['Equipos (total)'] || 0), 0);
+  const totalVal = summaryRows.reduce((acc, r) => acc + Number(r['Equipos VALORADO'] || 0), 0);
+  const totalNoVal = summaryRows.reduce((acc, r) => acc + Number(r['Equipos NO VALORADO'] || 0), 0);
+  const totalSin = summaryRows.reduce((acc, r) => acc + Number(r['Equipos sin valoración'] || 0), 0);
   summaryRows.push({
     Tecnología: 'TOTAL',
     Marca: '',
     Modelo: '',
     'Cajas OUTBOUND': staging.length,
     'Equipos (total)': totalEquipos,
+    'Equipos VALORADO': totalVal,
+    'Equipos NO VALORADO': totalNoVal,
+    'Equipos sin valoración': totalSin,
   });
+
+  const claseTotales = {
+    VALORADO: boxSummaryRows.filter((r) => r['Clase caja'] === 'VALORADO').length,
+    'NO VALORADO': boxSummaryRows.filter((r) => r['Clase caja'] === 'NO VALORADO').length,
+    MIXTO: boxSummaryRows.filter((r) => r['Clase caja'] === 'MIXTO').length,
+    'SIN VALORACIÓN': boxSummaryRows.filter((r) => r['Clase caja'] === 'SIN VALORACIÓN').length,
+    VACÍA: boxSummaryRows.filter((r) => r['Clase caja'] === 'VACÍA').length,
+  };
+  const valuationOverview = [
+    { Clase: 'VALORADO', 'Cajas': claseTotales.VALORADO },
+    { Clase: 'NO VALORADO', 'Cajas': claseTotales['NO VALORADO'] },
+    { Clase: 'MIXTO', 'Cajas': claseTotales.MIXTO },
+    { Clase: 'SIN VALORACIÓN', 'Cajas': claseTotales['SIN VALORACIÓN'] },
+    { Clase: 'VACÍA', 'Cajas': claseTotales.VACÍA },
+    { Clase: 'TOTAL', 'Cajas': boxSummaryRows.length },
+  ];
 
   const wb = XLSX.utils.book_new();
   const wsDetail = XLSX.utils.json_to_sheet(detailRows);
   XLSX.utils.book_append_sheet(wb, wsDetail, 'Detalle por equipo');
+  const wsBox = XLSX.utils.json_to_sheet(boxSummaryRows);
+  XLSX.utils.book_append_sheet(wb, wsBox, 'Resumen por caja');
+  const wsVal = XLSX.utils.json_to_sheet(valuationOverview);
+  XLSX.utils.book_append_sheet(wb, wsVal, 'Valoración cajas');
   const wsSum = XLSX.utils.json_to_sheet(summaryRows);
   XLSX.utils.book_append_sheet(wb, wsSum, 'Resumen modelo');
 
@@ -366,4 +507,45 @@ export async function GET(req: NextRequest) {
       'Content-Disposition': `attachment; filename="Bodega_Salida_${String(suffix).replace(/[^\w.-]+/g, '_')}_${today}.xlsx"`,
     },
   });
+}
+
+async function authorizeExport(req: NextRequest): Promise<NextResponse | null> {
+  const auth = await requireApiUser(req);
+  if (auth instanceof NextResponse) return auth;
+
+  return logOnlyRoleCheck(req, ROLES_BODEGA_DESPACHO, {
+    module: 'bodega',
+    action: 'export_outbound_boxes',
+  });
+}
+
+/** Preferir POST; GET queda por compatibilidad con lotes pequeños. */
+export async function GET(req: NextRequest) {
+  const denied = await authorizeExport(req);
+  if (denied) return denied;
+
+  const parsed = QuerySchema.safeParse(Object.fromEntries(req.nextUrl.searchParams));
+  if (!parsed.success) return validationErrorResponse(parsed.error);
+
+  return buildOutboundExportResponse(parsed.data.boxIds);
+}
+
+export async function POST(req: NextRequest) {
+  const denied = await authorizeExport(req);
+  if (denied) return denied;
+
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json(
+      { error: 'VALIDATION_ERROR', detail: 'JSON inválido en el cuerpo de la solicitud.' },
+      { status: 422 }
+    );
+  }
+
+  const parsed = BodySchema.safeParse(body);
+  if (!parsed.success) return validationErrorResponse(parsed.error);
+
+  return buildOutboundExportResponse(parsed.data.boxIds);
 }

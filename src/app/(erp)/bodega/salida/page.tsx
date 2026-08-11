@@ -26,7 +26,10 @@ import {
   loadOutboundBoxSeries,
 } from './OutboundBoxDetailDrawer';
 import type { OutboundBoxRow } from './outboundSalidaTypes';
-import { downloadOutboundBoxExcel } from '@/lib/api/downloadOutboundBoxExcel';
+import {
+  downloadOutboundBoxExcel,
+  OUTBOUND_EXCEL_MAX_TOTAL,
+} from '@/lib/api/downloadOutboundBoxExcel';
 
 type ModelSummaryRow = {
   key: string;
@@ -176,11 +179,19 @@ export default function BodegaSalidaPage() {
 
   const runExport = useCallback(
     async (boxIds: string[], label: string) => {
+      if (boxIds.length > OUTBOUND_EXCEL_MAX_TOTAL) {
+        notify.warning(`Máximo ${OUTBOUND_EXCEL_MAX_TOTAL} cajas por exportación.`, {
+          description: 'Reduzca la selección o exporte en varias tandas.',
+        });
+        return;
+      }
       setExporting(true);
       try {
-        await downloadOutboundBoxExcel(boxIds, label, { filePrefix: 'Bodega_Salida' });
+        const result = await downloadOutboundBoxExcel(boxIds, label, {
+          filePrefix: 'Bodega_Salida',
+        });
         notify.success('Excel generado', {
-          description: `${boxIds.length} caja(s) · hojas Detalle + Resumen por modelo.`,
+          description: `${result.boxes} caja(s) en un solo Excel · Detalle + Resumen por modelo.`,
         });
       } catch (err) {
         notify.error('No se pudo exportar', {

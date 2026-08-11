@@ -49,13 +49,17 @@ import {
 } from 'lucide-react';
 
 import { fetchDespachoBoxItems } from '@/lib/api/despachoBoxItems';
-import { downloadOutboundBoxExcel } from '@/lib/api/downloadOutboundBoxExcel';
+import {
+  downloadOutboundBoxExcel,
+  formatOutboundCode,
+  parseOutboundCodeNumber,
+  OUTBOUND_EXCEL_MAX_TOTAL,
+} from '@/lib/api/downloadOutboundBoxExcel';
 import {
   fetchDespachoBoxesViaApi,
   fetchDespachoHistoryViaApi,
   fetchDespachoHistoryReprint,
   fetchDespachoPendientesViaApi,
-  enrichOutboundFilledCounts,
   allocateOutboundCode,
 } from '@/lib/api/despachoReads';
 import { fetchReferenceCatalogsViaApi } from '@/lib/api/referenceCatalogs';
@@ -74,8 +78,6 @@ const BOX_DESPACHO_SELECT =
 
 const DESPACHO_HISTORY_PAGE_SIZE = 25;
 const DESPACHO_OUTBOUND_PAGE_SIZE = 20;
-/** Límite API export outbound-boxes (un solo XLSX). */
-const DESPACHO_OUTBOUND_EXCEL_MAX_BOXES = 200;
 
 type DispatchItem = {
   id: string;
@@ -265,44 +267,93 @@ function coalesceMaterialLote(
 }
 
 async function fetchDespachoData(): Promise<{ history: any[]; dispatches: DispatchItem[] }> {
-  try {
-    const [history, dispatches] = await Promise.all([
-      fetchDespachoHistoryViaApi(),
-      fetchDespachoBoxesViaApi(),
-    ]);
-    return { history, dispatches: dispatches as DispatchItem[] };
-  } catch (apiErr) {
-    console.warn('[despacho] GET /api/v1/despacho/* failed, legacy fallback:', apiErr);
+  // Historial y Outbounds independientes: un fallo de historial no debe vaciar la tabla.
+  const historyResult = await fetchDespachoHistoryViaApi()
+    .then((history) => ({ history, ok: true as const }))
+    .catch((err) => {
+      console.warn('[despacho] history API failed:', err);
+      return { history: EMPTY_LIST as any[], ok: false as const };
+    });
+
+  const boxesResult = await fetchDespachoBoxesViaApi()
+    .then((dispatches) => ({ dispatches: dispatches as DispatchItem[], ok: true as const }))
+    .catch((err) => {
+      console.warn('[despacho] boxes API failed:', err);
+      return { dispatches: null as DispatchItem[] | null, ok: false as const };
+    });
+
+  if (boxesResult.ok && boxesResult.dispatches) {
+    return { history: historyResult.history, dispatches: boxesResult.dispatches };
   }
 
   const supabase = getSupabaseBrowserClient();
-  if (!supabase) return { history: EMPTY_LIST, dispatches: EMPTY_LIST as DispatchItem[] };
+  if (!supabase) {
+    return {
+      history: historyResult.history,
+      dispatches: EMPTY_LIST as DispatchItem[],
+    };
+  }
 
-  const { data: hist } = await supabase
-    .from('dispatches')
-    .select(`
-      id, 
-      guide_number, 
-      dispatch_type, 
-      notes, 
-      dispatched_at, 
-      dispatched_by,
-      dispatch_items(count)
-    `)
-    .order('dispatched_at', { ascending: false });
+  let history = historyResult.history;
+  if (!historyResult.ok) {
+    const { data: hist } = await supabase
+      .from('dispatches')
+      .select(
+        `
+        id, 
+        guide_number, 
+        dispatch_type, 
+        notes, 
+        dispatched_at, 
+        dispatched_by,
+        dispatch_items(count)
+      `
+      )
+      .order('dispatched_at', { ascending: false });
+    history = (hist ?? []).map((row: any) => ({
+      ...row,
+      created_at: row.dispatched_at ?? row.created_at,
+    }));
+  }
 
   let dispatches: DispatchItem[] = [];
-  const { data: recData } = await supabase.from('receptions').select('id').eq('guide_number', 'MANUAL_BOXES_DESPACHO').single();
-  if (recData) {
-    const { data: boxes } = await supabase
-      .from('boxes')
-      .select(BOX_DESPACHO_SELECT)
-      .eq('reception_id', recData.id)
-      .eq('status', 'open')
-      .neq('rack_location', 'ELIMINADO')
-      .order('created_at', { ascending: false });
-    if (boxes && boxes.length > 0) {
-      dispatches = boxes.map((b: any) => ({
+  const { data: recData } = await supabase
+    .from('receptions')
+    .select('id')
+    .eq('guide_number', 'MANUAL_BOXES_DESPACHO')
+    .maybeSingle();
+  if (recData?.id) {
+    // Paginar en cliente: PostgREST trunca ~1000; no enriquecer aquí (bloqueaba la UI).
+    const allBoxes: any[] = [];
+    let from = 0;
+    const pageSize = 200;
+    for (let guard = 0; guard < 50; guard += 1) {
+      const { data: boxes, error } = await supabase
+        .from('boxes')
+        .select(BOX_DESPACHO_SELECT)
+        .eq('reception_id', recData.id)
+        .eq('status', 'open')
+        .neq('rack_location', 'ELIMINADO')
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .range(from, from + pageSize - 1);
+      if (error) {
+        console.warn('[despacho] legacy boxes:', error.message);
+        break;
+      }
+      const chunk = boxes ?? [];
+      allBoxes.push(...chunk);
+      if (chunk.length < pageSize) break;
+      from += pageSize;
+    }
+    const seen = new Set<string>();
+    dispatches = allBoxes
+      .filter((b) => {
+        if (!b?.id || seen.has(b.id)) return false;
+        seen.add(b.id);
+        return true;
+      })
+      .map((b: any) => ({
         id: b.box_code,
         dbId: b.id,
         brand_id: b.brand_id,
@@ -314,19 +365,14 @@ async function fetchDespachoData(): Promise<{ history: any[]; dispatches: Dispat
         novalorado_count: 0,
         series_preview: [],
         destino: 'Pendiente de asignar',
-        tipo: 'Outbound',
+        tipo: 'Outbound' as const,
         unidades: b.capacity || 0,
         estatus: b.status === 'open' ? ('Pendiente' as const) : ('En Ruta' as const),
         fecha: new Date(b.created_at).toLocaleDateString(),
       }));
-      dispatches = await enrichOutboundFilledCounts(dispatches as any);
-    }
   }
 
-  return { history: (hist ?? []).map((row: any) => ({
-    ...row,
-    created_at: row.dispatched_at ?? row.created_at,
-  })), dispatches };
+  return { history, dispatches };
 }
 
 export default function DespachoPage() {
@@ -535,8 +581,23 @@ export default function DespachoPage() {
   };
 
   const dispatches = despachoQuery.data?.dispatches ?? (EMPTY_LIST as DispatchItem[]);
+  const [outboundSearch, setOutboundSearch] = useState('');
 
-  const outboundTotalCount = dispatches.length;
+  const filteredDispatches = useMemo(() => {
+    const term = outboundSearch.trim().toLowerCase();
+    if (!term) return dispatches;
+    const compact = term.replace(/^ob-/, '').replace(/^0+/, '');
+    return dispatches.filter((d) => {
+      const code = String(d.id || '').toLowerCase();
+      const material = String(d.material || '').toLowerCase();
+      const valuation = String(d.valuation || '').toLowerCase();
+      if (code.includes(term) || material.includes(term) || valuation.includes(term)) return true;
+      if (compact && code.replace(/^ob-/, '').replace(/^0+/, '').includes(compact)) return true;
+      return false;
+    });
+  }, [dispatches, outboundSearch]);
+
+  const outboundTotalCount = filteredDispatches.length;
   const outboundTotalPages = Math.max(1, Math.ceil(outboundTotalCount / DESPACHO_OUTBOUND_PAGE_SIZE));
   const outboundSafePage = Math.min(outboundPage, outboundTotalPages);
 
@@ -552,8 +613,8 @@ export default function DespachoPage() {
 
   const dispatchPageItems = useMemo(() => {
     const start = (outboundSafePage - 1) * DESPACHO_OUTBOUND_PAGE_SIZE;
-    return dispatches.slice(start, start + DESPACHO_OUTBOUND_PAGE_SIZE);
-  }, [dispatches, outboundSafePage]);
+    return filteredDispatches.slice(start, start + DESPACHO_OUTBOUND_PAGE_SIZE);
+  }, [filteredDispatches, outboundSafePage]);
 
   const outboundStartItem =
     outboundTotalCount === 0 ? 0 : (outboundSafePage - 1) * DESPACHO_OUTBOUND_PAGE_SIZE + 1;
@@ -1051,6 +1112,43 @@ export default function DespachoPage() {
     }
   };
 
+  const [outboundRangeFrom, setOutboundRangeFrom] = useState('');
+  const [outboundRangeTo, setOutboundRangeTo] = useState('');
+
+  const resolveOutboundRange = useCallback(() => {
+    const fromN = parseOutboundCodeNumber(outboundRangeFrom);
+    const toN = parseOutboundCodeNumber(outboundRangeTo);
+    if (fromN == null || toN == null) {
+      notify.warning('Indique Desde y Hasta válidos.', {
+        description: 'Ejemplos: 32 y 150, o OB-000032 y OB-000150.',
+      });
+      return null;
+    }
+    const lo = Math.min(fromN, toN);
+    const hi = Math.max(fromN, toN);
+    const inRange = dispatches.filter((d) => {
+      if (!d.dbId) return false;
+      const n = parseOutboundCodeNumber(d.id);
+      return n != null && n >= lo && n <= hi;
+    });
+    if (inRange.length === 0) {
+      notify.warning('No hay Outbound abiertos en ese rango.', {
+        description: `${formatOutboundCode(lo)} → ${formatOutboundCode(hi)}`,
+      });
+      return null;
+    }
+    return { lo, hi, inRange };
+  }, [dispatches, outboundRangeFrom, outboundRangeTo]);
+
+  const handleSelectOutboundRange = () => {
+    const resolved = resolveOutboundRange();
+    if (!resolved) return;
+    setSelectedBoxIds(new Set(resolved.inRange.map((d) => d.dbId!)));
+    notify.success('Rango seleccionado', {
+      description: `${formatOutboundCode(resolved.lo)} → ${formatOutboundCode(resolved.hi)} · ${resolved.inRange.length} caja(s).`,
+    });
+  };
+
   const handleBulkOutboundExcelExport = async () => {
     const fromSelection =
       selectedBoxIds.size > 0
@@ -1062,9 +1160,9 @@ export default function DespachoPage() {
       return;
     }
 
-    if (fromSelection.length > DESPACHO_OUTBOUND_EXCEL_MAX_BOXES) {
-      notify.warning(`Máximo ${DESPACHO_OUTBOUND_EXCEL_MAX_BOXES} cajas por reporte.`, {
-        description: 'Reduzca la selección, use «Limpiar selección» o exporte por lotes.',
+    if (fromSelection.length > OUTBOUND_EXCEL_MAX_TOTAL) {
+      notify.warning(`Máximo ${OUTBOUND_EXCEL_MAX_TOTAL} cajas por exportación.`, {
+        description: 'Use un rango Desde–Hasta más estrecho o exporte en varias tandas.',
       });
       return;
     }
@@ -1077,16 +1175,47 @@ export default function DespachoPage() {
 
     setExportingBulkExcel(true);
     try {
-      await downloadOutboundBoxExcel(boxIds, baseLabel, { filePrefix: 'Reporte_Outbound' });
+      const result = await downloadOutboundBoxExcel(boxIds, baseLabel, {
+        filePrefix: 'Reporte_Outbound',
+      });
       notify.success(
-        selectionMode ? 'Reporte Excel de selección descargado.' : 'Reporte Excel masivo descargado.',
+        selectionMode ? 'Reporte Excel de selección listo.' : 'Reporte Excel masivo listo.',
         {
-          description: `${fromSelection.length} caja(s) en un solo archivo · series S1–S4 por equipo.`,
+          description: `${result.boxes} caja(s) en un solo Excel · series S1–S4 por equipo.`,
         }
       );
     } catch (e) {
       console.error(e);
       notify.error('No se pudo exportar el reporte Excel.', {
+        description: e instanceof Error ? e.message : 'Error desconocido',
+      });
+    } finally {
+      setExportingBulkExcel(false);
+    }
+  };
+
+  const handleRangeOutboundExcelExport = async () => {
+    const resolved = resolveOutboundRange();
+    if (!resolved) return;
+    if (resolved.inRange.length > OUTBOUND_EXCEL_MAX_TOTAL) {
+      notify.warning(`Máximo ${OUTBOUND_EXCEL_MAX_TOTAL} cajas por exportación.`);
+      return;
+    }
+    setSelectedBoxIds(new Set(resolved.inRange.map((d) => d.dbId!)));
+    setExportingBulkExcel(true);
+    try {
+      const label = `Rango_${formatOutboundCode(resolved.lo)}_${formatOutboundCode(resolved.hi)}`;
+      const result = await downloadOutboundBoxExcel(
+        resolved.inRange.map((d) => d.dbId!),
+        label,
+        { filePrefix: 'Reporte_Outbound' }
+      );
+      notify.success('Reporte por rango listo.', {
+        description: `${result.boxes} cajas en un solo Excel · ${formatOutboundCode(resolved.lo)} → ${formatOutboundCode(resolved.hi)}.`,
+      });
+    } catch (e) {
+      console.error(e);
+      notify.error('No se pudo exportar el rango.', {
         description: e instanceof Error ? e.message : 'Error desconocido',
       });
     } finally {
@@ -2256,11 +2385,57 @@ export default function DespachoPage() {
 
         <section className="space-y-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <ModuleToolbar 
-              onSearch={(v) => console.log(v)}
+            <ModuleToolbar
+              onSearch={(v) => {
+                setOutboundSearch(v);
+                startTransition(() => setOutboundPage(1));
+              }}
               addLabel="Nuevo Despacho"
             />
             <div className="flex flex-wrap items-center gap-3">
+              <div className="flex flex-wrap items-end gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] px-3 py-2">
+                <div className="space-y-0.5">
+                  <label className="text-[9px] font-black uppercase tracking-widest text-[var(--muted)]">
+                    Desde OB
+                  </label>
+                  <input
+                    className={`${erpFieldClass} h-8 w-[7.5rem] py-1 text-xs font-mono`}
+                    placeholder="32"
+                    value={outboundRangeFrom}
+                    onChange={(e) => setOutboundRangeFrom(e.target.value)}
+                    disabled={exportingBulkExcel}
+                  />
+                </div>
+                <div className="space-y-0.5">
+                  <label className="text-[9px] font-black uppercase tracking-widest text-[var(--muted)]">
+                    Hasta OB
+                  </label>
+                  <input
+                    className={`${erpFieldClass} h-8 w-[7.5rem] py-1 text-xs font-mono`}
+                    placeholder="150"
+                    value={outboundRangeTo}
+                    onChange={(e) => setOutboundRangeTo(e.target.value)}
+                    disabled={exportingBulkExcel}
+                  />
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={exportingBulkExcel}
+                  onClick={handleSelectOutboundRange}
+                >
+                  Seleccionar rango
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  leftIcon={<FileSpreadsheet className="w-3.5 h-3.5" />}
+                  disabled={exportingBulkExcel || dispatches.every((d) => !d.dbId)}
+                  onClick={() => void handleRangeOutboundExcelExport()}
+                >
+                  Excel rango
+                </Button>
+              </div>
               <Button
                 variant="outline"
                 leftIcon={<FileSpreadsheet className="w-4 h-4" />}
@@ -2298,7 +2473,7 @@ export default function DespachoPage() {
             <DataTable
               columns={dispatchColumns}
               data={dispatchPageItems}
-              getRowId={(disp: DispatchItem) => disp.id}
+              getRowId={(disp: DispatchItem) => disp.dbId || disp.id}
               onRowClick={(disp: DispatchItem) => handleSelectBox(disp)}
               rowClassName={(disp: DispatchItem) =>
                 `group cursor-pointer ${disp.dbId && selectedBoxIds.has(disp.dbId) ? 'bg-sky-50/80' : ''}`
@@ -2308,7 +2483,15 @@ export default function DespachoPage() {
               minWidth={1100}
               headerClassName={erpTableHeader}
               headerTextClassName={erpTableHeaderText}
-              emptyMessage="No hay Outbound registrados."
+              emptyMessage={
+                despachoQuery.isLoading || despachoQuery.isFetching
+                  ? 'Cargando Outbound…'
+                  : despachoQuery.isError
+                    ? 'Error al cargar Outbound. Use Actualizar o reintente.'
+                    : outboundSearch.trim()
+                      ? `Sin resultados para «${outboundSearch.trim()}». Pruebe OB-000032 o solo 32.`
+                      : 'No hay Outbound registrados.'
+              }
             />
             <TablePagination
               totalCount={outboundTotalCount}

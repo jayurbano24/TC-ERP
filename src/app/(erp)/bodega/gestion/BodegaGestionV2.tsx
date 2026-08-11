@@ -35,7 +35,7 @@ import {
   Truck,
   PackageMinus
 } from 'lucide-react';
-import { getInventoryBoxes, transferBoxesToArea, transferBoxesToAreaInBatches, startOrAppendBodegaScan, finalizeBodegaScan, listInProgressBodegaBoxes, requestBoxDeletion, addSeriesToBox, dispatchBoxFromWarehouse, dispatchSpecificSeries, transferSpecificSeriesToArea, canScanSeriesIntoWarehouse, resolveBoxDisplayStatus, resolveBoxListCapacity, getBoxHistory, expandSelectedSeriesForOs } from '@/modules/inventario/client/warehouseBoxes';
+import { getInventoryBoxes, transferBoxesToArea, transferBoxesToAreaInBatches, startOrAppendBodegaScan, finalizeBodegaScan, listInProgressBodegaBoxes, requestBoxDeletion, addSeriesToBox, dispatchBoxFromWarehouse, dispatchSpecificSeries, transferSpecificSeriesToArea, canScanSeriesIntoWarehouse, resolveBoxDisplayStatus, resolveBoxListCapacity, isWarehouseScanInProgress, getBoxHistory, expandSelectedSeriesForOs } from '@/modules/inventario/client/warehouseBoxes';
 import { isBodegaOperationalRack } from '@/lib/database/warehouse';
 import { DispatchBatchSelector } from '@/modules/outbound-dispatch/components/DispatchBatchSelector';
 import { isHexagonalOutboundDispatchEnabled } from '@/modules/outbound-dispatch';
@@ -288,7 +288,8 @@ export default function BodegaGestionV2({
 
          const equipos = Number(b.equipos_count ?? b.series_count ?? 0);
          const declaredCap = Number(b.capacity || 0);
-         const displayCap = resolveBoxListCapacity(equipos, declaredCap);
+         const inProgress = isWarehouseScanInProgress(b.rack, boxCode);
+         const displayCap = resolveBoxListCapacity(equipos, declaredCap, { inProgress });
          return {
          id: boxCode || b.box_id,
          displayId: boxIdFmt.primary,
@@ -306,10 +307,10 @@ export default function BodegaGestionV2({
          unitCount: equipos,
          seriesRows: Number(b.series_count || 0),
          status: (() => {
-           const rack = String(b.rack || '').toUpperCase();
-           const code = String(b.label || b.box_code || '');
-           if (rack === 'EN_PROCESO' || code.toUpperCase().startsWith('TMP-')) return 'Parcial';
            if (String(b.deletion_status || '') === 'pending_approval') return 'Pendiente Aprobación';
+           // Stock en BODEGA_CENTRAL / P-01 = cerrado → Full; Parcial solo TMP/EN_PROCESO.
+           if (inProgress) return resolveBoxDisplayStatus(equipos, displayCap);
+           if (equipos > 0) return 'Full';
            return resolveBoxDisplayStatus(equipos, displayCap);
          })(),
          deletionStatus: b.deletion_status || null,
@@ -390,10 +391,12 @@ export default function BodegaGestionV2({
         }
       }
 
-      // fillStatus ya filtra en servidor; el filtro cliente es respaldo (migración 129 pendiente)
+      // fillStatus=partial en API = solo TMP/EN_PROCESO; respaldo cliente
       const isFull = item.status === 'Full';
       if (filterStatus === 'Full' && !isFull) return false;
-      if (filterStatus === 'Partial' && item.status !== 'Parcial') return false;
+      if (filterStatus === 'Partial' && !isWarehouseScanInProgress(item.rack, item.box_code || item.id)) {
+        return false;
+      }
 
       if (!debouncedSearch) return true;
       const term = debouncedSearch.toLowerCase();
@@ -1799,7 +1802,6 @@ export default function BodegaGestionV2({
   return (
     <ModulePage
       title="Gestión de Bodega"
-      subtitle="Control de racks, cajas homogéneas y movimientos de inventario de alta capacidad (+400K)."
       category="Bodega"
       actions={
         <div className="flex flex-wrap gap-3">

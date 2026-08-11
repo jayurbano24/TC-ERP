@@ -27,39 +27,26 @@ type PartialBoxRow = {
   capacity?: number | null;
 };
 
-/** Parciales reales de bodega (excluye racks TALLER y SCRAP). Respaldo si KPI SQL aún cuenta taller. */
+/** Solo pistoleo TMP / EN_PROCESO (no cajas 18/19 en BODEGA_CENTRAL). */
 async function resolveBodegaPartialBoxes(supabase: SupabaseClient): Promise<{
   count: number;
   excluded: Array<{ label: string; rack: string }>;
 }> {
-  const [inProgress, partial] = await Promise.all([
-    supabase.rpc('warehouse_list_in_progress_boxes', { p_limit: 200 }),
-    supabase.rpc('warehouse_list_partial_boxes', { p_limit: 200 }),
-  ]);
+  const inProgress = await supabase.rpc('warehouse_list_in_progress_boxes', { p_limit: 200 });
 
-  const pick = (rows: PartialBoxRow[] | null | undefined) => {
-    const list = rows ?? [];
-    const kept = list.filter((r) => isBodegaOperationalRack(r.rack));
-    const excluded = list
-      .filter((r) => !isBodegaOperationalRack(r.rack))
-      .map((r) => ({
-        label: String(r.label || r.box_id || '?'),
-        rack: String(r.rack || ''),
-      }));
-    return { kept, excluded };
-  };
-
-  if (!inProgress.error && (inProgress.data?.length ?? 0) > 0) {
-    const { kept, excluded } = pick(inProgress.data as PartialBoxRow[]);
-    return { count: kept.length, excluded };
+  if (inProgress.error) {
+    return { count: -1, excluded: [] };
   }
 
-  if (!partial.error) {
-    const { kept, excluded } = pick(partial.data as PartialBoxRow[]);
-    return { count: kept.length, excluded };
-  }
-
-  return { count: -1, excluded: [] };
+  const list = (inProgress.data ?? []) as PartialBoxRow[];
+  const kept = list.filter((r) => isBodegaOperationalRack(r.rack));
+  const excluded = list
+    .filter((r) => !isBodegaOperationalRack(r.rack))
+    .map((r) => ({
+      label: String(r.label || r.box_id || '?'),
+      rack: String(r.rack || ''),
+    }));
+  return { count: kept.length, excluded };
 }
 
 async function attachTechNames(

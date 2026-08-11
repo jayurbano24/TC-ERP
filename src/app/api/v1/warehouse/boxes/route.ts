@@ -246,12 +246,12 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // Camino dedicado: tarjeta "Cajas en Proceso" (TMP / EN_PROCESO)
+  // «Cajas en Proceso» = solo TMP / EN_PROCESO (no incompletas por capacity 18/19).
   if (fillParam === 'partial' && !cursor && !search) {
     const inProgress = await supabase.rpc('warehouse_list_in_progress_boxes', {
       p_limit: limit + 1,
     });
-    if (!inProgress.error && (inProgress.data?.length ?? 0) > 0) {
+    if (!inProgress.error) {
       const rows = onlyBodegaRows(inProgress.data ?? []);
       const hasMore = rows.length > limit;
       const items = hasMore ? rows.slice(0, -1) : rows;
@@ -262,25 +262,10 @@ export async function GET(req: NextRequest) {
         nextCursor: hasMore ? accurate[accurate.length - 1]?.box_id : null,
       });
     }
-
-    const partialRpc = await supabase.rpc('warehouse_list_partial_boxes', {
-      p_limit: limit + 1,
-    });
-    if (!partialRpc.error) {
-      const rows = onlyBodegaRows(partialRpc.data ?? []);
-      const hasMore = rows.length > limit;
-      const items = hasMore ? rows.slice(0, -1) : rows;
-      const enriched = await enrichWarehouseBoxItems(supabase, items);
-      const accurate = await finalizeWarehouseBoxList(supabase, enriched);
+    if (!isMissingRpcError(inProgress.error)) {
+      console.error('Error in GET /api/v1/warehouse/boxes (partial):', inProgress.error);
       return NextResponse.json({
-        items: accurate,
-        nextCursor: hasMore ? accurate[accurate.length - 1]?.box_id : null,
-      });
-    }
-    if (!isMissingRpcError(partialRpc.error) && !isMissingRpcError(inProgress.error)) {
-      console.error('Error in GET /api/v1/warehouse/boxes (partial):', partialRpc.error || inProgress.error);
-      return NextResponse.json({
-        error: 'QUERY_FAILED: ' + (partialRpc.error || inProgress.error)?.message,
+        error: 'QUERY_FAILED: ' + inProgress.error?.message,
       }, { status: 500 });
     }
   }

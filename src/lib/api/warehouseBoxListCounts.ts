@@ -15,15 +15,46 @@ export type WarehouseBoxCountRow = {
   capacity?: number | null;
   equipos_count?: number | null;
   series_count?: number | null;
+  rack?: string | null;
+  label?: string | null;
 };
 
-/** Capacidad mostrada: evita X/Y con denominador menor que equipos en caja llena. */
-export function resolveBoxListCapacity(equiposCount: number, declaredCapacity: number): number {
+/** Pistoleo TMP / EN_PROCESO (aún no cerrada en stock). */
+export function isWarehouseScanInProgress(
+  rack?: string | null,
+  label?: string | null
+): boolean {
+  const r = String(rack || '').trim().toUpperCase();
+  const code = String(label || '').trim().toUpperCase();
+  return r === 'EN_PROCESO' || code.startsWith('TMP-');
+}
+
+export type ResolveBoxListCapacityOptions = {
+  /** true = barra hacia capacidad objetivo; false/omit = stock cerrado → capacity = equipos. */
+  inProgress?: boolean;
+};
+
+/**
+ * Capacidad de listado:
+ * - En proceso (TMP): conserva capacidad declarada (p. ej. 10/60).
+ * - Stock en rack operativo: capacity = equipos (caja cerrada = completa).
+ */
+export function resolveBoxListCapacity(
+  equiposCount: number,
+  declaredCapacity: number,
+  options?: ResolveBoxListCapacityOptions
+): number {
   const equipos = Math.max(0, Number(equiposCount) || 0);
   const declared = Number(declaredCapacity || 0);
   if (equipos <= 0) return declared;
-  if (declared <= 0) return Math.max(equipos, 1);
-  return Math.max(declared, equipos);
+
+  if (options?.inProgress) {
+    if (declared <= 0) return Math.max(equipos, 1);
+    return Math.max(declared, equipos);
+  }
+
+  // Stock cerrado (BODEGA_CENTRAL / P-01 / …): no dejar 18/19 como «parcial».
+  return Math.max(equipos, 1);
 }
 
 /**
@@ -71,7 +102,8 @@ export async function applyAccurateEquiposToWarehouseBoxItems<T extends Warehous
     const rows = rowsByBox.get(boxId) ?? [];
     const equipos = countOutboundEquipmentsLikeDetail(rows, siblingIdsByOs);
     const declared = Number(item.capacity ?? 0);
-    const displayCapacity = resolveBoxListCapacity(equipos, declared);
+    const inProgress = isWarehouseScanInProgress(item.rack, item.label);
+    const displayCapacity = resolveBoxListCapacity(equipos, declared, { inProgress });
     return {
       ...item,
       equipos_count: equipos,

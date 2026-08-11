@@ -550,7 +550,10 @@ export function resolveBoxDisplayStatus(equiposCount: number, capacity: number):
   return 'Parcial';
 }
 
-export { resolveBoxListCapacity } from '@/lib/api/warehouseBoxListCounts';
+export {
+  resolveBoxListCapacity,
+  isWarehouseScanInProgress,
+} from '@/lib/api/warehouseBoxListCounts';
 
 /** Pistoleo incremental: crea TMP en EN_PROCESO o agrega series a la sesión. */
 export async function startOrAppendBodegaScan(input: {

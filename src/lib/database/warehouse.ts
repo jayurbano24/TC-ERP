@@ -910,9 +910,21 @@ export async function transferBoxesToArea(boxIds: string[], targetArea: string, 
           ['p_box_id', 'p_operator_id', 'p_idempotency_key']
         )
       );
-      if (!error) successCount++;
-      else if (String(error.message || '').includes('ALREADY_DISPERSED')) {
-        successCount++;
+      if (!error) {
+        const stale = await assertBoxLeftWarehouseInventory(supabase, boxId);
+        if (stale) {
+          lastError = stale;
+          console.error('Error in dispersion (stale success):', stale, data);
+        } else {
+          successCount++;
+        }
+      } else if (String(error.message || '').includes('ALREADY_DISPERSED')) {
+        const stale = await assertBoxLeftWarehouseInventory(supabase, boxId);
+        if (stale) {
+          lastError = stale;
+        } else {
+          successCount++;
+        }
       } else {
         lastError = formatSupabaseError(error);
         console.error('Error in dispersion:', error, data);
@@ -1049,6 +1061,31 @@ export async function closeDispatchBatch(batchId: string) {
   return { data };
 }
 
+async function assertBoxLeftWarehouseInventory(
+  supabase: SupabaseClient,
+  boxId: string
+): Promise<string | null> {
+  const { data: box } = await supabase
+    .from('boxes')
+    .select('rack_location, box_code')
+    .eq('id', boxId)
+    .maybeSingle();
+  const rack = String(box?.rack_location || '').toUpperCase();
+  const { count } = await supabase
+    .from('series')
+    .select('id', { count: 'exact', head: true })
+    .eq('current_box_id', boxId)
+    .in('current_status', [...WAREHOUSE_INVENTORY_STATUSES]);
+
+  if ((count ?? 0) > 0 && isBodegaOperationalRack(rack)) {
+    return (
+      `La operación reportó éxito pero ${box?.box_code || 'la caja'} sigue en inventario ` +
+      `(${count} series · rack ${rack || '—'}). Reintente; si persiste, aplique migración 198.`
+    );
+  }
+  return null;
+}
+
 export async function dispatchBoxFromWarehouse(
   boxId: string,
   destination: string,
@@ -1074,6 +1111,9 @@ export async function dispatchBoxFromWarehouse(
   });
 
   if (error) return { error: error.message };
+
+  const stale = await assertBoxLeftWarehouseInventory(supabase, boxId);
+  if (stale) return { error: stale };
 
   return { success: true };
 }

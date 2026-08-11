@@ -131,7 +131,9 @@ function pickSapPrimary(
 
 const EMPTY_LIST: any[] = [];
 
-function getJoinedServiceOrder(row: any): { id?: string; sap_integration_status?: string } | null {
+function getJoinedServiceOrder(
+  row: any
+): { id?: string; os_label?: string | null; sap_integration_status?: string } | null {
   const so = row?.service_orders;
   if (!so) return null;
   if (Array.isArray(so)) return so[0] ?? null;
@@ -160,65 +162,86 @@ function materialsConflict(
   return false;
 }
 
+type OutboundScanMatValContext = {
+  serial?: string | null;
+  osLabel?: string | null;
+};
+
 /**
- * Material/Valoración vs caja. Si faltan en serie, distingue «sin validar SAP» vs dato SAP ausente.
+ * Material/Valoración vs caja. Si faltan en serie, el caso habitual es
+ * «equipo no validado en Integración SAP» (no un error genérico de Material).
  */
 function checkOutboundScanMaterialValuation(
   eqMaterial: unknown,
   eqValuation: unknown,
   boxMat: unknown,
   boxVal: unknown,
-  sapUnitStatus: SapValidationState
+  sapUnitStatus: SapValidationState,
+  ctx: OutboundScanMatValContext = {}
 ): { ok: true } | { ok: false; title: string; description: string } {
   const sm = normMatLot(eqMaterial);
   const sv = normMatLot(eqValuation);
   const bm = normMatLot(boxMat);
   const bv = normMatLot(boxVal);
   const sapLabel = getSapStatusMeta(sapUnitStatus).label;
+  const who = [ctx.osLabel, ctx.serial].filter(Boolean).join(' · ') || 'Este equipo';
+  const notValidated = sapUnitStatus !== 'Validado SAP';
 
   if (bm) {
     if (!sm) {
-      if (sapUnitStatus !== 'Validado SAP') {
+      if (notValidated) {
         return {
           ok: false,
-          title: 'Integración SAP pendiente',
-          description: `Estado en motor SAP: «${sapLabel}». Sin validación SAP la serie no trae Material. Esta caja exige Material [${bm}]. Valide el equipo en Integración SAP (match / Excel G985) y vuelva a pistolear.`,
+          title: 'Equipo no validado en Integración SAP',
+          description:
+            `${who} está en estado «${sapLabel}», por eso no tiene Material SAP y no puede entrar a esta Outbound (Material requerido: ${bm}). ` +
+            `Vaya a Integración SAP → cargue/valide el Excel G985 (match) hasta «Validado SAP», luego vuelva a pistolear.`,
         };
       }
       return {
         ok: false,
-        title: 'Material SAP no disponible',
-        description: `El equipo figura «${sapLabel}» pero ninguna serie del OS tiene Material en BD. La caja exige [${bm}]. Re-sincronice Integración SAP o corrija la serie.`,
+        title: 'Sin Material SAP tras validación',
+        description:
+          `${who} figura «${sapLabel}» pero no trae Material en BD (la caja exige ${bm}). ` +
+          `Re-sincronice en Integración SAP o corrija Material en la serie y reintente.`,
       };
     }
     if (sm !== bm) {
       return {
         ok: false,
-        title: 'Material/Valoración no permitido',
-        description: `Material distinto. Serie [${sm}] · Caja [${bm}].`,
+        title: 'Material distinto al de la caja',
+        description:
+          `${who}: Material de la serie [${sm}] no coincide con el de la Outbound [${bm}]. ` +
+          `No se pueden mezclar materiales en la misma caja.`,
       };
     }
   }
   if (bv) {
     if (!sv) {
-      if (sapUnitStatus !== 'Validado SAP') {
+      if (notValidated) {
         return {
           ok: false,
-          title: 'Integración SAP pendiente',
-          description: `Estado en motor SAP: «${sapLabel}». Sin validación SAP la serie no trae Valoración. Esta caja exige Valoración [${bv}]. Valide el equipo en Integración SAP y vuelva a pistolear.`,
+          title: 'Equipo no validado en Integración SAP',
+          description:
+            `${who} está en estado «${sapLabel}», por eso no tiene Valoración (lote) SAP y no puede entrar a esta Outbound (Valoración requerida: ${bv}). ` +
+            `Vaya a Integración SAP → valide el Excel G985 hasta «Validado SAP», luego vuelva a pistolear.`,
         };
       }
       return {
         ok: false,
-        title: 'Valoración SAP no disponible',
-        description: `El equipo figura «${sapLabel}» pero ninguna serie del OS tiene Valoración en BD. La caja exige [${bv}]. Re-sincronice Integración SAP o corrija la serie.`,
+        title: 'Sin Valoración SAP tras validación',
+        description:
+          `${who} figura «${sapLabel}» pero no trae Valoración en BD (la caja exige ${bv}). ` +
+          `Re-sincronice en Integración SAP o corrija el lote y reintente.`,
       };
     }
     if (sv !== bv) {
       return {
         ok: false,
-        title: 'Material/Valoración no permitido',
-        description: `Valoración distinta. Serie [${sv}] · Caja [${bv}].`,
+        title: 'Valoración distinta a la de la caja',
+        description:
+          `${who}: Valoración de la serie [${sv}] no coincide con la de la Outbound [${bv}]. ` +
+          `No se pueden mezclar lotes en la misma caja.`,
       };
     }
   }
@@ -726,7 +749,7 @@ export default function DespachoPage() {
     const sn = scanSN.trim();
     const { data: sData } = await supabase
       .from('series')
-      .select(`${SERIES_BOX_SELECT}, service_orders(sap_integration_status)`)
+      .select(`${SERIES_BOX_SELECT}, service_orders(id, os_label, sap_integration_status)`)
       .ilike('serial_number', sn)
       .limit(1)
       .maybeSingle();
@@ -790,7 +813,11 @@ export default function DespachoPage() {
       eqValuation,
       boxMatRef,
       boxLotRef,
-      sapUnitStatus
+      sapUnitStatus,
+      {
+        serial: sn,
+        osLabel: scanServiceOrder?.os_label ?? null,
+      }
     );
     if (!matVal.ok) {
       notify.error(matVal.title, {

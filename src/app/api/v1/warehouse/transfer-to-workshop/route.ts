@@ -79,7 +79,21 @@ export const POST = withErrorHandler(
       if (error) {
         const msg = String(error.message ?? error);
         if (msg.includes('ALREADY_DISPERSED')) {
-          results.push({ boxId, ok: true, seriesCount: 0 });
+          const { count: stillStock } = await supabase
+            .from('series')
+            .select('id', { count: 'exact', head: true })
+            .eq('current_box_id', boxId)
+            .in('current_status', ['in_central_warehouse', 'in_control_warehouse']);
+          if ((stillStock ?? 0) > 0) {
+            results.push({
+              boxId,
+              ok: false,
+              error:
+                'ALREADY_DISPERSED obsoleto: la caja aún tiene series en bodega. Aplique migración 198 y reintente.',
+            });
+          } else {
+            results.push({ boxId, ok: true, seriesCount: 0 });
+          }
           continue;
         }
         results.push({ boxId, ok: false, error: msg });
@@ -87,6 +101,21 @@ export const POST = withErrorHandler(
       }
 
       const payload = data as { series_count?: number } | null;
+      const { count: stillStock } = await supabase
+        .from('series')
+        .select('id', { count: 'exact', head: true })
+        .eq('current_box_id', boxId)
+        .in('current_status', ['in_central_warehouse', 'in_control_warehouse']);
+      if ((stillStock ?? 0) > 0) {
+        results.push({
+          boxId,
+          ok: false,
+          seriesCount: payload?.series_count ?? 0,
+          error:
+            'La transferencia reportó éxito pero la caja sigue en inventario. Reintente tras migración 198.',
+        });
+        continue;
+      }
       results.push({ boxId, ok: true, seriesCount: payload?.series_count ?? 0 });
     }
 

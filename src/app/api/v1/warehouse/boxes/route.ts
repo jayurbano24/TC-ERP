@@ -6,6 +6,10 @@ import { enrichWarehouseBoxItems } from '@/shared/infrastructure/warehouse/enric
 import { isBodegaOperationalRack } from '@/lib/database/warehouse';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
 import { applyAccurateEquiposToWarehouseBoxItems } from '@/lib/api/warehouseBoxListCounts';
+import {
+  expandBoxCodeSearchVariants,
+  isStandardWarehouseBoxCode,
+} from '@/modules/inventario/client/warehouseBoxDisplay';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 const ListBoxesQuery = z.object({
@@ -32,6 +36,154 @@ function isMissingRpcError(error: { message?: string; code?: string } | null): b
 
 function onlyBodegaRows<T extends { rack?: string | null }>(rows: T[]): T[] {
   return rows.filter((row) => isBodegaOperationalRack(row.rack));
+}
+
+type WarehouseBoxCandidate = {
+  box_id: string;
+  rack: string | null;
+  label: string | null;
+  capacity: number | null;
+  series_count: number;
+  equipos_count: number;
+  sample_brand_id: string | null;
+  sample_model_id: string | null;
+  sample_service_order_id: string | null;
+  last_movement_at: null;
+};
+
+async function buildCandidatesForBoxIds(
+  db: SupabaseClient,
+  boxIds: string[]
+): Promise<WarehouseBoxCandidate[]> {
+  const uniqueIds = [...new Set(boxIds.filter(Boolean))];
+  if (uniqueIds.length === 0) return [];
+
+  const { data: boxRows, error: boxesError } = await db
+    .from('boxes')
+    .select('id, rack_location, box_code, capacity, created_at')
+    .in('id', uniqueIds);
+  if (boxesError) throw new Error(boxesError.message);
+
+  const operational = (boxRows ?? []).filter((b) =>
+    isBodegaOperationalRack(b.rack_location as string | null)
+  );
+  if (operational.length === 0) return [];
+
+  const pageIds = operational.map((b) => String(b.id));
+  type SeriesSample = {
+    current_box_id: string;
+    brand_id: string | null;
+    model_id: string | null;
+    service_order_id: string | null;
+    id: string;
+  };
+  const seriesByBox = new Map<
+    string,
+    { sample: SeriesSample; seriesCount: number; osIds: Set<string> }
+  >();
+
+  const { data: seriesRows, error: seriesError } = await db
+    .from('series')
+    .select('id, current_box_id, brand_id, model_id, service_order_id')
+    .in('current_box_id', pageIds)
+    .in('current_status', [...WAREHOUSE_SERIES_STATUSES]);
+  if (seriesError) throw new Error(seriesError.message);
+
+  for (const row of (seriesRows ?? []) as SeriesSample[]) {
+    const boxId = String(row.current_box_id);
+    const prev = seriesByBox.get(boxId);
+    if (!prev) {
+      seriesByBox.set(boxId, {
+        sample: row,
+        seriesCount: 1,
+        osIds: new Set([String(row.service_order_id || row.id)]),
+      });
+    } else {
+      prev.seriesCount += 1;
+      prev.osIds.add(String(row.service_order_id || row.id));
+    }
+  }
+
+  return onlyBodegaRows(
+    operational
+      .map((b) => {
+        const id = String(b.id);
+        const stats = seriesByBox.get(id);
+        if (!stats || stats.osIds.size === 0) return null;
+        return {
+          box_id: id,
+          rack: b.rack_location as string | null,
+          label: b.box_code as string | null,
+          capacity: b.capacity as number | null,
+          series_count: stats.seriesCount,
+          equipos_count: stats.osIds.size,
+          sample_brand_id: stats.sample.brand_id,
+          sample_model_id: stats.sample.model_id,
+          sample_service_order_id: stats.sample.service_order_id,
+          last_movement_at: null,
+        };
+      })
+      .filter((x): x is WarehouseBoxCandidate => Boolean(x))
+  );
+}
+
+/** Localiza cajas de bodega por serie (S1–S4) u OS (TC-xxxxx). */
+async function findBoxIdsBySeriesOrOs(
+  db: SupabaseClient,
+  raw: string
+): Promise<string[]> {
+  const term = raw.trim();
+  if (term.length < 4) return [];
+
+  const safe = term.replace(/[%_,]/g, '');
+  const boxIds = new Set<string>();
+
+  // 1) Match exacto / prefijo en S1–S4
+  const { data: bySerial, error: serialError } = await db
+    .from('series')
+    .select('current_box_id')
+    .in('current_status', [...WAREHOUSE_SERIES_STATUSES])
+    .not('current_box_id', 'is', null)
+    .or(
+      `serial_number.eq.${safe},s2.eq.${safe},s3.eq.${safe},s4.eq.${safe},` +
+        `serial_number.ilike.${safe}%,s2.ilike.${safe}%,s3.ilike.${safe}%,s4.ilike.${safe}%`
+    )
+    .limit(40);
+
+  if (serialError) throw new Error(serialError.message);
+  for (const row of bySerial ?? []) {
+    if (row.current_box_id) boxIds.add(String(row.current_box_id));
+  }
+
+  // 2) OS label (TC-03226)
+  if (/^TC[-_]?\d+/i.test(term) || boxIds.size === 0) {
+    const osTerm = term.toUpperCase().startsWith('TC')
+      ? term.toUpperCase().replace(/_/g, '-')
+      : term;
+    const { data: osRows, error: osError } = await db
+      .from('service_orders')
+      .select('id')
+      .ilike('os_label', `${osTerm}%`)
+      .limit(25);
+    if (osError) throw new Error(osError.message);
+
+    const osIds = (osRows ?? []).map((r) => String(r.id));
+    if (osIds.length > 0) {
+      const { data: osSeries, error: osSeriesError } = await db
+        .from('series')
+        .select('current_box_id')
+        .in('service_order_id', osIds)
+        .in('current_status', [...WAREHOUSE_SERIES_STATUSES])
+        .not('current_box_id', 'is', null)
+        .limit(80);
+      if (osSeriesError) throw new Error(osSeriesError.message);
+      for (const row of osSeries ?? []) {
+        if (row.current_box_id) boxIds.add(String(row.current_box_id));
+      }
+    }
+  }
+
+  return [...boxIds];
 }
 
 async function finalizeWarehouseBoxList<T extends { box_id: string; capacity?: number | null; equipos_count?: number | null; series_count?: number | null }>(
@@ -68,6 +220,102 @@ export async function GET(req: NextRequest) {
 
   const { cursor, limit, search, fillStatus, technologyId, modelId } = parsed.data;
   const fillParam = !fillStatus || fillStatus === 'all' ? null : fillStatus;
+
+  /**
+   * Búsqueda exacta de correlativo (BOX-29 / TCW-BOX-029).
+   * El RPC usa ILIKE '%BOX-29%' y prioriza BOX-290…BOX-299 (más nuevas),
+   * ocultando BOX-29 en la primera página.
+   */
+  const rawSearch = (search || '').trim();
+  const looksLikeBoxCode =
+    !!rawSearch &&
+    (isStandardWarehouseBoxCode(rawSearch) ||
+      /^TCW-(BOX|MB)-0*\d+$/i.test(rawSearch));
+
+  if (looksLikeBoxCode && !cursor) {
+    const db = getSupabaseServerClient();
+    const variants = expandBoxCodeSearchVariants(rawSearch).filter(
+      (v) => isStandardWarehouseBoxCode(v) || /^TCW-(BOX|MB)-/i.test(v)
+    );
+    const bdCodes = [
+      ...new Set(
+        variants
+          .map((v) => v.replace(/^TCW-/i, '').toUpperCase())
+          .filter((v) => isStandardWarehouseBoxCode(v))
+      ),
+    ];
+
+    if (bdCodes.length > 0) {
+      try {
+        const { data: hitBoxes, error: hitError } = await db
+          .from('boxes')
+          .select('id, box_code')
+          .in('box_code', bdCodes)
+          .limit(10);
+        if (hitError) {
+          return NextResponse.json(
+            { error: 'QUERY_FAILED: ' + hitError.message },
+            { status: 500 }
+          );
+        }
+        const candidates = await buildCandidatesForBoxIds(
+          db,
+          (hitBoxes ?? []).map((b) => String(b.id))
+        );
+        if (candidates.length > 0) {
+          let enriched = await enrichWarehouseBoxItems(db, candidates);
+          if (technologyId) {
+            enriched = enriched.filter(
+              (b) => !b.technology_id || b.technology_id === technologyId
+            );
+          }
+          if (modelId) {
+            enriched = enriched.filter(
+              (b) =>
+                String(b.sample_model_id || '') === modelId ||
+                String(b.model_id || '') === modelId
+            );
+          }
+          const accurate = await finalizeWarehouseBoxList(db, enriched.slice(0, limit));
+          return NextResponse.json({ items: accurate, nextCursor: null });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'QUERY_FAILED';
+        return NextResponse.json({ error: 'QUERY_FAILED: ' + message }, { status: 500 });
+      }
+    }
+  }
+
+  // Búsqueda por serie (S1–S4) u OS → caja en Bodega Central
+  if (rawSearch.length >= 4 && !cursor && !looksLikeBoxCode) {
+    const db = getSupabaseServerClient();
+    try {
+      const boxIds = await findBoxIdsBySeriesOrOs(db, rawSearch);
+      if (boxIds.length > 0) {
+        const candidates = await buildCandidatesForBoxIds(db, boxIds);
+        if (candidates.length > 0) {
+          let enriched = await enrichWarehouseBoxItems(db, candidates);
+          if (technologyId) {
+            enriched = enriched.filter(
+              (b) => !b.technology_id || b.technology_id === technologyId
+            );
+          }
+          if (modelId) {
+            enriched = enriched.filter(
+              (b) =>
+                String(b.sample_model_id || '') === modelId ||
+                String(b.model_id || '') === modelId
+            );
+          }
+          const accurate = await finalizeWarehouseBoxList(db, enriched.slice(0, limit));
+          return NextResponse.json({ items: accurate, nextCursor: null });
+        }
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'QUERY_FAILED';
+      return NextResponse.json({ error: 'QUERY_FAILED: ' + message }, { status: 500 });
+    }
+  }
 
   // Filtro por tecnología/modelo: service role (misma vista que KPIs) + sample/counts.
   if (technologyId || modelId) {

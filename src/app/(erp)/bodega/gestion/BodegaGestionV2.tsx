@@ -398,22 +398,12 @@ export default function BodegaGestionV2({
         return false;
       }
 
-      if (!debouncedSearch) return true;
-      const term = debouncedSearch.toLowerCase();
-      const marcaName = brandName(item.marca);
-      const modeloName = modelName(item.modelo);
-      const techLabel = item.tecnologia || '---';
-      const rackName = item.rack || '';
-      const idName = String(item.id || '');
-      return (
-        idName.toLowerCase().includes(term) ||
-        marcaName.toLowerCase().includes(term) ||
-        modeloName.toLowerCase().includes(term) ||
-        techLabel.toLowerCase().includes(term) ||
-        rackName.toLowerCase().includes(term)
-      );
+      // Con búsqueda activa el API ya filtró (caja / serie / OS).
+      // No re-filtrar por texto en cliente: la serie no aparece en el label de caja
+      // y se vaciaba la tabla ("SIN REGISTROS") aunque el API devolviera BOX-29.
+      return true;
     });
-  }, [inventory, filterTech, filterModel, filterStatus, debouncedSearch, brandName, modelName]);
+  }, [inventory, filterTech, filterModel, filterStatus]);
 
   useEffect(() => {
     startTransition(() => setInventoryPage(1));
@@ -735,7 +725,17 @@ export default function BodegaGestionV2({
             const res = await transferBoxesToArea([realDbId || boxId], dispatchArea, undefined);
             error = res.error;
          } else {
-            const res = await transferSpecificSeriesToArea(realDbId || boxId, selectedSeriesForDispatch, dispatchArea, 'Admin User');
+            // Misma regla que despacho: unidad OS completa (S1–S4 / hermanas).
+            const expanded = expandSelectedSeriesForOs(
+              seriesToCheck.length ? seriesToCheck : box?.series,
+              selectedSeriesForDispatch
+            );
+            const res = await transferSpecificSeriesToArea(
+              realDbId || boxId,
+              expanded,
+              dispatchArea,
+              'Admin User'
+            );
             error = res.error;
          }
       } else {
@@ -2011,6 +2011,7 @@ export default function BodegaGestionV2({
         <div className="space-y-6" ref={inventoryListRef}>
           <ModuleToolbar 
             onSearch={(val) => setSearchTerm(val)}
+            searchPlaceholder="Buscar caja, serie u OS…"
             onExport={handleExportReport}
             onAdd={() => {
               setDraftBoxId(null);

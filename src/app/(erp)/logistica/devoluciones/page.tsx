@@ -1051,14 +1051,18 @@ export default function DevolucionesPage() {
               agencies={agencies}
               selectedId={selectedDev?.id || null}
               selectedIds={selectedIds}
+              searchKey={debouncedSearch}
               onSelectRow={selectBoxRow}
               onToggleSelect={(id, checked) => {
                 if (checked) setSelectedIds((prev) => [...prev, id]);
                 else setSelectedIds((prev) => prev.filter((x) => x !== id));
               }}
-              onToggleSelectAll={(checked) => {
-                if (checked) setSelectedIds(filteredBoxRows.map((d) => d.id));
-                else setSelectedIds([]);
+              onToggleSelectAll={(checked, visibleIds) => {
+                if (checked) {
+                  setSelectedIds((prev) => [...new Set([...prev, ...visibleIds])]);
+                } else {
+                  setSelectedIds((prev) => prev.filter((id) => !visibleIds.includes(id)));
+                }
               }}
               onUndo={(row) => void handleUndoDevolution(row as Devolucion)}
               onArchive={(row) => void handleDeleteDevolution(row as Devolucion)}

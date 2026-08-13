@@ -1133,14 +1133,73 @@ export async function transferSpecificSeriesToArea(boxId: string, seriesNumbers:
   const { operatorId, userName: resolvedName } = await resolveWarehouseOperator(supabase);
   const userName = resolvedName || userId || 'Operador';
 
-  const uniqueSeries = [...new Set((seriesNumbers || []).map((s) => s?.trim().toUpperCase()).filter(Boolean))];
+  let uniqueSeries = [...new Set((seriesNumbers || []).map((s) => s?.trim().toUpperCase()).filter(Boolean))];
   if (uniqueSeries.length === 0) {
     return { error: 'Debe seleccionar al menos una serie.' };
   }
 
+  // Expandir por OS: MAC/S2–S4 son filas hermanas (no solo columnas s2–s4).
+  try {
+    const { data: seeds } = await supabase
+      .from('series')
+      .select('id, service_order_id, serial_number')
+      .eq('current_box_id', boxId)
+      .in('serial_number', uniqueSeries);
+
+    const osIds = [
+      ...new Set(
+        (seeds || [])
+          .map((r) => r.service_order_id as string | null)
+          .filter((id): id is string => Boolean(id))
+      ),
+    ];
+
+    if (osIds.length > 0) {
+      const { data: siblings } = await supabase
+        .from('series')
+        .select('serial_number, current_box_id, current_status')
+        .in('service_order_id', osIds)
+        .in('current_status', ['in_central_warehouse', 'in_control_warehouse']);
+
+      for (const sib of siblings || []) {
+        const sn = String(sib.serial_number || '')
+          .trim()
+          .toUpperCase();
+        if (!sn) continue;
+        // Preferir hermanas de la misma caja; también las que quedaron en bodega sin caja.
+        if (
+          sib.current_box_id === boxId ||
+          sib.current_box_id == null ||
+          String(sib.current_status) === 'in_central_warehouse' ||
+          String(sib.current_status) === 'in_control_warehouse'
+        ) {
+          uniqueSeries.push(sn);
+        }
+      }
+      uniqueSeries = [...new Set(uniqueSeries)];
+    }
+  } catch (err) {
+    console.warn('[transferSpecificSeriesToArea] OS sibling expand:', err);
+  }
+
+  // La RPC exige series en la caja; enviar solo las que siguen en p_box_id.
+  const { data: inBox } = await supabase
+    .from('series')
+    .select('serial_number')
+    .eq('current_box_id', boxId)
+    .in('serial_number', uniqueSeries);
+  const inBoxSns = [
+    ...new Set(
+      (inBox || []).map((r) => String(r.serial_number || '').trim().toUpperCase()).filter(Boolean)
+    ),
+  ];
+  if (inBoxSns.length === 0) {
+    return { error: 'Ninguna de las series seleccionadas (ni hermanas) está en la caja.' };
+  }
+
   const { data, error } = await supabase.rpc('warehouse_traslado_parcial_tx', {
     p_box_id: boxId,
-    p_serial_numbers: uniqueSeries,
+    p_serial_numbers: inBoxSns,
     p_target_location: targetLocation,
     p_target_status: nextStatus,
     p_operator_id: asUuidOrNull(operatorId),
@@ -1148,7 +1207,7 @@ export async function transferSpecificSeriesToArea(boxId: string, seriesNumbers:
     p_idempotency_key: warehouseBoxIdempotencyKey(
       boxId,
       'traslado',
-      `${targetLocation}:${uniqueSeries.sort().join(',')}`
+      `${targetLocation}:${inBoxSns.sort().join(',')}`
     ),
   });
 
@@ -1160,13 +1219,13 @@ export async function transferSpecificSeriesToArea(boxId: string, seriesNumbers:
     const { data: moved } = await supabase
       .from('series')
       .select('id')
-      .in('serial_number', uniqueSeries);
+      .in('serial_number', inBoxSns);
     for (const s of moved || []) {
       await logAudit('series', s.id, 'TRASLADO', { status: nextStatus, fromBox: boxId });
     }
   }
 
-  return { success: true };
+  return { success: true, seriesCount: payload?.series_count ?? inBoxSns.length };
 }
 
 /** Expande SNs seleccionados a todas las series del mismo equipo (S1–S4 / allSeries). */

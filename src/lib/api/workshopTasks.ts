@@ -79,3 +79,40 @@ export async function locateWorkshopEquipmentViaApi(
   }
   return data as WorkshopLocateResult;
 }
+
+export type ScrapDispatchResult = {
+  success: true;
+  box_id: string;
+  box_code: string;
+  linked: number;
+  capacity: number;
+};
+
+/** Confirma despacho SCRAP: crea caja en Bodega SCRAPS y vincula series. */
+export async function scrapDispatchViaApi(input: {
+  seriesIds: string[];
+  brandId: string;
+  modelId: string;
+  capacity: number;
+  conduce: string;
+  notes?: string;
+}): Promise<ScrapDispatchResult> {
+  const res = await apiFetch('/api/v1/workshop/scrap-dispatch', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      series_ids: input.seriesIds,
+      brand_id: input.brandId,
+      model_id: input.modelId,
+      capacity: input.capacity,
+      conduce: input.conduce,
+      notes: input.notes ?? '',
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error ?? data.detail ?? `HTTP ${res.status}`);
+  }
+  return data as ScrapDispatchResult;
+}

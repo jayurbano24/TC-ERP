@@ -178,7 +178,7 @@ async function searchWorkshopSeriesMultiInTab(
     tab === 'listo' ? 'in_central_warehouse' : TAB_TO_STATUS[tab as Exclude<WorkshopTabId, 'listo'>];
   const inList = postgrestInList(tokens);
 
-  const { data, error } = await supabase
+  let searchQ = supabase
     .from('series')
     .select('id, service_order_id, serial_number, current_status')
     .eq('current_status', status)
@@ -186,6 +186,10 @@ async function searchWorkshopSeriesMultiInTab(
       `serial_number.in.(${inList}),s2.in.(${inList}),s3.in.(${inList}),s4.in.(${inList})`
     )
     .limit(BATCH_LIMITS.WORKSHOP_SEARCH_MAX_SERIALS * 4);
+  if (status === 'irreparable') {
+    searchQ = searchQ.is('current_box_id', null);
+  }
+  const { data, error } = await searchQ;
 
   if (error) {
     console.error('[workshop/server] multi-serial search:', error.message);
@@ -333,6 +337,29 @@ export async function locateWorkshopEquipment(
       outsideWorkshop: false,
       locationLabel: WORKSHOP_TAB_LABELS.listo,
       message: null,
+      boxCode,
+      rack,
+    };
+  }
+
+  // Irreparable ya en caja SCRAP → Bodega SCRAPS (no cola Taller).
+  const rackUpper = (rack || '').toUpperCase();
+  if (
+    status === 'irreparable' &&
+    boxCode &&
+    (rackUpper === 'SCRAP' || rackUpper === 'SCRAPS' || rackUpper.startsWith('SCRAP'))
+  ) {
+    return {
+      found: true,
+      tab: null,
+      tabLabel: null,
+      status,
+      osLabel,
+      serial: hit.serial_number as string,
+      serviceOrderId: (hit.service_order_id as string) || null,
+      outsideWorkshop: true,
+      locationLabel: `Bodega SCRAPS · ${boxCode}`,
+      message: 'Ya está en una caja de Bodega SCRAPS; no figura en la cola SCRAP del Taller.',
       boxCode,
       rack,
     };
@@ -600,15 +627,21 @@ async function fetchWorkshopSeriesForOsIds(
 
   const rows: any[] = [];
   const chunkSize = 80;
+  /** Cola SCRAPS = irreparable sin caja; con caja ya están en Bodega SCRAPS. */
+  const scrapsUnboxedOnly = status === 'irreparable';
 
   for (let i = 0; i < osIds.length; i += chunkSize) {
     const chunk = osIds.slice(i, i + chunkSize);
-    const { data, error } = await supabase
+    let q = supabase
       .from('series')
       .select(WORKSHOP_SERIES_SELECT)
       .in('service_order_id', chunk)
       .eq('current_status', status)
       .order('updated_at', { ascending: false });
+    if (scrapsUnboxedOnly) {
+      q = q.is('current_box_id', null);
+    }
+    const { data, error } = await q;
 
     if (error) {
       console.error('[workshop/server] series for OS chunk:', error.message);
@@ -625,13 +658,20 @@ async function fetchWorkshopSeriesPaginated(
   statuses: string[]
 ) {
   const rows: any[] = [];
+  const scrapsOnly =
+    statuses.length === 1 && statuses[0] === 'irreparable';
+
   for (let offset = 0; offset < MAX_ROWS; offset += PAGE_SIZE) {
-    const { data, error } = await supabase
+    let q = supabase
       .from('series')
       .select(WORKSHOP_SERIES_SELECT)
       .in('current_status', statuses)
       .order('updated_at', { ascending: false })
       .range(offset, offset + PAGE_SIZE - 1);
+    if (scrapsOnly) {
+      q = q.is('current_box_id', null);
+    }
+    const { data, error } = await q;
 
     if (error) {
       console.error('[workshop/server] tasks page:', error.message);

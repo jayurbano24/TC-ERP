@@ -1,10 +1,13 @@
 'use client';
 
-import { Badge, Card, DataTable, type DataTableColumn } from '@/components/ui';
+import { useEffect, useMemo, useState } from 'react';
+import { Badge, Card, DataTable, TablePagination, type DataTableColumn } from '@/components/ui';
 import { Eye, Loader2, RotateCcw, Trash2 } from 'lucide-react';
 import { getAgenciaLabel } from '@/app/(erp)/produccion/backoffice/backofficeHelpers';
 import type { CatalogAgency } from '@/app/(erp)/produccion/backoffice/types';
 import type { BoxReturnRow } from '@/modules/returns/client/returnData';
+
+const PAGE_SIZE = 20;
 
 type Props = {
   rows: BoxReturnRow[];
@@ -12,9 +15,12 @@ type Props = {
   agencies: CatalogAgency[];
   selectedId: string | null;
   selectedIds: string[];
+  /** Cambia al buscar → vuelve a página 1. */
+  searchKey?: string;
   onSelectRow: (row: BoxReturnRow) => void;
   onToggleSelect: (id: string, checked: boolean) => void;
-  onToggleSelectAll: (checked: boolean) => void;
+  /** Select / deselect only the visible page ids (pagination-aware). */
+  onToggleSelectAll: (checked: boolean, visibleIds: string[]) => void;
   onUndo: (row: BoxReturnRow) => void;
   onArchive: (row: BoxReturnRow) => void;
 };
@@ -25,13 +31,37 @@ export function BodegaDevolucionTable({
   agencies,
   selectedId,
   selectedIds,
+  searchKey = '',
   onSelectRow,
   onToggleSelect,
   onToggleSelectAll,
   onUndo,
   onArchive,
 }: Props) {
-  const allSelected = rows.length > 0 && selectedIds.length === rows.length;
+  const [page, setPage] = useState(1);
+
+  const totalCount = rows.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchKey]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  const pageRows = useMemo(() => {
+    const start = (safePage - 1) * PAGE_SIZE;
+    return rows.slice(start, start + PAGE_SIZE);
+  }, [rows, safePage]);
+
+  const pageIds = useMemo(() => pageRows.map((r) => r.id), [pageRows]);
+  const allSelected = pageIds.length > 0 && pageIds.every((id) => selectedIds.includes(id));
+
+  const startItem = totalCount === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1;
+  const endItem = Math.min(safePage * PAGE_SIZE, totalCount);
 
   const columns: DataTableColumn<BoxReturnRow>[] = [
     {
@@ -40,7 +70,7 @@ export function BodegaDevolucionTable({
         <input
           type="checkbox"
           checked={allSelected}
-          onChange={(e) => onToggleSelectAll(e.target.checked)}
+          onChange={(e) => onToggleSelectAll(e.target.checked, pageIds)}
           className="w-4 h-4 accent-white rounded border-white/30 cursor-pointer"
         />
       ),
@@ -163,21 +193,33 @@ export function BodegaDevolucionTable({
           <Loader2 className="w-8 h-8 animate-spin text-rose-400 mx-auto" />
         </div>
       ) : (
-        <DataTable
-          columns={columns}
-          data={rows}
-          getRowId={(row: BoxReturnRow) => row.id}
-          onRowClick={(row: BoxReturnRow) => onSelectRow(row)}
-          rowHeight={76}
-          maxBodyHeight={600}
-          minWidth={1020}
-          headerClassName="bg-rose-500"
-          headerTextClassName="text-white"
-          emptyMessage="No hay cajas en bodega devolución"
-          rowClassName={(row: BoxReturnRow) =>
-            `group cursor-pointer ${selectedId === row.id ? 'bg-rose-50/60' : ''} ${selectedIds.includes(row.id) ? 'bg-blue-50/40' : ''}`
-          }
-        />
+        <>
+          <DataTable
+            columns={columns}
+            data={pageRows}
+            getRowId={(row: BoxReturnRow) => row.id}
+            onRowClick={(row: BoxReturnRow) => onSelectRow(row)}
+            rowHeight={76}
+            maxBodyHeight={600}
+            minWidth={1020}
+            headerClassName="bg-rose-500"
+            headerTextClassName="text-white"
+            emptyMessage="No hay cajas en bodega devolución"
+            rowClassName={(row: BoxReturnRow) =>
+              `group cursor-pointer ${selectedId === row.id ? 'bg-rose-50/60' : ''} ${selectedIds.includes(row.id) ? 'bg-blue-50/40' : ''}`
+            }
+          />
+          <TablePagination
+            totalCount={totalCount}
+            page={safePage}
+            totalPages={totalPages}
+            startItem={startItem}
+            endItem={endItem}
+            pageSize={PAGE_SIZE}
+            onPageChange={setPage}
+            itemLabel="cajas"
+          />
+        </>
       )}
     </Card>
   );

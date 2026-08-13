@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { Button, notify } from '@/components/ui';
 import {
   Package, X, BarChart3, ScanLine, Layers, Trash2,
@@ -12,6 +12,11 @@ import {
   resolveCatalogBrandId,
   resolveCatalogTechId,
 } from '@/shared/catalogs/cascadeCatalogFilters';
+import {
+  fetchWorkshopTasksPageViaApi,
+  locateWorkshopEquipmentViaApi,
+  scrapDispatchViaApi,
+} from '@/lib/api/workshopTasks';
 
 type Props = {
   filteredTasks: any[];
@@ -101,29 +106,97 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
     () => filterModelsByTechAndBrand(catModelos, scrapTechId || undefined, scrapBrandId || undefined),
     [catModelos, scrapTechId, scrapBrandId]
   );
+  const [scrapLookingUp, setScrapLookingUp] = useState(false);
 
-  const registerScan = () => {
-    const snVal = scrapScanSN.trim().toUpperCase();
-    if (!snVal) { setScrapScanError('El SN es obligatorio'); return; }
-    if (scrapScannedItems.find((i: any) => i.sn === snVal)) { setScrapScanError(`"${snVal}" ya fue registrado en esta caja`); setScrapScanSN(''); return; }
-    const found = filteredTasks.find(t =>
-      (t.all_sns || [t.sn]).map((s: string) => s.toUpperCase()).includes(snVal)
+  const matchTaskBySn = (tasks: any[], snVal: string) =>
+    tasks.find((t) =>
+      (t.all_sns || [t.sn]).map((s: string) => String(s || '').toUpperCase()).includes(snVal)
     );
-    if (!found) {
-      setScrapScanError(`"${snVal}" no está en estatus SCRAP — solo se pueden despachar equipos en cola SCRAP`);
+
+  /** Adapta fila cruda de /workshop/tasks (cola scraps) al shape del modal. */
+  const adaptScrapApiTask = (t: any) => {
+    const allSns: string[] = t.all_sns?.length
+      ? t.all_sns
+      : [t.serial_number].filter(Boolean);
+    return {
+      id: t.service_orders?.os_label || t.os_label || 'S/OS',
+      sn: allSns[0] || t.serial_number || 'S/N',
+      all_sns: allSns,
+      marca: t.brands?.name || t.brand_name || 'Desconocida',
+      modelo: t.models?.name || t.model_name || 'S/N',
+      dbId: t.service_order_id || t.id,
+      all_dbIds: t.all_dbIds?.length ? t.all_dbIds : [t.id],
+    };
+  };
+
+  const registerScan = async () => {
+    const snVal = scrapScanSN.trim().toUpperCase();
+    if (!snVal) {
+      setScrapScanError('El SN es obligatorio');
       return;
     }
+    if (scrapScannedItems.find((i: any) => String(i.sn || '').toUpperCase() === snVal)) {
+      setScrapScanError(`"${snVal}" ya fue registrado en esta caja`);
+      setScrapScanSN('');
+      return;
+    }
+
+    let found = matchTaskBySn(filteredTasks, snVal);
+
+    // La cola en pantalla es solo 1 página (~50). Buscar en toda la cola SCRAP (irreparable).
+    if (!found) {
+      setScrapLookingUp(true);
+      setScrapScanError('Buscando en cola SCRAP…');
+      try {
+        const page = await fetchWorkshopTasksPageViaApi('scraps', null, snVal);
+        const adapted = (page.items || []).map(adaptScrapApiTask);
+        found = matchTaskBySn(adapted, snVal) || adapted[0] || null;
+
+        if (!found) {
+          const loc = await locateWorkshopEquipmentViaApi(snVal);
+          if (loc.found && loc.tab && loc.tab !== 'scraps') {
+            setScrapScanError(
+              `"${snVal}" está en ${loc.tabLabel || loc.tab} (${loc.status || '—'}), no en SCRAP. Clasifíquelo a SCRAPS en Taller para despacharlo aquí.`
+            );
+            return;
+          }
+          if (loc.found && loc.outsideWorkshop) {
+            setScrapScanError(
+              loc.locationLabel?.includes('SCRAPS')
+                ? `"${snVal}" ya está en ${loc.locationLabel}.`
+                : `"${snVal}" está en ${loc.locationLabel || 'Bodega'}; no está en cola SCRAP.`
+            );
+            return;
+          }
+          setScrapScanError(
+            `"${snVal}" no está en estatus SCRAP — solo se pueden despachar equipos en cola SCRAP (irreparable).`
+          );
+          return;
+        }
+      } catch (err) {
+        setScrapScanError(
+          err instanceof Error ? err.message : 'No se pudo validar el SN en cola SCRAP'
+        );
+        return;
+      } finally {
+        setScrapLookingUp(false);
+      }
+    }
+
     const idx = scrapScannedItems.length;
-    setScrapScannedItems((prev: any[]) => [...prev, {
-      num: idx + 1,
-      sn: snVal,
-      os: found.id,
-      marca: found.marca,
-      modelo: found.modelo,
-      dbId: found.dbId,
-      all_dbIds: found.all_dbIds,
-      usuario: 'Actual'
-    }]);
+    setScrapScannedItems((prev: any[]) => [
+      ...prev,
+      {
+        num: idx + 1,
+        sn: snVal,
+        os: found.id,
+        marca: found.marca,
+        modelo: found.modelo,
+        dbId: found.dbId,
+        all_dbIds: found.all_dbIds,
+        usuario: 'Actual',
+      },
+    ]);
     setScrapScanSN('');
     setScrapScanError('');
     document.getElementById('scrap-sn-input')?.focus();
@@ -427,12 +500,18 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
                       maxLength={15}
                       value={scrapScanSN}
                       onChange={e => { setScrapScanSN(e.target.value.toUpperCase()); setScrapScanError(''); }}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') registerScan();
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          if (!scrapLookingUp) void registerScan();
+                        }
                       }}
+                      disabled={scrapLookingUp}
                       placeholder="Escanear SN (15 dig)..."
                       className={`w-full px-4 py-3 border rounded-xl text-sm font-mono font-bold outline-none transition-colors ${
-                        scrapScanError ? 'border-rose-400 bg-rose-50' : 'border-slate-200 bg-white focus:border-rose-400'
+                        scrapScanError && !scrapLookingUp
+                          ? 'border-rose-400 bg-rose-50'
+                          : 'border-slate-200 bg-white focus:border-rose-400'
                       }`}
                     />
                     <div className="flex justify-end mt-1">
@@ -440,19 +519,37 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
                     </div>
                   </div>
 
-                  {/* Error */}
+                  {/* Error / buscando */}
                   {scrapScanError && (
-                    <p className="text-[10px] font-black text-rose-500 flex items-center gap-1.5">
-                      <AlertCircle className="w-3.5 h-3.5" />{scrapScanError}
+                    <p
+                      className={`text-[10px] font-black flex items-center gap-1.5 ${
+                        scrapLookingUp ? 'text-slate-500' : 'text-rose-500'
+                      }`}
+                    >
+                      {scrapLookingUp ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <AlertCircle className="w-3.5 h-3.5" />
+                      )}
+                      {scrapScanError}
                     </p>
                   )}
 
                   {/* Botón registrar */}
                   <button
-                    onClick={registerScan}
-                    className="w-full py-3.5 bg-[#181c3a] hover:bg-[#232848] text-white font-black text-sm rounded-xl transition-all active:scale-[0.99] tracking-wider"
+                    type="button"
+                    onClick={() => void registerScan()}
+                    disabled={scrapLookingUp}
+                    className="w-full py-3.5 bg-[#181c3a] hover:bg-[#232848] disabled:opacity-60 text-white font-black text-sm rounded-xl transition-all active:scale-[0.99] tracking-wider inline-flex items-center justify-center gap-2"
                   >
-                    Registrar Equipo (Enter)
+                    {scrapLookingUp ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Validando SCRAP…
+                      </>
+                    ) : (
+                      'Registrar Equipo (Enter)'
+                    )}
                   </button>
                 </div>
 
@@ -611,29 +708,52 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
                 onClick={async () => {
                   if (scrapScannedItems.length === 0) { notify.warning('Escanea al menos un equipo antes de despachar.'); return; }
                   if (!scrapGuideNumber.trim()) { notify.warning('Ingresa o genera el número de conduce.'); return; }
+                  if (!scrapBrandId || !scrapBoxModelo) {
+                    notify.warning('Completa marca y modelo de la caja (paso 1).');
+                    return;
+                  }
+                  const modelRow = scrapModelOptions.find((m: { name?: string; id?: string }) => m.name === scrapBoxModelo)
+                    || catModelos.find((m: { name?: string; id?: string }) => m.name === scrapBoxModelo);
+                  const modelId = modelRow?.id ? String(modelRow.id) : '';
+                  if (!modelId) {
+                    notify.warning('No se pudo resolver el modelo de catálogo para la caja.');
+                    return;
+                  }
+                  const capacity =
+                    typeof scrapBoxCantidad === 'number' && scrapBoxCantidad > 0
+                      ? scrapBoxCantidad
+                      : scrapScannedItems.length;
+
+                  const seriesIds = [
+                    ...new Set(
+                      scrapScannedItems.flatMap((sc: { all_dbIds?: string[]; dbId?: string }) =>
+                        (sc.all_dbIds?.length ? sc.all_dbIds : sc.dbId ? [sc.dbId] : []).filter(Boolean)
+                      )
+                    ),
+                  ] as string[];
+
                   setScrapDispatching(true);
                   try {
-                    const { logAdvancedAudit } = await import('@/lib/database/audit');
-                    const { updateSeriesStatus } = await import('@/lib/database/workshop');
-                    for (const sc of scrapScannedItems) {
-                      const ids = sc.all_dbIds || [sc.dbId];
-                      for (const id of ids) {
-                        await updateSeriesStatus(id, 'dispatched');
-                        await logAdvancedAudit({
-                          module: 'Taller',
-                          tableName: 'series',
-                          recordId: id,
-                          action: 'SCRAP DESPACHADO',
-                          severity: 'WARNING',
-                          newValues: { conduce: scrapGuideNumber, notes: scrapNotes, serial: sc.sn, os: sc.os, modelo: sc.modelo }
-                        });
+                    const result = await scrapDispatchViaApi({
+                      seriesIds,
+                      brandId: scrapBrandId,
+                      modelId,
+                      capacity,
+                      conduce: scrapGuideNumber.trim(),
+                      notes: scrapNotes,
+                    });
+                    notify.success(
+                      `Caja ${result.box_code} en Bodega SCRAPS`,
+                      {
+                        description: `${result.linked} serie(s) · Guía ${scrapGuideNumber.trim()}`,
                       }
-                    }
-                    notify.success(`${scrapScannedItems.length} equipo(s) despachados`, { description: `Guía: ${scrapGuideNumber}` });
+                    );
                     onClose();
                     fetchTasks();
-                  } catch (err: any) {
-                    notify.error('Error en el despacho', { description: err.message });
+                  } catch (err: unknown) {
+                    notify.error('Error en el despacho SCRAP', {
+                      description: err instanceof Error ? err.message : 'Error desconocido',
+                    });
                   }
                   setScrapDispatching(false);
                 }}

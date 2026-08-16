@@ -55,6 +55,7 @@ const TALLER_WORKSHOP_AUDIT_ACTIONS = new Set([
   'INGRESO A TALLER',
   'DIAGNÓSTICO INICIAL COMPLETADO',
   'REPARACIÓN COMPLETADA',
+  'REPARACIÓN L3 COMPLETADA',
   'CONTROL DE CALIDAD COMPLETADO',
   'REACONDICIONADO COMPLETADO',
   'TRASLADO MASIVO A TALLER',
@@ -166,6 +167,9 @@ async function searchWorkshopSeriesSingleInTab(
   if (tab === 'diagnostico') {
     rows = await enrichWorkshopSourceBoxCodes(supabase, rows);
   }
+  if (tab === 'l3') {
+    rows = await enrichWorkshopL3Diagnostics(supabase, rows);
+  }
   return groupWorkshopSeriesRows(rows);
 }
 
@@ -226,6 +230,9 @@ async function searchWorkshopSeriesMultiInTab(
   rows = await enrichWorkshopServiceOrders(supabase, rows);
   if (tab === 'diagnostico') {
     rows = await enrichWorkshopSourceBoxCodes(supabase, rows);
+  }
+  if (tab === 'l3') {
+    rows = await enrichWorkshopL3Diagnostics(supabase, rows);
   }
   return groupWorkshopSeriesRows(rows);
 }
@@ -467,6 +474,16 @@ function mergeWorkshopGroup(target: any, source: any) {
   }
   if (!String(target.valuation || '').trim() && String(source.valuation || '').trim()) {
     target.valuation = source.valuation;
+  }
+  // Fecha de ingreso a la etapa: preferir la más reciente entre series hermanas.
+  target.stage_entered_at = maxIsoTimestamp(target.stage_entered_at, source.stage_entered_at);
+  const srcDiags = Array.isArray(source.current_diagnostics) ? source.current_diagnostics : [];
+  const tgtDiags = Array.isArray(target.current_diagnostics) ? target.current_diagnostics : [];
+  if (tgtDiags.length === 0 && srcDiags.length > 0) {
+    target.current_diagnostics = srcDiags;
+  }
+  if (!target.l3_reason_text && source.l3_reason_text) {
+    target.l3_reason_text = source.l3_reason_text;
   }
   if (new Date(String(source.updated_at)) > new Date(String(target.updated_at))) {
     target.updated_at = source.updated_at;
@@ -871,7 +888,24 @@ async function enrichWorkshopServiceOrders(supabase: SupabaseClient, rows: any[]
   });
 }
 
-/** Caja de origen tras dispersión bodega → taller (current_box_id queda NULL). */
+/** Acciones de auditoría que marcan ingreso a Diagnóstico (in_workshop). */
+const DIAGNOSTICO_ENTRY_AUDIT_ACTIONS = [
+  'INGRESO A TALLER',
+  'TRASLADO MASIVO A TALLER',
+  'TRASLADO A DIAGNÓSTICO',
+] as const;
+
+function maxIsoTimestamp(a: string | null | undefined, b: string | null | undefined): string | null {
+  if (!a) return b ?? null;
+  if (!b) return a;
+  return new Date(a).getTime() >= new Date(b).getTime() ? a : b;
+}
+
+/**
+ * Caja de origen + fecha de envío a Diagnóstico.
+ * Preferir movimiento DISPERSION_CAJA / auditoría de ingreso; no usar updated_at
+ * (el sync SAP lo pisaba vía trg_series_updated_at).
+ */
 async function enrichWorkshopSourceBoxCodes(
   supabase: SupabaseClient,
   rows: any[]
@@ -880,6 +914,7 @@ async function enrichWorkshopSourceBoxCodes(
   if (seriesIds.length === 0) return rows;
 
   const boxBySeries = new Map<string, string>();
+  const enteredBySeries = new Map<string, string>();
 
   for (let i = 0; i < seriesIds.length; i += 80) {
     const chunk = seriesIds.slice(i, i + 80);
@@ -893,20 +928,127 @@ async function enrichWorkshopSourceBoxCodes(
 
     for (const mov of data || []) {
       const code = String(mov.box_code || '').trim();
-      if (!code) continue;
+      const at = mov.created_at ? String(mov.created_at) : null;
       for (const sid of (mov.series_ids as string[]) || []) {
-        if (!boxBySeries.has(sid)) boxBySeries.set(sid, code);
+        if (code && !boxBySeries.has(sid)) boxBySeries.set(sid, code);
+        // Primera aparición = dispersión más reciente (order desc).
+        if (at && !enteredBySeries.has(sid)) enteredBySeries.set(sid, at);
       }
     }
   }
 
-  return rows.map((row) => ({
-    ...row,
-    source_box_code:
-      boxBySeries.get(row.id as string) ||
-      (row.boxes as { box_code?: string } | null)?.box_code ||
-      null,
-  }));
+  for (let i = 0; i < seriesIds.length; i += 80) {
+    const chunk = seriesIds.slice(i, i + 80);
+    const { data: auditRows } = await supabase
+      .from('erp_audit_logs')
+      .select('record_id, created_at, action')
+      .in('record_id', chunk)
+      .in('action', [...DIAGNOSTICO_ENTRY_AUDIT_ACTIONS])
+      .order('created_at', { ascending: false })
+      .limit(800);
+
+    for (const log of auditRows || []) {
+      const sid = String(log.record_id || '');
+      const at = log.created_at ? String(log.created_at) : null;
+      if (!sid || !at) continue;
+      // Máximo entre dispersión y último retorno/traslado a diagnóstico.
+      enteredBySeries.set(sid, maxIsoTimestamp(enteredBySeries.get(sid), at) ?? at);
+    }
+  }
+
+  return rows.map((row) => {
+    const sid = row.id as string;
+    return {
+      ...row,
+      source_box_code:
+        boxBySeries.get(sid) ||
+        (row.boxes as { box_code?: string } | null)?.box_code ||
+        null,
+      stage_entered_at: enteredBySeries.get(sid) ?? row.stage_entered_at ?? null,
+    };
+  });
+}
+
+/**
+ * Si L3 no tiene current_diagnostics, recupera IDs (o Motivo L3) desde auditoría.
+ */
+async function enrichWorkshopL3Diagnostics(
+  supabase: SupabaseClient,
+  rows: any[]
+): Promise<any[]> {
+  const missing = rows.filter((r) => {
+    const diags = Array.isArray(r.current_diagnostics) ? r.current_diagnostics : [];
+    return diags.length === 0 && r.id;
+  });
+  if (missing.length === 0) return rows;
+
+  const seriesIds = missing.map((r) => String(r.id));
+  const diagBySeries = new Map<string, string[]>();
+  const reasonBySeries = new Map<string, string>();
+
+  for (let i = 0; i < seriesIds.length; i += 80) {
+    const chunk = seriesIds.slice(i, i + 80);
+    const { data: auditRows } = await supabase
+      .from('erp_audit_logs')
+      .select('record_id, action, new_values, created_at')
+      .in('record_id', chunk)
+      .in('action', [
+        'DIAGNÓSTICO INICIAL COMPLETADO',
+        'REPARACIÓN COMPLETADA',
+        'REACONDICIONADO COMPLETADO',
+        'OPERACIÓN COMPLETADA',
+      ])
+      .order('created_at', { ascending: false })
+      .limit(1000);
+
+    for (const log of auditRows || []) {
+      const sid = String(log.record_id || '');
+      if (!sid) continue;
+      const payload = (log.new_values || {}) as {
+        result?: string;
+        diagnostics?: string[];
+        items?: string[];
+        notes?: string;
+      };
+      const notes = String(payload.notes || '');
+      const motivoMatch = notes.match(/Motivo L3:\s*([^\n]+)/i);
+      if (motivoMatch?.[1] && !reasonBySeries.has(sid)) {
+        reasonBySeries.set(sid, motivoMatch[1].trim());
+      }
+      if (payload.result === 'l3' && notes && !reasonBySeries.has(sid)) {
+        const extra = notes.match(/Notas adicionales:\s*([^\n]+)/i);
+        if (extra?.[1] && !/^sin notas/i.test(extra[1].trim())) {
+          reasonBySeries.set(sid, extra[1].trim());
+        }
+      }
+      if (diagBySeries.has(sid)) continue;
+      const fromDiag =
+        Array.isArray(payload.diagnostics) && payload.diagnostics.length > 0
+          ? payload.diagnostics.map(String)
+          : Array.isArray(payload.items) &&
+              log.action === 'DIAGNÓSTICO INICIAL COMPLETADO' &&
+              payload.items.length > 0
+            ? payload.items.map(String)
+            : [];
+      if (fromDiag.length > 0) diagBySeries.set(sid, fromDiag);
+    }
+  }
+
+  return rows.map((row) => {
+    const sid = String(row.id);
+    const existing = Array.isArray(row.current_diagnostics) ? row.current_diagnostics : [];
+    if (existing.length > 0) {
+      return {
+        ...row,
+        l3_reason_text: reasonBySeries.get(sid) ?? row.l3_reason_text ?? null,
+      };
+    }
+    return {
+      ...row,
+      current_diagnostics: diagBySeries.get(sid) ?? existing,
+      l3_reason_text: reasonBySeries.get(sid) ?? row.l3_reason_text ?? null,
+    };
+  });
 }
 
 async function fetchWorkshopTasksViaOsQueue(
@@ -997,6 +1139,9 @@ export async function queryWorkshopTasksPage(
   if (tab === 'diagnostico') {
     seriesRows = await enrichWorkshopSourceBoxCodes(supabase, seriesRows);
   }
+  if (tab === 'l3') {
+    seriesRows = await enrichWorkshopL3Diagnostics(supabase, seriesRows);
+  }
   const items = groupWorkshopSeriesRows(seriesRows);
 
   return {
@@ -1018,6 +1163,9 @@ async function queryWorkshopTasksLegacyAll(
   rows = await enrichWorkshopServiceOrders(supabase, rows);
   if (tab === 'diagnostico') {
     rows = await enrichWorkshopSourceBoxCodes(supabase, rows);
+  }
+  if (tab === 'l3') {
+    rows = await enrichWorkshopL3Diagnostics(supabase, rows);
   }
   return groupWorkshopSeriesRows(rows);
 }

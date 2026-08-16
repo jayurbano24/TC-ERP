@@ -15,7 +15,9 @@ const ScrapDispatchBody = z.object({
   brand_id: z.string().uuid(),
   model_id: z.string().uuid(),
   capacity: z.coerce.number().int().min(1).max(500),
-  conduce: z.string().trim().min(1).max(80),
+  /** Referencia opcional (no es el Nº de caja; el código BOX-N lo asigna el servidor). */
+  reference: z.string().trim().max(80).optional().default(''),
+  conduce: z.string().trim().max(80).optional().default(''),
   notes: z.string().max(2000).optional().default(''),
 });
 
@@ -42,7 +44,7 @@ export const POST = withErrorHandler(
       );
     }
 
-    const { series_ids, brand_id, model_id, capacity, conduce, notes } = parsed.data;
+    const { series_ids, brand_id, model_id, capacity, reference, conduce, notes } = parsed.data;
 
     if (series_ids.length > BATCH_LIMITS.WORKSHOP_OPERATE_MAX_SERIES) {
       return NextResponse.json(
@@ -71,7 +73,7 @@ export const POST = withErrorHandler(
         brandId: brand_id,
         modelId: model_id,
         capacity,
-        conduce,
+        reference: reference || conduce || undefined,
         notes,
         userId: user.id,
         userRole: roleData?.role,
@@ -89,7 +91,7 @@ export const POST = withErrorHandler(
       logEgress({
         route,
         module: 'taller',
-        action: 'scrap_dispatch',
+        action: 'scrap_ingress',
         correlationId,
         rowCount: result.linked,
         bytesEstimate: estimateJsonBytes(responseBody),
@@ -99,7 +101,7 @@ export const POST = withErrorHandler(
 
       return NextResponse.json(responseBody);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'SCRAP_DISPATCH_FAILED';
+      const message = err instanceof Error ? err.message : 'SCRAP_INGRESS_FAILED';
       return NextResponse.json({ error: message }, { status: 400 });
     }
   },

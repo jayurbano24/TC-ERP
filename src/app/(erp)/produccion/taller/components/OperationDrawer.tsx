@@ -362,15 +362,19 @@ export const OperationDrawer = memo(function OperationDrawer({
               )}
 
               {/* 4. FALLAS O REPARACIONES */}
-              {(activeTab === 'diagnostico' || activeTab === 'reparacion') && (
+              {(activeTab === 'diagnostico' || activeTab === 'reparacion' || activeTab === 'l3') && (
               <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 transition-all">
                 <button 
                   onClick={() => setIsDiagnosticsOpen(!isDiagnosticsOpen)}
                   className="w-full flex items-center justify-between group outline-none"
                 >
-                  <h4 className={`text-[9px] font-black uppercase tracking-wider flex items-center gap-2 ${activeTab === 'diagnostico' ? 'text-amber-500' : 'text-blue-500'}`}>
+                  <h4 className={`text-[9px] font-black uppercase tracking-wider flex items-center gap-2 ${activeTab === 'diagnostico' ? 'text-amber-500' : activeTab === 'l3' ? 'text-orange-500' : 'text-blue-500'}`}>
                     {activeTab === 'diagnostico' ? <AlertCircle className="w-4 h-4 group-hover:scale-110 transition-transform" /> : <Wrench className="w-4 h-4 group-hover:scale-110 transition-transform" />}
-                    {activeTab === 'diagnostico' ? '4. Fallas Encontradas (Catálogo)' : '4. Reparaciones Aplicadas (Catálogo)'}
+                    {activeTab === 'diagnostico'
+                      ? '4. Fallas Encontradas (Catálogo)'
+                      : activeTab === 'l3'
+                        ? '4. Reparaciones L3 (Catálogo)'
+                        : '4. Reparaciones Aplicadas (Catálogo)'}
                   </h4>
                   <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform duration-300 ${isDiagnosticsOpen ? 'rotate-180' : ''}`} />
                 </button>
@@ -606,12 +610,18 @@ export const OperationDrawer = memo(function OperationDrawer({
 
               {/* Observaciones Técnicas */}
               <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 space-y-2">
-                <label className="text-[9px] font-black uppercase tracking-wider text-amber-500 flex items-center gap-1.5">Observaciones</label>
+                <label className="text-[9px] font-black uppercase tracking-wider text-amber-500 flex items-center gap-1.5">
+                  Observaciones{diagnosticResult === 'l3' ? ' / Motivo L3' : ''}
+                </label>
                 <textarea 
                   value={diagnosticNotes}
                   onChange={(e) => setDiagnosticNotes(e.target.value)}
                   className="w-full h-20 bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs font-medium text-slate-700 outline-none focus:border-amber-400 resize-none"
-                  placeholder="Detalle hallazgos, componentes a cambiar o anomalías detectadas..."
+                  placeholder={
+                    diagnosticResult === 'l3'
+                      ? 'Obligatorio si no hay diagnóstico: indique por qué se envía a L3...'
+                      : 'Detalle hallazgos, componentes a cambiar o anomalías detectadas...'
+                  }
                 />
               </div>
             </div>
@@ -637,7 +647,11 @@ export const OperationDrawer = memo(function OperationDrawer({
                     { label: 'Reparación L1/L2', value: 'reparacion', variant: 'text-blue-600 border-blue-500/30 hover:border-blue-500 hover:bg-blue-50' },
                     { label: 'Reparación L3', value: 'l3', variant: 'text-orange-600 border-orange-500/30 hover:border-orange-500 hover:bg-orange-50' },
                     { label: 'Scraps', value: 'scraps', variant: 'text-rose-600 border-rose-500/30 hover:border-rose-500 hover:bg-rose-50' }
+                  ] : activeTab === 'l3' ? [
+                    { label: 'Reparaciones', value: 'reparacion', variant: 'text-blue-600 border-blue-500/30 hover:border-blue-500 hover:bg-blue-50' },
+                    { label: 'Scraps', value: 'scraps', variant: 'text-rose-600 border-rose-500/30 hover:border-rose-500 hover:bg-rose-50' },
                   ] : [
+                    // Diagnóstico inicial
                     { label: 'Reacondicionar', value: 'reacondicionado', variant: 'text-emerald-600 border-emerald-500/30 hover:border-emerald-500 hover:bg-emerald-50' },
                     { label: 'Reparación L1/L2', value: 'reparacion', variant: 'text-blue-600 border-blue-500/30 hover:border-blue-500 hover:bg-blue-50' },
                     { label: 'Nivel 3', value: 'l3', variant: 'text-orange-600 border-orange-500/30 hover:border-orange-500 hover:bg-orange-50' },
@@ -676,7 +690,12 @@ export const OperationDrawer = memo(function OperationDrawer({
                 disabled={
                   loading || 
                   !diagnosticResult || 
-                  (activeTab === 'diagnostico' && (!cosmeticClass || !labelStatus || selectedDiagnostics.length === 0))
+                  (activeTab === 'diagnostico' && (!cosmeticClass || !labelStatus || selectedDiagnostics.length === 0)) ||
+                  (diagnosticResult === 'l3' &&
+                    activeTab !== 'diagnostico' &&
+                    !diagnosticNotes.trim() &&
+                    lockedDiagnostics.length === 0 &&
+                    !(selectedForOperation?.current_diagnostics?.length > 0))
                 }
                 onClick={handleCompleteOperation}
               >

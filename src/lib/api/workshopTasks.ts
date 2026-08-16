@@ -88,13 +88,13 @@ export type ScrapDispatchResult = {
   capacity: number;
 };
 
-/** Confirma despacho SCRAP: crea caja en Bodega SCRAPS y vincula series. */
+/** Confirma ingreso a Bodega SCRAPS: crea caja BOX-N irrepetible y vincula series. */
 export async function scrapDispatchViaApi(input: {
   seriesIds: string[];
   brandId: string;
   modelId: string;
   capacity: number;
-  conduce: string;
+  reference?: string;
   notes?: string;
 }): Promise<ScrapDispatchResult> {
   const res = await apiFetch('/api/v1/workshop/scrap-dispatch', {
@@ -106,7 +106,7 @@ export async function scrapDispatchViaApi(input: {
       brand_id: input.brandId,
       model_id: input.modelId,
       capacity: input.capacity,
-      conduce: input.conduce,
+      reference: input.reference ?? '',
       notes: input.notes ?? '',
     }),
   });
@@ -115,4 +115,27 @@ export async function scrapDispatchViaApi(input: {
     throw new Error(data.error ?? data.detail ?? `HTTP ${res.status}`);
   }
   return data as ScrapDispatchResult;
+}
+
+/** Comentario operativo sobre una OS / series (historial + notes). */
+export async function addWorkshopCommentViaApi(input: {
+  seriesIds: string[];
+  comment: string;
+  tab?: string;
+}): Promise<{ processed: number }> {
+  const res = await apiFetch('/api/v1/workshop/comments', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      series_ids: input.seriesIds,
+      comment: input.comment,
+      tab: input.tab,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error ?? data.detail ?? `HTTP ${res.status}`);
+  }
+  return { processed: Number(data.processed ?? 0) };
 }

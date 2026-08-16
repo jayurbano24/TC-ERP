@@ -24,6 +24,7 @@ const ALLOWED_RESULTS_BY_ACTION: Record<string, readonly string[]> = {
   'REPARACIÓN COMPLETADA': ['control_calidad', 'reacondicionado', 'l3', 'scraps'],
   'REACONDICIONADO COMPLETADO': ['control_calidad', 'reparacion', 'l3', 'scraps'],
   'CONTROL DE CALIDAD COMPLETADO': ['listo', 'rechazado_qc'],
+  'REPARACIÓN L3 COMPLETADA': ['reparacion', 'scraps'],
 };
 
 export function assertAllowedWorkshopResult(actionName: string, result: string): void {
@@ -166,7 +167,10 @@ export async function operateWorkshopSeriesBatch(
     nextStatus,
     operator_name: operatorName,
     diagnostics: actionName === 'DIAGNÓSTICO INICIAL COMPLETADO' ? selectedDiagnostics : undefined,
-    repairs: actionName === 'REPARACIÓN COMPLETADA' ? selectedDiagnostics : undefined,
+    repairs:
+      actionName === 'REPARACIÓN COMPLETADA' || actionName === 'REPARACIÓN L3 COMPLETADA'
+        ? selectedDiagnostics
+        : undefined,
     items: selectedDiagnostics,
     equipment_complete: true,
     requested_series: seriesIds.length,

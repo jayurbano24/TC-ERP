@@ -28,9 +28,18 @@ describe('assertAllowedWorkshopResult', () => {
     ).toThrow(BusinessException);
   });
 
-  it('permite listo solo desde Control de Calidad', () => {
+  it('permite reparacion y scraps desde L3', () => {
     expect(() =>
-      assertAllowedWorkshopResult('CONTROL DE CALIDAD COMPLETADO', 'listo')
+      assertAllowedWorkshopResult('REPARACIÓN L3 COMPLETADA', 'reparacion')
     ).not.toThrow();
+    expect(() =>
+      assertAllowedWorkshopResult('REPARACIÓN L3 COMPLETADA', 'scraps')
+    ).not.toThrow();
+  });
+
+  it('bloquea reacondicionado desde L3', () => {
+    expect(() =>
+      assertAllowedWorkshopResult('REPARACIÓN L3 COMPLETADA', 'reacondicionado')
+    ).toThrow(BusinessException);
   });
 });

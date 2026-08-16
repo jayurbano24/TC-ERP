@@ -86,7 +86,7 @@ export function resolveInventoryBoxOriginArea(box: {
   ) {
     return 'Bodega Central';
   }
-  if (rack === 'SCRAP') return 'Bodega SCRAP';
+  if (rack === 'SCRAP' || rack === 'SCRAPS' || rack.startsWith('SCRAP')) return 'Bodega SCRAP';
   if (rack === 'OBSOLETO') return 'Bodega Obsoleto';
   if (rack.startsWith('TALLER')) return 'Diagnóstico';
   return null;
@@ -119,7 +119,7 @@ export function resolveWarehouseStatusLabel(status: string | null | undefined): 
     case 'dispatched':
       return 'DESPACHADO';
     case 'irreparable':
-      return 'SCRAP';
+      return 'SCRAPS';
     case 'obsolete':
       return 'OBSOLETO';
     default:
@@ -1413,6 +1413,112 @@ export async function getInventoryDetails() {
   });
 
   return { data: warehouseOnly };
+}
+
+/** Detalle de inventario en Bodega SCRAPS (series irreparables en cajas SCRAP*). */
+export async function getScrapInventoryDetails() {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return [];
+
+  const { data: scrapBoxes, error: boxError } = await supabase
+    .from('boxes')
+    .select('id, rack_location')
+    .or('rack_location.eq.SCRAP,rack_location.eq.SCRAPS,rack_location.ilike.SCRAP%')
+    .neq('rack_location', 'ELIMINADO');
+
+  if (boxError) {
+    console.error('Error fetching scrap boxes:', boxError);
+    return { error: boxError.message };
+  }
+
+  const scrapBoxIds = (scrapBoxes || [])
+    .filter((b: { rack_location?: string | null }) => isScrapStagingRack(b.rack_location))
+    .map((b: { id: string }) => b.id);
+
+  if (scrapBoxIds.length === 0) {
+    return { data: [] };
+  }
+
+  const seriesSelect = `
+    *,
+    boxes (id, box_code, status, rack_location, created_at),
+    service_orders (os_label, sap_integration_status),
+    receptions (
+        guide_number,
+        notes,
+        carrier,
+        received_by,
+        status,
+        created_at,
+        source,
+        reception_guides (guide_number, agency, category)
+      ),
+    brands (name),
+    models (name, technologies (name))
+  `;
+
+  const pageSize = 1000;
+  const allSeries: any[] = [];
+  for (const chunk of chunkIds(scrapBoxIds)) {
+    let offset = 0;
+    while (offset < WAREHOUSE_BOX_FETCH_LIMIT) {
+      const { data: seriesData, error: seriesError } = await supabase
+        .from('series')
+        .select(seriesSelect)
+        .in('current_box_id', chunk)
+        .eq('current_status', 'irreparable')
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: true })
+        .range(offset, offset + pageSize - 1);
+
+      if (seriesError) {
+        console.error('Error fetching scrap inventory details:', seriesError);
+        break;
+      }
+      if (!seriesData?.length) break;
+      allSeries.push(...seriesData);
+      if (seriesData.length < pageSize) break;
+      offset += pageSize;
+    }
+  }
+
+  const scrapOnly = allSeries.filter((row: { current_status?: string; boxes?: { rack_location?: string } }) => {
+    if (row.current_status !== 'irreparable') return false;
+    return isScrapStagingRack(row.boxes?.rack_location);
+  });
+
+  const diagIds = new Set<string>();
+  for (const row of scrapOnly) {
+    const ids = Array.isArray(row.current_diagnostics) ? row.current_diagnostics : [];
+    for (const id of ids) {
+      if (id) diagIds.add(String(id));
+    }
+  }
+
+  const diagNameById = new Map<string, string>();
+  if (diagIds.size > 0) {
+    const { data: diagRows } = await supabase
+      .from('cat_diagnostics')
+      .select('id, name')
+      .in('id', [...diagIds]);
+    for (const d of diagRows ?? []) {
+      diagNameById.set(String(d.id), String(d.name || '').trim() || '—');
+    }
+  }
+
+  const enriched = scrapOnly.map((row) => {
+    const ids = Array.isArray(row.current_diagnostics) ? row.current_diagnostics.map(String) : [];
+    const labels = ids.map((id) => diagNameById.get(id) || id).filter(Boolean);
+    const notesWhy = String(row.notes || '').trim();
+    return {
+      ...row,
+      diagnostic_ids: ids,
+      diagnostic_labels: labels,
+      scrap_reason: labels.length > 0 ? labels.join(' · ') : notesWhy || 'Sin diagnóstico registrado',
+    };
+  });
+
+  return { data: enriched };
 }
 
 export async function getBoxHistory(boxId: string) {

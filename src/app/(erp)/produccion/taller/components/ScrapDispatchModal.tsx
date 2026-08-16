@@ -4,7 +4,7 @@ import { memo, useMemo, useState } from 'react';
 import { Button, notify } from '@/components/ui';
 import {
   Package, X, BarChart3, ScanLine, Layers, Trash2,
-  AlertCircle, CheckCircle2, RotateCcw, Loader2, Send,
+  AlertCircle, CheckCircle2, Loader2,
 } from 'lucide-react';
 import {
   filterBrandsByTechnologyId,
@@ -86,7 +86,7 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
   setScrapNotes,
   scrapDispatching,
   setScrapDispatching,
-  generateConduceNumber,
+  generateConduceNumber: _generateConduceNumber,
   fetchTasks,
   onClose,
 }: Props) {
@@ -214,9 +214,9 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
             </div>
             <div>
               <p className="text-[9px] font-black text-white/60 uppercase tracking-[0.25em]">Taller · Producción</p>
-              <h2 className="text-2xl font-black text-white">Despacho SCRAP</h2>
+              <h2 className="text-2xl font-black text-white">Ingreso Bodega SCRAPS</h2>
               <p className="text-[11px] text-white/70 mt-0.5">
-                {filteredTasks.length} equipo(s) en cola SCRAP · {scrapScannedItems.length} seleccionado(s) para despacho
+                {filteredTasks.length} equipo(s) en cola · {scrapScannedItems.length} en la caja · Nº de caja al confirmar (BOX-BAD-…)
               </p>
             </div>
           </div>
@@ -258,8 +258,10 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
               <div className="flex items-center gap-3 mb-2">
                 <div className="w-8 h-8 rounded-full bg-rose-500 text-white flex items-center justify-center text-sm font-black">1</div>
                 <div>
-                  <h3 className="text-sm font-black text-[#181c3a] uppercase tracking-wider">Detalle de la Caja</h3>
-                  <p className="text-[10px] text-slate-400 font-medium">Ingresa los datos del lote a despachar antes de escanear</p>
+                  <h3 className="text-sm font-black text-[#181c3a] uppercase tracking-wider">Detalle de la Caja SCRAPS</h3>
+                  <p className="text-[10px] text-slate-400 font-medium">
+                    Secuencia propia de SCRAPS: al confirmar se asigna BOX-BAD-001… (independiente de Bodega Central)
+                  </p>
                 </div>
               </div>
 
@@ -376,14 +378,14 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
                     notify.warning('Completa todos los campos: Marca, Modelo, Tecnología y Cantidad.');
                     return;
                   }
-                  setScrapGuideNumber(generateConduceNumber());
+                  setScrapGuideNumber('');
                   setScrapBoxStep('despacho');
                   setScrapActiveView('pistolero');
                 }}
                 className="w-full py-4 rounded-2xl bg-rose-500 hover:bg-rose-600 text-white font-black text-sm uppercase tracking-widest transition-all shadow-lg shadow-rose-500/25 flex items-center justify-center gap-3 active:scale-[0.99]"
               >
                 <Layers className="w-5 h-5" />
-                Crear Caja y Continuar
+                Continuar a escaneo
               </button>
             </div>
           )}
@@ -653,61 +655,54 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
             </div>
           )}
 
-          {/* Conduce + Notas + Botón — visible en paso despacho debajo del pistolero */}
+          {/* Notas + confirmar ingreso a Bodega SCRAPS */}
           {scrapBoxStep === 'despacho' && (
             <div className="px-6 pb-6 space-y-3">
-              {/* Conduce de Salida de Scraps */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">
-                    Conduce de Salida de Scraps <span className="text-rose-500">*</span>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => setScrapGuideNumber(generateConduceNumber())}
-                    className="text-[9px] font-black text-rose-500 hover:text-rose-700 uppercase tracking-widest flex items-center gap-1 transition-colors"
-                  >
-                    <RotateCcw className="w-3 h-3" />
-                    Regenerar
-                  </button>
-                </div>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={scrapGuideNumber}
-                    onChange={e => setScrapGuideNumber(e.target.value)}
-                    placeholder="CS-SCRAP-2026-001"
-                    className="w-full pl-4 pr-28 py-3 bg-rose-50 border-2 border-rose-200 rounded-xl text-sm font-black text-rose-700 outline-none focus:border-rose-400 transition-colors font-mono tracking-wider"
-                  />
-                  {scrapGuideNumber && (
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1 text-[9px] font-black text-rose-400 uppercase tracking-widest">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-rose-400" />
-                      Generado
-                    </span>
-                  )}
-                </div>
+              <div className="rounded-xl border-2 border-rose-200 bg-rose-50 px-4 py-3">
+                <p className="text-[9px] font-black text-rose-500 uppercase tracking-widest">
+                  Captura de caja / Nº de etiqueta
+                </p>
+                <p className="text-sm font-black text-[#181c3a] mt-0.5">
+                  Al confirmar se genera etiqueta irrepetible (BOX-BAD-001…), secuencia propia de SCRAPS
+                </p>
+                <p className="text-[10px] text-slate-500 mt-1 font-medium">
+                  Queda en Bodega SCRAPS con inventario de series. No es un despacho de salida.
+                </p>
               </div>
 
-              {/* Notas */}
+              <div>
+                <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1.5">
+                  Referencia interna (opcional)
+                </label>
+                <input
+                  type="text"
+                  value={scrapGuideNumber}
+                  onChange={e => setScrapGuideNumber(e.target.value)}
+                  placeholder="Ej. lote reciclaje, orden interna…"
+                  className="w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl text-sm font-bold text-[#181c3a] outline-none focus:border-rose-400 transition-colors"
+                />
+              </div>
+
               <div>
                 <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1.5">Notas</label>
                 <textarea
                   value={scrapNotes}
                   onChange={e => setScrapNotes(e.target.value)}
-                  placeholder="Destino, proveedor de reciclaje..."
+                  placeholder="Observaciones del ingreso a Bodega SCRAPS…"
                   rows={2}
                   className="w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl text-sm font-bold text-[#181c3a] outline-none focus:border-rose-400 transition-colors resize-none"
                 />
               </div>
 
-              {/* Botón confirmar */}
               <Button
                 variant="primary"
                 className="w-full bg-rose-500 hover:bg-rose-600 text-white shadow-lg shadow-rose-500/20 font-black py-4"
-                rightIcon={scrapDispatching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                rightIcon={scrapDispatching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Package className="w-4 h-4" />}
                 onClick={async () => {
-                  if (scrapScannedItems.length === 0) { notify.warning('Escanea al menos un equipo antes de despachar.'); return; }
-                  if (!scrapGuideNumber.trim()) { notify.warning('Ingresa o genera el número de conduce.'); return; }
+                  if (scrapScannedItems.length === 0) {
+                    notify.warning('Escanea al menos un equipo antes de ingresar la caja.');
+                    return;
+                  }
                   if (!scrapBrandId || !scrapBoxModelo) {
                     notify.warning('Completa marca y modelo de la caja (paso 1).');
                     return;
@@ -739,26 +734,25 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
                       brandId: scrapBrandId,
                       modelId,
                       capacity,
-                      conduce: scrapGuideNumber.trim(),
+                      reference: scrapGuideNumber.trim() || undefined,
                       notes: scrapNotes,
                     });
-                    notify.success(
-                      `Caja ${result.box_code} en Bodega SCRAPS`,
-                      {
-                        description: `${result.linked} serie(s) · Guía ${scrapGuideNumber.trim()}`,
-                      }
-                    );
+                    notify.success(`Etiqueta ${result.box_code} · captura de caja SCRAPS`, {
+                      description: `${result.linked} serie(s) · detalle e impresión en /bodega/scraps`,
+                    });
                     onClose();
                     fetchTasks();
                   } catch (err: unknown) {
-                    notify.error('Error en el despacho SCRAP', {
+                    notify.error('No se pudo ingresar la caja SCRAPS', {
                       description: err instanceof Error ? err.message : 'Error desconocido',
                     });
                   }
                   setScrapDispatching(false);
                 }}
               >
-                {scrapDispatching ? 'Despachando...' : `Confirmar Despacho (${scrapScannedItems.length})`}
+                {scrapDispatching
+                  ? 'Ingresando a Bodega SCRAPS…'
+                  : `Confirmar ingreso (${scrapScannedItems.length})`}
               </Button>
             </div>
           )}

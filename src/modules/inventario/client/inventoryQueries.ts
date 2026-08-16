@@ -11,12 +11,18 @@
  */
 import {
   getInventoryDetails as legacyGetInventoryDetails,
+  getScrapInventoryDetails as legacyGetScrapInventoryDetails,
   resolveWarehouseStatusLabel as legacyResolveWarehouseStatusLabel,
 } from '@/lib/database/warehouse';
 
 /** Detalle de inventario en bodega (unidad por unidad). */
 export function getInventoryDetails() {
   return legacyGetInventoryDetails();
+}
+
+/** Detalle de inventario en Bodega SCRAPS (series irreparables en cajas SCRAP). */
+export function getScrapInventoryDetails() {
+  return legacyGetScrapInventoryDetails();
 }
 
 /** Etiqueta legible para el estado de almacén (función pura). */

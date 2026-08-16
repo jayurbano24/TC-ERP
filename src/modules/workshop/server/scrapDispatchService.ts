@@ -15,7 +15,8 @@ export type ScrapDispatchParams = {
   brandId: string;
   modelId: string;
   capacity: number;
-  conduce: string;
+  /** Referencia opcional (no es el número de caja). */
+  reference?: string;
   notes?: string;
   userId: string;
   userRole?: string;
@@ -30,9 +31,10 @@ export type ScrapDispatchResult = {
 };
 
 /**
- * Crea una caja física en Bodega SCRAPS (rack SCRAP) y vincula series irreparables.
- * Las series permanecen en estatus `irreparable` pero salen de la cola Taller
- * (excluidas por current_box_id IS NOT NULL).
+ * Ingreso a Bodega SCRAPS (mismo patrón que Bodega Central):
+ * - Código irrepetible vía `next_scrap_box_code()` (BOX-BAD-001…)
+ * - rack_location = SCRAP → aparece en /bodega/scraps
+ * - Series siguen irreparable con current_box_id (salen de cola Taller)
  */
 export async function createScrapDispatchBox(
   supabase: SupabaseClient,
@@ -43,7 +45,7 @@ export async function createScrapDispatchBox(
     brandId,
     modelId,
     capacity,
-    conduce,
+    reference,
     notes,
     userId,
     userRole,
@@ -52,20 +54,20 @@ export async function createScrapDispatchBox(
 
   const uniqueIds = [...new Set(seriesIds.filter(Boolean))];
   if (uniqueIds.length === 0) {
-    throw new Error('Debe escanear al menos una serie para crear la caja SCRAP.');
+    throw new Error('Debe escanear al menos una serie para crear la caja SCRAPS.');
   }
 
   const cap = Math.max(1, Math.floor(capacity) || uniqueIds.length);
-  // Escrituras de cajas/series con service role (RLS taller no siempre permite INSERT boxes).
   const admin = getSupabaseServerClient();
   const reader = supabase;
 
-  // Validar que todas estén en cola SCRAP (irreparable) y sin caja.
   const eligible: string[] = [];
+  let receptionId: string | null = null;
+
   for (const chunk of chunkIds(uniqueIds)) {
     const { data, error } = await reader
       .from('series')
-      .select('id, current_status, current_box_id, serial_number')
+      .select('id, current_status, current_box_id, serial_number, current_reception_id')
       .in('id', chunk);
 
     if (error) throw new Error(error.message);
@@ -79,42 +81,48 @@ export async function createScrapDispatchBox(
       }
       if (row.current_box_id) {
         throw new Error(
-          `La serie ${row.serial_number || row.id} ya está en una caja SCRAP.`
+          `La serie ${row.serial_number || row.id} ya está en una caja SCRAPS.`
         );
+      }
+      if (!receptionId && row.current_reception_id) {
+        receptionId = String(row.current_reception_id);
       }
       eligible.push(String(row.id));
     }
   }
 
   if (eligible.length === 0) {
-    throw new Error('Ninguna serie válida para despacho SCRAP.');
+    throw new Error('Ninguna serie válida para ingreso a Bodega SCRAPS.');
   }
 
-  const { data: boxCodeRaw, error: codeError } = await admin.rpc('next_box_code');
+  // Correlativo SCRAPS independiente (BOX-BAD-001…), no comparte BOX-N de Bodega Central.
+  const { data: boxCodeRaw, error: codeError } = await admin.rpc('next_scrap_box_code');
   if (codeError || !boxCodeRaw) {
-    throw new Error(codeError?.message || 'No se pudo generar el código de caja.');
+    throw new Error(codeError?.message || 'No se pudo generar el número de caja SCRAPS (BOX-BAD).');
   }
   const boxCode = String(boxCodeRaw).trim().toUpperCase();
 
+  const insertRow: Record<string, unknown> = {
+    box_code: boxCode,
+    rack_location: 'SCRAP',
+    brand_id: brandId,
+    model_id: modelId,
+    capacity: cap,
+    status: 'closed',
+    is_partial_box: eligible.length < cap,
+  };
+  if (receptionId) {
+    insertRow.reception_id = receptionId;
+  }
+
   const { data: box, error: boxError } = await admin
     .from('boxes')
-    .insert([
-      {
-        box_code: boxCode,
-        rack_location: 'SCRAP',
-        brand_id: brandId,
-        model_id: modelId,
-        capacity: cap,
-        // Enum box_status: open | closed | en_captura | ...
-        status: 'closed',
-        is_partial_box: eligible.length < cap,
-      },
-    ])
+    .insert([insertRow])
     .select('id, box_code')
     .single();
 
   if (boxError || !box) {
-    throw new Error(boxError?.message || 'No se pudo crear la caja SCRAP.');
+    throw new Error(boxError?.message || 'No se pudo crear la caja SCRAPS.');
   }
 
   const boxId = String(box.id);
@@ -138,8 +146,18 @@ export async function createScrapDispatchBox(
     }
 
     if (linked === 0) {
-      throw new Error('Ninguna serie pudo vincularse a la caja SCRAP.');
+      throw new Error('Ninguna serie pudo vincularse a la caja SCRAPS.');
     }
+
+    const auditPayload = {
+      status: 'irreparable',
+      box_id: boxId,
+      box_code: boxCode,
+      rack_location: 'SCRAP',
+      reference: reference || null,
+      notes: notes || null,
+      operator_name: operatorName,
+    };
 
     const auditRows = eligible.map((recordId) => ({
       user_id: userId,
@@ -147,17 +165,9 @@ export async function createScrapDispatchBox(
       module: 'Taller',
       table_name: 'series',
       record_id: recordId,
-      action: 'SCRAP DESPACHADO A BODEGA',
-      severity: 'WARNING',
-      new_values: {
-        status: 'irreparable',
-        box_id: boxId,
-        box_code: boxCode,
-        rack_location: 'SCRAP',
-        conduce,
-        notes: notes || null,
-        operator_name: operatorName,
-      },
+      action: 'INGRESO BODEGA SCRAPS',
+      severity: 'INFO',
+      new_values: auditPayload,
       user_agent: 'api/v1/workshop/scrap-dispatch',
     }));
 
@@ -175,7 +185,7 @@ export async function createScrapDispatchBox(
       module: 'Bodega',
       table_name: 'boxes',
       record_id: boxId,
-      action: 'CAJA SCRAP CREADA',
+      action: 'CAJA SCRAPS CREADA',
       severity: 'INFO',
       new_values: {
         box_code: boxCode,
@@ -184,7 +194,7 @@ export async function createScrapDispatchBox(
         model_id: modelId,
         capacity: cap,
         linked,
-        conduce,
+        reference: reference || null,
         notes: notes || null,
         operator_name: operatorName,
       },

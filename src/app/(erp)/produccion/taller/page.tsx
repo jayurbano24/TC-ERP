@@ -3,9 +3,9 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { ModulePage } from "@/components/module-page";
 import { Card, Button, Badge, notify, confirmDialog, DataTable, type DataTableColumn } from "@/components/ui";
-import { Wrench, Stethoscope, Search, Filter, Box, Plus, Activity, AlertCircle, ArrowRight, XCircle, Clock, ChevronLeft, ChevronRight, ChevronDown, User, CheckSquare, ServerCrash, RefreshCw, Zap, Trash2, Loader2, RotateCcw, History, ClipboardList, Package, Send, ScanLine, X, BarChart3, Layers, Edit2, Eye, Printer, Download } from 'lucide-react';
+import { Wrench, Stethoscope, Search, Filter, Box, Plus, Activity, AlertCircle, ArrowRight, XCircle, Clock, ChevronLeft, ChevronRight, ChevronDown, User, CheckSquare, ServerCrash, RefreshCw, Zap, Trash2, Loader2, RotateCcw, History, ClipboardList, Package, Send, ScanLine, X, BarChart3, Layers, Edit2, Eye, Printer, Download, MessageSquare } from 'lucide-react';
 import { type WorkshopTabId } from '@/modules/workshop/client/workshop';
-import { fetchWorkshopTasksPageViaApi, locateWorkshopEquipmentViaApi, type WorkshopLocateResult } from '@/lib/api/workshopTasks';
+import { fetchWorkshopTasksPageViaApi, locateWorkshopEquipmentViaApi, addWorkshopCommentViaApi, type WorkshopLocateResult } from '@/lib/api/workshopTasks';
 import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
 import { parseWorkshopSearchTokens } from '@/modules/workshop/shared/workshopSearch';
 import {
@@ -44,6 +44,7 @@ import {
 import { ItemDetailModal } from './components/ItemDetailModal';
 import { ReturnStageModal } from './components/ReturnStageModal';
 import { ScrapDispatchModal } from './components/ScrapDispatchModal';
+import { ScrapCommentModal } from './components/ScrapCommentModal';
 import { DespachoView } from './components/DespachoView';
 import { OperationDrawer } from './components/OperationDrawer';
 
@@ -117,6 +118,11 @@ export default function TallerPage() {
   const [lockedRepProfile, setLockedRepProfile] = useState<string | null>(null);
   const [returnModalOpen, setReturnModalOpen] = useState<{isOpen: boolean, item: any | null}>({isOpen: false, item: null});
   const [returnTargetStage, setReturnTargetStage] = useState<string>('in_workshop');
+  const [commentModalOpen, setCommentModalOpen] = useState<{ isOpen: boolean; item: any | null }>({
+    isOpen: false,
+    item: null,
+  });
+  const [commentSaving, setCommentSaving] = useState(false);
 
   // SCRAP Dispatch Modal State
   const [scrapDispatchModal, setScrapDispatchModal] = useState<{isOpen: boolean, item: any | null}>({isOpen: false, item: null});
@@ -405,6 +411,27 @@ export default function TallerPage() {
       if (respMatch) responsableName = respMatch[1].trim().toUpperCase();
     }
 
+    const displayAt = t.stage_entered_at || t.updated_at;
+    const diagIds = Array.isArray(t.current_diagnostics)
+      ? t.current_diagnostics.map(String).filter(Boolean)
+      : [];
+    const diagnosticoLabel = (() => {
+      if (diagIds.length > 0) {
+        const names = diagIds
+          .map((id) => {
+            const hit = catDiagnosticos.find(
+              (d: { id?: string; nombre?: string; name?: string }) => String(d.id) === id
+            );
+            return String(hit?.nombre || hit?.name || '').trim() || null;
+          })
+          .filter(Boolean);
+        if (names.length > 0) return names.join(' · ');
+      }
+      const reason = String(t.l3_reason_text || '').trim();
+      if (reason) return reason;
+      return 'Sin diagnóstico registrado';
+    })();
+
     return {
       id: t.service_orders?.os_label || `S/OS`,
       groupId: t.service_order_id || t.id,
@@ -415,12 +442,13 @@ export default function TallerPage() {
       marca: marcaName,
       modelo: modeloName,
       boxCode: t.source_box_code || t.boxes?.box_code || '—',
-      updatedAt: t.updated_at ? new Date(t.updated_at).toLocaleString() : 'Desconocida',
-      fecha: t.updated_at
-        ? new Date(t.updated_at).toLocaleDateString('es-GT', { day: 'numeric', month: 'numeric', year: 'numeric' })
+      // FECHA = envío a Diagnóstico (dispersión/auditoría), no updated_at del sync SAP.
+      updatedAt: displayAt ? new Date(displayAt).toLocaleString() : 'Desconocida',
+      fecha: displayAt
+        ? new Date(displayAt).toLocaleDateString('es-GT', { day: 'numeric', month: 'numeric', year: 'numeric' })
         : '—',
-      hora: t.updated_at
-        ? new Date(t.updated_at).toLocaleTimeString('es-GT', { hour: 'numeric', minute: '2-digit' })
+      hora: displayAt
+        ? new Date(displayAt).toLocaleTimeString('es-GT', { hour: 'numeric', minute: '2-digit' })
         : '',
       etapa: stageRaw,
       responsable: responsableName,
@@ -433,7 +461,8 @@ export default function TallerPage() {
       agencia: agenciaStr,
       guide: reception?.guide_number || 'S/G',
       ingress_count: t.ingress_count || 1,
-      current_diagnostics: t.current_diagnostics || []
+      current_diagnostics: diagIds,
+      diagnosticoLabel,
     };
   };
 
@@ -661,6 +690,7 @@ export default function TallerPage() {
           marca: a.marca,
           modelo: a.modelo,
           caja: a.boxCode,
+          diagnostico: a.diagnosticoLabel || '',
           fecha: a.fecha,
           hora: a.hora,
           ingresos: ingressLabel(a.ingress_count),
@@ -685,6 +715,21 @@ export default function TallerPage() {
     if (!diagnosticResult) {
       notify.warning("Por favor selecciona un resultado de evaluación antes de continuar.");
       return;
+    }
+
+    if (diagnosticResult === 'l3') {
+      const priorDiags = Array.isArray(selectedForOperation.current_diagnostics)
+        ? selectedForOperation.current_diagnostics
+        : [];
+      const hasCatalogDiag =
+        (activeTab === 'diagnostico' && selectedDiagnostics.length > 0) ||
+        lockedDiagnostics.length > 0 ||
+        priorDiags.length > 0;
+      const hasNotes = diagnosticNotes.trim().length > 0;
+      if (!hasCatalogDiag && !hasNotes) {
+        notify.warning('Para enviar a L3 indique el diagnóstico del catálogo o un motivo en observaciones.');
+        return;
+      }
     }
 
     if (activeTab === 'reacondicionado' && diagnosticResult === 'reparacion') {
@@ -715,6 +760,10 @@ ${funcNotes || 'Ninguno evaluado'}
     } else if (activeTab === 'reacondicionado') {
       finalNotes += `Pruebas de Reacondicionado Realizadas:\n${reacondTests.length > 0 ? reacondTests.map(t => `- ${t}`).join('\n') : 'Ninguna'}\n\n`;
     }
+
+    if (diagnosticResult === 'l3' && diagnosticNotes.trim()) {
+      finalNotes += `Motivo L3: ${diagnosticNotes.trim()}\n\n`;
+    }
     
     finalNotes += `Notas adicionales: ${diagnosticNotes || 'Sin notas adicionales'}`;
 
@@ -722,6 +771,7 @@ ${funcNotes || 'Ninguno evaluado'}
       : activeTab === 'reparacion' ? 'REPARACIÓN COMPLETADA'
       : activeTab === 'qc' ? 'CONTROL DE CALIDAD COMPLETADO'
       : activeTab === 'reacondicionado' ? 'REACONDICIONADO COMPLETADO'
+      : activeTab === 'l3' ? 'REPARACIÓN L3 COMPLETADA'
       : 'OPERACIÓN COMPLETADA';
     
     try {
@@ -803,7 +853,11 @@ ${funcNotes || 'Ninguno evaluado'}
       const seriesIds = item.all_dbIds?.length ? item.all_dbIds : [item.dbId];
       await returnWorkshopInBatches(seriesIds, {
         targetStatus: returnTargetStage,
-        reason: 'Movido manualmente desde Taller',
+        reason:
+          activeTab === 'scraps'
+            ? 'Regreso desde cola SCRAPS'
+            : 'Movido manualmente desde Taller',
+        clearBoxId: activeTab === 'scraps',
       });
       const stageLabels: Record<string, string> = {
         in_workshop: 'DIAGNÓSTICO',
@@ -825,6 +879,30 @@ ${funcNotes || 'Ninguno evaluado'}
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveScrapComment = async (comment: string) => {
+    const item = commentModalOpen.item;
+    if (!item) return;
+    setCommentSaving(true);
+    try {
+      const seriesIds = item.all_dbIds?.length ? item.all_dbIds : [item.dbId];
+      await addWorkshopCommentViaApi({
+        seriesIds,
+        comment,
+        tab: activeTab,
+      });
+      notify.success('Comentario guardado', {
+        description: `OS ${item.os || item.id || ''} — visible en historial`,
+      });
+      setCommentModalOpen({ isOpen: false, item: null });
+    } catch (error: unknown) {
+      notify.error('No se pudo guardar el comentario', {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setCommentSaving(false);
     }
   };
 
@@ -1047,6 +1125,29 @@ ${funcNotes || 'Ninguno evaluado'}
                 width: 'minmax(0,0.45fr)',
                 cell: (item: any) => plainCell(String(item.boxCode || '—'), !item.boxCode),
               },
+              ...(activeTab === 'l3'
+                ? [
+                    {
+                      id: 'diagnostico',
+                      header: 'Diagnóstico',
+                      width: 'minmax(140px, 1.2fr)',
+                      cell: (item: any) => {
+                        const label = String(item.diagnosticoLabel || 'Sin diagnóstico registrado');
+                        const empty = label === 'Sin diagnóstico registrado';
+                        return (
+                          <span
+                            title={label}
+                            className={`block min-w-0 truncate text-xs font-medium ${
+                              empty ? 'text-[var(--muted)] italic' : 'text-[var(--foreground)]'
+                            }`}
+                          >
+                            {label}
+                          </span>
+                        );
+                      },
+                    } as DataTableColumn<any>,
+                  ]
+                : []),
               {
                 id: 'fecha',
                 header: 'Fecha',
@@ -1066,21 +1167,35 @@ ${funcNotes || 'Ninguno evaluado'}
               {
                 id: 'accion',
                 header: 'Acc.',
-                width: activeTab === 'diagnostico' ? '40px' : activeTab === 'scraps' ? '68px' : '84px',
+                width: activeTab === 'diagnostico' ? '40px' : activeTab === 'scraps' ? '96px' : '84px',
                 sticky: 'end',
                 align: 'right',
                 headerClassName: `justify-end ${TALLER_TABLE_HEADER} ${TALLER_TABLE_HEADER_TEXT}`,
                 cell: (item: any) => (
                   <div className="flex items-center justify-end gap-0.5">
-                    {activeTab !== 'diagnostico' && activeTab !== 'scraps' && (
+                    {activeTab !== 'diagnostico' && (
                       <button
                         type="button"
-                        onClick={() => { setReturnModalOpen({ isOpen: true, item }); setReturnTargetStage('in_workshop'); }}
+                        onClick={() => {
+                          setReturnModalOpen({ isOpen: true, item });
+                          setReturnTargetStage('in_workshop');
+                        }}
                         className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[var(--border)] text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--heading)]"
                         title="Regresar a otra etapa"
                         aria-label="Regresar a otra etapa"
                       >
                         <RotateCcw size={12} />
+                      </button>
+                    )}
+                    {activeTab === 'scraps' && (
+                      <button
+                        type="button"
+                        onClick={() => setCommentModalOpen({ isOpen: true, item })}
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[var(--border)] text-[var(--muted)] transition-colors hover:bg-rose-50 hover:text-rose-700"
+                        title="Agregar comentario"
+                        aria-label="Agregar comentario"
+                      >
+                        <MessageSquare size={12} />
                       </button>
                     )}
                     {activeTab !== 'diagnostico' && (
@@ -1094,17 +1209,7 @@ ${funcNotes || 'Ninguno evaluado'}
                         <History size={12} />
                       </button>
                     )}
-                    {activeTab === 'scraps' ? (
-                      <button
-                        type="button"
-                        title="Despachar"
-                        aria-label="Despachar"
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[var(--border)] bg-[var(--primary)] text-[var(--primary-foreground)] transition-colors hover:opacity-90"
-                        onClick={() => { setScrapDispatchModal({ isOpen: true, item }); setScrapGuideNumber(''); setScrapNotes(''); }}
-                      >
-                        <Send size={12} />
-                      </button>
-                    ) : (
+                    {activeTab !== 'scraps' && (
                       <button
                         type="button"
                         title="Evaluar"
@@ -1251,22 +1356,6 @@ ${funcNotes || 'Ninguno evaluado'}
                     >
                       {exportingReport ? 'Exportando…' : 'Exportar Reporte'}
                     </Button>
-
-                    {/* SCRAPS-specific: Create Dispatch Box button (always visible in SCRAPS) */}
-                    {activeTab === 'scraps' && (
-                      <Button
-                        variant="primary"
-                        className="bg-rose-500 hover:bg-rose-600 text-white shadow-lg shadow-rose-500/20 font-black"
-                        leftIcon={<Package className="w-4 h-4" />}
-                        onClick={() => {
-                          setScrapDispatchModal({ isOpen: true, item: null });
-                          setScrapGuideNumber('');
-                          setScrapNotes('');
-                        }}
-                      >
-                        Crear Caja de Despacho SCRAP
-                      </Button>
-                    )}
 
                     {selectedRows.length > 0 ? (
                       <div className="flex flex-wrap gap-2 animate-rise-in w-full xl:w-auto">
@@ -1753,8 +1842,17 @@ ${funcNotes || 'Ninguno evaluado'}
           returnTargetStage={returnTargetStage}
           setReturnTargetStage={setReturnTargetStage}
           loading={loading}
+          fromScraps={activeTab === 'scraps'}
           onClose={() => setReturnModalOpen({ isOpen: false, item: null })}
           onConfirm={handleReturnToStage}
+        />
+      )}
+      {commentModalOpen.isOpen && (
+        <ScrapCommentModal
+          item={commentModalOpen.item}
+          loading={commentSaving}
+          onClose={() => setCommentModalOpen({ isOpen: false, item: null })}
+          onConfirm={(c) => void handleSaveScrapComment(c)}
         />
       )}
     </ModulePage>

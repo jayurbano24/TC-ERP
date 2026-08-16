@@ -5,32 +5,22 @@ import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
 import { ROLES_TALLER } from '@/shared/authz/roleGuard';
 import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
 import { assertUuidArray } from '@/shared/infrastructure/http/batchLimit';
-import { returnWorkshopSeriesBatch } from '@/modules/workshop/server/workshopReturnService';
+import { addWorkshopSeriesComment } from '@/modules/workshop/server/workshopCommentService';
 import { resolveSessionActor } from '@/shared/infrastructure/session/resolveSessionActor';
 import { estimateJsonBytes, logEgress } from '@/shared/infrastructure/http/egressLog';
 import { getCorrelationIdFromHeaders } from '@/shared/infrastructure/http/correlationId';
 
-const ReturnBody = z.object({
+const BodySchema = z.object({
   series_ids: z.array(z.string().uuid()).min(1),
-  target_status: z.enum(['in_workshop', 'in_qc', 'in_validation', 'in_refurbish', 'in_control_warehouse', 'irreparable']).default('in_workshop'),
-  reason: z.string().max(500).optional(),
-  clear_box_id: z.boolean().optional(),
+  comment: z.string().trim().min(1).max(2000),
+  tab: z.string().max(40).optional(),
 });
-
-const STATUS_LABELS: Record<string, string> = {
-  in_workshop: 'TRASLADO A DIAGNÓSTICO',
-  in_qc: 'TRASLADO A REPARACIÓN',
-  in_validation: 'TRASLADO A CONTROL DE CALIDAD',
-  in_refurbish: 'TRASLADO A REACONDICIONADO',
-  in_control_warehouse: 'TRASLADO A L3',
-  irreparable: 'TRASLADO A SCRAPS',
-};
 
 export const POST = withErrorHandler(
   async (req: Request) => {
     const started = Date.now();
     const correlationId = getCorrelationIdFromHeaders(req.headers);
-    const route = '/api/v1/workshop/return-batch';
+    const route = '/api/v1/workshop/comments';
 
     const auth = await requireApiUser(req);
     if (auth instanceof NextResponse) return auth;
@@ -41,7 +31,7 @@ export const POST = withErrorHandler(
     }
 
     const raw = await req.json().catch(() => null);
-    const parsed = ReturnBody.safeParse(raw);
+    const parsed = BodySchema.safeParse(raw);
     if (!parsed.success) {
       return NextResponse.json(
         { error: 'VALIDATION_ERROR', issues: parsed.error.flatten() },
@@ -49,14 +39,12 @@ export const POST = withErrorHandler(
       );
     }
 
-    const { series_ids, target_status, reason, clear_box_id } = parsed.data;
-
+    const { series_ids, comment, tab } = parsed.data;
     if (series_ids.length > BATCH_LIMITS.WORKSHOP_OPERATE_SERIES_BATCH) {
       return NextResponse.json(
         {
           error: 'BATCH_TOO_LARGE',
-          detail: `Máximo ${BATCH_LIMITS.WORKSHOP_OPERATE_SERIES_BATCH} series por lote; recibidos ${series_ids.length}`,
-          max: BATCH_LIMITS.WORKSHOP_OPERATE_SERIES_BATCH,
+          detail: `Máximo ${BATCH_LIMITS.WORKSHOP_OPERATE_SERIES_BATCH} series por lote`,
         },
         { status: 400 }
       );
@@ -72,23 +60,20 @@ export const POST = withErrorHandler(
 
     const actor = await resolveSessionActor(user);
 
-    const { processed } = await returnWorkshopSeriesBatch(supabase, {
+    const { processed } = await addWorkshopSeriesComment(supabase, {
       seriesIds: series_ids,
-      targetStatus: target_status,
+      comment,
       userId: user.id,
       userRole: roleData?.role,
       operatorName: actor.fullName,
-      reason,
-      actionLabel: STATUS_LABELS[target_status] ?? 'TRASLADO DE ETAPA',
-      clearBoxId: Boolean(clear_box_id),
+      tab,
     });
 
     const responseBody = { success: true, processed };
-
     logEgress({
       route,
       module: 'taller',
-      action: 'return_batch',
+      action: 'add_comment',
       correlationId,
       rowCount: processed,
       bytesEstimate: estimateJsonBytes(responseBody),
@@ -98,5 +83,5 @@ export const POST = withErrorHandler(
 
     return NextResponse.json(responseBody);
   },
-  { module: 'taller', action: 'return_batch', roles: ROLES_TALLER }
+  { module: 'taller', action: 'add_comment', roles: ROLES_TALLER }
 );

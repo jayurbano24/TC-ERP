@@ -42,6 +42,8 @@ export function actionNameForTab(tab: string): string {
       return 'REACONDICIONADO COMPLETADO';
     case 'qc':
       return 'CONTROL DE CALIDAD COMPLETADO';
+    case 'l3':
+      return 'REPARACIÓN L3 COMPLETADA';
     default:
       return 'OPERACIÓN COMPLETADA';
   }

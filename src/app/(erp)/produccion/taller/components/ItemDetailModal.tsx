@@ -145,6 +145,22 @@ export const ItemDetailModal = memo(function ItemDetailModal({ item, activeTab, 
               <p className="text-[10px] font-medium text-[var(--muted)] uppercase tracking-widest mb-1">Guía de Ingreso</p>
               <p className="text-sm font-medium text-[var(--foreground)] uppercase break-all">{item.guide}</p>
             </div>
+            {(activeTab === 'l3' || item.diagnosticoLabel || item.current_diagnostics?.length > 0) && (
+              <div className="sm:col-span-2 bg-[var(--surface-hover)] p-3 sm:p-4 rounded-2xl border border-[var(--border)] min-w-0">
+                <p className="text-[10px] font-medium text-[var(--muted)] uppercase tracking-widest mb-1">
+                  Diagnóstico / Motivo L3
+                </p>
+                <p
+                  className={`text-sm font-medium break-words ${
+                    item.diagnosticoLabel && item.diagnosticoLabel !== 'Sin diagnóstico registrado'
+                      ? 'text-[var(--foreground)]'
+                      : 'text-[var(--muted)] italic'
+                  }`}
+                >
+                  {item.diagnosticoLabel || 'Sin diagnóstico registrado'}
+                </p>
+              </div>
+            )}
           </div>
 
           {item.all_sns && item.all_sns.length > 0 && (

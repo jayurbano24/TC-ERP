@@ -35,6 +35,7 @@ export async function returnWorkshopSeriesBatchCall(params: {
   seriesIds: string[];
   targetStatus?: string;
   reason?: string;
+  clearBoxId?: boolean;
 }): Promise<number> {
   const res = await apiFetch('/api/v1/workshop/return-batch', {
     method: 'POST',
@@ -44,6 +45,7 @@ export async function returnWorkshopSeriesBatchCall(params: {
       series_ids: params.seriesIds,
       target_status: params.targetStatus ?? 'in_workshop',
       reason: params.reason,
+      clear_box_id: params.clearBoxId ?? false,
     }),
   });
   const data = await res.json().catch(() => ({}));
@@ -66,6 +68,7 @@ export async function returnWorkshopInBatches(
   opts?: {
     targetStatus?: string;
     reason?: string;
+    clearBoxId?: boolean;
     onProgress?: (p: ReturnProgress) => void;
   }
 ): Promise<number> {
@@ -78,6 +81,7 @@ export async function returnWorkshopInBatches(
       seriesIds: chunks[i],
       targetStatus: opts?.targetStatus,
       reason: opts?.reason,
+      clearBoxId: opts?.clearBoxId,
     });
     processedSeries += n;
     opts?.onProgress?.({

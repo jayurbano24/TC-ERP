@@ -109,6 +109,8 @@ export async function returnWorkshopSeriesBatch(
     operatorName?: string;
     reason?: string;
     actionLabel?: string;
+    /** Al salir de SCRAPS / caja, desvincular current_box_id. */
+    clearBoxId?: boolean;
   }
 ): Promise<{ processed: number }> {
   const {
@@ -119,6 +121,7 @@ export async function returnWorkshopSeriesBatch(
     operatorName,
     reason = 'Regreso manual desde Taller',
     actionLabel = 'TRASLADO A DIAGNÓSTICO',
+    clearBoxId = false,
   } = params;
 
   if (seriesIds.length === 0) return { processed: 0 };
@@ -128,9 +131,14 @@ export async function returnWorkshopSeriesBatch(
   let processed = 0;
 
   for (const chunk of chunkIds(targetSeriesIds, BATCH_LIMITS.WORKSHOP_OPERATE_SERIES_BATCH)) {
+    const updatePayload: Record<string, unknown> = { current_status: targetStatus };
+    if (clearBoxId) {
+      updatePayload.current_box_id = null;
+    }
+
     const { error: updateError } = await supabase
       .from('series')
-      .update({ current_status: targetStatus })
+      .update(updatePayload)
       .in('id', chunk);
 
     if (updateError) throw new Error(updateError.message);
@@ -150,6 +158,7 @@ export async function returnWorkshopSeriesBatch(
         equipment_complete: true,
         requested_series: seriesIds.length,
         expanded_series: targetSeriesIds.length,
+        clear_box_id: clearBoxId || undefined,
       },
       user_agent: 'api/v1/workshop/return-batch',
     }));

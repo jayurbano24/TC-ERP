@@ -45,6 +45,8 @@ export function actionNameForWorkshopTab(
       return WORKSHOP_STAGE_ACTIONS.REAC;
     case 'qc':
       return WORKSHOP_STAGE_ACTIONS.QC;
+    case 'l3':
+      return 'REPARACIÓN L3 COMPLETADA';
     default:
       return 'OPERACIÓN COMPLETADA';
   }

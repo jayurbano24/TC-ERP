@@ -46,15 +46,18 @@ export async function getSapBlockReturnRows() {
       id,
       serial_number,
       notes,
+      created_at,
       updated_at,
       service_order_id,
       sap_transfer_id,
-      service_orders ( os_label ),
+      service_orders ( os_label, created_at ),
       sap_transfer_documents (
         id,
         sap_document_number,
         status,
         reception_id,
+        created_at,
+        updated_at,
         reception_guides ( guide_number, agency )
       ),
       receptions:current_reception_id ( guide_number, carrier, created_at )
@@ -101,8 +104,16 @@ export async function getSapBlockReturnRows() {
       s.receptions?.guide_number ||
       '---';
 
-    // Identificador legible (no UUID): usa la OS (única por fila tras dedup);
-    // si no hay OS, usa el documento SAP + sufijo corto de serie para garantizar unicidad.
+    // Fecha FIJA del evento de devolución (notes), nunca updated_at (cambia con sync/SAP).
+    const stableMs =
+      extractStableReturnFechaFromNotes(notes) ??
+      (s.service_orders?.created_at
+        ? new Date(s.service_orders.created_at).getTime()
+        : NaN);
+    const timestamp = Number.isFinite(stableMs)
+      ? stableMs
+      : new Date(s.created_at || Date.now()).getTime();
+
     const friendlyRef =
       s.service_orders?.os_label ||
       `${sapDoc?.sap_document_number || 'SAP'}-${String(s.id).slice(0, 6).toUpperCase()}`;
@@ -115,8 +126,8 @@ export async function getSapBlockReturnRows() {
         s.receptions?.carrier ||
         'S/D',
       motivo: motivoMatch?.[1]?.trim() || `Devolución bloque SAP ${sapDoc?.sap_document_number || ''}`,
-      fecha: new Date(s.updated_at).toLocaleDateString(),
-      timestamp: new Date(s.updated_at).getTime(),
+      fecha: formatStableDate(timestamp),
+      timestamp,
       estatus: 'Pendiente',
       os: s.service_orders?.os_label || '---',
       sapDocument: sapDoc?.sap_document_number || '---',
@@ -129,7 +140,7 @@ export async function getSapBlockReturnRows() {
     });
   }
 
-  return rows;
+  return rows.sort((a, b) => b.timestamp - a.timestamp);
 }
 
 const PROCESSED_RECEPTION_STATUSES = new Set(['DESPACHADO', 'DEVUELTO_A_AGENCIA', 'DEVUELTO']);
@@ -137,6 +148,108 @@ const PROCESSED_RECEPTION_STATUSES = new Set(['DESPACHADO', 'DEVUELTO_A_AGENCIA'
 function extractGuiaEnvioFromNotes(notes: string | null | undefined): string | undefined {
   const match = String(notes || '').match(/Guía de Envío:\s*([^\n(]+)/i);
   return match?.[1]?.trim() || undefined;
+}
+
+/** Parsea timestamps de línea de tiempo tipo `16/8/2026, 8:40:31 p. m.` (toLocaleString). */
+function parseTimelineStamp(raw: string): number | null {
+  const trimmed = String(raw || '').trim();
+  if (!trimmed) return null;
+  const iso = Date.parse(trimmed);
+  if (!Number.isNaN(iso)) return iso;
+
+  const m = trimmed.match(
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4}),?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(a\.?\s*m\.?|p\.?\s*m\.?)?/i
+  );
+  if (!m) return null;
+
+  let hour = Number(m[4]);
+  const min = Number(m[5]);
+  const sec = Number(m[6] || 0);
+  const ampm = String(m[7] || '')
+    .toLowerCase()
+    .replace(/\s+/g, '');
+  if (ampm.startsWith('p') && hour < 12) hour += 12;
+  if (ampm.startsWith('a') && hour === 12) hour = 0;
+
+  const day = Number(m[1]);
+  const month = Number(m[2]) - 1;
+  const year = Number(m[3]);
+  const d = new Date(year, month, day, hour, min, sec);
+  return Number.isNaN(d.getTime()) ? null : d.getTime();
+}
+
+/**
+ * Fecha/usuario del PRIMER movimiento a Bodega Devolución (estable; no cambia con eventos posteriores).
+ * Formato: `[fecha] MOV-… | BOD-DEV | CLASIFICACIÓN (Guía X): Movido a BODEGA: DEVOLUCIÓN - Por: Nombre`
+ */
+function extractDevolucionMoveFromNotes(
+  notes: string | null | undefined,
+  guideNumber: string
+): { at: number | null; by: string | null } {
+  if (!notes) return { at: null, by: null };
+  const guideKey = String(guideNumber || '')
+    .trim()
+    .toUpperCase();
+  const lines = String(notes).split(/\r?\n/);
+
+  let bestForGuide: { at: number; by: string | null } | null = null;
+  let bestAny: { at: number; by: string | null } | null = null;
+
+  for (const line of lines) {
+    if (!/BOD-DEV|Movido a BODEGA:\s*DEVOLUCI/i.test(line)) continue;
+    const stampMatch = line.match(/\[([^\]]+)\]/);
+    if (!stampMatch) continue;
+    const at = parseTimelineStamp(stampMatch[1]);
+    if (at == null) continue;
+    const byMatch = line.match(/Por:\s*(.+?)\s*$/i);
+    const by = byMatch?.[1]?.trim() || null;
+    const entry = { at, by };
+
+    // Más antigua = fecha real de ingreso a devolución (no se “actualiza”).
+    if (!bestAny || at < bestAny.at) bestAny = entry;
+
+    if (guideKey) {
+      const upper = line.toUpperCase();
+      const guiaBlock = upper.match(/CLASIFICACI[OÓ]N\s*\(GU[IÍ]A\s*([^)]*)\)/i);
+      const guidesInLine = (guiaBlock?.[1] || '')
+        .split(/[,;/|]/)
+        .map((g) => g.trim().toUpperCase())
+        .filter(Boolean);
+      const mentions =
+        upper.includes(guideKey) ||
+        guidesInLine.some((g) => g === guideKey || g.includes(guideKey) || guideKey.includes(g));
+      if (mentions && (!bestForGuide || at < bestForGuide.at)) {
+        bestForGuide = entry;
+      }
+    }
+  }
+
+  const best = bestForGuide || bestAny;
+  return best ? { at: best.at, by: best.by } : { at: null, by: null };
+}
+
+/** Fecha fija escrita al devolver (bloque --- DEVOLUCIÓN --- / Fecha:), no updated_at. */
+function extractStableReturnFechaFromNotes(notes: string | null | undefined): number | null {
+  if (!notes) return null;
+  const text = String(notes);
+
+  const blockMatch = text.match(/---\s*DEVOLUCI[OÓ]N\s*---([\s\S]*?)(?=---\s*[A-ZÁÉÍÓÚ]|\[\d|$)/i);
+  const block = blockMatch?.[1] || text;
+  const fechaMatch = block.match(/Fecha:\s*([^\n]+)/i);
+  if (fechaMatch?.[1]) {
+    const parsed = parseTimelineStamp(fechaMatch[1]);
+    if (parsed != null) return parsed;
+  }
+
+  return null;
+}
+
+function formatStableDate(ms: number): string {
+  return new Date(ms).toLocaleDateString('es-GT');
+}
+
+function formatStableDateTime(ms: number): string {
+  return new Date(ms).toLocaleString('es-GT');
 }
 
 /** Fila de caja en Bodega Devolución (desde clasificación Backoffice). */
@@ -197,18 +310,29 @@ async function backfillDevolucionGuidesFromReceptions(
         notes.split('Motivo Devolución: ')[1]?.split('\n')[0]?.trim() ||
         null;
 
-      await supabase.from('reception_guides').upsert(
-        {
-          reception_id: rec.id,
-          guide_number: guideNumber,
-          category: 'devolucion',
-          status: 'CLASIFICADO',
-          motivo,
-          classified_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'reception_id,guide_number' }
-      );
+      const move = extractDevolucionMoveFromNotes(notes, guideNumber);
+      const moveIso = move.at != null ? new Date(move.at).toISOString() : null;
+
+      const { data: existing } = await supabase
+        .from('reception_guides')
+        .select('id, classified_at, classified_by, category')
+        .eq('reception_id', rec.id)
+        .eq('guide_number', guideNumber)
+        .maybeSingle();
+
+      // Ya existe: no tocar classified_at ni updated_at (las fechas no deben cambiar).
+      if (existing?.id) continue;
+
+      await supabase.from('reception_guides').insert({
+        reception_id: rec.id,
+        guide_number: guideNumber,
+        category: 'devolucion',
+        status: 'CLASIFICADO',
+        motivo,
+        classified_at: moveIso || new Date().toISOString(),
+        classified_by: move.by || null,
+        updated_at: moveIso || new Date().toISOString(),
+      });
     }
   }
 }
@@ -220,11 +344,22 @@ function mapReceptionGuideToBoxReturnRow(rg: any): BoxReturnRow {
     guideStatus === 'DESPACHADO' ||
     (recStatus ? PROCESSED_RECEPTION_STATUSES.has(recStatus) : false);
 
-  const processDate = rg.classified_at
-    ? new Date(rg.classified_at).toLocaleString()
-    : new Date(rg.receptions?.created_at).toLocaleString();
-  const processUser = rg.classified_by || rg.receptions?.carrier || 'SISTEMA';
   const receptionNotes = rg.receptions?.notes as string | undefined;
+  const move = extractDevolucionMoveFromNotes(receptionNotes, String(rg.guide_number || ''));
+
+  // Fecha FIJA: primer BOD-DEV en notes (histórico) → classified_at → created_at recepción.
+  // Nunca updated_at (cambia con sync / despacho / backfill).
+  const classifiedMs = rg.classified_at ? new Date(rg.classified_at).getTime() : NaN;
+  const movedAtMs =
+    move.at ??
+    (Number.isFinite(classifiedMs)
+      ? classifiedMs
+      : rg.receptions?.created_at
+        ? new Date(rg.receptions.created_at).getTime()
+        : Date.now());
+
+  const processDate = formatStableDateTime(movedAtMs);
+  const processUser = rg.classified_by || move.by || rg.receptions?.carrier || 'SISTEMA';
   const transferNotes =
     rg.motivo ||
     receptionNotes?.split('Motivo Devolución: ')[1]?.split('\n')[0]?.trim() ||
@@ -236,16 +371,12 @@ function mapReceptionGuideToBoxReturnRow(rg: any): BoxReturnRow {
     sn: rg.guide_number,
     cliente: rg.agency || rg.receptions?.carrier || 'S/D',
     motivo: rg.motivo || 'Devolución de caja',
-    fecha: rg.classified_at
-      ? new Date(rg.classified_at).toLocaleDateString()
-      : new Date(rg.receptions?.created_at).toLocaleDateString(),
-    timestamp: rg.classified_at
-      ? new Date(rg.classified_at).getTime()
-      : new Date(rg.receptions?.created_at).getTime(),
+    fecha: formatStableDate(movedAtMs),
+    timestamp: movedAtMs,
     estatus: isProcessed ? ('Procesado' as const) : ('Pendiente' as const),
     dbId: rg.id as string,
     receptionId: rg.reception_id as string,
-    classifiedBy: rg.classified_by as string | undefined,
+    classifiedBy: (rg.classified_by || move.by) as string | undefined,
     guiaEnvio: extractGuiaEnvioFromNotes(receptionNotes),
     isBoxReturn: true as const,
     os: '---',
@@ -263,7 +394,11 @@ export async function getBoxReturnRows(): Promise<BoxReturnRow[]> {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return [];
 
-  await backfillDevolucionGuidesFromReceptions(supabase);
+  // No await backfill en el listado: bloqueaba la UI (spinner infinito).
+  // Reparación opcional en background, sin retrasar la respuesta.
+  void backfillDevolucionGuidesFromReceptions(supabase).catch((err) => {
+    console.warn('backfillDevolucionGuidesFromReceptions:', err);
+  });
 
   const { data, error } = await supabase
     .from('reception_guides')
@@ -1042,4 +1177,85 @@ export async function undoFullReceptionReturn(receptionId: string) {
   } catch (err: any) {
     return { error: err.message };
   }
+}
+
+export type ReturnsReportRankRow = { name: string; count: number };
+
+export type ReturnsReportStats = {
+  total: number;
+  agencies: ReturnsReportRankRow[];
+  reasons: ReturnsReportRankRow[];
+  topAgency: ReturnsReportRankRow | null;
+  topReason: ReturnsReportRankRow | null;
+  refreshedAt: string | null;
+  source: string;
+};
+
+function normalizeReportStats(raw: unknown): ReturnsReportStats {
+  const data = (raw && typeof raw === 'object' ? raw : {}) as {
+    total?: number;
+    agencies?: ReturnsReportRankRow[];
+    reasons?: ReturnsReportRankRow[];
+    refreshed_at?: string | null;
+    source?: string;
+  };
+  const agencies = Array.isArray(data.agencies)
+    ? data.agencies
+        .map((r) => ({ name: String(r?.name || 'Sin asignar'), count: Number(r?.count) || 0 }))
+        .filter((r) => r.count > 0)
+        .sort((a, b) => b.count - a.count)
+    : [];
+  const reasons = Array.isArray(data.reasons)
+    ? data.reasons
+        .map((r) => ({ name: String(r?.name || 'Sin motivo'), count: Number(r?.count) || 0 }))
+        .filter((r) => r.count > 0)
+        .sort((a, b) => b.count - a.count)
+    : [];
+  return {
+    total: Number(data.total) || 0,
+    agencies,
+    reasons,
+    topAgency: agencies[0] || null,
+    topReason: reasons[0] || null,
+    refreshedAt: data.refreshed_at ? String(data.refreshed_at) : null,
+    source: String(data.source || 'returns_report_etl'),
+  };
+}
+
+/**
+ * ETL de reporte de devoluciones: refresca snapshot y devuelve cantidades
+ * agregadas (total / agencia / motivo). Requiere migración 210.
+ */
+export async function getReturnsReportStats(): Promise<ReturnsReportStats> {
+  const empty: ReturnsReportStats = {
+    total: 0,
+    agencies: [],
+    reasons: [],
+    topAgency: null,
+    topReason: null,
+    refreshedAt: null,
+    source: 'empty',
+  };
+
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return empty;
+
+  const { error: refreshError } = await supabase.rpc('refresh_returns_report_etl');
+  if (refreshError) {
+    console.error('refresh_returns_report_etl:', refreshError.message);
+    throw new Error(
+      refreshError.message.includes('Could not find the function') ||
+      refreshError.message.includes('does not exist')
+        ? 'Aplique la migración 210_returns_report_etl.sql en Supabase para generar el reporte.'
+        : `No se pudo refrescar el ETL de devoluciones: ${refreshError.message}`
+    );
+  }
+
+  const { data, error } = await supabase.rpc('get_returns_report_stats');
+  if (error) {
+    console.error('get_returns_report_stats:', error.message);
+    throw new Error(`No se pudieron leer las cantidades del reporte: ${error.message}`);
+  }
+
+  return normalizeReportStats(data);
 }

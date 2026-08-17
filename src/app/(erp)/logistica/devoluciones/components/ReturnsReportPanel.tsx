@@ -2,22 +2,15 @@
 
 import { memo } from 'react';
 import { Card, Button } from '@/components/ui';
-import { BarChart3, Building2, AlertCircle, Download, Loader2, TrendingUp, Package } from 'lucide-react';
-
-type RankRow = { name: string; count: number };
-
-type ReportStats = {
-  total: number;
-  agencies: RankRow[];
-  reasons: RankRow[];
-  topAgency: RankRow | null;
-  topReason: RankRow | null;
-};
+import { BarChart3, Building2, AlertCircle, Download, Loader2, TrendingUp, Package, RefreshCw } from 'lucide-react';
+import type { ReturnsReportStats } from '@/modules/returns/client/returnData';
 
 type Props = {
-  stats: ReportStats;
+  stats: ReturnsReportStats;
   loading?: boolean;
+  error?: string | null;
   onExport: () => void;
+  onRetry?: () => void;
 };
 
 const pct = (count: number, total: number) => (total > 0 ? (count / total) * 100 : 0);
@@ -34,7 +27,7 @@ function RankList({
   title: string;
   subtitle: string;
   icon: React.ReactNode;
-  rows: RankRow[];
+  rows: Array<{ name: string; count: number }>;
   total: number;
   barClassName: string;
   emptyText: string;
@@ -82,26 +75,61 @@ function RankList({
   );
 }
 
-export const ReturnsReportPanel = memo(function ReturnsReportPanel({ stats, loading, onExport }: Props) {
+export const ReturnsReportPanel = memo(function ReturnsReportPanel({
+  stats,
+  loading,
+  error,
+  onExport,
+  onRetry,
+}: Props) {
   if (loading) {
     return (
       <Card className="py-32 flex flex-col items-center justify-center">
         <Loader2 className="w-10 h-10 animate-spin text-[#2ec4f1] mb-4" />
-        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Generando reporte de devoluciones...</p>
+        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+          Generando reporte de devoluciones...
+        </p>
+        <p className="text-[10px] font-bold text-slate-300 mt-2 uppercase tracking-widest">
+          ETL · calculando cantidades
+        </p>
       </Card>
     );
   }
 
+  if (error) {
+    return (
+      <Card className="py-20 flex flex-col items-center justify-center gap-4">
+        <AlertCircle className="w-10 h-10 text-rose-400" />
+        <div className="text-center max-w-lg px-6">
+          <p className="text-sm font-black uppercase tracking-widest text-[#181c3a] mb-2">
+            No se pudo generar el reporte
+          </p>
+          <p className="text-xs font-medium text-slate-500">{error}</p>
+        </div>
+        {onRetry && (
+          <Button variant="outline" leftIcon={<RefreshCw className="w-4 h-4" />} onClick={onRetry}>
+            Reintentar ETL
+          </Button>
+        )}
+      </Card>
+    );
+  }
+
+  const refreshedLabel = stats.refreshedAt
+    ? new Date(stats.refreshedAt).toLocaleString()
+    : null;
+
   return (
     <div className="space-y-6 animate-rise-in">
-      {/* KPIs */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
         <Card className="bg-[#181c3a] text-white border-none relative overflow-hidden">
           <div className="absolute top-0 right-0 p-6 opacity-10"><Package className="w-24 h-24" /></div>
           <div className="relative z-10">
             <p className="text-[10px] font-black uppercase tracking-widest text-white/50 mb-2">Total Devoluciones</p>
             <p className="text-4xl font-black">{stats.total}</p>
-            <p className="text-[10px] font-bold text-white/40 mt-2 uppercase tracking-widest">Cajas + bloques SAP</p>
+            <p className="text-[10px] font-bold text-white/40 mt-2 uppercase tracking-widest">
+              Cantidad · cajas + bloques SAP
+            </p>
           </div>
         </Card>
 
@@ -132,23 +160,33 @@ export const ReturnsReportPanel = memo(function ReturnsReportPanel({ stats, load
         </Card>
       </div>
 
-      <div className="flex items-center justify-between px-1">
+      <div className="flex items-center justify-between px-1 gap-4 flex-wrap">
         <div className="flex items-center gap-3">
           <BarChart3 className="w-5 h-5 text-[#2ec4f1]" />
           <div>
             <h2 className="text-lg font-black text-[#181c3a] uppercase tracking-tight">Análisis de Devoluciones</h2>
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mt-1">Ranking por agencia y por motivo</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mt-1">
+              Ranking por agencia y por motivo
+              {refreshedLabel ? ` · ETL ${refreshedLabel}` : ''}
+            </p>
           </div>
         </div>
-        <Button variant="primary" leftIcon={<Download className="w-4 h-4" />} onClick={onExport}>
-          Exportar Excel
-        </Button>
+        <div className="flex items-center gap-2">
+          {onRetry && (
+            <Button variant="outline" leftIcon={<RefreshCw className="w-4 h-4" />} onClick={onRetry}>
+              Actualizar
+            </Button>
+          )}
+          <Button variant="primary" leftIcon={<Download className="w-4 h-4" />} onClick={onExport}>
+            Exportar Excel
+          </Button>
+        </div>
       </div>
 
       <div className="grid lg:grid-cols-2 gap-6">
         <RankList
           title="Agencias con Más Devoluciones"
-          subtitle="Casos retornados por agencia / cliente"
+          subtitle="Cantidad de casos por agencia / cliente"
           icon={<Building2 className="w-5 h-5 text-rose-500" />}
           rows={stats.agencies}
           total={stats.total}
@@ -157,7 +195,7 @@ export const ReturnsReportPanel = memo(function ReturnsReportPanel({ stats, load
         />
         <RankList
           title="Razones de Devolución"
-          subtitle="Distribución por motivo declarado"
+          subtitle="Cantidad por motivo declarado"
           icon={<TrendingUp className="w-5 h-5 text-amber-500" />}
           rows={stats.reasons}
           total={stats.total}

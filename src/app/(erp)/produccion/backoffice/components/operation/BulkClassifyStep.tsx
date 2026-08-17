@@ -1,7 +1,7 @@
 'use client';
 
-import React from 'react';
-import { Button, Card } from '@/components/ui';
+import React, { useEffect } from 'react';
+import { Button, Card, notify } from '@/components/ui';
 import { ChevronLeft, FileText, Package, Radio, RefreshCw } from 'lucide-react';
 import type { OperationContext } from '../../operation/operationContext';
 import type { OperationCategory } from '../../types';
@@ -41,16 +41,36 @@ export function BulkClassifyStep({ ctx }: Props) {
   const isDevolucion = cat === 'Devolución';
   const isSubBodega = cat === 'Accesorio' || cat === 'Teléfono';
   const count = scannedGuides.length;
+  const hasAgency = Boolean(selectedAgencyId && agencyDetails);
+  const hasReason = Boolean(returnReason.trim());
+  const canConfirm = isDevolucion ? hasAgency && hasReason : true;
+
+  useEffect(() => {
+    if (isDevolucion && !selectedAgencyId) {
+      setShowAgencyModal(true);
+    }
+  }, [isDevolucion, selectedAgencyId, setShowAgencyModal]);
 
   const handleConfirm = () => {
     if (isDevolucion) {
+      if (!selectedAgencyId || !agencyDetails) {
+        notify.warning('Agencia destino obligatoria', {
+          description: 'Debe seleccionar la agencia antes de confirmar la devolución.',
+        });
+        setShowAgencyModal(true);
+        return;
+      }
+      if (!returnReason.trim()) {
+        notify.warning('Motivo obligatorio', {
+          description: 'Ingrese el motivo de la devolución.',
+        });
+        return;
+      }
       void handleConfirmReturn();
     } else {
       void completeCurrentGuides();
     }
   };
-
-  const canConfirm = isDevolucion ? Boolean(selectedAgencyId && returnReason.trim()) : true;
 
   return (
     <div className="space-y-4 animate-rise-in max-w-3xl mx-auto">
@@ -101,11 +121,25 @@ export function BulkClassifyStep({ ctx }: Props) {
         {isDevolucion && (
           <div className="space-y-4 mb-5">
             <div
+              role="button"
+              tabIndex={0}
               onClick={() => setShowAgencyModal(true)}
-              className="cursor-pointer hover:bg-slate-50 p-3 rounded-xl border border-slate-200 transition-all"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') setShowAgencyModal(true);
+              }}
+              className={`cursor-pointer hover:bg-slate-50 p-3 rounded-xl border-2 transition-all ${
+                hasAgency
+                  ? 'border-emerald-200 bg-emerald-50/40'
+                  : 'border-rose-300 bg-rose-50/50 ring-2 ring-rose-100'
+              }`}
             >
               <p className="text-[9px] font-black text-slate-400 uppercase mb-1">
                 Agencia destino <span className="text-rose-500">*</span>
+                {!hasAgency && (
+                  <span className="ml-2 text-rose-500 normal-case tracking-normal font-bold">
+                    Obligatorio — toque para elegir
+                  </span>
+                )}
               </p>
               <p className="text-sm font-black text-[var(--heading)] uppercase">
                 {agencyDetails
@@ -162,7 +196,9 @@ export function BulkClassifyStep({ ctx }: Props) {
             {isDevolucion && <span className="text-rose-500 ml-1">*</span>}
           </label>
           <textarea
-            className="w-full p-3 bg-white border border-slate-200 rounded-xl font-bold text-sm text-[var(--heading)] outline-none focus:ring-2 focus:ring-[var(--accent)] min-h-[80px]"
+            className={`w-full p-3 bg-white border rounded-xl font-bold text-sm text-[var(--heading)] outline-none focus:ring-2 focus:ring-[var(--accent)] min-h-[80px] ${
+              isDevolucion && !hasReason ? 'border-rose-200' : 'border-slate-200'
+            }`}
             placeholder={
               isDevolucion
                 ? 'Motivo de la devolución...'
@@ -191,6 +227,13 @@ export function BulkClassifyStep({ ctx }: Props) {
             } ${isSubmitting || !canConfirm ? 'opacity-50 cursor-not-allowed' : ''}`}
             onClick={handleConfirm}
             disabled={isSubmitting || !canConfirm}
+            title={
+              isDevolucion && !hasAgency
+                ? 'Seleccione la agencia destino para continuar'
+                : isDevolucion && !hasReason
+                  ? 'Ingrese el motivo de la devolución'
+                  : undefined
+            }
           >
             {isSubmitting ? 'Procesando...' : `Confirmar ${count} caja${count !== 1 ? 's' : ''}`}
           </Button>

@@ -4,6 +4,9 @@ import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, Button, Badge, notify, confirmDialog, DataTable, type DataTableColumn } from '@/components/ui';
 import { ModulePage } from '@/components/module-page';
+import { getActivityCosts, saveActivityCost, deleteActivityCost, ActivityCost } from '@/modules/finance-costing/client/costs';
+import { getReceptionsWithSeries } from '@/modules/recepcion/client/receptions'; // To fetch backoffice records
+import { CostsPoTab } from './_components/CostsPoTab';
 import { 
   CircleDollarSign, 
   Settings, 
@@ -14,17 +17,15 @@ import {
   X,
   TrendingUp,
   FileText,
-  Calculator
+  Calculator,
+  FileSpreadsheet
 } from 'lucide-react';
-import { getActivityCosts, saveActivityCost, deleteActivityCost, ActivityCost } from '@/modules/finance-costing/client/costs';
-import { getReceptionsWithSeries } from '@/modules/recepcion/client/receptions'; // To fetch backoffice records
-
 const EMPTY_COSTS: ActivityCost[] = [];
 const EMPTY_RECEPTIONS: any[] = [];
 
 export default function CostosPage() {
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'config'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'config' | 'po'>('dashboard');
   const [busy, setBusy] = useState(false);
 
   // Form state
@@ -164,7 +165,19 @@ export default function CostosPage() {
           </div>
           {activeTab === 'config' && <div className="absolute bottom-0 left-0 w-full h-1 bg-[var(--accent)] rounded-t-full" />}
         </button>
+        <button 
+          onClick={() => setActiveTab('po')}
+          className={`pb-4 px-2 text-sm font-black uppercase tracking-widest transition-all relative ${activeTab === 'po' ? 'text-[var(--heading)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]'}`}
+        >
+          <div className="flex items-center gap-2">
+            <FileSpreadsheet className="w-4 h-4" />
+            PO
+          </div>
+          {activeTab === 'po' && <div className="absolute bottom-0 left-0 w-full h-1 bg-[var(--accent)] rounded-t-full" />}
+        </button>
       </div>
+
+      {activeTab === 'po' && <CostsPoTab />}
 
       {activeTab === 'dashboard' && (
         <div className="space-y-6 animate-rise-in">

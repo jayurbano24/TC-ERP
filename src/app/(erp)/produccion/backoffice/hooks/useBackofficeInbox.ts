@@ -74,7 +74,7 @@ export function useBackofficeInbox(deps: InboxDeps) {
 
   const allReceptions = useMemo(() => data ?? [], [data]);
   const pendingReceptions = useMemo(
-    () => allReceptions.filter((r) => shouldShowInCacInbox(r)),
+    () => allReceptions.filter((r) => shouldShowInCacInbox(r, allReceptions)),
     [allReceptions]
   );
 

@@ -12,6 +12,8 @@ type Props = {
   onSearchChange: (value: string) => void;
   onSelect: (agencyId: string) => void;
   onClose: () => void;
+  title?: string;
+  subtitle?: string;
 };
 
 export function AgencyPickerModal({
@@ -21,6 +23,8 @@ export function AgencyPickerModal({
   onSearchChange,
   onSelect,
   onClose,
+  title = 'Agencia CAC',
+  subtitle,
 }: Props) {
   if (!open) return null;
 
@@ -38,7 +42,12 @@ export function AgencyPickerModal({
             <p className="text-[8px] font-black uppercase tracking-widest text-white/40 mb-1">
               Selección de Agencia
             </p>
-            <h3 className="text-lg font-black uppercase tracking-tight">Agencia CAC</h3>
+            <h3 className="text-lg font-black uppercase tracking-tight">{title}</h3>
+            {subtitle ? (
+              <p className="text-[10px] font-bold text-white/50 mt-1 uppercase tracking-widest">
+                {subtitle}
+              </p>
+            ) : null}
           </div>
           <button
             type="button"

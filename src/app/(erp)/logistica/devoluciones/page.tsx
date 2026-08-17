@@ -3,7 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
-import { Card, Badge, Button, notify, confirmDialog, DataTable, type DataTableColumn } from '@/components/ui';
+import { Card, Badge, Button, notify, confirmDialog, DataTable, TablePagination, type DataTableColumn } from '@/components/ui';
 import { ModulePage, ModuleToolbar } from '@/components/module-page';
 import { 
   RotateCcw, 
@@ -21,7 +21,7 @@ import {
   BarChart3
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { registerNewReturn, processFullReceptionReturn, undoFullReceptionReturn, processBlockReturnBySapTransfer, getSapBlockReturnRows, getBoxReturnRows, dispatchReturnItems, dispatchBoxReturns, undoBoxReturnFromClassification, type ReturnDispatchTarget, type BoxReturnDispatchTarget, type BoxReturnRow } from '@/modules/returns/client/returnData';
+import { registerNewReturn, processFullReceptionReturn, undoFullReceptionReturn, processBlockReturnBySapTransfer, getSapBlockReturnRows, getBoxReturnRows, dispatchReturnItems, dispatchBoxReturns, undoBoxReturnFromClassification, getReturnsReportStats, type ReturnDispatchTarget, type BoxReturnDispatchTarget, type BoxReturnRow, type ReturnsReportStats } from '@/modules/returns/client/returnData';
 import { getAgencies, getReturnReasons } from '@/shared/catalogs/catalogs';
 import { BodegaDevolucionTable } from './components/BodegaDevolucionTable';
 import { ReturnsReportPanel } from './components/ReturnsReportPanel';
@@ -33,6 +33,8 @@ import { getActualUserFullName } from '@/lib/auth';
 import { useEffect } from 'react';
 
 type DevolucionTab = 'BODEGA DEVOLUCIÓN' | 'EQUIPOS DEVUELTOS' | 'REPORTES';
+
+const EQUIPOS_PAGE_SIZE = 20;
 
 type Devolucion = {
   id: string;
@@ -97,6 +99,7 @@ const RETURN_REASONS = [
 export default function DevolucionesPage() {
   const [activeCategory, setActiveCategory] = useState<DevolucionTab>('BODEGA DEVOLUCIÓN');
   const [searchTerm, setSearchTerm] = useState('');
+  const [equiposPage, setEquiposPage] = useState(1);
   // C5: el input sigue ligado a searchTerm; el filtrado se recomputa con el debounced.
   const debouncedSearch = useDebouncedValue(searchTerm, 250);
   const [agencies, setAgencies] = useState<CatalogAgency[]>([]);
@@ -145,39 +148,28 @@ export default function DevolucionesPage() {
   const devoluciones = returnsData?.devoluciones ?? [];
   const [dispatchGuiaSalida, setDispatchGuiaSalida] = useState('');
 
-  // Reporte: agrega TODAS las devoluciones (cajas + bloques SAP) por agencia y razón.
-  const { data: reportRows = [], isFetching: isFetchingReport } = useQuery({
-    queryKey: ['devoluciones-report'],
-    queryFn: async () => {
-      const [box, sap] = await Promise.all([getBoxReturnRows(), getSapBlockReturnRows()]);
-      return [...box, ...sap] as Array<{ cliente?: string; motivo?: string; agencyRaw?: string }>;
-    },
+  // Reporte: ETL snapshot (cantidades por agencia / motivo) — migración 210.
+  const {
+    data: reportStats = {
+      total: 0,
+      agencies: [],
+      reasons: [],
+      topAgency: null,
+      topReason: null,
+      refreshedAt: null,
+      source: 'empty',
+    } as ReturnsReportStats,
+    isPending: isReportPending,
+    isFetching: isFetchingReport,
+    error: reportError,
+    refetch: refetchReport,
+  } = useQuery({
+    queryKey: ['devoluciones-report-etl'],
+    queryFn: getReturnsReportStats,
     enabled: activeCategory === 'REPORTES',
+    staleTime: 60_000,
+    retry: 1,
   });
-
-  const reportStats = useMemo(() => {
-    const byAgency = new Map<string, number>();
-    const byReason = new Map<string, number>();
-    for (const r of reportRows) {
-      const ag = (r.cliente || r.agencyRaw || '').trim() || 'Sin asignar';
-      const rs = (r.motivo || '').trim() || 'Sin motivo';
-      byAgency.set(ag, (byAgency.get(ag) || 0) + 1);
-      byReason.set(rs, (byReason.get(rs) || 0) + 1);
-    }
-    const agenciesRanked = [...byAgency.entries()]
-      .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => b.count - a.count);
-    const reasonsRanked = [...byReason.entries()]
-      .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => b.count - a.count);
-    return {
-      total: reportRows.length,
-      agencies: agenciesRanked,
-      reasons: reasonsRanked,
-      topAgency: agenciesRanked[0] || null,
-      topReason: reasonsRanked[0] || null,
-    };
-  }, [reportRows]);
 
   const handleExportReport = () => {
     if (!reportStats.total) {
@@ -337,6 +329,25 @@ export default function DevolucionesPage() {
         .some((field) => String(field).toLowerCase().includes(q))
     );
   }, [devoluciones, debouncedSearch]);
+
+  const equiposTotalCount = filteredDevoluciones.length;
+  const equiposTotalPages = Math.max(1, Math.ceil(equiposTotalCount / EQUIPOS_PAGE_SIZE) || 1);
+  const equiposSafePage = Math.min(equiposPage, equiposTotalPages);
+  const equiposPageItems = useMemo(() => {
+    const start = (equiposSafePage - 1) * EQUIPOS_PAGE_SIZE;
+    return filteredDevoluciones.slice(start, start + EQUIPOS_PAGE_SIZE);
+  }, [filteredDevoluciones, equiposSafePage]);
+  const equiposPageIds = useMemo(() => equiposPageItems.map((d) => d.id), [equiposPageItems]);
+  const equiposStartItem = equiposTotalCount === 0 ? 0 : (equiposSafePage - 1) * EQUIPOS_PAGE_SIZE + 1;
+  const equiposEndItem = Math.min(equiposSafePage * EQUIPOS_PAGE_SIZE, equiposTotalCount);
+
+  useEffect(() => {
+    setEquiposPage(1);
+  }, [debouncedSearch]);
+
+  useEffect(() => {
+    if (equiposPage > equiposTotalPages) setEquiposPage(equiposTotalPages);
+  }, [equiposPage, equiposTotalPages]);
 
   const printConduce = (items: any[]) => {
     const printWindow = window.open('', '', 'width=800,height=600');
@@ -809,7 +820,7 @@ export default function DevolucionesPage() {
   }
 
   const allDevolucionesSelected =
-    filteredDevoluciones.length > 0 && selectedIds.length === filteredDevoluciones.length;
+    equiposPageIds.length > 0 && equiposPageIds.every((id) => selectedIds.includes(id));
 
   const devolucionColumns: DataTableColumn<Devolucion>[] = [
     {
@@ -819,8 +830,11 @@ export default function DevolucionesPage() {
           type="checkbox"
           checked={allDevolucionesSelected}
           onChange={(e) => {
-            if (e.target.checked) setSelectedIds(filteredDevoluciones.map((d) => d.id));
-            else setSelectedIds([]);
+            if (e.target.checked) {
+              setSelectedIds((prev) => [...new Set([...prev, ...equiposPageIds])]);
+            } else {
+              setSelectedIds((prev) => prev.filter((id) => !equiposPageIds.includes(id)));
+            }
           }}
           className="w-4 h-4 accent-[#2ec4f1] rounded border-slate-300 cursor-pointer"
         />
@@ -977,20 +991,28 @@ export default function DevolucionesPage() {
       {activeCategory === 'REPORTES' ? (
         <ReturnsReportPanel
           stats={reportStats}
-          loading={isFetchingReport}
+          loading={isReportPending || (isFetchingReport && reportStats.source === 'empty')}
+          error={reportError instanceof Error ? reportError.message : reportError ? String(reportError) : null}
+          onRetry={() => void refetchReport()}
           onExport={handleExportReport}
         />
       ) : (
       <div className="grid lg:grid-cols-12 gap-8">
         
-        {/* Listado de Devoluciones */}
-        <div className="lg:col-span-8 space-y-6">
+        {/* Listado: ancho completo en Bodega (despacho masivo) o sin selección */}
+        <div
+          className={
+            activeCategory === 'BODEGA DEVOLUCIÓN' || !selectedDev
+              ? 'lg:col-span-12 space-y-6'
+              : 'lg:col-span-8 space-y-6'
+          }
+        >
           {activeCategory === 'BODEGA DEVOLUCIÓN' && (
             <div className="flex items-center justify-between px-2">
               <div>
                 <h2 className="text-xl font-black text-[#181c3a] uppercase tracking-tight">Inventario Bodega Devolución</h2>
                 <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mt-2">
-                  Cajas enviadas desde clasificación Backoffice
+                  Seleccione cajas con checkbox → agencia + guía → despacho masivo
                 </p>
               </div>
               <div className="px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest bg-rose-50 text-rose-600">
@@ -1047,7 +1069,7 @@ export default function DevolucionesPage() {
           {activeCategory === 'BODEGA DEVOLUCIÓN' ? (
             <BodegaDevolucionTable
               rows={filteredBoxRows}
-              loading={loading || isFetchingReturns}
+              loading={isFetchingReturns && filteredBoxRows.length === 0}
               agencies={agencies}
               selectedId={selectedDev?.id || null}
               selectedIds={selectedIds}
@@ -1069,38 +1091,45 @@ export default function DevolucionesPage() {
             />
           ) : (
           <Card padding="none" className="overflow-hidden">
-            {(loading || isFetchingReturns) && filteredDevoluciones.length === 0 ? (
+            {(isFetchingReturns && filteredDevoluciones.length === 0) ? (
               <div className="px-6 py-16 text-center">
                 <Loader2 className="w-8 h-8 animate-spin text-[#2ec4f1] mx-auto" />
               </div>
             ) : (
-              <DataTable
-                columns={devolucionColumns}
-                data={filteredDevoluciones}
-                getRowId={(dev: Devolucion) => dev.id}
-                onRowClick={(dev: Devolucion) => { setSelectedDev(dev); setDispatchGuiaSalida(''); }}
-                rowHeight={68}
-                maxBodyHeight={600}
-                minWidth={1040}
-                headerClassName="bg-slate-50"
-                emptyMessage="No hay equipos pendientes de devolución en bodega"
-                rowClassName={(dev: Devolucion) =>
-                  `group ${selectedDev?.id === dev.id ? 'bg-[#2ec4f1]/5' : ''} ${selectedIds.includes(dev.id) ? 'bg-blue-50/50' : ''}`
-                }
-              />
+              <>
+                <DataTable
+                  columns={devolucionColumns}
+                  data={equiposPageItems}
+                  getRowId={(dev: Devolucion) => dev.id}
+                  onRowClick={(dev: Devolucion) => { setSelectedDev(dev); setDispatchGuiaSalida(''); }}
+                  rowHeight={68}
+                  maxBodyHeight={600}
+                  minWidth={1040}
+                  headerClassName="bg-slate-50"
+                  emptyMessage="No hay equipos pendientes de devolución en bodega"
+                  rowClassName={(dev: Devolucion) =>
+                    `group ${selectedDev?.id === dev.id ? 'bg-[#2ec4f1]/5' : ''} ${selectedIds.includes(dev.id) ? 'bg-blue-50/50' : ''}`
+                  }
+                />
+                <TablePagination
+                  totalCount={equiposTotalCount}
+                  page={equiposSafePage}
+                  totalPages={equiposTotalPages}
+                  startItem={equiposStartItem}
+                  endItem={equiposEndItem}
+                  pageSize={EQUIPOS_PAGE_SIZE}
+                  onPageChange={setEquiposPage}
+                  itemLabel="equipos"
+                />
+              </>
             )}
           </Card>
           )}
         </div>
 
-        {/* Panel de Procesamiento */}
+        {/* Detalle solo en Equipos Devueltos con fila seleccionada (Bodega usa despacho masivo). */}
+        {activeCategory !== 'BODEGA DEVOLUCIÓN' && selectedDev && (
         <div className="lg:col-span-4 space-y-6">
-          {!selectedDev ? (
-            <Card className="h-full flex flex-col items-center justify-center bg-slate-50 border-dashed border-2 py-32 opacity-50">
-              <RotateCcw className="w-16 h-16 text-[#181c3a] mb-4" />
-              <p className="text-xs font-black uppercase tracking-widest text-slate-500">Seleccione un retorno para procesar</p>
-            </Card>
-          ) : (
             <div className="space-y-6 animate-rise-in">
               <Card className="bg-[#181c3a] text-white border-none overflow-hidden relative">
                 <div className="absolute top-0 right-0 p-8 opacity-5">
@@ -1109,7 +1138,7 @@ export default function DevolucionesPage() {
                 <div className="relative z-10 space-y-4">
                   <div className="flex justify-between items-start">
                     <Badge className="bg-[#2ec4f1]/20 text-[#2ec4f1] border-none">
-                      {activeCategory === 'BODEGA DEVOLUCIÓN' || selectedDev.isBoxReturn
+                      {selectedDev.isBoxReturn
                         ? 'Bodega Devolución'
                         : selectedDev.isSapBlock
                           ? 'Devolución SAP'
@@ -1152,7 +1181,7 @@ export default function DevolucionesPage() {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {(activeCategory === 'BODEGA DEVOLUCIÓN' || selectedDev.isBoxReturn) && (
+                      {selectedDev.isBoxReturn && (
                         <div className="space-y-2">
                           <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
                             Agencia de Destino (obligatorio)
@@ -1183,7 +1212,7 @@ export default function DevolucionesPage() {
                         className="w-full h-12 px-4 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-sm text-[#181c3a] outline-none focus:border-[#2ec4f1] transition-all uppercase"
                       />
                       <p className="text-[10px] text-slate-400 font-medium">
-                        {activeCategory === 'BODEGA DEVOLUCIÓN' || selectedDev.isBoxReturn
+                        {selectedDev.isBoxReturn
                           ? 'Despacha la caja de vuelta a la agencia seleccionada con la guía del courier.'
                           : selectedDev.isSapBlock
                             ? 'Despacha todas las series de la orden de servicio en estado devuelto.'
@@ -1204,7 +1233,7 @@ export default function DevolucionesPage() {
                         loading ||
                         selectedDev.estatus === 'Procesado' ||
                         !dispatchGuiaSalida.trim() ||
-                        ((activeCategory === 'BODEGA DEVOLUCIÓN' || selectedDev.isBoxReturn) && !selectedAgencyId)
+                        (selectedDev.isBoxReturn && !selectedAgencyId)
                       }
                       onClick={handleDispatchSingle}
                     >
@@ -1231,8 +1260,8 @@ export default function DevolucionesPage() {
                 </div>
               </Card>
             </div>
-          )}
         </div>
+        )}
       </div>
       )}
 

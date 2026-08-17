@@ -6,10 +6,11 @@ import type { BackofficeReception } from '../../types';
 
 type Props = {
   rec: BackofficeReception;
+  allReceptions?: BackofficeReception[];
 };
 
-export function InboxClassificationProgress({ rec }: Props) {
-  const { classified, total, remaining } = getInboxClassificationStats(rec);
+export function InboxClassificationProgress({ rec, allReceptions = [] }: Props) {
+  const { classified, total, remaining } = getInboxClassificationStats(rec, allReceptions);
   const showGuideProgress = total > 1;
 
   if (!showGuideProgress) {

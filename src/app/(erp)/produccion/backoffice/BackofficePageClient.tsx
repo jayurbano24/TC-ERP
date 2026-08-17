@@ -226,6 +226,18 @@ export default function BackofficePageClient() {
         onAgencySearchChange={setAgencySearch}
         onSelectAgency={onSelectAgency}
         onCloseAgencyModal={onCloseAgencyModal}
+        agencyModalTitle={
+          operationCtx.category === 'Devolución' ||
+          operationCtx.receptionStep === 'return_confirmation' ||
+          operationCtx.receptionStep === 'bulk_classify_confirm'
+            ? 'Agencia destino'
+            : 'Agencia CAC'
+        }
+        agencyModalSubtitle={
+          operationCtx.category === 'Devolución'
+            ? 'Obligatoria — toque una agencia para continuar'
+            : undefined
+        }
         showBulkModal={showBulkModal}
         bulkText={bulkText}
         onBulkTextChange={setBulkText}

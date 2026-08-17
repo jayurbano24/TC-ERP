@@ -46,18 +46,27 @@ export function countClassificationProgress(
   return { pending, total };
 }
 
-/** Progreso de clasificación para tarjetas de bandeja CAC (misma lógica que Historial Recepción). */
-export function getInboxClassificationStats(rec: {
-  notes?: string;
-  guide_number?: string;
-  received_units?: number;
-  processed_guides?: string[];
-}): { classified: number; total: number; remaining: number } {
+/** Progreso de clasificación para tarjetas de bandeja CAC (misma lógica que ClassificationStep). */
+export function getInboxClassificationStats(
+  rec: {
+    notes?: string;
+    guide_number?: string;
+    received_units?: number;
+    processed_guides?: string[];
+  },
+  allReceptions: ReceptionLike[] = []
+): { classified: number; total: number; remaining: number } {
   const guideList = parseReceptionGuideList(rec);
   const units = rec.received_units ?? 1;
   let total = guideList.length > 0 ? guideList.length : units;
   if (guideList.length <= 1 && units > 1) {
     total = units;
+  }
+
+  if (guideList.length > 0) {
+    const remaining = getPendingGuides(rec, rec.processed_guides || [], allReceptions).length;
+    const classified = Math.max(0, total - remaining);
+    return { classified, total, remaining };
   }
 
   const classified = new Set(

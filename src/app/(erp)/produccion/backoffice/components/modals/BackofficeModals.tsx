@@ -18,6 +18,8 @@ type Props = {
   onAgencySearchChange: (value: string) => void;
   onSelectAgency: (id: string) => void;
   onCloseAgencyModal: () => void;
+  agencyModalTitle?: string;
+  agencyModalSubtitle?: string;
   showBulkModal: boolean;
   bulkText: string;
   onBulkTextChange: (value: string) => void;
@@ -68,6 +70,8 @@ export function BackofficeModals({
   onAgencySearchChange,
   onSelectAgency,
   onCloseAgencyModal,
+  agencyModalTitle,
+  agencyModalSubtitle,
   showBulkModal,
   bulkText,
   onBulkTextChange,
@@ -119,6 +123,8 @@ export function BackofficeModals({
         onSearchChange={onAgencySearchChange}
         onSelect={onSelectAgency}
         onClose={onCloseAgencyModal}
+        title={agencyModalTitle}
+        subtitle={agencyModalSubtitle}
       />
 
       <BulkSeriesModal

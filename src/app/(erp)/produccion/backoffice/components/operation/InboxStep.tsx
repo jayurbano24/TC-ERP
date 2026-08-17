@@ -19,6 +19,7 @@ export function InboxStep({ ctx }: Props) {
     inboxSearch,
     setInboxSearch,
     pendingReceptions,
+    allReceptions,
     loading,
     inboxLoadError,
     handlePrintConduce,
@@ -31,14 +32,14 @@ export function InboxStep({ ctx }: Props) {
 
   const filteredReceptions = pendingReceptions.filter(
     (rec) =>
-      shouldShowInCacInbox(rec) &&
+      shouldShowInCacInbox(rec, allReceptions) &&
       rec.status !== 'ARCHIVADO' &&
       rec.status !== 'RECIBIDO' &&
       (!inboxSearch || rec.guide_number.toLowerCase().includes(inboxSearch.toLowerCase()))
   );
 
   const pendingBoxCount = filteredReceptions.reduce(
-    (sum, rec) => sum + getInboxClassificationStats(rec).remaining,
+    (sum, rec) => sum + getInboxClassificationStats(rec, allReceptions).remaining,
     0
   );
   const pendingReceptionCount = filteredReceptions.length;
@@ -198,7 +199,7 @@ export function InboxStep({ ctx }: Props) {
                     Recibido por: {getReceiverName(rec)}
                   </p>
                 </div>
-                <InboxClassificationProgress rec={rec} />
+                <InboxClassificationProgress rec={rec} allReceptions={allReceptions} />
                 <div>
                   <p className={erpTypography.label}>Ubicación actual</p>
                   <p className="text-sm font-black text-emerald-500 uppercase leading-tight mt-1">

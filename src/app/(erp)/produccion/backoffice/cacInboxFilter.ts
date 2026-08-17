@@ -12,8 +12,15 @@ const EXCLUDED_INBOX_STATUSES = new Set([
   'ELIMINADO POR BODEGA',
 ]);
 
-/** Devolución de caja única ya no debe aparecer en Bandeja de Entrada (CAC). */
-export function shouldShowInCacInbox(r: BackofficeReception): boolean {
+/**
+ * True cuando el lote aún debe aparecer en Bandeja de Entrada (CAC).
+ * `allReceptions` alinea el conteo con ClassificationStep (guías ya en
+ * RECIBIDO_BACKOFFICE aunque falten en processed_guides).
+ */
+export function shouldShowInCacInbox(
+  r: BackofficeReception,
+  allReceptions: BackofficeReception[] = []
+): boolean {
   const source = (r as BackofficeReception & { source?: string }).source;
   if (source === 'px' && r.status !== 'PENDIENTE_BACKOFFICE') return false;
 
@@ -22,7 +29,13 @@ export function shouldShowInCacInbox(r: BackofficeReception): boolean {
     return false;
   }
 
-  const progress = getInboxClassificationStats(r);
+  const progress = getInboxClassificationStats(r, allReceptions);
+
+  // Todas las cajas ya procesadas → no deben quedar en bandeja.
+  if (progress.total > 0 && progress.remaining <= 0) {
+    return false;
+  }
+
   const hasPendingGuides = progress.remaining > 0;
 
   if (EXCLUDED_INBOX_STATUSES.has(r.status)) {

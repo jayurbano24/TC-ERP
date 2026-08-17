@@ -23,6 +23,10 @@ function startBulkClassify(
   ctx.setReturnCourier('');
   ctx.setAccessoryPhotos([]);
   ctx.setReceptionStep('bulk_classify_confirm');
+  // Devolución: agencia destino es obligatoria — abrir selector de inmediato.
+  if (category === 'Devolución') {
+    ctx.setShowAgencyModal(true);
+  }
 }
 
 export function ClassificationStep({ ctx }: Props) {

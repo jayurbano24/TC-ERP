@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Card, Button, Spinner, notify, confirmDialog } from '@/components/ui';
 import {
   COMPANY_SHIFT_SELECT,
@@ -10,10 +10,11 @@ import {
   HR_POSITION_SELECT,
 } from '@/shared/constants/dbProjections';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
-import { UserPlus, UploadCloud, Download, Upload, Trash2, CheckSquare, Clock } from 'lucide-react';
+import { UserPlus, UploadCloud, Download, Upload, Trash2, CheckSquare, Clock, GitMerge } from 'lucide-react';
 import EmployeeModal from './EmployeeModal';
 import * as XLSX from 'xlsx';
 import { useRef } from 'react';
+import { normalizeEmployeeName } from '@/modules/rrhh/shared/employeeName';
 
 export default function GestionPersonalTab() {
   const [employees, setEmployees] = useState<any[]>([]);
@@ -32,6 +33,20 @@ export default function GestionPersonalTab() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  const duplicateNameKeys = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const emp of employees) {
+      const key = normalizeEmployeeName(String(emp.nombre_completo || ''));
+      if (!key) continue;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    const dups = new Set<string>();
+    for (const [key, n] of counts) {
+      if (n > 1) dups.add(key);
+    }
+    return dups;
+  }, [employees]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -169,6 +184,93 @@ export default function GestionPersonalTab() {
     setLoading(false);
   };
 
+  /** Deja un solo registro por nombre; conserva biometría / Activo / más antiguo. */
+  const handleMergeDuplicateNames = async () => {
+    if (duplicateNameKeys.size === 0) {
+      notify.info('No hay nombres duplicados en la lista.');
+      return;
+    }
+    const ok = await confirmDialog({
+      title: 'Fusionar duplicados por nombre',
+      message: `Hay ${duplicateNameKeys.size} nombre(s) repetido(s). Se conservará un registro por nombre (p.ej. JOSHUA MISAEL…) y se eliminarán los demás. ¿Continuar?`,
+      tone: 'error',
+      confirmText: 'Fusionar',
+    });
+    if (!ok) return;
+
+    setLoading(true);
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const byName = new Map<string, typeof employees>();
+      for (const emp of employees) {
+        const key = normalizeEmployeeName(String(emp.nombre_completo || ''));
+        if (!key) continue;
+        const list = byName.get(key) || [];
+        list.push(emp);
+        byName.set(key, list);
+      }
+
+      let deleted = 0;
+      let failed = 0;
+
+      for (const [, group] of byName) {
+        if (group.length < 2) continue;
+        const ranked = [...group].sort((a, b) => {
+          const aBio = a.face_embedding ? 0 : 1;
+          const bBio = b.face_embedding ? 0 : 1;
+          if (aBio !== bBio) return aBio - bBio;
+          const aAct = String(a.status || '').toLowerCase() === 'activo' ? 0 : 1;
+          const bAct = String(b.status || '').toLowerCase() === 'activo' ? 0 : 1;
+          if (aAct !== bAct) return aAct - bAct;
+          const ta = new Date(a.created_at || 0).getTime();
+          const tb = new Date(b.created_at || 0).getTime();
+          if (ta !== tb) return ta - tb;
+          return String(a.codigo_empleado || '').localeCompare(String(b.codigo_empleado || ''));
+        });
+        const keep = ranked[0];
+        const losers = ranked.slice(1);
+
+        for (const lose of losers) {
+          await supabase.from('time_logs').update({ employee_id: keep.id }).eq('employee_id', lose.id);
+          await supabase.from('employee_face_embeddings').delete().eq('employee_id', lose.id);
+          await supabase.from('employee_current_status').delete().eq('employee_id', lose.id);
+
+          const { error } = await supabase.from('employees').delete().eq('id', lose.id);
+          if (error) {
+            console.error('[rrhh] merge delete', lose.id, error);
+            failed++;
+          } else {
+            deleted++;
+          }
+        }
+      }
+
+      if (failed > 0) {
+        notify.warning('Fusión parcial', {
+          description: `Eliminados ${deleted}. Fallaron ${failed} (pueden tener registros asociados).`,
+        });
+      } else {
+        notify.success('Duplicados fusionados', {
+          description:
+            deleted > 0
+              ? `Se eliminaron ${deleted} registro(s) duplicado(s).`
+              : 'Nada que eliminar.',
+        });
+      }
+      setSelectedIds([]);
+      await fetchData();
+    } catch (err: any) {
+      notify.error('No se pudieron fusionar duplicados', { description: err?.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const toggleSelectAll = () => {
     if (selectedIds.length === employees.length) {
       setSelectedIds([]);
@@ -205,6 +307,7 @@ export default function GestionPersonalTab() {
         let inserted = 0;
         let updated = 0;
         let failed = 0;
+        let skippedDup = 0;
 
         let maxId = 0;
         if (allEmps) {
@@ -217,6 +320,12 @@ export default function GestionPersonalTab() {
           });
         }
 
+        const { findEmployeeDuplicateByName, normalizeEmployeeName } = await import(
+          '@/modules/rrhh/shared/employeeName'
+        );
+        const seenNamesInFile = new Set<string>();
+        const workingEmps = [...(allEmps || [])];
+
         for (const row of data as any[]) {
           if (!row['Nombre Completo'] || row['Nombre Completo'] === 'Ejemplo') continue;
 
@@ -226,15 +335,23 @@ export default function GestionPersonalTab() {
           const type = employeeTypes.find(t => t.name.toLowerCase() === row['Categoría de Empleado']?.toString().toLowerCase());
 
           const rowDpi = row['DPI']?.toString();
-          const rowName = row['Nombre Completo'].toString();
+          const rowName = String(row['Nombre Completo']).trim();
+          const nameKey = normalizeEmployeeName(rowName);
 
-          const match = allEmps?.find(e => 
-            (rowDpi && e.dpi === rowDpi) || 
-            (e.nombre_completo.toLowerCase() === rowName.toLowerCase())
-          );
+          if (seenNamesInFile.has(nameKey)) {
+            skippedDup++;
+            continue;
+          }
+          seenNamesInFile.add(nameKey);
+
+          const matchByDpi = rowDpi
+            ? workingEmps.find((e) => e.dpi && e.dpi === rowDpi)
+            : undefined;
+          const matchByName = findEmployeeDuplicateByName(workingEmps, rowName);
+          const match = matchByDpi || matchByName || null;
 
           if (match) {
-            // Actualizar existente (mapeo mínimo solicitado)
+            // Actualizar existente (mismo DPI o mismo nombre — no crear duplicado)
             const { error } = await supabase.from('employees').update({
               nombre_completo: rowName,
               dpi: rowDpi || null,
@@ -247,12 +364,20 @@ export default function GestionPersonalTab() {
               failed++;
             } else {
               updated++;
+              const idx = workingEmps.findIndex((e) => e.id === match.id);
+              if (idx >= 0) {
+                workingEmps[idx] = {
+                  ...workingEmps[idx],
+                  nombre_completo: rowName,
+                  dpi: rowDpi || workingEmps[idx].dpi,
+                };
+              }
             }
           } else {
             // Insertar nuevo con código consecutivo
             maxId++;
             const newCode = `EMP-${maxId.toString().padStart(4, '0')}`;
-            const { error } = await supabase.from('employees').insert({
+            const { data: insertedRow, error } = await supabase.from('employees').insert({
               codigo_empleado: newCode,
               nombre_completo: rowName,
               department_id: dept ? dept.id : null,
@@ -269,20 +394,30 @@ export default function GestionPersonalTab() {
               banco: row['Banco']?.toString() || null,
               numero_cuenta: row['Cuenta']?.toString() || null,
               status: 'Activo'
-            });
+            }).select('id, dpi, nombre_completo, codigo_empleado').single();
             
             if (error) {
               console.error(`Error insertando a ${rowName}:`, JSON.stringify(error));
-              notify.error(`Error con ${rowName}`, { description: error.message || JSON.stringify(error) });
-              failed++;
+              const isDup =
+                /DUPLICATE_EMPLOYEE_NAME|duplicate|unique/i.test(error.message || '') ||
+                error.code === '23505';
+              if (isDup) {
+                skippedDup++;
+              } else {
+                notify.error(`Error con ${rowName}`, { description: error.message || JSON.stringify(error) });
+                failed++;
+              }
             } else {
               inserted++;
+              if (insertedRow) workingEmps.push(insertedRow);
             }
           }
         }
         
-        if (failed > 0) {
-            notify.warning('Importación completada con errores', { description: `Añadidos ${inserted}, actualizados ${updated}, fallaron ${failed}.` });
+        if (failed > 0 || skippedDup > 0) {
+            notify.warning('Importación completada con advertencias', {
+              description: `Nuevos: ${inserted} | Actualizados: ${updated} | Duplicados omitidos: ${skippedDup} | Fallidos: ${failed}.`,
+            });
         } else {
             notify.success('Importación exitosa', { description: `Nuevos: ${inserted} | Actualizados: ${updated}.` });
         }
@@ -326,6 +461,16 @@ export default function GestionPersonalTab() {
           >
             <Upload className="h-4 w-4" /> Importar Excel
           </Button>
+          {duplicateNameKeys.size > 0 && (
+            <Button
+              variant="outline"
+              className="gap-2 border-rose-300 text-rose-700 hover:bg-rose-50"
+              onClick={() => void handleMergeDuplicateNames()}
+              disabled={loading}
+            >
+              <GitMerge className="h-4 w-4" /> Fusionar duplicados ({duplicateNameKeys.size})
+            </Button>
+          )}
           {selectedIds.length > 0 && (
             <>
               <Button
@@ -425,7 +570,14 @@ export default function GestionPersonalTab() {
                       {emp.codigo_empleado || 'PENDIENTE'}
                     </td>
                     <td className="px-6 py-4">
-                      <div className="font-bold text-[var(--heading)]">{emp.nombre_completo}</div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="font-bold text-[var(--heading)]">{emp.nombre_completo}</div>
+                        {duplicateNameKeys.has(normalizeEmployeeName(String(emp.nombre_completo || ''))) && (
+                          <span className="inline-flex items-center rounded-md border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-rose-700">
+                            Duplicado
+                          </span>
+                        )}
+                      </div>
                       <div className="text-xs text-[var(--muted)]">
                         {emp.hr_departments?.name || emp.departamento || 'Sin Depto'} -{' '}
                         {emp.hr_positions?.name || 'Sin Cargo'}

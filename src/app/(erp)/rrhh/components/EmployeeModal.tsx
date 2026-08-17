@@ -10,6 +10,7 @@ import {
   getInsightFaceService,
   type EnrollmentCapture,
 } from '@/lib/face-recognition';
+import { findEmployeeDuplicateByName } from '@/modules/rrhh/shared/employeeName';
 
 export default function EmployeeModal({ 
   isOpen, 
@@ -276,9 +277,32 @@ export default function EmployeeModal({
       // Buscar los nombres para satisfacer los constraints NOT NULL antiguos
       const selectedDept = departments?.find(d => d.id === formData.department_id);
 
+      const nombreTrim = String(formData.nombre_completo || '').trim();
+      if (!nombreTrim) {
+        notify.warning('El nombre completo es obligatorio.');
+        setLoading(false);
+        return;
+      }
+
+      const { data: namePeers } = await supabase
+        .from('employees')
+        .select('id, nombre_completo, codigo_empleado');
+      const dup = findEmployeeDuplicateByName(
+        namePeers || [],
+        nombreTrim,
+        employee?.id ?? null
+      );
+      if (dup) {
+        notify.warning('Nombre duplicado', {
+          description: `Ya existe ${dup.nombre_completo}${dup.codigo_empleado ? ` (${dup.codigo_empleado})` : ''}. No se permiten empleados con el mismo nombre.`,
+        });
+        setLoading(false);
+        return;
+      }
+
       // 2. Insert or Update employee
       const payload: any = {
-        nombre_completo: formData.nombre_completo,
+        nombre_completo: nombreTrim,
         dpi: formData.dpi || null,
         nit: formData.nit || null,
         igss: formData.igss || null,
@@ -348,7 +372,14 @@ export default function EmployeeModal({
       onSuccess();
       onClose();
     } catch (err: any) {
-      notify.error('Error guardando empleado', { description: err.message });
+      const msg = String(err?.message || err || '');
+      if (/DUPLICATE_EMPLOYEE_NAME|duplicate|unique/i.test(msg) || err?.code === '23505') {
+        notify.warning('Nombre duplicado', {
+          description: 'Ya existe un empleado con ese nombre. No se permiten duplicados.',
+        });
+      } else {
+        notify.error('Error guardando empleado', { description: msg });
+      }
     } finally {
       setLoading(false);
     }

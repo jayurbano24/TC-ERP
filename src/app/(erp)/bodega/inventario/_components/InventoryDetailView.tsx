@@ -760,9 +760,14 @@ export default function InventoryDetailView({
       return acc;
     }, {} as Record<string, number>);
     const uniqueOs = new Set(filteredItems.map(i => i.service_orders?.os_label).filter(Boolean)).size;
+    const uniqueBoxes = new Set(
+      filteredItems
+        .map((i) => String(i.boxes?.box_code || i.boxes?.id || '').trim())
+        .filter((c) => c && c !== 'SIN CAJA')
+    ).size;
     // Ocultar techs en 0 para no parecer "duplicados" vacíos (STB-HFC / WTTH, etc.).
     const visibleTechnologies = technologies.filter((tech) => (techCounts[tech] || 0) > 0);
-    return { technologies: visibleTechnologies, techCounts, uniqueOs };
+    return { technologies: visibleTechnologies, techCounts, uniqueOs, uniqueBoxes };
   }, [searchFilteredItems, filteredItems]);
 
   return (
@@ -896,7 +901,7 @@ export default function InventoryDetailView({
         </div>
 
         {(() => {
-          const { technologies, techCounts, uniqueOs } = techStats;
+          const { technologies, techCounts, uniqueOs, uniqueBoxes } = techStats;
 
           return (
             <div className="flex gap-4 overflow-x-auto pb-4 custom-scrollbar">
@@ -929,14 +934,22 @@ export default function InventoryDetailView({
                 );
               })}
               <Card className="min-w-[140px] shrink-0 rounded-2xl border-2 border-accent/30 p-6 text-center shadow-sm transition-all">
-                <p className="mb-1 text-[10px] font-semibold tracking-wide text-accent uppercase">Total filtrado</p>
+                <p className="mb-1 text-[10px] font-semibold tracking-wide text-accent uppercase">
+                  {isScraps ? 'Equipos filtrados' : 'Total filtrado'}
+                </p>
                 <h3 className="my-3 text-4xl font-bold text-heading">{filteredItems.length}</h3>
                 <p className="text-[8px] font-semibold tracking-widest text-muted uppercase">Equipos TC</p>
               </Card>
               <Card className="min-w-[140px] shrink-0 rounded-2xl border-2 border-border p-6 text-center shadow-sm transition-all">
-                <p className="mb-1 text-[10px] font-semibold tracking-wide text-muted uppercase">Órdenes (OS)</p>
-                <h3 className="my-3 text-4xl font-bold text-heading">{uniqueOs}</h3>
-                <p className="text-[8px] font-semibold tracking-widest text-muted uppercase">Generadas</p>
+                <p className="mb-1 text-[10px] font-semibold tracking-wide text-muted uppercase">
+                  {isScraps ? 'Cajas SCRAP' : 'Órdenes (OS)'}
+                </p>
+                <h3 className="my-3 text-4xl font-bold text-heading">
+                  {isScraps ? uniqueBoxes : uniqueOs}
+                </h3>
+                <p className="text-[8px] font-semibold tracking-widest text-muted uppercase">
+                  {isScraps ? 'En inventario' : 'Generadas'}
+                </p>
               </Card>
             </div>
           );

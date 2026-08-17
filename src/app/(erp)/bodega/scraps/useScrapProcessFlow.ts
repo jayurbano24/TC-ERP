@@ -102,20 +102,20 @@ export function useScrapProcessFlow(opts: {
           const { data } = await supabase
             .from('dispatches')
             .select('guide_number')
-            .like('guide_number', 'TC-INV-%');
+            .like('guide_number', 'TC-SCRAPS-%');
 
           let nextId = 100;
           if (data && data.length > 0) {
             let max = 99;
             data.forEach((d: { guide_number: string }) => {
-              const num = parseInt(d.guide_number.replace('TC-INV-', ''), 10);
+              const num = parseInt(String(d.guide_number).replace(/^TC-SCRAPS-/i, ''), 10);
               if (!Number.isNaN(num) && num > max) max = num;
             });
             nextId = max + 1;
           }
-          setDispatchDestination(`TC-INV-${String(nextId).padStart(3, '0')}`);
+          setDispatchDestination(`TC-SCRAPS-${String(nextId).padStart(3, '0')}`);
         } else {
-          setDispatchDestination('TC-INV-100');
+          setDispatchDestination('TC-SCRAPS-100');
         }
       } catch (err) {
         console.error(err);
@@ -195,6 +195,18 @@ export function useScrapProcessFlow(opts: {
 
       setIsDispatching(true);
       try {
+        let guideForDispatch = dispatchDestination.trim();
+        if (dispatchAction === 'despacho') {
+          const supabase = getSupabaseBrowserClient();
+          if (supabase) {
+            const { data: rpcCode, error: rpcErr } = await supabase.rpc('next_scrap_salida_code');
+            if (!rpcErr && rpcCode) {
+              guideForDispatch = String(rpcCode);
+              setDispatchDestination(guideForDispatch);
+            }
+          }
+        }
+
         let error: string | null | undefined;
         if (dispatchAction === 'traslado') {
           if (dispatchMode === 'all') {
@@ -213,7 +225,7 @@ export function useScrapProcessFlow(opts: {
         } else if (dispatchMode === 'all') {
           const res = await dispatchBoxFromWarehouse(
             resolvedDbId,
-            dispatchDestination,
+            guideForDispatch,
             dispatchNotes
           );
           error = res.error ? String(res.error) : null;
@@ -222,13 +234,13 @@ export function useScrapProcessFlow(opts: {
           const res = await dispatchSpecificSeries(
             resolvedDbId,
             expanded,
-            dispatchDestination,
+            guideForDispatch,
             dispatchNotes
           );
           error = res.error ? String(res.error) : null;
           if (!error && res.data?.equipos_remaining != null) {
             notify.success('Despacho registrado', {
-              description: `Conduce ${dispatchDestination}. Equipos restantes en caja: ${res.data.equipos_remaining}.`,
+              description: `Conduce ${guideForDispatch}. Equipos restantes en caja: ${res.data.equipos_remaining}.`,
             });
           }
         }

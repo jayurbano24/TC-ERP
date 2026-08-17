@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Card, Badge, Button, notify } from '@/components/ui';
+import { Card, Badge, Button, notify, confirmDialog, TablePagination } from '@/components/ui';
 import { ModulePage } from '@/components/module-page';
 import { 
   ShieldCheck, 
@@ -30,7 +30,9 @@ import {
   UserCog,
   RefreshCw,
   Ban,
-  KeyRound
+  KeyRound,
+  UserX,
+  UserCheck
 } from 'lucide-react';
 
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
@@ -75,6 +77,8 @@ export default function SeguridadPage() {
   const [hrEmployees, setHrEmployees] = useState<any[]>([]);
   const [roleSearch, setRoleSearch] = useState('');
   const [userSearch, setUserSearch] = useState('');
+  const [usersPage, setUsersPage] = useState(1);
+  const USERS_PAGE_SIZE = 25;
   const [savingPerm, setSavingPerm] = useState<string | null>(null);
   const [dbError, setDbError] = useState<string | null>(null);
 
@@ -531,6 +535,43 @@ export default function SeguridadPage() {
     setActionLoading(false);
   };
 
+  const handleToggleAccountStatus = async (user: {
+    id: string;
+    full_name?: string | null;
+    email?: string | null;
+    status?: string;
+  }) => {
+    const isActive = user.status === 'Activo';
+    const nextActive = !isActive;
+    const label = user.full_name || user.email || 'este usuario';
+    const ok = await confirmDialog({
+      title: nextActive ? 'Activar cuenta' : 'Desactivar cuenta',
+      message: nextActive
+        ? `¿Reactivar el acceso de ${label}?`
+        : `¿Desactivar la cuenta de ${label}? No podrá iniciar sesión hasta reactivarla.`,
+      tone: nextActive ? 'warning' : 'error',
+      confirmText: nextActive ? 'Activar' : 'Desactivar',
+    });
+    if (!ok) return;
+
+    setActionLoading(true);
+    try {
+      const res = await adminToggleUserStatus(user.id, nextActive);
+      if (res?.error) {
+        notify.error('No se pudo cambiar el estatus', { description: res.error });
+      } else {
+        notify.success(nextActive ? 'Cuenta activada' : 'Cuenta desactivada', {
+          description: label,
+        });
+        await loadRBACData();
+      }
+    } catch (err: any) {
+      notify.error('Error al cambiar estatus', { description: err?.message });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const exportToExcel = () => {
     if (logs.length === 0) return;
     const exportData = logs.map(log => ({
@@ -571,6 +612,24 @@ export default function SeguridadPage() {
     const term = userSearch.toLowerCase();
     return u.full_name?.toLowerCase().includes(term) || u.email?.toLowerCase().includes(term) || u.role?.toLowerCase().includes(term);
   });
+
+  const usersTotalCount = filteredUsers.length;
+  const usersTotalPages = Math.max(1, Math.ceil(usersTotalCount / USERS_PAGE_SIZE) || 1);
+  const usersSafePage = Math.min(usersPage, usersTotalPages);
+  const usersPageItems = filteredUsers.slice(
+    (usersSafePage - 1) * USERS_PAGE_SIZE,
+    usersSafePage * USERS_PAGE_SIZE
+  );
+  const usersStartItem = usersTotalCount === 0 ? 0 : (usersSafePage - 1) * USERS_PAGE_SIZE + 1;
+  const usersEndItem = Math.min(usersSafePage * USERS_PAGE_SIZE, usersTotalCount);
+
+  useEffect(() => {
+    setUsersPage(1);
+  }, [userSearch]);
+
+  useEffect(() => {
+    if (usersPage > usersTotalPages) setUsersPage(usersTotalPages);
+  }, [usersPage, usersTotalPages]);
 
   // Empleados RRHH que aún no tienen cuenta de acceso (employee_id ya enlazado).
   const linkedEmployeeIds = new Set(
@@ -671,7 +730,10 @@ export default function SeguridadPage() {
                     type="text" 
                     placeholder="Buscar por nombre, correo o rol..." 
                     value={userSearch}
-                    onChange={e => setUserSearch(e.target.value)}
+                    onChange={e => {
+                      setUserSearch(e.target.value);
+                      setUsersPage(1);
+                    }}
                     className="w-full h-10 pl-10 pr-4 bg-[var(--surface)] border-2 border-[var(--border)] rounded-lg text-xs font-bold outline-none focus:border-[var(--accent)] transition-all"
                   />
                 </div>
@@ -693,7 +755,7 @@ export default function SeguridadPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {filteredUsers.map(user => (
+                  {usersPageItems.map(user => (
                     <tr key={user.id} className="hover:bg-[var(--surface-hover)]/50 transition-colors">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
@@ -732,18 +794,43 @@ export default function SeguridadPage() {
                         )}
                       </td>
                       <td className="px-6 py-4 text-center">
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={() => handleOpenProfile(user)}
-                          className="h-8 border-[var(--border)] text-[var(--heading)] hover:bg-[var(--heading)] hover:text-[var(--surface)] hover:border-[var(--heading)]"
-                        >
-                          <Edit2 size={14} className="mr-2" /> Editar Perfil
-                        </Button>
+                        <div className="inline-flex items-center justify-center gap-2">
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => handleOpenProfile(user)}
+                            disabled={actionLoading}
+                            className="h-8 border-[var(--border)] text-[var(--heading)] hover:bg-[var(--heading)] hover:text-[var(--surface)] hover:border-[var(--heading)]"
+                          >
+                            <Edit2 size={14} className="mr-2" /> Editar Perfil
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void handleToggleAccountStatus(user)}
+                            disabled={actionLoading}
+                            className={
+                              user.status === 'Activo'
+                                ? 'h-8 border-rose-200 text-rose-700 hover:bg-rose-50 hover:border-rose-300'
+                                : 'h-8 border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:border-emerald-300'
+                            }
+                            title={user.status === 'Activo' ? 'Desactivar cuenta' : 'Activar cuenta'}
+                          >
+                            {user.status === 'Activo' ? (
+                              <>
+                                <UserX size={14} className="mr-2" /> Desactivar
+                              </>
+                            ) : (
+                              <>
+                                <UserCheck size={14} className="mr-2" /> Activar
+                              </>
+                            )}
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))}
-                  {filteredUsers.length === 0 && (
+                  {usersPageItems.length === 0 && (
                      <tr>
                         <td colSpan={5} className="px-6 py-10 text-center text-slate-400 font-medium">No se encontraron usuarios</td>
                      </tr>
@@ -751,6 +838,16 @@ export default function SeguridadPage() {
                 </tbody>
               </table>
             </div>
+            <TablePagination
+              totalCount={usersTotalCount}
+              page={usersSafePage}
+              totalPages={usersTotalPages}
+              startItem={usersStartItem}
+              endItem={usersEndItem}
+              pageSize={USERS_PAGE_SIZE}
+              onPageChange={setUsersPage}
+              itemLabel="usuarios"
+            />
           </Card>
         </div>
       )}

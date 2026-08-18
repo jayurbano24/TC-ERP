@@ -112,7 +112,11 @@ export async function scrapDispatchViaApi(input: {
   });
   const data = await res.json();
   if (!res.ok) {
-    throw new Error(data.error ?? data.detail ?? `HTTP ${res.status}`);
+    const detail =
+      typeof data.detail === 'string' && data.detail.trim()
+        ? data.detail
+        : null;
+    throw new Error(detail || data.error || `HTTP ${res.status}`);
   }
   return data as ScrapDispatchResult;
 }

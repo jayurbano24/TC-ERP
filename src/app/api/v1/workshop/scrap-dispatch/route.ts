@@ -46,18 +46,19 @@ export const POST = withErrorHandler(
 
     const { series_ids, brand_id, model_id, capacity, reference, conduce, notes } = parsed.data;
 
-    if (series_ids.length > BATCH_LIMITS.WORKSHOP_OPERATE_MAX_SERIES) {
+    if (series_ids.length > BATCH_LIMITS.WORKSHOP_SCRAP_DISPATCH_MAX_SERIES) {
       return NextResponse.json(
         {
           error: 'BATCH_TOO_LARGE',
-          detail: `Máximo ${BATCH_LIMITS.WORKSHOP_OPERATE_MAX_SERIES} series por caja; recibidos ${series_ids.length}`,
-          max: BATCH_LIMITS.WORKSHOP_OPERATE_MAX_SERIES,
+          detail: `Máximo ${BATCH_LIMITS.WORKSHOP_SCRAP_DISPATCH_MAX_SERIES} series por caja SCRAPS; recibidos ${series_ids.length}`,
+          max: BATCH_LIMITS.WORKSHOP_SCRAP_DISPATCH_MAX_SERIES,
         },
         { status: 400 }
       );
     }
 
-    assertUuidArray(series_ids, 'series_ids');
+    // Capacidad de caja SCRAPS > UUID_IN_CLAUSE; el service ya chunk-ea los updates.
+    assertUuidArray(series_ids, 'series_ids', BATCH_LIMITS.WORKSHOP_SCRAP_DISPATCH_MAX_SERIES);
 
     const { data: roleData } = await supabase
       .from('user_roles')

@@ -118,15 +118,35 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
     const allSns: string[] = t.all_sns?.length
       ? t.all_sns
       : [t.serial_number].filter(Boolean);
+    const allDbIds: string[] = t.all_dbIds?.length ? t.all_dbIds.map(String) : [String(t.id)];
     return {
       id: t.service_orders?.os_label || t.os_label || 'S/OS',
       sn: allSns[0] || t.serial_number || 'S/N',
       all_sns: allSns,
       marca: t.brands?.name || t.brand_name || 'Desconocida',
       modelo: t.models?.name || t.model_name || 'S/N',
-      dbId: t.service_order_id || t.id,
-      all_dbIds: t.all_dbIds?.length ? t.all_dbIds : [t.id],
+      /** id de serie (no OS): el ingreso SCRAPS vincula series, no la OS completa. */
+      dbId: String(t.id),
+      all_dbIds: allDbIds,
     };
+  };
+
+  /**
+   * Resuelve el UUID de serie del SN escaneado.
+   * Evita mandar hermanas S1–S4 de la OS (eso disparaba BATCH_TOO_LARGE con 32 equipos).
+   */
+  const resolveSeriesIdForScan = (found: any, snVal: string): string => {
+    const sn = String(snVal || '').toUpperCase();
+    const sns = (found.all_sns || []).map((s: string) => String(s || '').toUpperCase());
+    const ids = (found.all_dbIds || []).map(String).filter(Boolean);
+    if (sns.length > 0 && sns.length === ids.length) {
+      const idx = sns.indexOf(sn);
+      if (idx >= 0 && ids[idx]) return ids[idx];
+    }
+    if (ids.length === 1) return ids[0];
+    // found.id en cola UI es etiqueta OS (TC-…), no UUID de serie
+    if (ids.length > 0) return ids[0];
+    return '';
   };
 
   const registerScan = async () => {
@@ -183,6 +203,21 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
       }
     }
 
+    const seriesId = resolveSeriesIdForScan(found, snVal);
+    if (!seriesId) {
+      setScrapScanError(`No se pudo resolver el id de serie para "${snVal}"`);
+      return;
+    }
+    if (
+      scrapScannedItems.some((i: any) =>
+        (i.all_dbIds || [i.dbId]).map(String).includes(seriesId)
+      )
+    ) {
+      setScrapScanError(`La serie de "${snVal}" ya está en esta caja`);
+      setScrapScanSN('');
+      return;
+    }
+
     const idx = scrapScannedItems.length;
     setScrapScannedItems((prev: any[]) => [
       ...prev,
@@ -192,8 +227,9 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
         os: found.id,
         marca: found.marca,
         modelo: found.modelo,
-        dbId: found.dbId,
-        all_dbIds: found.all_dbIds,
+        dbId: seriesId,
+        // Solo la serie pistoleada — no las hermanas de la OS
+        all_dbIds: [seriesId],
         usuario: 'Actual',
       },
     ]);
@@ -721,11 +757,27 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
 
                   const seriesIds = [
                     ...new Set(
-                      scrapScannedItems.flatMap((sc: { all_dbIds?: string[]; dbId?: string }) =>
-                        (sc.all_dbIds?.length ? sc.all_dbIds : sc.dbId ? [sc.dbId] : []).filter(Boolean)
-                      )
+                      scrapScannedItems
+                        .map((sc: { dbId?: string; all_dbIds?: string[] }) => {
+                          // 1 SN escaneado = 1 serie (dbId ya resuelto al pistolear)
+                          if (sc.dbId) return [String(sc.dbId)];
+                          if (sc.all_dbIds?.length === 1) return [String(sc.all_dbIds[0])];
+                          return (sc.all_dbIds || []).map(String);
+                        })
+                        .flat()
+                        .filter(Boolean)
                     ),
-                  ] as string[];
+                  ];
+
+                  if (seriesIds.length === 0) {
+                    notify.warning('No hay series válidas para ingresar.');
+                    return;
+                  }
+                  if (seriesIds.length !== scrapScannedItems.length) {
+                    notify.warning('Revisa el escaneo', {
+                      description: `Hay ${scrapScannedItems.length} SN en caja pero ${seriesIds.length} serie(s) únicas. Vuelve a pistolear si mezclaste OS multi-serie.`,
+                    });
+                  }
 
                   setScrapDispatching(true);
                   try {

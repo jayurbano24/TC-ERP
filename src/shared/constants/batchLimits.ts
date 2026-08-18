@@ -6,6 +6,8 @@ export const BATCH_LIMITS = {
   WORKSHOP_OPERATE_MAX_EQUIPMENTS: 25,
   /** Series (registros en BD) máximas por operación masiva Taller. */
   WORKSHOP_OPERATE_MAX_SERIES: 120,
+  /** Series máximas por ingreso de caja SCRAPS (capacidad UI hasta 500). */
+  WORKSHOP_SCRAP_DISPATCH_MAX_SERIES: 500,
   /** Equipos procesados por llamada POST /api/v1/workshop/operate-batch. */
   WORKSHOP_OPERATE_SERIES_BATCH: 40,
   /** Equipos por página al listar cola Taller (1 equipo = 1 OS en cola). */

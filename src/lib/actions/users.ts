@@ -113,19 +113,42 @@ async function assignRoleToUser(
 
   await supabaseAdmin.rpc('add_app_role_value', { new_role: pos.name });
 
-  const { data: existing } = await supabaseAdmin
+  // Preferir fila de puesto RRHH; no actualizar todas las filas del user_id
+  // (enums operacionales colisionan en unique(user_id, role)).
+  const { data: positionRow } = await supabaseAdmin
     .from('user_roles')
     .select('id')
     .eq('user_id', userId)
+    .not('role_id', 'is', null)
+    .order('id', { ascending: true })
     .limit(1)
     .maybeSingle();
 
-  if (existing?.id) {
+  let targetId = positionRow?.id as string | undefined;
+  if (!targetId) {
+    const { data: anyRow } = await supabaseAdmin
+      .from('user_roles')
+      .select('id')
+      .eq('user_id', userId)
+      .order('id', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    targetId = anyRow?.id;
+  }
+
+  if (targetId) {
     const { error } = await supabaseAdmin
       .from('user_roles')
       .update({ role_id: roleId, role: pos.name })
-      .eq('user_id', userId);
+      .eq('id', targetId);
     if (error) throw error;
+
+    const { error: delErr } = await supabaseAdmin
+      .from('user_roles')
+      .delete()
+      .eq('user_id', userId)
+      .neq('id', targetId);
+    if (delErr) throw delErr;
   } else {
     const { error } = await supabaseAdmin.from('user_roles').insert({
       user_id: userId,

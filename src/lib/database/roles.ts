@@ -256,33 +256,85 @@ export async function updateUserSecurity(userId: string, field: string, value: a
   return { success: true };
 }
 
+/**
+ * Asigna el puesto RRHH sin pisar en lote todas las filas de `user_roles`.
+ * Un usuario suele tener: 1 fila de puesto (role_id) + N enums operacionales
+ * (`receptor_cac`, `supervisor`, …). Actualizar con `.eq('user_id')` fuerza el
+ * mismo `role` en todas → unique(user_id, role) → "duplicate key", que el toast
+ * de inventario maltraduce como "Duplicado en el mismo lote".
+ */
+async function upsertHrPositionRole(
+  supabase: ReturnType<typeof getAdminClient>,
+  userId: string,
+  roleId: string,
+  roleName: string
+): Promise<{ error?: string }> {
+  if (!supabase) return { error: 'Supabase not configured' };
+
+  await supabase.rpc('add_app_role_value', { new_role: roleName });
+
+  const { data: positionRow } = await supabase
+    .from('user_roles')
+    .select('id')
+    .eq('user_id', userId)
+    .not('role_id', 'is', null)
+    .order('id', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  let targetId = positionRow?.id as string | undefined;
+
+  if (!targetId) {
+    const { data: anyRow } = await supabase
+      .from('user_roles')
+      .select('id')
+      .eq('user_id', userId)
+      .order('id', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    targetId = anyRow?.id;
+  }
+
+  if (targetId) {
+    const { error: updErr } = await supabase
+      .from('user_roles')
+      .update({ role_id: roleId, role: roleName })
+      .eq('id', targetId);
+    if (updErr) return { error: updErr.message };
+
+    // Quita enums operacionales viejos; sync vuelve a crear el correcto.
+    const { error: delErr } = await supabase
+      .from('user_roles')
+      .delete()
+      .eq('user_id', userId)
+      .neq('id', targetId);
+    if (delErr) return { error: delErr.message };
+  } else {
+    const { error: insErr } = await supabase.from('user_roles').insert({
+      user_id: userId,
+      role_id: roleId,
+      role: roleName,
+    });
+    if (insErr) return { error: insErr.message };
+  }
+
+  const { error: syncErr } = await supabase.rpc('app_sync_operational_role_from_position', {
+    p_user_id: userId,
+  });
+  if (syncErr) {
+    console.warn('[changeUserRole] sync operacional:', syncErr.message);
+  }
+
+  return {};
+}
+
 // Change User Role
 export async function changeUserRole(userId: string, roleId: string, roleName: string) {
   if (!(await callerCan('edit'))) return { error: "No autorizado" };
   const supabase = getAdminClient();
   if (!supabase) return { error: "Supabase not configured" };
 
-  // 1. Asegurarnos que el Enum de la base de datos contenga este nuevo Puesto de RRHH
-  await supabase.rpc('add_app_role_value', { new_role: roleName });
-
-  const { data: existing } = await supabase.from('user_roles').select('id').eq('user_id', userId).single();
-
-  let result;
-  if (existing) {
-    result = await supabase
-      .from('user_roles')
-      .update({ role_id: roleId, role: roleName })
-      .eq('user_id', userId);
-  } else {
-    result = await supabase
-      .from('user_roles')
-      .insert({ user_id: userId, role_id: roleId, role: roleName });
-  }
-
-  if (result.error) return { error: result.error.message };
-
-  // Puesto RRHH (TECNICO JUNIOR, …) → también inserta enum operacional `tecnico`.
-  await supabase.rpc('app_sync_operational_role_from_position', { p_user_id: userId });
-
+  const res = await upsertHrPositionRole(supabase, userId, roleId, roleName);
+  if (res.error) return { error: res.error };
   return { success: true };
 }

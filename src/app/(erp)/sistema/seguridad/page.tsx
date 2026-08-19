@@ -514,7 +514,12 @@ export default function SeguridadPage() {
            const res = await changeUserRole(userProfileModal.id, r.id, r.name);
            if (res.error) {
              notify.error('Error cambiando rol', { description: res.error });
+             setActionLoading(false);
+             return;
            }
+           notify.success('Rol actualizado', {
+             description: `El usuario quedó con el puesto ${r.name}.`,
+           });
          }
       }
 

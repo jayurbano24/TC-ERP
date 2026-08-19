@@ -53,6 +53,24 @@ export function humanizeUserFacingError(
   if (isDuplicateError(blob)) {
     const serial = extractSerial(combined);
 
+    // Unique de authz / catálogos: no reutilizar el copy de series/recepción.
+    if (
+      /user_roles|hr_positions|profiles|erp_roles|erp_user_security|auth\.users|cambiando rol|cambiar rol/i.test(
+        blob
+      )
+    ) {
+      return {
+        title: /cambiando rol|cambiar rol/i.test(blob)
+          ? 'No se pudo cambiar el rol'
+          : rawTitle && !/^error$/i.test(rawTitle)
+            ? rawTitle
+            : 'Registro duplicado',
+        description:
+          rawDesc ||
+          'Ya existe un registro con esos datos (rol o usuario). Revise e intente de nuevo.',
+      };
+    }
+
     if (
       /duplicate_in_equipment|duplicadas en el mismo equipo|mismo equipo/i.test(blob)
     ) {

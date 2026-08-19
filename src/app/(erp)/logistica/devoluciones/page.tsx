@@ -23,6 +23,7 @@ import {
 import * as XLSX from 'xlsx';
 import { registerNewReturn, processFullReceptionReturn, undoFullReceptionReturn, processBlockReturnBySapTransfer, getSapBlockReturnRows, getBoxReturnRows, dispatchReturnItems, dispatchBoxReturns, undoBoxReturnFromClassification, getReturnsReportStats, type ReturnDispatchTarget, type BoxReturnDispatchTarget, type BoxReturnRow, type ReturnsReportStats } from '@/modules/returns/client/returnData';
 import { getAgencies, getReturnReasons } from '@/shared/catalogs/catalogs';
+import { filterCacAgenciesOnly } from '@/lib/cacAgencyUtils';
 import { BodegaDevolucionTable } from './components/BodegaDevolucionTable';
 import { ReturnsReportPanel } from './components/ReturnsReportPanel';
 import type { CatalogAgency } from '@/app/(erp)/produccion/backoffice/types';
@@ -211,14 +212,16 @@ export default function DevolucionesPage() {
   useEffect(() => {
     void getAgencies().then((rows) => {
       setAgencies(
-        rows.map((a: { code: string; name: string; manager?: string; email?: string; address?: string; phone?: string }) => ({
-          id: a.code,
-          name: a.name,
-          manager: a.manager || 'Encargado Pendiente',
-          email: a.email || 'correo@agencia.com',
-          direccion: a.address || 'Dirección no registrada',
-          telefono: a.phone || '000-000-0000',
-        }))
+        filterCacAgenciesOnly(
+          rows.map((a: { code: string; name: string; manager?: string; email?: string; address?: string; phone?: string }) => ({
+            id: a.code,
+            name: a.name,
+            manager: a.manager || 'Encargado Pendiente',
+            email: a.email || 'correo@agencia.com',
+            direccion: a.address || 'Dirección no registrada',
+            telefono: a.phone || '000-000-0000',
+          }))
+        )
       );
     });
   }, []);
@@ -428,10 +431,12 @@ export default function DevolucionesPage() {
     try {
       const supabase = getSupabaseBrowserClient();
 
+      const userName = (await getActualUserFullName()) || 'SISTEMA';
       // Agregamos la categoría a las notas para el filtrado independiente
       const payload = {
         ...newReturn,
-        motivo: `${newReturn.motivo}\nCat: ${newReturn.category}`
+        motivo: `${newReturn.motivo}\nCat: ${newReturn.category}`,
+        usuario: userName,
       };
       const result = await registerNewReturn(payload);
 
@@ -867,6 +872,22 @@ export default function DevolucionesPage() {
       ),
     },
     {
+      id: 'enviadoPor',
+      header: 'Enviado por',
+      width: 'minmax(150px,1fr)',
+      cell: (dev) => (
+        <div className="min-w-0">
+          <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Usuario</p>
+          <p
+            className="text-xs font-black text-[#181c3a] uppercase truncate"
+            title={dev.classifiedBy || 'Sin registro'}
+          >
+            {dev.classifiedBy || 'Sin registro'}
+          </p>
+        </div>
+      ),
+    },
+    {
       id: 'sn',
       header: 'Serie (SN)',
       width: 'minmax(140px,1fr)',
@@ -1104,7 +1125,7 @@ export default function DevolucionesPage() {
                   onRowClick={(dev: Devolucion) => { setSelectedDev(dev); setDispatchGuiaSalida(''); }}
                   rowHeight={68}
                   maxBodyHeight={600}
-                  minWidth={1040}
+                  minWidth={1180}
                   headerClassName="bg-slate-50"
                   emptyMessage="No hay equipos pendientes de devolución en bodega"
                   rowClassName={(dev: Devolucion) =>

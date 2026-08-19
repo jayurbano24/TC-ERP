@@ -55,7 +55,7 @@ export function resolveUnitAgencyRaw(rec: any, unitGuide: string, unit: any[] = 
 
   const rg = findReceptionGuide(rec, unitGuide);
   const fromRg = sanitizeCacAgencyRaw(rg?.agency, carrier);
-  if (fromRg) return fromRg;
+  if (fromRg && !/^backoffice_/i.test(fromRg)) return fromRg;
 
   const os = unit.find((u) => u?.service_orders);
   const nestedRg = os?.service_orders?.reception_guides;
@@ -68,12 +68,14 @@ export function resolveUnitAgencyRaw(rec: any, unitGuide: string, unit: any[] = 
   if (fromRgById) return fromRgById;
 
   const block = extractGuideDetailsBlockForUnit(rec.notes || '', unitGuide, unit);
-  const fromNotes = block?.match(/Backoffice_Agency:\s*(.+)/i)?.[1]?.trim();
+  const fromNotes = block?.match(/Backoffice_Agency:\s*([^\n\r]*)/i)?.[1]?.trim();
   const fromBlock = sanitizeCacAgencyRaw(fromNotes, carrier);
-  if (fromBlock) return fromBlock;
+  if (fromBlock && !/^backoffice_/i.test(fromBlock)) return fromBlock;
 
-  const globalAgency = rec.notes?.match(/Backoffice_Agency:\s*(.+)/i)?.[1]?.trim();
-  return sanitizeCacAgencyRaw(globalAgency, carrier);
+  const globalAgency = rec.notes?.match(/Backoffice_Agency:\s*([^\n\r]*)/i)?.[1]?.trim();
+  const fromGlobal = sanitizeCacAgencyRaw(globalAgency, carrier);
+  if (fromGlobal && !/^backoffice_/i.test(fromGlobal)) return fromGlobal;
+  return '';
 }
 
 export function resolveUnitAgencyLabel(

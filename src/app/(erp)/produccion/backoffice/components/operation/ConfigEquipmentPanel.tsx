@@ -179,7 +179,7 @@ export function ConfigEquipmentPanel({ ctx }: Props) {
                     onClick={async () => {
                       if (!isReady || isSubmitting) return;
                       if (isAccesorio) {
-                        setReceptionStep('return_confirmation');
+                        setReceptionStep('sub_bodega_transfer');
                       } else {
                         await completeCurrentGuides();
                       }

@@ -8,6 +8,7 @@ type ReceptionLike = {
   status?: string;
   guide_number?: string;
   notes?: string;
+  processed_guides?: string[];
 };
 
 export function isGuideProcessed(
@@ -75,4 +76,43 @@ export function getInboxClassificationStats(
   const remaining = Math.max(0, total - classified);
 
   return { classified, total, remaining };
+}
+
+/**
+ * Documento SAP no puede ser un No. de guía del lote ni una guía pendiente en Backoffice.
+ * Devuelve mensaje de error o null si es válido.
+ */
+export function getSapDocumentGuideConflict(
+  sapDocument: string,
+  activeReception: { notes?: string; guide_number?: string; processed_guides?: string[] } | null,
+  processedGuides: string[] = [],
+  allReceptions: ReceptionLike[] = [],
+  scannedGuides: string[] = []
+): string | null {
+  const sap = normalizeGuideKey(sapDocument);
+  if (!sap) return null;
+
+  if (scannedGuides.some((g) => normalizeGuideKey(g) === sap)) {
+    return `«${sapDocument.trim()}» es la guía en proceso. Use el Documento SAP, no el No. de guía.`;
+  }
+
+  if (activeReception) {
+    const pending = getPendingGuides(activeReception, processedGuides, allReceptions);
+    if (pending.some((g) => normalizeGuideKey(g) === sap)) {
+      return `«${sapDocument.trim()}» es una guía pendiente de clasificar en Backoffice. No puede usarse como Documento SAP.`;
+    }
+    const lotGuides = parseReceptionGuideList(activeReception);
+    if (lotGuides.some((g) => normalizeGuideKey(g) === sap)) {
+      return `«${sapDocument.trim()}» es un No. de guía del lote. El Documento SAP debe ser distinto.`;
+    }
+  }
+
+  for (const rec of allReceptions) {
+    const recPending = getPendingGuides(rec, rec.processed_guides || [], allReceptions);
+    if (recPending.some((g) => normalizeGuideKey(g) === sap)) {
+      return `«${sapDocument.trim()}» es una guía pendiente en Backoffice. No puede usarse como Documento SAP.`;
+    }
+  }
+
+  return null;
 }

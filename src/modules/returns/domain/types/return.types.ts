@@ -4,6 +4,8 @@ export type IndividualReturnEntry = {
   guiaSalida: string;
   category?: string;
   originalGuide?: string;
+  /** Usuario que registra el retorno (Equipos Devueltos). */
+  usuario?: string;
 };
 
 export type IndividualReturnResult =

@@ -3,6 +3,11 @@
 import React, { useEffect } from 'react';
 import { Button, Card, notify } from '@/components/ui';
 import { ChevronLeft, FileText, Package, Radio, RefreshCw } from 'lucide-react';
+import { useAuthzOptional } from '@/components/authz';
+import {
+  canClassifyToAccesorios,
+  canClassifyToTelefonos,
+} from '../../operation/canClassifyAccesorios';
 import type { OperationContext } from '../../operation/operationContext';
 import type { OperationCategory } from '../../types';
 
@@ -18,6 +23,11 @@ const CATEGORY_META: Record<
 };
 
 export function BulkClassifyStep({ ctx }: Props) {
+  const authz = useAuthzOptional();
+  const authzOpts = { roleLabel: authz?.roleLabel, isAdmin: authz?.isAdmin };
+  const allowAccesorios = canClassifyToAccesorios(authzOpts);
+  const allowTelefonos = canClassifyToTelefonos(authzOpts);
+
   const {
     setReceptionStep,
     scannedGuides,
@@ -46,12 +56,42 @@ export function BulkClassifyStep({ ctx }: Props) {
   const canConfirm = isDevolucion ? hasAgency && hasReason : true;
 
   useEffect(() => {
+    if (cat === 'Accesorio' && !allowAccesorios) {
+      notify.warning('Sin permiso', {
+        description: 'Solo el perfil SUPERVISOR STB puede clasificar hacia Accesorios.',
+      });
+      setReceptionStep('classification');
+      return;
+    }
+    if (cat === 'Teléfono' && !allowTelefonos) {
+      notify.warning('Sin permiso', {
+        description: 'Backoffice solo puede clasificar CARGA como Equipos o Devolución.',
+      });
+      setReceptionStep('classification');
+    }
+  }, [allowAccesorios, allowTelefonos, cat, setReceptionStep]);
+
+  useEffect(() => {
     if (isDevolucion && !selectedAgencyId) {
       setShowAgencyModal(true);
     }
   }, [isDevolucion, selectedAgencyId, setShowAgencyModal]);
 
   const handleConfirm = () => {
+    if (cat === 'Accesorio' && !allowAccesorios) {
+      notify.warning('Sin permiso', {
+        description: 'Solo el perfil SUPERVISOR STB puede clasificar hacia Accesorios.',
+      });
+      setReceptionStep('classification');
+      return;
+    }
+    if (cat === 'Teléfono' && !allowTelefonos) {
+      notify.warning('Sin permiso', {
+        description: 'Backoffice solo puede clasificar CARGA como Equipos o Devolución.',
+      });
+      setReceptionStep('classification');
+      return;
+    }
     if (isDevolucion) {
       if (!selectedAgencyId || !agencyDetails) {
         notify.warning('Agencia destino obligatoria', {

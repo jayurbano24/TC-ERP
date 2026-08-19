@@ -18,6 +18,7 @@ import type {
   ReceptionStep,
   SapTransferGroup,
 } from '../types';
+import { getSapDocumentGuideConflict } from '../operation/classificationGuideUtils';
 
 type Params = {
   CAC_AGENCIES: CatalogAgency[];
@@ -30,6 +31,9 @@ type Params = {
   setReceptionStep: React.Dispatch<React.SetStateAction<ReceptionStep>>;
   setAgencia: React.Dispatch<React.SetStateAction<string>>;
   setSelectedAgencyId: React.Dispatch<React.SetStateAction<string>>;
+  processedGuides: string[];
+  allReceptions: BackofficeReception[];
+  scannedGuides: string[];
 };
 
 export function useBackofficeManifest({
@@ -39,6 +43,9 @@ export function useBackofficeManifest({
   activeReception,
   setAgencia,
   setSelectedAgencyId,
+  processedGuides,
+  allReceptions,
+  scannedGuides,
 }: Params) {
   const [guideItems, setGuideItems] = useState<GuideItem[]>([]);
   const [manifestPanelOpen, setManifestPanelOpen] = useState(true);
@@ -50,7 +57,29 @@ export function useBackofficeManifest({
   const [itemSeriesInputs, setItemSeriesInputs] = useState<Record<number, string>>({});
 
   const activeSapGroup = sapGroups.find((g) => g.id === activeSapGroupId) || null;
-  const isActiveSapDocumentFilled = Boolean(activeSapGroup?.sapDocument?.trim());
+
+  const sapDocumentConflict = useMemo(
+    () =>
+      getSapDocumentGuideConflict(
+        activeSapGroup?.sapDocument || sapTransferNumber,
+        activeReception,
+        processedGuides,
+        allReceptions,
+        scannedGuides
+      ),
+    [
+      activeSapGroup?.sapDocument,
+      sapTransferNumber,
+      activeReception,
+      processedGuides,
+      allReceptions,
+      scannedGuides,
+    ]
+  );
+
+  const isActiveSapDocumentFilled = Boolean(
+    activeSapGroup?.sapDocument?.trim() && !sapDocumentConflict
+  );
 
   const availableBrandsConfig = useMemo(
     () =>
@@ -117,10 +146,22 @@ export function useBackofficeManifest({
   const updateActiveSapDocument = useCallback(
     (value: string) => {
       if (!activeSapGroupId) return;
+      const conflict = getSapDocumentGuideConflict(
+        value,
+        activeReception,
+        processedGuides,
+        allReceptions,
+        scannedGuides
+      );
       setSapTransferNumber(value);
-      setSapGroups((prev) => prev.map((g) => (g.id === activeSapGroupId ? { ...g, sapDocument: value } : g)));
+      setSapGroups((prev) =>
+        prev.map((g) => (g.id === activeSapGroupId ? { ...g, sapDocument: value } : g))
+      );
+      if (conflict && value.trim()) {
+        notify.warning('Documento SAP inválido', { description: conflict });
+      }
     },
-    [activeSapGroupId]
+    [activeSapGroupId, activeReception, processedGuides, allReceptions, scannedGuides]
   );
 
   const removeSapGroup = useCallback(
@@ -157,6 +198,17 @@ export function useBackofficeManifest({
       notify.warning('Seleccione o cree un Documento SAP antes de agregar equipos al manifiesto.');
       return;
     }
+    const conflict = getSapDocumentGuideConflict(
+      activeSapGroup.sapDocument,
+      activeReception,
+      processedGuides,
+      allReceptions,
+      scannedGuides
+    );
+    if (conflict) {
+      notify.error('Documento SAP inválido', { description: conflict });
+      return;
+    }
     if (!newItem.tipo || !newItem.marca || !newItem.modelo || newItem.cantidad <= 0) {
       const msg = `Faltan campos por completar: ${!newItem.tipo ? 'Tecnología, ' : ''}${!newItem.marca ? 'Marca, ' : ''}${!newItem.modelo ? 'Modelo, ' : ''}${newItem.cantidad <= 0 ? 'Cantidad' : ''}`;
       notify.warning(msg);
@@ -175,7 +227,17 @@ export function useBackofficeManifest({
     };
     setGuideItems((prev) => [...prev, item]);
     setNewItem({ tipo: '', marca: '', modelo: '', cantidad: 0 });
-  }, [MASTER_MODELOS, MASTER_TECNOLOGIAS, activeSapGroup, activeSapGroupId, newItem]);
+  }, [
+    MASTER_MODELOS,
+    MASTER_TECNOLOGIAS,
+    activeSapGroup,
+    activeSapGroupId,
+    newItem,
+    activeReception,
+    processedGuides,
+    allReceptions,
+    scannedGuides,
+  ]);
 
   return {
     guideItems,
@@ -197,6 +259,7 @@ export function useBackofficeManifest({
     availableBrandsConfig,
     availableModels,
     isActiveSapDocumentFilled,
+    sapDocumentConflict,
     initSapGroupsForConfig,
     addSapGroup,
     selectSapGroup,

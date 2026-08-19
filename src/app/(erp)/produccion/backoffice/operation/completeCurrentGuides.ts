@@ -1,6 +1,7 @@
 'use client';
 
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { fetchAuthzMe } from '@/components/authz';
 import { notify } from '@/components/ui/messaging/messageStore';
 import { updateReception } from '@/modules/recepcion/client/receptions';
 import { sanitizeCacAgencyRaw } from '@/lib/cacAgencyUtils';
@@ -9,6 +10,8 @@ import type { SapTransferGroup } from '../types';
 import type { CompleteGuidesContext } from './completeGuidesContext';
 import { humanizeClassifyEquipmentError } from '@/modules/sap-transfer/client/humanizeClassifyError';
 import { persistEquipmentOnComplete } from './persistEquipmentOnComplete';
+import { getSapDocumentGuideConflict } from './classificationGuideUtils';
+import { canClassifyToAccesorios, canClassifyToTelefonos } from './canClassifyAccesorios';
 
 export type { CompleteGuidesContext } from './completeGuidesContext';
 
@@ -25,6 +28,52 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
     ctx.setReceptionStep('completed');
     ctx.isSubmittingRef.current = false;
     return;
+  }
+
+  const isAccesorioAttempt =
+    ctx.category === 'Accesorio' || (ctx.receptionStep as string) === 'accessories_photos';
+  const isTelefonoAttempt = ctx.category === 'Teléfono';
+  if (isAccesorioAttempt || isTelefonoAttempt) {
+    const authz = await fetchAuthzMe();
+    if (isAccesorioAttempt && !canClassifyToAccesorios({ roleLabel: authz.roleLabel, isAdmin: authz.isAdmin })) {
+      notify.warning('Sin permiso', {
+        description: 'Solo el perfil SUPERVISOR STB puede clasificar hacia Accesorios.',
+      });
+      ctx.setReceptionStep('classification');
+      ctx.isSubmittingRef.current = false;
+      return;
+    }
+    if (isTelefonoAttempt && !canClassifyToTelefonos({ roleLabel: authz.roleLabel, isAdmin: authz.isAdmin })) {
+      notify.warning('Sin permiso', {
+        description: 'Backoffice solo puede clasificar CARGA como Equipos o Devolución.',
+      });
+      ctx.setReceptionStep('classification');
+      ctx.isSubmittingRef.current = false;
+      return;
+    }
+  }
+
+  const sapDocs = [
+    ...new Set(
+      ctx.sapGroups
+        .map((g) => g.sapDocument.trim())
+        .filter(Boolean)
+        .concat(ctx.sapTransferNumber?.trim() ? [ctx.sapTransferNumber.trim()] : [])
+    ),
+  ];
+  for (const sapDoc of sapDocs) {
+    const conflict = getSapDocumentGuideConflict(
+      sapDoc,
+      ctx.activeReception,
+      ctx.processedGuides,
+      [],
+      ctx.scannedGuides
+    );
+    if (conflict) {
+      notify.error('Documento SAP inválido', { description: conflict });
+      ctx.isSubmittingRef.current = false;
+      return;
+    }
   }
 
   ctx.setIsSubmitting(true);
@@ -74,8 +123,13 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
         let finalCategory = ctx.category || 'Equipo';
         if ((ctx.receptionStep as string) === 'accessories_photos') finalCategory = 'Accesorio';
         const step = ctx.receptionStep as string;
+        // return_confirmation solo cuenta como devolución si la categoría es Devolución
+        // (Accesorio no debe pasar por ese step; histórico lo contaminaba).
         const isDevolucion =
-          step === 'return_confirmation' ||
+          (step === 'return_confirmation' &&
+            (ctx.category === 'Devolución' ||
+              finalCategory.toLowerCase() === 'devolución' ||
+              finalCategory.toLowerCase() === 'devolucion')) ||
           (step === 'bulk_classify_confirm' && ctx.category === 'Devolución') ||
           finalCategory.toLowerCase() === 'devolución' ||
           finalCategory.toLowerCase() === 'devolucion';
@@ -86,14 +140,18 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
               .normalize('NFD')
               .replace(/[\u0300-\u036f]/g, '');
 
+        const attemptedAgency = agencyObj?.name || ctx.agencia || ctx.selectedAgencyId || '';
         const agencyLabel = sanitizeCacAgencyRaw(
-          agencyObj?.name || ctx.agencia || ctx.selectedAgencyId,
+          attemptedAgency,
           ctx.activeReception?.carrier,
           ctx.CAC_AGENCIES
         );
         if (!agencyLabel && (isEquipment || isDevolucion)) {
-          notify.warning('Falta la Agencia CAC', {
-            description: 'Debe seleccionar la Agencia CAC de ingreso (no es el mismo dato que el Courier).',
+          const triedCourier = attemptedAgency.trim() && !agencyLabel;
+          notify.warning(triedCourier ? 'Courier no es Agencia CAC' : 'Falta la Agencia CAC', {
+            description: triedCourier
+              ? `"${attemptedAgency.trim()}" es transportista (p. ej. Cargo Express), no una agencia. Seleccione la Agencia CAC de ingreso.`
+              : 'Debe seleccionar la Agencia CAC de ingreso (no es el mismo dato que el Courier).',
           });
           ctx.setIsSubmitting(false);
           ctx.isSubmittingRef.current = false;

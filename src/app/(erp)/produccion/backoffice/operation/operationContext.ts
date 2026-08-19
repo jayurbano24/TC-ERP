@@ -60,6 +60,7 @@ export type OperationContext = {
   availableBrandsConfig: CatalogBrand[];
   availableModels: CatalogModel[];
   isActiveSapDocumentFilled: boolean;
+  sapDocumentConflict: string | null;
   startProcessingReception: (rec: BackofficeReception) => void;
   handlePrintConduce: (record: BackofficeReception) => void;
   fetchPending: (opts?: { silent?: boolean }) => Promise<void>;

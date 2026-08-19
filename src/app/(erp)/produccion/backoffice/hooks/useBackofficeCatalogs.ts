@@ -3,6 +3,7 @@
 import { useCallback, useState } from 'react';
 import { getTechnologies, getBrands, getModels, getAgencies } from '@/shared/catalogs/catalogs';
 import { normalizeCatalogLabel } from '@/shared/catalogs/normalizeCatalogName';
+import { filterCacAgenciesOnly } from '@/lib/cacAgencyUtils';
 import type { CatalogAgency, CatalogBrand, CatalogModel, CatalogTech } from '../types';
 
 export function useBackofficeCatalogs() {
@@ -39,15 +40,18 @@ export function useBackofficeCatalogs() {
           digitsPerSeries: m.digits_per_series || [12],
         }))
       );
+      // Cargo Express / couriers nunca son Agencia CAC.
       setCAC_AGENCIES(
-        agencies.map((a: any) => ({
-          id: a.code,
-          name: normalizeCatalogLabel(a.name) || a.name,
-          manager: a.manager || 'Encargado Pendiente',
-          email: a.email || 'correo@agencia.com',
-          direccion: a.address || 'Dirección no registrada',
-          telefono: a.phone || '000-000-0000',
-        }))
+        filterCacAgenciesOnly(
+          agencies.map((a: any) => ({
+            id: a.code,
+            name: normalizeCatalogLabel(a.name) || a.name,
+            manager: a.manager || 'Encargado Pendiente',
+            email: a.email || 'correo@agencia.com',
+            direccion: a.address || 'Dirección no registrada',
+            telefono: a.phone || '000-000-0000',
+          }))
+        )
       );
     } catch (err) {
       console.error('Error loading catalogs from Supabase:', err);

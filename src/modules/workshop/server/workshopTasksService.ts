@@ -66,8 +66,12 @@ const WORKSHOP_AUDIT_ACTIONS_LIST = [...TALLER_WORKSHOP_AUDIT_ACTIONS];
 const WORKSHOP_SERIES_SELECT = `
   id,
   serial_number,
+  s2,
+  s3,
+  s4,
   service_order_id,
   current_status,
+  current_box_id,
   updated_at,
   brand_id,
   model_id,
@@ -148,12 +152,23 @@ async function searchWorkshopSeriesSingleInTab(
   tab: WorkshopTabId,
   query: string
 ): Promise<any[]> {
+  // Búsqueda acotada a la pestaña (serial / s2–s4). Evita que locate() elija otra
+  // fila del mismo SN en Reparación/Despacho y deje vacía la cola SCRAPS.
+  const scoped = await searchWorkshopSeriesMultiInTab(supabase, tab, [query]);
+  if (scoped.length > 0) return scoped;
+
+  // Fallback: etiqueta OS u otros estados vía locate (solo si coincide el status de la pestaña)
   const located = await locateWorkshopEquipment(supabase, query);
   if (!located.found || !located.status || !located.serviceOrderId) return [];
 
   const expectedStatus =
     tab === 'listo' ? 'in_central_warehouse' : TAB_TO_STATUS[tab as Exclude<WorkshopTabId, 'listo'>];
   if (located.status !== expectedStatus) return [];
+
+  // Irreparable ya en caja → no pertenece a la cola SCRAPS del Taller
+  if (expectedStatus === 'irreparable' && located.boxCode) {
+    return [];
+  }
 
   let rows = await fetchWorkshopSeriesForOsIds(
     supabase,
@@ -216,12 +231,23 @@ async function searchWorkshopSeriesMultiInTab(
     .filter((r) => !r.service_order_id)
     .map((r) => String(r.id));
   if (orphanIds.length > 0) {
-    const { data: orphans } = await supabase
+    let orphanQ = supabase
       .from('series')
       .select(WORKSHOP_SERIES_SELECT)
       .in('id', orphanIds)
       .eq('current_status', status);
-    if (orphans?.length) rows = [...rows, ...orphans];
+    if (status === 'irreparable') {
+      orphanQ = orphanQ.is('current_box_id', null);
+    }
+    const { data: orphans } = await orphanQ;
+    if (orphans?.length) {
+      rows = [
+        ...rows,
+        ...(status === 'irreparable'
+          ? orphans.filter((row) => !isSeriesAlreadyInScrapBox(row))
+          : orphans),
+      ];
+    }
   }
 
   if (tab === 'listo') {
@@ -261,7 +287,7 @@ export async function locateWorkshopEquipment(
   if (!query) return { ...EMPTY_LOCATE };
 
   const seriesSelect =
-    'id, serial_number, current_status, service_order_id, ingress_count, boxes(box_code, rack_location), service_orders(os_label)';
+    'id, serial_number, s2, s3, s4, current_status, current_box_id, service_order_id, ingress_count, boxes(box_code, rack_location), service_orders(os_label)';
 
   const { data: bySerial } = await supabase
     .from('series')
@@ -270,9 +296,30 @@ export async function locateWorkshopEquipment(
       `serial_number.ilike.%${query}%,s2.ilike.%${query}%,s3.ilike.%${query}%,s4.ilike.%${query}%`
     )
     .order('updated_at', { ascending: false })
-    .limit(5);
+    .limit(25);
 
-  let hit = bySerial?.[0] ?? null;
+  const qUpper = query.toUpperCase();
+  const rankHit = (row: {
+    serial_number?: string | null;
+    s2?: string | null;
+    s3?: string | null;
+    s4?: string | null;
+    current_status?: string | null;
+    current_box_id?: string | null;
+  }): number => {
+    const fields = [row.serial_number, row.s2, row.s3, row.s4].map((s) =>
+      String(s || '').toUpperCase()
+    );
+    const exact = fields.some((f) => f === qUpper) ? 100 : fields.some((f) => f.includes(qUpper)) ? 10 : 0;
+    const status = String(row.current_status || '');
+    const unboxedScrap = status === 'irreparable' && !row.current_box_id ? 50 : 0;
+    // Ya en Bodega SCRAPS: no priorizar para cola Taller.
+    const boxedScrap = 0;
+    return exact + unboxedScrap + boxedScrap;
+  };
+
+  const ranked = [...(bySerial || [])].sort((a, b) => rankHit(b) - rankHit(a));
+  let hit = ranked[0] ?? null;
 
   if (!hit) {
     const { data: osRows } = await supabase
@@ -287,8 +334,9 @@ export async function locateWorkshopEquipment(
         .select(seriesSelect)
         .eq('service_order_id', osId)
         .order('updated_at', { ascending: false })
-        .limit(1);
-      hit = byOs?.[0] ?? null;
+        .limit(25);
+      const osRanked = [...(byOs || [])].sort((a, b) => rankHit(b) - rankHit(a));
+      hit = osRanked[0] ?? null;
     }
   }
 
@@ -351,11 +399,16 @@ export async function locateWorkshopEquipment(
 
   // Irreparable ya en caja SCRAP → Bodega SCRAPS (no cola Taller).
   const rackUpper = (rack || '').toUpperCase();
-  if (
+  const codeUpper = String(boxCode || '').toUpperCase();
+  const inScrapBodega =
     status === 'irreparable' &&
-    boxCode &&
-    (rackUpper === 'SCRAP' || rackUpper === 'SCRAPS' || rackUpper.startsWith('SCRAP'))
-  ) {
+    Boolean(hit.current_box_id || boxCode) &&
+    (rackUpper === 'SCRAP' ||
+      rackUpper === 'SCRAPS' ||
+      rackUpper.startsWith('SCRAP') ||
+      codeUpper.startsWith('BOX-BAD') ||
+      Boolean(hit.current_box_id));
+  if (inScrapBodega) {
     return {
       found: true,
       tab: null,
@@ -365,7 +418,7 @@ export async function locateWorkshopEquipment(
       serial: hit.serial_number as string,
       serviceOrderId: (hit.service_order_id as string) || null,
       outsideWorkshop: true,
-      locationLabel: `Bodega SCRAPS · ${boxCode}`,
+      locationLabel: `Bodega SCRAPS${boxCode ? ` · ${boxCode}` : ''}`,
       message: 'Ya está en una caja de Bodega SCRAPS; no figura en la cola SCRAP del Taller.',
       boxCode,
       rack,
@@ -451,9 +504,14 @@ function mergeWorkshopGroup(target: any, source: any) {
   for (const sn of source.all_sns || (source.serial_number ? [source.serial_number] : [])) {
     if (sn && !target.all_sns.includes(sn)) target.all_sns.push(sn);
   }
+  if (!target.sn_to_series_id) target.sn_to_series_id = {};
+  const srcMap = source.sn_to_series_id || {};
+  for (const [sn, id] of Object.entries(srcMap)) {
+    if (sn && id && !target.sn_to_series_id[sn]) target.sn_to_series_id[sn] = id;
+  }
   if (!target.series_entry_map) target.series_entry_map = {};
-  const srcMap = source.series_entry_map || {};
-  for (const [sn, src] of Object.entries(srcMap)) {
+  const srcEntryMap = source.series_entry_map || {};
+  for (const [sn, src] of Object.entries(srcEntryMap)) {
     if (sn && src && !target.series_entry_map[sn]) target.series_entry_map[sn] = src;
   }
   if (!target.entry_source && source.entry_source) {
@@ -534,6 +592,23 @@ function dedupeWorkshopGroups(groups: any[]): any[] {
   return out;
 }
 
+function seriesSnMapForRow(row: {
+  id?: string;
+  serial_number?: string | null;
+  s2?: string | null;
+  s3?: string | null;
+  s4?: string | null;
+}): Record<string, string> {
+  const id = row.id ? String(row.id) : '';
+  if (!id) return {};
+  const map: Record<string, string> = {};
+  for (const raw of [row.serial_number, row.s2, row.s3, row.s4]) {
+    const sn = String(raw || '').trim().toUpperCase();
+    if (sn) map[sn] = id;
+  }
+  return map;
+}
+
 function groupWorkshopSeriesRows(rows: any[]) {
   const groupedMap = new Map<string, any>();
 
@@ -543,6 +618,7 @@ function groupWorkshopSeriesRows(rows: any[]) {
     const entrySource = resolveSeriesEntrySource(row);
     const sn = row.serial_number ? String(row.serial_number) : '';
     const seriesEntryMap = sn && entrySource ? { [sn]: entrySource } : {};
+    const snToSeriesId = seriesSnMapForRow(row);
 
     if (!groupedMap.has(groupKey)) {
       groupedMap.set(groupKey, {
@@ -550,6 +626,7 @@ function groupWorkshopSeriesRows(rows: any[]) {
         // No pisar entry_source de la fila con null
         entry_source: entrySource ?? row.entry_source ?? null,
         series_entry_map: seriesEntryMap,
+        sn_to_series_id: snToSeriesId,
         all_dbIds: [row.id],
         all_sns: sn ? [sn] : [],
         source_box_code: row.source_box_code ?? null,
@@ -562,6 +639,7 @@ function groupWorkshopSeriesRows(rows: any[]) {
       ...row,
       entry_source: entrySource ?? row.entry_source ?? null,
       series_entry_map: seriesEntryMap,
+      sn_to_series_id: snToSeriesId,
       all_dbIds: [row.id],
       all_sns: sn ? [sn] : [],
     });
@@ -635,6 +713,18 @@ async function collectQueueOsIds(
   return ids;
 }
 
+/** Ya en Bodega SCRAPS (BOX-BAD / rack SCRAP) → fuera de cola Taller SCRAPS. */
+function isSeriesAlreadyInScrapBox(row: {
+  current_box_id?: string | null;
+  boxes?: { box_code?: string | null; rack_location?: string | null } | null;
+}): boolean {
+  if (row.current_box_id) return true;
+  const rack = String(row.boxes?.rack_location || '').toUpperCase();
+  if (rack === 'SCRAP' || rack === 'SCRAPS' || rack.startsWith('SCRAP')) return true;
+  const code = String(row.boxes?.box_code || '').toUpperCase();
+  return code.startsWith('BOX-BAD');
+}
+
 async function fetchWorkshopSeriesForOsIds(
   supabase: SupabaseClient,
   osIds: string[],
@@ -664,7 +754,11 @@ async function fetchWorkshopSeriesForOsIds(
       console.error('[workshop/server] series for OS chunk:', error.message);
       continue;
     }
-    if (data?.length) rows.push(...data);
+    if (data?.length) {
+      rows.push(
+        ...(scrapsUnboxedOnly ? data.filter((row) => !isSeriesAlreadyInScrapBox(row)) : data)
+      );
+    }
   }
 
   return rows;
@@ -695,7 +789,7 @@ async function fetchWorkshopSeriesPaginated(
       break;
     }
     if (!data?.length) break;
-    rows.push(...data);
+    rows.push(...(scrapsOnly ? data.filter((row) => !isSeriesAlreadyInScrapBox(row)) : data));
     if (data.length < PAGE_SIZE) break;
   }
   return rows;
@@ -1106,6 +1200,68 @@ export async function queryWorkshopTasksPage(
   }
 
   const status = TAB_TO_STATUS[tab];
+
+  // Pestaña SCRAPS: rellenar página saltando OS que ya solo tienen series en Bodega SCRAPS.
+  if (tab === 'scraps') {
+    const items: any[] = [];
+    let cursor = opts.cursor ?? null;
+    let guard = 0;
+    let lastPageHadMore = false;
+
+    while (items.length < limit && guard < 12) {
+      guard += 1;
+      const need = limit - items.length + 1;
+      const { data: queueRows, error: queueError } = await supabase.rpc(
+        'workshop_list_os_queue_page',
+        {
+          p_status: status,
+          p_cursor: cursor,
+          p_limit: Math.min(need + 10, 80),
+        }
+      );
+
+      if (queueError) {
+        if (isRpcMissing(queueError)) {
+          const legacy = await queryWorkshopTasksLegacyAll(supabase, tab);
+          return { items: legacy, nextCursor: null, totalOs: legacy.length };
+        }
+        throw queueError;
+      }
+
+      const rows = queueRows ?? [];
+      if (rows.length === 0) break;
+
+      lastPageHadMore = rows.length > need;
+      const pageRows = lastPageHadMore ? rows.slice(0, need) : rows;
+      const osIds = pageRows.map((r: { service_order_id: string }) =>
+        String(r.service_order_id)
+      );
+
+      let seriesRows = await fetchWorkshopSeriesForOsIds(supabase, osIds, status);
+      seriesRows = await enrichWorkshopServiceOrders(supabase, seriesRows);
+      const groups = groupWorkshopSeriesRows(seriesRows);
+      items.push(...groups);
+
+      cursor = String(pageRows[pageRows.length - 1].service_order_id);
+      if (!lastPageHadMore && rows.length <= need) break;
+    }
+
+    const trimmed = items.slice(0, limit);
+    const { data: totalOs, error: countError } = await supabase.rpc(
+      'count_workshop_os_by_status',
+      { p_status: status }
+    );
+    if (countError && !isRpcMissing(countError)) {
+      console.warn('[workshop/server] count RPC failed:', countError.message);
+    }
+
+    return {
+      items: trimmed,
+      nextCursor:
+        trimmed.length > 0 && (trimmed.length >= limit || lastPageHadMore) ? cursor : null,
+      totalOs: typeof totalOs === 'number' ? totalOs : null,
+    };
+  }
 
   const [{ data: queueRows, error: queueError }, { data: totalOs, error: countError }] =
     await Promise.all([

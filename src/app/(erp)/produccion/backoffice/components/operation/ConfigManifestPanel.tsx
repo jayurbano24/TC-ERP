@@ -21,6 +21,7 @@ export function ConfigManifestPanel({ ctx }: Props) {
     availableBrandsConfig,
     availableModels,
     isActiveSapDocumentFilled,
+    sapDocumentConflict,
     MASTER_TECNOLOGIAS,
     addSapGroup,
     selectSapGroup,
@@ -88,7 +89,11 @@ export function ConfigManifestPanel({ ctx }: Props) {
           <input
             type="text"
             className={`w-full px-3 py-2.5 bg-white border rounded-xl font-black text-[10px] text-[var(--heading)] outline-none focus:border-[var(--accent)] ${
-              isActiveSapDocumentFilled ? 'border-slate-200' : 'border-amber-300'
+              sapDocumentConflict
+                ? 'border-rose-400 bg-rose-50'
+                : isActiveSapDocumentFilled
+                  ? 'border-slate-200'
+                  : 'border-amber-300'
             }`}
             value={sapTransferNumber}
             onChange={(e) => updateActiveSapDocument(e.target.value)}
@@ -96,10 +101,17 @@ export function ConfigManifestPanel({ ctx }: Props) {
             disabled={!agencyDetails || !activeSapGroupId}
             required
           />
-          {!isActiveSapDocumentFilled && agencyDetails && (
-            <p className="text-[7px] font-bold uppercase tracking-widest text-amber-600 mt-1">
-              Obligatorio para habilitar Agregar
+          {sapDocumentConflict ? (
+            <p className="text-[7px] font-bold uppercase tracking-widest text-rose-600 mt-1">
+              {sapDocumentConflict}
             </p>
+          ) : (
+            !isActiveSapDocumentFilled &&
+            agencyDetails && (
+              <p className="text-[7px] font-bold uppercase tracking-widest text-amber-600 mt-1">
+                Obligatorio para habilitar Agregar · no use No. de guía pendiente
+              </p>
+            )
           )}
         </div>
           

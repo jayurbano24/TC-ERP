@@ -1399,28 +1399,59 @@ export default function BodegaGestionV2({
     }
   };
 
+  /** Parchea `rack` en cache de lista sin esperar el refetch pesado del inventario. */
+  const patchWarehouseRackCache = useCallback(
+    (boxIds: string[], finalRack: string) => {
+      const idSet = new Set(boxIds.map(String));
+      queryClient.setQueriesData<{ pages: Array<{ items?: Array<{ box_id?: string; rack?: string }> }> }>(
+        { queryKey: ['warehouse-boxes'] },
+        (old) => {
+          if (!old?.pages) return old;
+          return {
+            ...old,
+            pages: old.pages.map((page) => ({
+              ...page,
+              items: (page.items || []).map((item) =>
+                idSet.has(String(item.box_id)) ? { ...item, rack: finalRack } : item
+              ),
+            })),
+          };
+        }
+      );
+    },
+    [queryClient]
+  );
+
   const handleUpdateRack = async () => {
     if (!showRackModal) return;
     setLoading(true);
     const supabase = getSupabaseBrowserClient();
-    
-    // Format the final string
+
     const rn = rackNum.trim() || 'S/N';
     const rnl = rackNivel.trim() || '0';
     const rp = rackPosicion.trim() || 'S/P';
     const finalRack = `RACK-${rn} - NIVEL-${rnl} - POSICION-${rp}`.toUpperCase();
-    
-    if (supabase) {
-      const realId = showRackModal.realDbId || showRackModal.id;
-      const { error } = await supabase.from('boxes').update({ rack_location: finalRack }).eq('id', realId);
-      if (error) {
-        notify.error('Error al actualizar la ubicación', { description: error.message });
-      } else {
-        await fetchBoxes(true);
-      }
+
+    if (!supabase) {
+      notify.error('No se pudo conectar para guardar la ubicación');
+      setLoading(false);
+      return;
     }
+
+    const realId = String(showRackModal.realDbId || showRackModal.id);
+    const { error } = await supabase.from('boxes').update({ rack_location: finalRack }).eq('id', realId);
+    if (error) {
+      notify.error('Error al actualizar la ubicación', { description: error.message });
+      setLoading(false);
+      return;
+    }
+
+    // UPDATE es instantáneo; el lag era el refetch completo del inventario con el modal abierto.
+    patchWarehouseRackCache([realId], finalRack);
+    notify.success('Ubicación actualizada', { description: finalRack });
     setShowRackModal(null);
     setLoading(false);
+    void refreshWarehouseLists();
   };
 
   const handleBulkUpdateRack = async () => {
@@ -1433,24 +1464,31 @@ export default function BodegaGestionV2({
     const rp = rackPosicion.trim() || 'S/P';
     const finalRack = `RACK-${rn} - NIVEL-${rnl} - POSICION-${rp}`.toUpperCase();
 
-    if (supabase) {
-      const realIds = selectedBoxIds.map((id) => {
-        const box = inventory.find((b) => b.id === id);
-        return box ? box.realDbId || box.id : id;
-      });
-      const { error } = await supabase.from('boxes').update({ rack_location: finalRack }).in('id', realIds);
-      if (error) {
-        notify.error('Error al actualizar ubicaciones', { description: error.message });
-      } else {
-        await fetchBoxes(true);
-        notify.success('Ubicación asignada', {
-          description: `${selectedBoxIds.length} ${selectedBoxIds.length === 1 ? 'caja' : 'cajas'} → ${finalRack}.`,
-        });
-        setSelectedBoxIds([]);
-      }
+    if (!supabase) {
+      notify.error('No se pudo conectar para guardar la ubicación');
+      setLoading(false);
+      return;
     }
+
+    const realIds = selectedBoxIds.map((id) => {
+      const box = inventory.find((b) => b.id === id);
+      return String(box ? box.realDbId || box.id : id);
+    });
+    const { error } = await supabase.from('boxes').update({ rack_location: finalRack }).in('id', realIds);
+    if (error) {
+      notify.error('Error al actualizar ubicaciones', { description: error.message });
+      setLoading(false);
+      return;
+    }
+
+    patchWarehouseRackCache(realIds, finalRack);
+    notify.success('Ubicación asignada', {
+      description: `${selectedBoxIds.length} ${selectedBoxIds.length === 1 ? 'caja' : 'cajas'} → ${finalRack}.`,
+    });
+    setSelectedBoxIds([]);
     setShowBulkRackModal(false);
     setLoading(false);
+    void refreshWarehouseLists();
   };
 
   const handleExecuteTransfer = async () => {

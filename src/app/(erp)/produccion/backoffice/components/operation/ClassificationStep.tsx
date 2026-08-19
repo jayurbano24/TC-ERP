@@ -1,8 +1,13 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { Badge, Button } from '@/components/ui';
+import { Badge, Button, notify } from '@/components/ui';
 import { Box, ChevronLeft, Monitor, Package, Radio, RefreshCw } from 'lucide-react';
+import { useAuthzOptional } from '@/components/authz';
+import {
+  canClassifyToAccesorios,
+  canClassifyToTelefonos,
+} from '../../operation/canClassifyAccesorios';
 import { parseReceptionGuideList } from '../../operation/parseReceptionGuideList';
 import type { OperationContext } from '../../operation/operationContext';
 import type { OperationCategory } from '../../types';
@@ -30,6 +35,10 @@ function startBulkClassify(
 }
 
 export function ClassificationStep({ ctx }: Props) {
+  const authz = useAuthzOptional();
+  const authzOpts = { roleLabel: authz?.roleLabel, isAdmin: authz?.isAdmin };
+  const allowAccesorios = canClassifyToAccesorios(authzOpts);
+  const allowTelefonos = canClassifyToTelefonos(authzOpts);
   const {
     activeReception,
     setReceptionStep,
@@ -90,6 +99,18 @@ export function ClassificationStep({ ctx }: Props) {
 
   const bulkClassify = (category: OperationCategory) => {
     if (selectedGuides.length === 0) return;
+    if (category === 'Accesorio' && !allowAccesorios) {
+      notify.warning('Sin permiso', {
+        description: 'Solo el perfil SUPERVISOR STB puede clasificar hacia Accesorios.',
+      });
+      return;
+    }
+    if (category === 'Teléfono' && !allowTelefonos) {
+      notify.warning('Sin permiso', {
+        description: 'Backoffice solo puede clasificar CARGA como Equipos o Devolución.',
+      });
+      return;
+    }
     startBulkClassify(ctx, selectedGuides, category);
     setSelectedGuides([]);
   };
@@ -164,18 +185,22 @@ export function ClassificationStep({ ctx }: Props) {
             <span className="text-[10px] font-black text-[var(--heading)] uppercase mr-1">
               {selectedGuides.length} seleccionada{selectedGuides.length !== 1 ? 's' : ''}:
             </span>
-            <Button
-              onClick={() => bulkClassify('Accesorio')}
-              className="h-8 px-3 bg-emerald-500 hover:bg-emerald-600 text-white border-none rounded-lg font-black text-[9px] uppercase"
-            >
-              <Package size={12} className="mr-1.5" /> Accesorios
-            </Button>
-            <Button
-              onClick={() => bulkClassify('Teléfono')}
-              className="h-8 px-3 bg-amber-500 hover:bg-amber-600 text-white border-none rounded-lg font-black text-[9px] uppercase"
-            >
-              <Radio size={12} className="mr-1.5" /> Teléfonos
-            </Button>
+            {allowAccesorios && (
+              <Button
+                onClick={() => bulkClassify('Accesorio')}
+                className="h-8 px-3 bg-emerald-500 hover:bg-emerald-600 text-white border-none rounded-lg font-black text-[9px] uppercase"
+              >
+                <Package size={12} className="mr-1.5" /> Accesorios
+              </Button>
+            )}
+            {allowTelefonos && (
+              <Button
+                onClick={() => bulkClassify('Teléfono')}
+                className="h-8 px-3 bg-amber-500 hover:bg-amber-600 text-white border-none rounded-lg font-black text-[9px] uppercase"
+              >
+                <Radio size={12} className="mr-1.5" /> Teléfonos
+              </Button>
+            )}
             <Button
               onClick={() => bulkClassify('Devolución')}
               className="h-8 px-3 bg-rose-500 hover:bg-rose-600 text-white border-none rounded-lg font-black text-[9px] uppercase"
@@ -250,20 +275,24 @@ export function ClassificationStep({ ctx }: Props) {
                     >
                       <Monitor size={12} className="mr-1" /> Equipos
                     </Button>
-                    <Button
-                      onClick={() => startBulkClassify(ctx, [guia], 'Accesorio')}
-                      title="Accesorios"
-                      className="h-8 px-2 bg-emerald-500 hover:bg-emerald-600 text-white border-none rounded-lg font-black text-[8px] uppercase"
-                    >
-                      <Package size={12} />
-                    </Button>
-                    <Button
-                      onClick={() => startBulkClassify(ctx, [guia], 'Teléfono')}
-                      title="Teléfonos"
-                      className="h-8 px-2 bg-amber-500 hover:bg-amber-600 text-white border-none rounded-lg font-black text-[8px] uppercase"
-                    >
-                      <Radio size={12} />
-                    </Button>
+                    {allowAccesorios && (
+                      <Button
+                        onClick={() => startBulkClassify(ctx, [guia], 'Accesorio')}
+                        title="Accesorios"
+                        className="h-8 px-2 bg-emerald-500 hover:bg-emerald-600 text-white border-none rounded-lg font-black text-[8px] uppercase"
+                      >
+                        <Package size={12} />
+                      </Button>
+                    )}
+                    {allowTelefonos && (
+                      <Button
+                        onClick={() => startBulkClassify(ctx, [guia], 'Teléfono')}
+                        title="Teléfonos"
+                        className="h-8 px-2 bg-amber-500 hover:bg-amber-600 text-white border-none rounded-lg font-black text-[8px] uppercase"
+                      >
+                        <Radio size={12} />
+                      </Button>
+                    )}
                     <Button
                       onClick={() => startBulkClassify(ctx, [guia], 'Devolución')}
                       title="Devolución"

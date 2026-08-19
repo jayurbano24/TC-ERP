@@ -22,6 +22,7 @@ type ManifestSlice = {
   availableBrandsConfig: OperationContext['availableBrandsConfig'];
   availableModels: OperationContext['availableModels'];
   isActiveSapDocumentFilled: OperationContext['isActiveSapDocumentFilled'];
+  sapDocumentConflict: OperationContext['sapDocumentConflict'];
   initSapGroupsForConfig: OperationContext['initSapGroupsForConfig'];
   addSapGroup: OperationContext['addSapGroup'];
   selectSapGroup: OperationContext['selectSapGroup'];

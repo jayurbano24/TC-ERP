@@ -120,7 +120,7 @@ export const getAgenciaLabel = (
         rec.carrier,
         agencies
       );
-  if (raw) return formatAgencyLabel(raw, agencies, rec?.carrier);
+  if (raw && !/^backoffice_/i.test(raw)) return formatAgencyLabel(raw, agencies, rec?.carrier);
   return '---';
 };
 

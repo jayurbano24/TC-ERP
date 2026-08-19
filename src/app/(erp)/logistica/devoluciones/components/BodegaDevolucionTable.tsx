@@ -90,11 +90,21 @@ export function BodegaDevolucionTable({
     {
       id: 'fecha',
       header: 'Fecha Ingreso',
-      width: 'minmax(150px,1fr)',
+      width: 'minmax(140px,0.9fr)',
       cell: (row) => (
-        <div className="text-xs font-bold text-slate-500">
-          {row.processDate}
-          <div className="text-[9px] text-slate-400 uppercase mt-1">Por: {row.processUser}</div>
+        <div className="text-xs font-bold text-slate-600">{row.processDate}</div>
+      ),
+    },
+    {
+      id: 'clasificadoPor',
+      header: 'Clasificado por',
+      width: 'minmax(160px,1.1fr)',
+      cell: (row) => (
+        <div className="min-w-0">
+          <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Usuario</p>
+          <p className="text-xs font-black text-[#181c3a] uppercase truncate" title={row.processUser}>
+            {row.processUser || 'Sin registro'}
+          </p>
         </div>
       ),
     },
@@ -201,7 +211,7 @@ export function BodegaDevolucionTable({
             onRowClick={(row: BoxReturnRow) => onSelectRow(row)}
             rowHeight={76}
             maxBodyHeight={600}
-            minWidth={1020}
+            minWidth={1180}
             headerClassName="bg-rose-500"
             headerTextClassName="text-white"
             emptyMessage="No hay cajas en bodega devolución"

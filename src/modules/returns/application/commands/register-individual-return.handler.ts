@@ -71,7 +71,7 @@ export class RegisterIndividualReturnHandler {
       }
     }
 
-    const returnNote = `--- DEVOLUCIÓN ---\nMotivo: ${returnEntry.motivo}\nGuía Salida: ${returnEntry.guiaSalida}\nCat: ${returnEntry.category || 'BODEGA DEVOLUCIÓN'}\nFecha: ${new Date().toLocaleString()}`;
+    const returnNote = `--- DEVOLUCIÓN ---\nMotivo: ${returnEntry.motivo}\nGuía Salida: ${returnEntry.guiaSalida}\nCat: ${returnEntry.category || 'BODEGA DEVOLUCIÓN'}\nFecha: ${new Date().toLocaleString()}\nUsuario: ${returnEntry.usuario || 'SISTEMA'}`;
 
     const { error: updateError } = await supabase
       .from('series')

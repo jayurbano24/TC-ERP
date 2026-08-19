@@ -1357,10 +1357,63 @@ ${funcNotes || 'Ninguno evaluado'}
                       {exportingReport ? 'Exportando…' : 'Exportar Reporte'}
                     </Button>
 
-                    {selectedRows.length > 0 ? (
+                    {activeTab === 'scraps' ? (
+                      <div className="flex flex-wrap gap-2 w-full xl:w-auto">
+                        <Button
+                          variant="primary"
+                          className="bg-rose-600 hover:bg-rose-700 text-white shadow-lg shadow-rose-500/20 font-black"
+                          leftIcon={<Package className="w-4 h-4" />}
+                          onClick={() => {
+                            setScrapScannedItems([]);
+                            setScrapScanError('');
+                            setScrapBoxStep('crear_caja');
+                            setScrapBoxMarca('');
+                            setScrapBoxModelo('');
+                            setScrapBoxTecnologia('');
+                            setScrapBoxCantidad('');
+                            setScrapGuideNumber('');
+                            setScrapNotes('');
+                            setScrapActiveView('pistolero');
+                            setScrapDispatchModal({ isOpen: true, item: null });
+                          }}
+                        >
+                          Crear Caja Bodega SCRAPS
+                        </Button>
+                        {selectedRows.length > 0 && (
+                          <Button
+                            variant="outline"
+                            className="border-rose-300 text-rose-700 hover:bg-rose-50 font-black"
+                            leftIcon={<Send className="w-4 h-4" />}
+                            onClick={() => {
+                              const selectedItems = filteredTasks.filter((t) =>
+                                selectedRows.includes(t.dbId)
+                              );
+                              const combined = {
+                                id: selectedItems.map((i) => i.id).join(', '),
+                                sn: selectedItems[0]?.sn,
+                                marca: selectedItems[0]?.marca,
+                                modelo: selectedItems[0]?.modelo,
+                                tecnologia: selectedItems[0]?.tecnologia,
+                                all_sns: selectedItems.flatMap((i) => i.all_sns),
+                                all_dbIds: selectedItems.flatMap(
+                                  (i) => i.all_dbIds || [i.dbId]
+                                ),
+                              };
+                              setScrapScannedItems([]);
+                              setScrapScanError('');
+                              setScrapBoxStep('crear_caja');
+                              setScrapGuideNumber('');
+                              setScrapNotes('');
+                              setScrapActiveView('pistolero');
+                              setScrapDispatchModal({ isOpen: true, item: combined });
+                            }}
+                          >
+                            Despachar Selección ({selectedRows.length})
+                          </Button>
+                        )}
+                      </div>
+                    ) : selectedRows.length > 0 ? (
                       <div className="flex flex-wrap gap-2 animate-rise-in w-full xl:w-auto">
-                        {activeTab !== 'scraps' && (
-                          <>
                             <Button 
                               variant="primary" 
                               className="bg-[var(--primary)] text-[var(--primary-foreground)] shadow-lg hover:opacity-90" 
@@ -1382,34 +1435,8 @@ ${funcNotes || 'Ninguno evaluado'}
                               {' '}
                               ({formatWorkshopSelectionLabel(tasks.filter((t) => selectedRows.includes(t.dbId)))})
                             </Button>
-                          </>
-                        )}
-                        {activeTab === 'scraps' && (
-                          <Button
-                            variant="primary"
-                            className="bg-rose-600 hover:bg-rose-700 text-white shadow-lg shadow-rose-500/20 font-black"
-                            leftIcon={<Send className="w-4 h-4" />}
-                            onClick={() => {
-                              const selectedItems = filteredTasks.filter(t => selectedRows.includes(t.dbId));
-                              const combined = {
-                                id: selectedItems.map(i => i.id).join(', '),
-                                sn: selectedItems[0]?.sn,
-                                marca: selectedItems[0]?.marca,
-                                modelo: selectedItems[0]?.modelo,
-                                tecnologia: selectedItems[0]?.tecnologia,
-                                all_sns: selectedItems.flatMap(i => i.all_sns),
-                                all_dbIds: selectedItems.flatMap(i => i.all_dbIds || [i.dbId]),
-                              };
-                              setScrapDispatchModal({ isOpen: true, item: combined });
-                              setScrapGuideNumber('');
-                              setScrapNotes('');
-                            }}
-                          >
-                            Despachar Selección ({selectedRows.length})
-                          </Button>
-                        )}
                       </div>
-                    ) : activeTab !== 'scraps' ? (
+                    ) : (
                       <div className="w-full xl:w-auto xl:text-right">
                         <Button
                           variant="outline"
@@ -1421,7 +1448,7 @@ ${funcNotes || 'Ninguno evaluado'}
                           Máx. {BATCH_LIMITS.WORKSHOP_OPERATE_MAX_EQUIPMENTS} equipos / {BATCH_LIMITS.WORKSHOP_OPERATE_MAX_SERIES} series
                         </p>
                       </div>
-                    ) : null}
+                    )}
 
                   </div>
                 </div>

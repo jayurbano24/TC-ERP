@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, notify } from '@/components/ui';
 import {
   Package, X, BarChart3, ScanLine, Layers, Trash2,
@@ -107,11 +107,41 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
     [catModelos, scrapTechId, scrapBrandId]
   );
   const [scrapLookingUp, setScrapLookingUp] = useState(false);
+  const snInputRef = useRef<HTMLInputElement>(null);
 
-  const matchTaskBySn = (tasks: any[], snVal: string) =>
-    tasks.find((t) =>
-      (t.all_sns || [t.sn]).map((s: string) => String(s || '').toUpperCase()).includes(snVal)
-    );
+  const focusSnInput = useCallback(() => {
+    // Doble tick: tras re-render / toast / botón, el scanner queda listo otra vez
+    requestAnimationFrame(() => {
+      snInputRef.current?.focus();
+      snInputRef.current?.select();
+      window.setTimeout(() => {
+        snInputRef.current?.focus();
+        snInputRef.current?.select();
+      }, 30);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (scrapBoxStep === 'despacho' && scrapActiveView === 'pistolero') {
+      focusSnInput();
+    }
+  }, [scrapBoxStep, scrapActiveView, focusSnInput]);
+
+  useEffect(() => {
+    if (!scrapLookingUp && scrapBoxStep === 'despacho' && scrapActiveView === 'pistolero') {
+      focusSnInput();
+    }
+  }, [scrapLookingUp, scrapBoxStep, scrapActiveView, focusSnInput]);
+
+  const matchTaskBySn = (tasks: any[], snVal: string) => {
+    const sn = String(snVal || '').toUpperCase();
+    return tasks.find((t) => {
+      if (t.sn_to_series_id?.[sn]) return true;
+      return (t.all_sns || [t.sn])
+        .map((s: string) => String(s || '').toUpperCase())
+        .includes(sn);
+    });
+  };
 
   /** Adapta fila cruda de /workshop/tasks (cola scraps) al shape del modal. */
   const adaptScrapApiTask = (t: any) => {
@@ -119,6 +149,11 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
       ? t.all_sns
       : [t.serial_number].filter(Boolean);
     const allDbIds: string[] = t.all_dbIds?.length ? t.all_dbIds.map(String) : [String(t.id)];
+    const snMap: Record<string, string> = {};
+    const rawMap = t.sn_to_series_id || {};
+    for (const [k, id] of Object.entries(rawMap)) {
+      if (k && id) snMap[String(k).toUpperCase()] = String(id);
+    }
     return {
       id: t.service_orders?.os_label || t.os_label || 'S/OS',
       sn: allSns[0] || t.serial_number || 'S/N',
@@ -128,6 +163,7 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
       /** id de serie (no OS): el ingreso SCRAPS vincula series, no la OS completa. */
       dbId: String(t.id),
       all_dbIds: allDbIds,
+      sn_to_series_id: snMap,
     };
   };
 
@@ -137,6 +173,9 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
    */
   const resolveSeriesIdForScan = (found: any, snVal: string): string => {
     const sn = String(snVal || '').toUpperCase();
+    const fromMap = found.sn_to_series_id?.[sn];
+    if (fromMap) return String(fromMap);
+
     const sns = (found.all_sns || []).map((s: string) => String(s || '').toUpperCase());
     const ids = (found.all_dbIds || []).map(String).filter(Boolean);
     if (sns.length > 0 && sns.length === ids.length) {
@@ -153,11 +192,13 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
     const snVal = scrapScanSN.trim().toUpperCase();
     if (!snVal) {
       setScrapScanError('El SN es obligatorio');
+      focusSnInput();
       return;
     }
     if (scrapScannedItems.find((i: any) => String(i.sn || '').toUpperCase() === snVal)) {
       setScrapScanError(`"${snVal}" ya fue registrado en esta caja`);
       setScrapScanSN('');
+      focusSnInput();
       return;
     }
 
@@ -174,29 +215,42 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
 
         if (!found) {
           const loc = await locateWorkshopEquipmentViaApi(snVal);
-          if (loc.found && loc.tab && loc.tab !== 'scraps') {
+          if (loc.found && loc.tab === 'scraps') {
+            // Locate dice SCRAPS pero la página no lo trajo: reintentar cola exacta
+            const retry = await fetchWorkshopTasksPageViaApi('scraps', null, snVal);
+            const retryAdapted = (retry.items || []).map(adaptScrapApiTask);
+            found = matchTaskBySn(retryAdapted, snVal) || retryAdapted[0] || null;
+          }
+          if (!found && loc.found && loc.tab && loc.tab !== 'scraps') {
             setScrapScanError(
               `"${snVal}" está en ${loc.tabLabel || loc.tab} (${loc.status || '—'}), no en SCRAP. Clasifíquelo a SCRAPS en Taller para despacharlo aquí.`
             );
+            setScrapScanSN('');
             return;
           }
-          if (loc.found && loc.outsideWorkshop) {
+          if (!found && loc.found && loc.outsideWorkshop) {
             setScrapScanError(
-              loc.locationLabel?.includes('SCRAPS')
-                ? `"${snVal}" ya está en ${loc.locationLabel}.`
-                : `"${snVal}" está en ${loc.locationLabel || 'Bodega'}; no está en cola SCRAP.`
+              loc.message ||
+                (loc.locationLabel?.includes('SCRAPS')
+                  ? `"${snVal}" ya está en ${loc.locationLabel}.`
+                  : `"${snVal}" está en ${loc.locationLabel || loc.status || 'otro estado'}; no está en cola SCRAP.`)
             );
+            setScrapScanSN('');
             return;
           }
-          setScrapScanError(
-            `"${snVal}" no está en estatus SCRAP — solo se pueden despachar equipos en cola SCRAP (irreparable).`
-          );
-          return;
+          if (!found) {
+            setScrapScanError(
+              `"${snVal}" no está en estatus SCRAP — solo se pueden despachar equipos en cola SCRAP (irreparable sin caja).`
+            );
+            setScrapScanSN('');
+            return;
+          }
         }
       } catch (err) {
         setScrapScanError(
           err instanceof Error ? err.message : 'No se pudo validar el SN en cola SCRAP'
         );
+        setScrapScanSN('');
         return;
       } finally {
         setScrapLookingUp(false);
@@ -206,6 +260,7 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
     const seriesId = resolveSeriesIdForScan(found, snVal);
     if (!seriesId) {
       setScrapScanError(`No se pudo resolver el id de serie para "${snVal}"`);
+      focusSnInput();
       return;
     }
     if (
@@ -215,6 +270,7 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
     ) {
       setScrapScanError(`La serie de "${snVal}" ya está en esta caja`);
       setScrapScanSN('');
+      focusSnInput();
       return;
     }
 
@@ -235,7 +291,7 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
     ]);
     setScrapScanSN('');
     setScrapScanError('');
-    document.getElementById('scrap-sn-input')?.focus();
+    focusSnInput();
   };
 
   return (
@@ -252,7 +308,8 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
               <p className="text-[9px] font-black text-white/60 uppercase tracking-[0.25em]">Taller · Producción</p>
               <h2 className="text-2xl font-black text-white">Ingreso Bodega SCRAPS</h2>
               <p className="text-[11px] text-white/70 mt-0.5">
-                {filteredTasks.length} equipo(s) en cola · {scrapScannedItems.length} en la caja · Nº de caja al confirmar (BOX-BAD-…)
+                {filteredTasks.length} pendiente(s) en cola Taller · {scrapScannedItems.length} en esta
+                caja · Nº al confirmar (BOX-BAD-…)
               </p>
             </div>
           </div>
@@ -426,27 +483,47 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
             </div>
           )}
 
-          {/* VIEW: RESUMEN */}
+          {/* VIEW: RESUMEN — solo contenido de la caja en curso (no la cola Taller ni Bodega SCRAPS) */}
           {scrapBoxStep === 'despacho' && scrapActiveView === 'resumen' && (() => {
-            const groups: Record<string, {marca: string, modelo: string, tecnologia: string, cantidad: number, items: any[]}> = {};
-            filteredTasks.forEach(t => {
-              const key = `${t.marca}||${t.modelo}||${t.tecnologia}`;
-              if (!groups[key]) groups[key] = { marca: t.marca, modelo: t.modelo, tecnologia: t.tecnologia, cantidad: 0, items: [] };
-              groups[key].cantidad += (t.all_sns?.length || 1);
-              groups[key].items.push(t);
+            const groups: Record<
+              string,
+              { marca: string; modelo: string; tecnologia: string; cantidad: number; series: string[] }
+            > = {};
+            scrapScannedItems.forEach((t: any) => {
+              const marca = t.marca || '—';
+              const modelo = t.modelo || '—';
+              const tecnologia = t.tecnologia || scrapBoxTecnologia || '—';
+              const key = `${marca}||${modelo}||${tecnologia}`;
+              if (!groups[key]) {
+                groups[key] = { marca, modelo, tecnologia, cantidad: 0, series: [] };
+              }
+              groups[key].cantidad += 1;
+              if (t.sn) groups[key].series.push(String(t.sn));
             });
             const groupList = Object.values(groups);
             return (
               <div className="p-6 space-y-5">
-                {filteredTasks.length === 0 ? (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    Resumen de esta captura
+                  </p>
+                  <p className="mt-1 text-xs font-medium text-slate-600">
+                    Solo series pistoleadas en esta caja. Lo ya ingresado a Bodega SCRAPS (BOX-BAD-…) no
+                    aparece aquí ni en la cola Taller → SCRAPS.
+                  </p>
+                </div>
+                {scrapScannedItems.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-16 text-center">
                     <Trash2 className="w-12 h-12 text-rose-200 mb-4" />
-                    <p className="text-sm font-black text-slate-400 uppercase tracking-widest">Sin equipos en SCRAP</p>
-                    <p className="text-xs text-slate-300 mt-1">Los equipos marcados como irreparables aparecerán aquí</p>
+                    <p className="text-sm font-black text-slate-400 uppercase tracking-widest">
+                      Caja vacía
+                    </p>
+                    <p className="text-xs text-slate-300 mt-1">
+                      Usa Pistolero / Scanner para registrar series de la cola SCRAP
+                    </p>
                   </div>
                 ) : (
                   <>
-                    {/* Tabla agrupada — celdas planas, sin chips */}
                     <div className="overflow-hidden border border-slate-200 bg-white shadow-sm">
                       <table className="w-full text-left">
                         <thead className="bg-[#181c3a]">
@@ -463,9 +540,8 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {groupList.map((g, i) => {
-                            const series = g.items.flatMap((it) => it.all_sns || [it.sn]);
-                            const preview = series.slice(0, 3).join(', ');
-                            const more = g.cantidad > 3 ? ` +${g.cantidad - 3}` : '';
+                            const preview = g.series.slice(0, 3).join(', ');
+                            const more = g.series.length > 3 ? ` +${g.series.length - 3}` : '';
                             return (
                               <tr key={i} className="hover:bg-slate-50">
                                 <td className="px-4 py-2.5 text-xs font-medium whitespace-nowrap text-slate-700 uppercase">
@@ -482,7 +558,7 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
                                 </td>
                                 <td
                                   className="max-w-[220px] truncate px-4 py-2.5 font-mono text-xs font-medium text-slate-600"
-                                  title={series.join(', ')}
+                                  title={g.series.join(', ')}
                                 >
                                   {preview}
                                   {more}
@@ -497,17 +573,20 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
                               colSpan={3}
                               className="px-4 py-2.5 text-[10px] font-semibold tracking-widest text-slate-500 uppercase"
                             >
-                              Total
+                              Total en esta caja
                             </td>
                             <td className="px-4 py-2.5 text-xs font-semibold tabular-nums text-slate-800">
-                              {filteredTasks.reduce((a, t) => a + (t.all_sns?.length || 1), 0)}
+                              {scrapScannedItems.length}
                             </td>
                             <td />
                           </tr>
                         </tfoot>
                       </table>
                     </div>
-                    <p className="text-[10px] text-slate-400 font-bold text-center">Usa el tab <span className="text-rose-500">Pistolero / Scanner</span> para seleccionar y despachar</p>
+                    <p className="text-[10px] text-slate-400 font-bold text-center">
+                      Usa el tab <span className="text-rose-500">Pistolero / Scanner</span> para seguir
+                      agregando series
+                    </p>
                   </>
                 )}
               </div>
@@ -532,6 +611,7 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
                       <span className="text-[10px] font-bold text-slate-400">Max: 15</span>
                     </div>
                     <input
+                      ref={snInputRef}
                       id="scrap-sn-input"
                       autoFocus
                       type="text"

@@ -6,6 +6,7 @@ import {
   processBlockReturnBySapTransferHex,
   registerIndividualReturnHex,
 } from '@/modules/returns';
+import { sanitizeCacAgencyRaw } from '@/lib/cacAgencyUtils';
 
 import { COUNT_HEAD, RECEPTION_UNDO_SELECT } from '@/shared/constants/dbProjections';
 
@@ -60,7 +61,7 @@ export async function getSapBlockReturnRows() {
         updated_at,
         reception_guides ( guide_number, agency )
       ),
-      receptions:current_reception_id ( guide_number, carrier, created_at )
+      receptions:current_reception_id ( guide_number, carrier, created_at, notes )
     `)
     .eq('current_status', 'returned')
     .not('sap_transfer_id', 'is', null)
@@ -85,6 +86,7 @@ export async function getSapBlockReturnRows() {
     sapTransferId?: string;
     category: string;
     isSapBlock: boolean;
+    classifiedBy: string;
   }> = [];
 
   for (const s of seriesList as any[]) {
@@ -98,6 +100,7 @@ export async function getSapBlockReturnRows() {
     if (osId) seenOs.add(osId);
 
     const notes = String(s.notes || '');
+    const receptionNotes = String(s.receptions?.notes || '');
     const motivoMatch = notes.match(/Motivo:\s*([^\n]+)/);
     const guide =
       sapDoc?.reception_guides?.guide_number ||
@@ -107,6 +110,7 @@ export async function getSapBlockReturnRows() {
     // Fecha FIJA del evento de devolución (notes), nunca updated_at (cambia con sync/SAP).
     const stableMs =
       extractStableReturnFechaFromNotes(notes) ??
+      extractStableReturnFechaFromNotes(receptionNotes) ??
       (s.service_orders?.created_at
         ? new Date(s.service_orders.created_at).getTime()
         : NaN);
@@ -118,13 +122,21 @@ export async function getSapBlockReturnRows() {
       s.service_orders?.os_label ||
       `${sapDoc?.sap_document_number || 'SAP'}-${String(s.id).slice(0, 6).toUpperCase()}`;
 
+    const classifiedBy =
+      extractReturnUserFromNotes(notes) ||
+      extractReturnUserFromNotes(receptionNotes) ||
+      'Sin registro';
+
+    const agencyFromGuide = sanitizeCacAgencyRaw(
+      sapDoc?.reception_guides?.agency,
+      s.receptions?.carrier
+    );
+    const cliente = agencyFromGuide || 'S/D';
+
     rows.push({
       id: `SAP-BLK-${friendlyRef}`,
       sn: s.serial_number || guide,
-      cliente:
-        sapDoc?.reception_guides?.agency ||
-        s.receptions?.carrier ||
-        'S/D',
+      cliente,
       motivo: motivoMatch?.[1]?.trim() || `Devolución bloque SAP ${sapDoc?.sap_document_number || ''}`,
       fecha: formatStableDate(timestamp),
       timestamp,
@@ -137,6 +149,7 @@ export async function getSapBlockReturnRows() {
       sapTransferId: s.sap_transfer_id as string | undefined,
       category: 'DEVOLUCIÓN SAP BLOQUE',
       isSapBlock: true,
+      classifiedBy,
     });
   }
 
@@ -244,12 +257,97 @@ function extractStableReturnFechaFromNotes(notes: string | null | undefined): nu
   return null;
 }
 
+/** Usuario que envió el equipo a Equipos Devueltos (bloque DEVOLUCIÓN / timeline). */
+function extractReturnUserFromNotes(notes: string | null | undefined): string | null {
+  if (!notes) return null;
+  const text = String(notes);
+
+  const blockMatch = text.match(/---\s*DEVOLUCI[OÓ]N\s*---([\s\S]*?)(?=---\s*[A-ZÁÉÍÓÚ]|\[\d|$)/i);
+  const block = blockMatch?.[1] || text;
+
+  const usuarioMatch = block.match(/Usuario:\s*([^\n]+)/i);
+  if (usuarioMatch?.[1]?.trim()) return usuarioMatch[1].trim();
+
+  const porMatch = block.match(/Por:\s*([^\n]+)/i);
+  if (porMatch?.[1]?.trim()) return porMatch[1].trim();
+
+  // Fallback: cualquier línea de auditoría de devolución en las notas.
+  const globalUsuario = text.match(/Usuario:\s*([^\n]+)/i);
+  if (globalUsuario?.[1]?.trim()) return globalUsuario[1].trim();
+
+  return null;
+}
+
 function formatStableDate(ms: number): string {
   return new Date(ms).toLocaleDateString('es-GT');
 }
 
 function formatStableDateTime(ms: number): string {
   return new Date(ms).toLocaleString('es-GT');
+}
+
+function normalizeClassifyCategory(value: string | null | undefined): string {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+}
+
+function guideNotesIndicateSubBodega(
+  notes: string,
+  guideNumber: string
+): boolean {
+  const guide = guideNumber.trim();
+  if (!guide || !notes) return false;
+  const normGuide = guide.toLowerCase();
+  const details = notes.includes('--- DETALLES BACKOFFICE ---')
+    ? notes.split('--- DETALLES BACKOFFICE ---')[1]?.split('--- LÍNEA DE TIEMPO')[0] || ''
+    : notes;
+  const regex = /\[Guía ([^\]]+)\]([\s\S]*?)(?=\[Guía|---|$)/gi;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(details)) !== null) {
+    const guidePart = match[1].split('|')[0];
+    const guides = guidePart.split(',').map((g) => g.trim().toLowerCase());
+    if (!guides.some((g) => g === normGuide)) continue;
+    const block = match[2].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (block.includes('backoffice_category: accesorio')) return true;
+    if (
+      block.includes('backoffice_category: telefono') ||
+      block.includes('backoffice_category: movil')
+    ) {
+      return true;
+    }
+  }
+
+  const tl = notes.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const guideEsc = normGuide.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (
+    new RegExp(`clasificaci[^\\n]*${guideEsc}[^\\n]*bodega:\\s*accesorio`, 'i').test(tl)
+  ) {
+    return true;
+  }
+  if (
+    new RegExp(`clasificaci[^\\n]*${guideEsc}[^\\n]*bodega:\\s*(telefono|movil)`, 'i').test(tl)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** True si la guía es Accesorio/Teléfono (no debe aparecer en Bodega Devolución). */
+function isSubBodegaGuideCategory(rg: {
+  category?: string | null;
+  guide_number?: string | null;
+  receptions?: { notes?: string | null } | null;
+}): boolean {
+  const cat = normalizeClassifyCategory(rg.category);
+  if (cat === 'accesorio' || cat === 'telefono' || cat === 'movil') return true;
+  if (cat !== 'devolucion') return true;
+  return guideNotesIndicateSubBodega(
+    String(rg.receptions?.notes || ''),
+    String(rg.guide_number || '')
+  );
 }
 
 /** Fila de caja en Bodega Devolución (desde clasificación Backoffice). */
@@ -359,17 +457,23 @@ function mapReceptionGuideToBoxReturnRow(rg: any): BoxReturnRow {
         : Date.now());
 
   const processDate = formatStableDateTime(movedAtMs);
-  const processUser = rg.classified_by || move.by || rg.receptions?.carrier || 'SISTEMA';
+  // Clasificador Backoffice (no courier de recepción).
+  const processUser =
+    (rg.classified_by && String(rg.classified_by).trim()) ||
+    (move.by && String(move.by).trim()) ||
+    'Sin registro';
   const transferNotes =
     rg.motivo ||
     receptionNotes?.split('Motivo Devolución: ')[1]?.split('\n')[0]?.trim() ||
     receptionNotes?.split('Notas: ')[1]?.split('\n')[0]?.trim() ||
     '';
 
+  const agencyRawClean = sanitizeCacAgencyRaw(rg.agency, rg.receptions?.carrier) || undefined;
+
   return {
     id: `CAJA-${rg.reception_id?.slice(0, 5).toUpperCase()}-${rg.guide_number}`,
     sn: rg.guide_number,
-    cliente: rg.agency || rg.receptions?.carrier || 'S/D',
+    cliente: agencyRawClean || 'S/D',
     motivo: rg.motivo || 'Devolución de caja',
     fecha: formatStableDate(movedAtMs),
     timestamp: movedAtMs,
@@ -383,7 +487,7 @@ function mapReceptionGuideToBoxReturnRow(rg: any): BoxReturnRow {
     processDate,
     processUser,
     transferNotes,
-    agencyRaw: rg.agency as string | undefined,
+    agencyRaw: agencyRawClean,
     carrier: rg.receptions?.carrier as string | undefined,
     receptionNotes,
   };
@@ -431,6 +535,7 @@ export async function getBoxReturnRows(): Promise<BoxReturnRow[]> {
 
   return (data || [])
     .filter((rg: any) => rg.receptions)
+    .filter((rg: any) => !isSubBodegaGuideCategory(rg))
     .map(mapReceptionGuideToBoxReturnRow)
     .sort((a, b) => b.timestamp - a.timestamp);
 }
@@ -868,7 +973,7 @@ export async function registerNewReturn(returnEntry: any) {
     }
   }
 
-  const returnNote = `--- DEVOLUCIÓN ---\nMotivo: ${returnEntry.motivo}\nGuía Salida: ${returnEntry.guiaSalida}\nCat: ${returnEntry.category || 'BODEGA DEVOLUCIÓN'}\nFecha: ${new Date().toLocaleString()}`;
+  const returnNote = `--- DEVOLUCIÓN ---\nMotivo: ${returnEntry.motivo}\nGuía Salida: ${returnEntry.guiaSalida}\nCat: ${returnEntry.category || 'BODEGA DEVOLUCIÓN'}\nFecha: ${new Date().toLocaleString()}\nUsuario: ${returnEntry.usuario || returnEntry.classifiedBy || 'SISTEMA'}`;
 
   const { error: updateError } = await supabase
     .from('series')
@@ -1045,7 +1150,7 @@ async function processFullReceptionReturnLegacy(
 
     // 4. Update all series to 'returned' and prepend notes so it shows up in Devoluciones grid
     const updateSeriesPromises = seriesList.map(s => {
-      const newSeriesNotes = `--- DEVOLUCIÓN ---\nMotivo: ${formData.motivo}\nGuía Salida: ${formData.guiaSalida}\nCat: BODEGA DEVOLUCIÓN\n\n${s.notes || ''}`;
+      const newSeriesNotes = `--- DEVOLUCIÓN ---\nMotivo: ${formData.motivo}\nGuía Salida: ${formData.guiaSalida}\nCat: BODEGA DEVOLUCIÓN\nFecha: ${new Date().toLocaleString()}\nUsuario: ${currentUserFullName}\n\n${s.notes || ''}`;
       return supabase.from('series').update({
         current_status: 'returned',
         notes: newSeriesNotes,

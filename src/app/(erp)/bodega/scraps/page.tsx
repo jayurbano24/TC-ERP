@@ -2,8 +2,7 @@
 
 import React, { useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Badge,
   Button,
@@ -29,7 +28,6 @@ import {
   Printer,
   QrCode,
   Search,
-  Trash2,
   TrendingUp,
   Truck,
   Warehouse,
@@ -48,6 +46,8 @@ import {
 import { printScrapBoxLabel } from './printScrapBoxLabel';
 import { useScrapProcessFlow } from './useScrapProcessFlow';
 import { formatScrapRackLocation, parseScrapRackParts } from './scrapRackLocation';
+import { ScrapDispatchModal } from '@/app/(erp)/produccion/taller/components/ScrapDispatchModal';
+import { fetchWorkshopTasksPageViaApi } from '@/lib/api/workshopTasks';
 
 const PAGE_SIZE = 25;
 
@@ -128,7 +128,7 @@ function exportScrapCsv(rows: ScrapBoxRow[], fileLabel: string): void {
 }
 
 export default function BodegaScrapsPage() {
-  const router = useRouter();
+  const queryClient = useQueryClient();
   const {
     technologies: catTecnologias,
     brands: catMarcas,
@@ -154,6 +154,88 @@ export default function BodegaScrapsPage() {
   const [rackNivel, setRackNivel] = useState('');
   const [rackPosicion, setRackPosicion] = useState('');
   const [rackSaving, setRackSaving] = useState(false);
+
+  /** Ingreso caja SCRAPS (mismo flujo que Taller → Scraps). */
+  const [showCreateScrapModal, setShowCreateScrapModal] = useState(false);
+  const [scrapQueueTasks, setScrapQueueTasks] = useState<any[]>([]);
+  const [scrapScannedItems, setScrapScannedItems] = useState<any[]>([]);
+  const [scrapScanError, setScrapScanError] = useState('');
+  const [scrapBoxStep, setScrapBoxStep] = useState<'crear_caja' | 'despacho'>('crear_caja');
+  const [scrapBoxMarca, setScrapBoxMarca] = useState('');
+  const [scrapBoxModelo, setScrapBoxModelo] = useState('');
+  const [scrapBoxTecnologia, setScrapBoxTecnologia] = useState('');
+  const [scrapBoxCantidad, setScrapBoxCantidad] = useState<number | ''>('');
+  const [scrapGuideNumber, setScrapGuideNumber] = useState('');
+  const [scrapActiveView, setScrapActiveView] = useState<'resumen' | 'pistolero'>('pistolero');
+  const [scrapScanSN, setScrapScanSN] = useState('');
+  const [scrapNotes, setScrapNotes] = useState('');
+  const [scrapDispatching, setScrapDispatching] = useState(false);
+
+  const resetCreateScrapModal = useCallback(() => {
+    setShowCreateScrapModal(false);
+    setScrapQueueTasks([]);
+    setScrapScannedItems([]);
+    setScrapScanError('');
+    setScrapBoxStep('crear_caja');
+    setScrapBoxMarca('');
+    setScrapBoxModelo('');
+    setScrapBoxTecnologia('');
+    setScrapBoxCantidad('');
+    setScrapGuideNumber('');
+    setScrapActiveView('pistolero');
+    setScrapScanSN('');
+    setScrapNotes('');
+    setScrapDispatching(false);
+  }, []);
+
+  const openCreateScrapBox = useCallback(async () => {
+    setScrapScannedItems([]);
+    setScrapScanError('');
+    setScrapBoxStep('crear_caja');
+    setScrapBoxMarca('');
+    setScrapBoxModelo('');
+    setScrapBoxTecnologia('');
+    setScrapBoxCantidad('');
+    setScrapGuideNumber('');
+    setScrapActiveView('pistolero');
+    setScrapScanSN('');
+    setScrapNotes('');
+    setScrapDispatching(false);
+    setShowCreateScrapModal(true);
+
+    try {
+      const page = await fetchWorkshopTasksPageViaApi('scraps', null, '');
+      const adapted = (page.items || []).map((t: any) => {
+        const allSns: string[] = t.all_sns?.length
+          ? t.all_sns
+          : [t.serial_number].filter(Boolean);
+        const allDbIds: string[] = t.all_dbIds?.length
+          ? t.all_dbIds.map(String)
+          : [String(t.id)];
+        return {
+          id: t.service_orders?.os_label || t.os_label || 'S/OS',
+          sn: allSns[0] || t.serial_number || 'S/N',
+          all_sns: allSns,
+          marca: t.brands?.name || t.brand_name || 'Desconocida',
+          modelo: t.models?.name || t.model_name || 'S/N',
+          dbId: String(t.id),
+          all_dbIds: allDbIds,
+        };
+      });
+      setScrapQueueTasks(adapted);
+    } catch {
+      setScrapQueueTasks([]);
+    }
+  }, []);
+
+  const generateConduceNumber = useCallback(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const seq = String(Math.floor(Math.random() * 900) + 100);
+    const ts =
+      String(now.getHours()).padStart(2, '0') + String(now.getMinutes()).padStart(2, '0');
+    return `CS-SCRAP-${year}-${ts}${seq.slice(-1)}`;
+  }, []);
 
   const openRackEditor = useCallback((item: ScrapBoxRow) => {
     const parsed = parseScrapRackParts(item.rack);
@@ -193,6 +275,29 @@ export default function BodegaScrapsPage() {
   const refreshScrapLists = useCallback(async () => {
     await refetchScrapBoxes();
   }, [refetchScrapBoxes]);
+
+  /** Parchea rack en cache; el refetch completo corre en background tras cerrar el modal. */
+  const patchScrapRackCache = useCallback(
+    (boxIds: string[], finalRack: string) => {
+      const idSet = new Set(boxIds.map(String));
+      queryClient.setQueriesData<{ pages: Array<{ items?: Array<{ box_id?: string; rack?: string }> }> }>(
+        { queryKey: ['warehouse-scrap-boxes'] },
+        (old) => {
+          if (!old?.pages) return old;
+          return {
+            ...old,
+            pages: old.pages.map((page) => ({
+              ...page,
+              items: (page.items || []).map((item) =>
+                idSet.has(String(item.box_id)) ? { ...item, rack: finalRack } : item
+              ),
+            })),
+          };
+        }
+      );
+    },
+    [queryClient]
+  );
 
   const inventory = useMemo((): ScrapBoxRow[] => {
     const items = (query.data?.pages || []).flatMap((p) => p.items || []);
@@ -311,19 +416,22 @@ export default function BodegaScrapsPage() {
       setRackSaving(false);
       return;
     }
+    const boxId = String(showRackModal.realDbId);
     const { error } = await supabase
       .from('boxes')
       .update({ rack_location: finalRack })
-      .eq('id', showRackModal.realDbId);
+      .eq('id', boxId);
     if (error) {
       notify.error('Error al actualizar la ubicación', { description: error.message });
-    } else {
-      notify.success('Ubicación actualizada', { description: finalRack });
-      setShowRackModal(null);
-      await refreshScrapLists();
+      setRackSaving(false);
+      return;
     }
+    patchScrapRackCache([boxId], finalRack);
+    notify.success('Ubicación actualizada', { description: finalRack });
+    setShowRackModal(null);
     setRackSaving(false);
-  }, [showRackModal, rackNum, rackNivel, rackPosicion, refreshScrapLists]);
+    void refreshScrapLists();
+  }, [showRackModal, rackNum, rackNivel, rackPosicion, patchScrapRackCache, refreshScrapLists]);
 
   const handleBulkUpdateRack = useCallback(async () => {
     if (selectedBoxIds.length === 0) return;
@@ -337,7 +445,7 @@ export default function BodegaScrapsPage() {
     }
     const realIds = selectedBoxIds.map((id) => {
       const box = inventory.find((b) => b.id === id);
-      return box ? box.realDbId : id;
+      return String(box ? box.realDbId : id);
     });
     const { error } = await supabase
       .from('boxes')
@@ -345,16 +453,18 @@ export default function BodegaScrapsPage() {
       .in('id', realIds);
     if (error) {
       notify.error('Error al actualizar ubicaciones', { description: error.message });
-    } else {
-      notify.success('Ubicación asignada', {
-        description: `${selectedBoxIds.length} caja(s) → ${finalRack}`,
-      });
-      setSelectedBoxIds([]);
-      setShowBulkRackModal(false);
-      await refreshScrapLists();
+      setRackSaving(false);
+      return;
     }
+    patchScrapRackCache(realIds, finalRack);
+    notify.success('Ubicación asignada', {
+      description: `${selectedBoxIds.length} caja(s) → ${finalRack}`,
+    });
+    setSelectedBoxIds([]);
+    setShowBulkRackModal(false);
     setRackSaving(false);
-  }, [selectedBoxIds, rackNum, rackNivel, rackPosicion, inventory, refreshScrapLists]);
+    void refreshScrapLists();
+  }, [selectedBoxIds, rackNum, rackNivel, rackPosicion, inventory, patchScrapRackCache, refreshScrapLists]);
 
   const columns = useMemo((): DataTableColumn<ScrapBoxRow>[] => {
     return [
@@ -625,8 +735,8 @@ export default function BodegaScrapsPage() {
           </Link>
           <Button
             variant="primary"
-            leftIcon={<Trash2 className="h-4 w-4" />}
-            onClick={() => router.push('/produccion/taller')}
+            leftIcon={<PackageCheck className="h-4 w-4" />}
+            onClick={() => void openCreateScrapBox()}
           >
             Crear Caja Bodega SCRAPS
           </Button>
@@ -729,7 +839,7 @@ export default function BodegaScrapsPage() {
             }}
             searchPlaceholder="Buscar caja, serie u OS…"
             onExport={handleExport}
-            onAdd={() => router.push('/produccion/taller')}
+            onAdd={() => void openCreateScrapBox()}
             addLabel="Crear Caja Bodega SCRAPS"
             onFilter={() => setShowAdvancedFilters(!showAdvancedFilters)}
             filters={
@@ -977,6 +1087,66 @@ export default function BodegaScrapsPage() {
           onExecute={() => void process.handleExecuteTransfer()}
           onClose={() => process.setShowTransferModal(false)}
           executing={process.transferExecuting}
+        />
+      )}
+
+      {showCreateScrapModal && (
+        <ScrapDispatchModal
+          filteredTasks={scrapQueueTasks}
+          catMarcas={catMarcas}
+          catModelos={catModelos}
+          catTecnologias={catTecnologias}
+          scrapScannedItems={scrapScannedItems}
+          setScrapScannedItems={setScrapScannedItems}
+          scrapScanError={scrapScanError}
+          setScrapScanError={setScrapScanError}
+          scrapBoxStep={scrapBoxStep}
+          setScrapBoxStep={setScrapBoxStep}
+          scrapBoxMarca={scrapBoxMarca}
+          setScrapBoxMarca={setScrapBoxMarca}
+          scrapBoxModelo={scrapBoxModelo}
+          setScrapBoxModelo={setScrapBoxModelo}
+          scrapBoxTecnologia={scrapBoxTecnologia}
+          setScrapBoxTecnologia={setScrapBoxTecnologia}
+          scrapBoxCantidad={scrapBoxCantidad}
+          setScrapBoxCantidad={setScrapBoxCantidad}
+          scrapGuideNumber={scrapGuideNumber}
+          setScrapGuideNumber={setScrapGuideNumber}
+          scrapActiveView={scrapActiveView}
+          setScrapActiveView={setScrapActiveView}
+          scrapScanSN={scrapScanSN}
+          setScrapScanSN={setScrapScanSN}
+          scrapNotes={scrapNotes}
+          setScrapNotes={setScrapNotes}
+          scrapDispatching={scrapDispatching}
+          setScrapDispatching={setScrapDispatching}
+          generateConduceNumber={generateConduceNumber}
+          fetchTasks={() => {
+            void refreshScrapLists();
+            void fetchWorkshopTasksPageViaApi('scraps', null, '')
+              .then((page) => {
+                const adapted = (page.items || []).map((t: any) => {
+                  const allSns: string[] = t.all_sns?.length
+                    ? t.all_sns
+                    : [t.serial_number].filter(Boolean);
+                  const allDbIds: string[] = t.all_dbIds?.length
+                    ? t.all_dbIds.map(String)
+                    : [String(t.id)];
+                  return {
+                    id: t.service_orders?.os_label || t.os_label || 'S/OS',
+                    sn: allSns[0] || t.serial_number || 'S/N',
+                    all_sns: allSns,
+                    marca: t.brands?.name || t.brand_name || 'Desconocida',
+                    modelo: t.models?.name || t.model_name || 'S/N',
+                    dbId: String(t.id),
+                    all_dbIds: allDbIds,
+                  };
+                });
+                setScrapQueueTasks(adapted);
+              })
+              .catch(() => undefined);
+          }}
+          onClose={resetCreateScrapModal}
         />
       )}
 

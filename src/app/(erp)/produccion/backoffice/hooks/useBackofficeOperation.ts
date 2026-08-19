@@ -98,6 +98,9 @@ export function useBackofficeOperation() {
     setReceptionStep,
     setAgencia,
     setSelectedAgencyId,
+    processedGuides,
+    allReceptions: inbox.allReceptions,
+    scannedGuides,
   });
 
   const modals = useBackofficeModals({

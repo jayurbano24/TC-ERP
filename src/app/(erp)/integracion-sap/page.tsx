@@ -583,7 +583,9 @@ function IntegracionSapPage() {
                 <Activity className="w-5 h-5" />
               </div>
             </div>
-            <p className="text-[10px] font-bold text-[var(--muted)]">Sin sync o sin serie ligada</p>
+            <p className="text-[10px] font-bold text-[var(--muted)]">
+              Equipos cargados después de subir el SAP (o sin serie para cruzar)
+            </p>
           </Card>
 
           <Card className="p-5 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)] flex flex-col justify-between min-h-32 gap-2">
@@ -597,7 +599,8 @@ function IntegracionSapPage() {
               </div>
             </div>
             <p className="text-[10px] font-bold text-[var(--muted)]">
-              {(kpis?.seriesSinMatch ?? 0).toLocaleString()} series de esos OS ·{' '}
+              En TC con serie, pero no están en el SAP validado ·{' '}
+              {(kpis?.seriesSinMatch ?? 0).toLocaleString()} series ·{' '}
               {equiposBase ? Math.round(((kpis?.sinCoincidencia ?? 0) / equiposBase) * 100) : 0}% equipos
             </p>
             <Button

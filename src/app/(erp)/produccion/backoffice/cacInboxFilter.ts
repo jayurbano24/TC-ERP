@@ -51,11 +51,20 @@ export function shouldShowInCacInbox(
   const notes = r.notes || '';
   if (/movido a bodega:\s*devoluci/i.test(notes)) return false;
   if (/BOD-DEV\s*\|/i.test(notes) && /Motivo Devolución:/i.test(notes)) return false;
+  // Accesorios / Teléfonos: misma defensa que Devolución (no reaparecer en bandeja).
+  if (/movido a bodega:\s*(accesorio|telefono|tel[eé]fono|m[oó]vil)/i.test(notes)) return false;
+  if (/BOD-ACC\s*\|/i.test(notes) || /BOD-MOV\s*\|/i.test(notes)) {
+    if (/Backoffice_Category:\s*(accesorio|telefono)/i.test(notes)) return false;
+  }
 
-  const hasDevolucionGuide = (r.reception_guides || []).some(
-    (g) => (g.category || '').toLowerCase() === 'devolucion'
+  const guideCats = (r.reception_guides || []).map((g) =>
+    (g.category || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
   );
-  if (hasDevolucionGuide) return false;
+  if (guideCats.some((c) => c === 'devolucion')) return false;
+  if (guideCats.some((c) => c === 'accesorio' || c === 'telefono')) return false;
 
   return true;
 }

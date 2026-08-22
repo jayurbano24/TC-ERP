@@ -10,7 +10,7 @@ import type { SapTransferGroup } from '../types';
 import type { CompleteGuidesContext } from './completeGuidesContext';
 import { humanizeClassifyEquipmentError } from '@/modules/sap-transfer/client/humanizeClassifyError';
 import { persistEquipmentOnComplete } from './persistEquipmentOnComplete';
-import { getSapDocumentGuideConflict } from './classificationGuideUtils';
+import { getSapDocumentGuideConflict, normalizeGuideKey } from './classificationGuideUtils';
 import { canClassifyToAccesorios, canClassifyToTelefonos } from './canClassifyAccesorios';
 
 export type { CompleteGuidesContext } from './completeGuidesContext';
@@ -23,7 +23,9 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
     (ctx.receptionStep as string) !== 'return_confirmation' &&
     (ctx.receptionStep as string) !== 'bulk_classify_confirm' &&
     ctx.scannedGuides.length > 0 &&
-    ctx.scannedGuides.every((g) => ctx.processedGuides.includes(g))
+    ctx.scannedGuides.every((g) =>
+      ctx.processedGuides.some((p) => normalizeGuideKey(p) === normalizeGuideKey(g))
+    )
   ) {
     ctx.setReceptionStep('completed');
     ctx.isSubmittingRef.current = false;
@@ -79,8 +81,12 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
   ctx.setIsSubmitting(true);
   try {
     const newProcessed = Array.from(
-      new Set([...(ctx.activeReception?.processed_guides || []), ...ctx.scannedGuides].map((g) => g.trim()))
-    );
+      new Set(
+        [...(ctx.activeReception?.processed_guides || []), ...ctx.scannedGuides].map((g) =>
+          normalizeGuideKey(g)
+        )
+      )
+    ).filter(Boolean);
     if (ctx.activeReception?.id) {
       const progressNotes = `\nGuías Procesadas: ${newProcessed.join(', ')}`;
       await updateReception(ctx.activeReception.id, {
@@ -276,7 +282,10 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
         }
 
         const allProcessed =
-          receptionGuias.length === 0 || receptionGuias.every((g: string) => newProcessed.includes(g));
+          receptionGuias.length === 0 ||
+          receptionGuias.every((g: string) =>
+            newProcessed.some((p) => normalizeGuideKey(p) === normalizeGuideKey(g))
+          );
         const allSapDocs = sapGroupsInManifest.map((g) => g.sapDocument).filter(Boolean);
 
         let osCreatedCount = 0;
@@ -391,6 +400,9 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
         const resUpdate = await updateReception(ctx.activeReception.id, cleanUpdate);
         if (resUpdate.error) {
           notify.error('Error de actualización maestra', { description: resUpdate.error, duration: 0 });
+          ctx.setIsSubmitting(false);
+          ctx.isSubmittingRef.current = false;
+          return;
         }
 
         const supabaseClient = getSupabaseBrowserClient();

@@ -69,6 +69,7 @@ export type BackofficeReception = {
   reception_guides?: Array<{
     guide_number?: string;
     category?: string;
+    status?: string;
     classified_at?: string;
     classified_by?: string;
     agency?: string;

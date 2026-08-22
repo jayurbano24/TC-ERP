@@ -9,6 +9,7 @@ import {
   canClassifyToTelefonos,
 } from '../../operation/canClassifyAccesorios';
 import { parseReceptionGuideList } from '../../operation/parseReceptionGuideList';
+import { getPendingGuides } from '../../operation/classificationGuideUtils';
 import type { OperationContext } from '../../operation/operationContext';
 import type { OperationCategory } from '../../types';
 
@@ -61,16 +62,7 @@ export function ClassificationStep({ ctx }: Props) {
 
   const { pendingGuides, pendingCount } = useMemo(() => {
     if (!activeReception) return { pendingGuides: [] as string[], pendingCount: 0 };
-    const guiasList = parseReceptionGuideList(activeReception);
-    const pending = guiasList.filter((guia) => {
-      const isProcessedLocally = processedGuides.includes(guia);
-      const isProcessedGlobally = allReceptions.some(
-        (r) =>
-          r.status === 'RECIBIDO_BACKOFFICE' &&
-          (r.guide_number === guia || String(r.notes || '').toLowerCase().includes(guia.toLowerCase()))
-      );
-      return !isProcessedLocally && !isProcessedGlobally;
-    });
+    const pending = getPendingGuides(activeReception, processedGuides, allReceptions);
     return { pendingGuides: pending, pendingCount: pending.length };
   }, [activeReception, processedGuides, allReceptions]);
 

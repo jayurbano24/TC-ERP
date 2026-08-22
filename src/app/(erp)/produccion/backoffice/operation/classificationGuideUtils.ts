@@ -4,20 +4,62 @@ export function normalizeGuideKey(guide: string): string {
   return guide.trim().toUpperCase();
 }
 
+function normalizeCategoryKey(category: string): string {
+  return category
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+/** Categorías que ya salieron de bandeja CAC (no deben reaparecer como pendientes). */
+const CLASSIFIED_GUIDE_CATEGORIES = new Set([
+  'accesorio',
+  'telefono',
+  'equipo',
+  'devolucion',
+]);
+
+type ReceptionGuideLike = {
+  guide_number?: string;
+  category?: string | null;
+  status?: string | null;
+};
+
 type ReceptionLike = {
   status?: string;
   guide_number?: string;
   notes?: string;
   processed_guides?: string[];
+  reception_guides?: ReceptionGuideLike[];
 };
+
+function isGuideClassifiedInReceptionGuides(
+  guideKey: string,
+  guides: ReceptionGuideLike[] | undefined
+): boolean {
+  if (!guides?.length) return false;
+  return guides.some((g) => {
+    if (normalizeGuideKey(g.guide_number || '') !== guideKey) return false;
+    const status = (g.status || '').trim().toUpperCase();
+    if (status === 'CLASIFICADO') return true;
+    const cat = normalizeCategoryKey(g.category || '');
+    return CLASSIFIED_GUIDE_CATEGORIES.has(cat);
+  });
+}
 
 export function isGuideProcessed(
   guia: string,
   processedGuides: string[],
-  allReceptions: ReceptionLike[] = []
+  allReceptions: ReceptionLike[] = [],
+  ownReceptionGuides: ReceptionGuideLike[] = []
 ): boolean {
   const key = normalizeGuideKey(guia);
   if (processedGuides.some((g) => normalizeGuideKey(g) === key)) return true;
+
+  // Accesorio/Teléfono/Equipo/Devolución ya persistidos en reception_guides
+  // (aunque processed_guides se desincronice y el lote vuelva a refetch).
+  if (isGuideClassifiedInReceptionGuides(key, ownReceptionGuides)) return true;
 
   return allReceptions.some(
     (r) =>
@@ -28,17 +70,33 @@ export function isGuideProcessed(
 }
 
 export function getPendingGuides(
-  activeReception: { notes?: string; guide_number?: string },
+  activeReception: {
+    notes?: string;
+    guide_number?: string;
+    processed_guides?: string[];
+    reception_guides?: ReceptionGuideLike[];
+  },
   processedGuides: string[],
   allReceptions: ReceptionLike[] = []
 ): string[] {
   return parseReceptionGuideList(activeReception).filter(
-    (g) => !isGuideProcessed(g, processedGuides, allReceptions)
+    (g) =>
+      !isGuideProcessed(
+        g,
+        processedGuides,
+        allReceptions,
+        activeReception.reception_guides || []
+      )
   );
 }
 
 export function countClassificationProgress(
-  activeReception: { notes?: string; guide_number?: string },
+  activeReception: {
+    notes?: string;
+    guide_number?: string;
+    processed_guides?: string[];
+    reception_guides?: ReceptionGuideLike[];
+  },
   processedGuides: string[],
   allReceptions: ReceptionLike[] = []
 ): { pending: number; total: number } {
@@ -54,6 +112,7 @@ export function getInboxClassificationStats(
     guide_number?: string;
     received_units?: number;
     processed_guides?: string[];
+    reception_guides?: ReceptionGuideLike[];
   },
   allReceptions: ReceptionLike[] = []
 ): { classified: number; total: number; remaining: number } {
@@ -84,7 +143,12 @@ export function getInboxClassificationStats(
  */
 export function getSapDocumentGuideConflict(
   sapDocument: string,
-  activeReception: { notes?: string; guide_number?: string; processed_guides?: string[] } | null,
+  activeReception: {
+    notes?: string;
+    guide_number?: string;
+    processed_guides?: string[];
+    reception_guides?: ReceptionGuideLike[];
+  } | null,
   processedGuides: string[] = [],
   allReceptions: ReceptionLike[] = [],
   scannedGuides: string[] = []

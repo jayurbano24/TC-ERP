@@ -79,6 +79,23 @@ export async function fetchPxReceptionSnapshot(
   return json.data as PxReceptionSnapshot;
 }
 
+/** Versión/lock de una caja sin bajar el snapshot completo de la recepción. */
+export async function fetchPxBoxMeta(boxId: string) {
+  const res = await apiFetch(`/api/recepcion/px/boxes/${boxId}`);
+  const json = await res.json();
+  if (!json.success) throw new Error(json.error || 'Caja no encontrada');
+  return json.data as {
+    id: string;
+    box_code: string;
+    status: string;
+    declared_quantity: number;
+    captured_count: number;
+    version: number;
+    locked_by: string | null;
+    lock_expires_at: string | null;
+  };
+}
+
 export async function createPxBoxApi(
   receptionId: string,
   boxCode: string,

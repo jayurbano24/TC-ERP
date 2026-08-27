@@ -32,7 +32,7 @@ export function useBackofficeModals({
   const [showAgencyModal, setShowAgencyModal] = useState(false);
   const [agencySearch, setAgencySearch] = useState('');
 
-  const bulk = useBulkSeriesModal({ guideItems, setGuideItems });
+  const bulk = useBulkSeriesModal({ guideItems, setGuideItems, MASTER_MODELOS });
   const editMeta = useEditMetaModal({ CAC_AGENCIES, fetchHistory });
   const historyDetail = useHistoryDetailModals({ historyReceptions });
   const massTransfer = useMassTransferModal({

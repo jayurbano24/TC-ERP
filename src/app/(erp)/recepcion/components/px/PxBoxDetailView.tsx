@@ -14,6 +14,11 @@ import {
   validatePxIncrementalFinalizeReadiness,
   canCreateNewPxBox,
 } from '../../utils/pxBoxUtils';
+import {
+  clampSerialToMaxDigits,
+  getExpectedDigitsForSlot,
+  resolveModelDigitRules,
+} from '@/shared/validation/serialDigitRules';
 
 export const PxBoxDetailView = (props: any) => {
   const {
@@ -279,13 +284,28 @@ export const PxBoxDetailView = (props: any) => {
                 }} className="flex flex-col gap-5">
                   {(() => {
                     const lastItem = boxItems[boxItems.length - 1];
-                    const expectedScans = lastItem ? (systemModels.find((m: any) => m.name === lastItem.modelo)?.series_count || (lastItem.tecnologia === 'EMTA' ? 4 : 1)) : 1;
+                    const model = lastItem
+                      ? systemModels.find((m: any) => m.name === lastItem.modelo)
+                      : null;
+                    const digitRules = resolveModelDigitRules(model);
+                    const expectedScans = lastItem
+                      ? digitRules.seriesCount ||
+                        (lastItem.tecnologia === 'EMTA' ? 4 : 1)
+                      : 1;
                     
                     return (
                       <div className="flex flex-col gap-5">
                         {Array.from({ length: expectedScans }).map((_, idx) => {
                           const currentVal = currentScans[idx] || '';
                           const currentUpper = currentVal.trim().toUpperCase();
+                          const expectedDigits = getExpectedDigitsForSlot(
+                            digitRules.digitsPerSeries,
+                            idx
+                          );
+                          const lengthOk =
+                            !expectedDigits ||
+                            currentUpper.length === 0 ||
+                            currentUpper.length === expectedDigits;
                           const isDuplicate = currentUpper !== '' && (
                             scannedSerialUpperSet.has(currentUpper) ||
                             currentScans.some((v: string, i: number) => i !== idx && v.trim().toUpperCase() === currentUpper)
@@ -293,20 +313,45 @@ export const PxBoxDetailView = (props: any) => {
 
                           return (
                             <div key={idx} className="space-y-2 relative">
-                              <label className="text-[10px] font-black uppercase text-slate-400">Serie {idx + 1} *</label>
+                              <label className="text-[10px] font-black uppercase text-slate-400">
+                                Serie {idx + 1} *
+                                {expectedDigits ? (
+                                  <span className="ml-2 text-[var(--muted)] normal-case tracking-normal font-bold">
+                                    ({expectedDigits} caracteres)
+                                  </span>
+                                ) : null}
+                              </label>
                               <input 
                                 id={`scan-input-${idx}`}
                                 type="text" 
                                 value={currentVal}
+                                maxLength={expectedDigits || undefined}
                                 onChange={(e) => {
                                   const newScans = [...currentScans];
-                                  newScans[idx] = e.target.value;
+                                  newScans[idx] = clampSerialToMaxDigits(
+                                    e.target.value,
+                                    expectedDigits
+                                  );
                                   setCurrentScans(newScans);
                                 }}
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter') {
                                     if (isDuplicate) {
                                       e.preventDefault();
+                                      return;
+                                    }
+                                    if (
+                                      expectedDigits &&
+                                      currentUpper.length > 0 &&
+                                      currentUpper.length !== expectedDigits
+                                    ) {
+                                      e.preventDefault();
+                                      notify.warning(
+                                        `Serie ${idx + 1}: cantidad de caracteres incorrecta`,
+                                        {
+                                          description: `La regla exige ${expectedDigits} caracteres. Escaneado: ${currentUpper.length}.`,
+                                        }
+                                      );
                                       return;
                                     }
                                     if (idx < expectedScans - 1) {
@@ -316,14 +361,27 @@ export const PxBoxDetailView = (props: any) => {
                                     }
                                   }
                                 }}
-                                placeholder={`Escanear Serie ${idx + 1}...`}
-                                className={`w-full h-12 px-4 bg-white border-2 rounded-lg text-sm font-mono font-bold outline-none transition-colors shadow-inner uppercase ${isDuplicate ? 'border-rose-500 text-rose-600 focus:border-rose-500 bg-rose-50' : 'border-slate-200 focus:border-[var(--accent)]'}`}
+                                placeholder={
+                                  expectedDigits
+                                    ? `Escanear Serie ${idx + 1} (${expectedDigits} caracteres)...`
+                                    : `Escanear Serie ${idx + 1}...`
+                                }
+                                className={`w-full h-12 px-4 bg-white border-2 rounded-lg text-sm font-mono font-bold outline-none transition-colors shadow-inner uppercase ${
+                                  isDuplicate || !lengthOk
+                                    ? 'border-rose-500 text-rose-600 focus:border-rose-500 bg-rose-50'
+                                    : 'border-slate-200 focus:border-[var(--accent)]'
+                                }`}
                                 autoFocus={idx === 0 && !isBoxClosed && !boxEditDisabled}
                                 disabled={boxItems.length === 0 || boxEditDisabled}
                               />
                               {isDuplicate && (
                                 <span className="text-[10px] text-rose-500 font-bold absolute -bottom-4 left-0">
-                                  ⚠️ Esta serie ya fue escaneada
+                                  Esta serie ya fue escaneada
+                                </span>
+                              )}
+                              {!isDuplicate && !lengthOk && (
+                                <span className="text-[10px] text-rose-500 font-bold absolute -bottom-4 left-0">
+                                  Debe tener {expectedDigits} caracteres (va {currentUpper.length})
                                 </span>
                               )}
                             </div>

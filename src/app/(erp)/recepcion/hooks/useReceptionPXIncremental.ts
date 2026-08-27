@@ -19,6 +19,7 @@ import {
   createPxBoxApi,
   fetchPxInProgressList,
   fetchPxReceptionSnapshot,
+  fetchPxBoxMeta,
   finalizePxReceptionStepwise,
   type PxFinalizeProgress,
   joinOrStartPxReceptionApi,
@@ -33,8 +34,14 @@ import {
   updatePxReceptionHeaderApi,
 } from '../services/pxIncrementalApi';
 import { getCurrentReceptionActor } from '@/modules/recepcion/client/receptionActor';
+import {
+  resolveModelDigitRules,
+  validateScanSlotsAgainstDigitRules,
+} from '@/shared/validation/serialDigitRules';
 
-// Sin sondeo: el estado se actualiza tras cada mutación vía API (snapshot bajo demanda).
+// Soft-refresh tras ráfaga de pistoleos: 1 snapshot máximo cada 45s (antes: 1 por scan).
+const SOFT_REFRESH_IDLE_MS = 45_000;
+
 const LEGACY_STORAGE_KEY = 'tc_erp_px_reception_state';
 
 type PxStateSlice = {
@@ -179,8 +186,13 @@ export function useReceptionPXIncremental({
   const [finalizeProgress, setFinalizeProgress] = useState<PxFinalizeProgress | null>(null);
   const scannedSeriesRef = useRef<any[]>([]);
   const boxMetaRef = useRef<Record<string, PxBoxSnapshot>>({});
+  const softRefreshTimerRef = useRef<number | null>(null);
+  const boxIdByCodeRef = useRef<Record<string, string>>({});
+  const boxVersionByCodeRef = useRef<Record<string, number>>({});
 
   operatorIdRef.current = operatorId;
+  boxIdByCodeRef.current = boxIdByCode;
+  boxVersionByCodeRef.current = boxVersionByCode;
 
   const ensureOperatorId = useCallback(async (): Promise<string | null> => {
     if (operatorIdRef.current) return operatorIdRef.current;
@@ -222,15 +234,36 @@ export function useReceptionPXIncremental({
     [pxState]
   );
 
-  const getFreshBoxVersion = useCallback(
-    async (boxCode: string): Promise<number> => {
-      if (!incrementalReceptionId) return 1;
-      const snap = await fetchPxReceptionSnapshot(incrementalReceptionId, { includeEquipment: false });
-      applySnapshot(snap, { hydrateScannedSeries: false });
-      return snap.boxes.find((b) => b.box_code === boxCode)?.version ?? 1;
-    },
-    [incrementalReceptionId, applySnapshot]
-  );
+  const getFreshBoxVersion = useCallback(async (boxCode: string): Promise<number> => {
+    const boxId = boxIdByCodeRef.current[boxCode];
+    if (!boxId) return boxVersionByCodeRef.current[boxCode] ?? 1;
+    const meta = await fetchPxBoxMeta(boxId);
+    setBoxVersionByCode((prev) => ({ ...prev, [boxCode]: meta.version }));
+    setBoxMetaByCode((prev) => {
+      const current = prev[boxCode];
+      const next = {
+        ...(current || {
+          id: meta.id,
+          box_code: meta.box_code,
+          brand_id: null,
+          model_id: null,
+          lots: [],
+          equipment: [],
+        }),
+        id: meta.id,
+        box_code: meta.box_code,
+        status: meta.status,
+        declared_quantity: meta.declared_quantity,
+        captured_count: meta.captured_count,
+        version: meta.version,
+        locked_by: meta.locked_by,
+        lock_expires_at: meta.lock_expires_at,
+      } as PxBoxSnapshot;
+      boxMetaRef.current = { ...boxMetaRef.current, [boxCode]: next };
+      return { ...prev, [boxCode]: next };
+    });
+    return meta.version;
+  }, []);
 
   const isVersionConflict = (err: unknown) =>
     err instanceof Error && err.message.includes('Conflicto de versión');
@@ -240,6 +273,22 @@ export function useReceptionPXIncremental({
     const snap = await fetchPxReceptionSnapshot(incrementalReceptionId, { includeEquipment: false });
     applySnapshot(snap, { hydrateScannedSeries: false });
   }, [incrementalReceptionId, applySnapshot]);
+
+  /** Coalesce: muchos pistoleos → un solo GET snapshot tras idle. */
+  const scheduleSoftRefresh = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    if (softRefreshTimerRef.current) window.clearTimeout(softRefreshTimerRef.current);
+    softRefreshTimerRef.current = window.setTimeout(() => {
+      softRefreshTimerRef.current = null;
+      refreshSnapshot().catch(() => undefined);
+    }, SOFT_REFRESH_IDLE_MS);
+  }, [refreshSnapshot]);
+
+  useEffect(() => {
+    return () => {
+      if (softRefreshTimerRef.current) window.clearTimeout(softRefreshTimerRef.current);
+    };
+  }, []);
 
   const loadInProgressList = useCallback(async () => {
     try {
@@ -452,6 +501,19 @@ export function useReceptionPXIncremental({
 
       if (!currentScans[0]?.trim()) return;
 
+      const boxLot = manifestItems.find((i: any) => i.boxCode === selectedBoxForScan);
+      const model =
+        systemModels.find((m: any) => m.name === boxLot?.modelo) ||
+        systemModels.find((m: any) => m.id === (boxMetaByCode[selectedBoxForScan]?.model_id));
+      const digitRules = resolveModelDigitRules(model);
+      const digitCheck = validateScanSlotsAgainstDigitRules(currentScans, digitRules);
+      if (!digitCheck.ok) {
+        notify.warning(digitCheck.message, {
+          description: digitCheck.description,
+        });
+        return;
+      }
+
       const opId = operatorIdRef.current ?? (await ensureOperatorId());
       if (!opId) {
         notify.warning('Sesión de usuario no lista. Espere un momento o recargue la página.');
@@ -497,7 +559,6 @@ export function useReceptionPXIncremental({
         if (!ok) return;
       }
 
-      const boxLot = manifestItems.find((i: any) => i.boxCode === selectedBoxForScan);
       const scanPayload = {
         receptionId: incrementalReceptionId,
         boxId,
@@ -613,9 +674,7 @@ export function useReceptionPXIncremental({
             };
           });
         });
-        window.setTimeout(() => {
-          refreshSnapshot().catch(() => undefined);
-        }, 2500);
+        scheduleSoftRefresh();
       };
 
       const attachReentryPreview = async (equipmentId: string) => {
@@ -672,7 +731,7 @@ export function useReceptionPXIncremental({
       systemBrands,
       systemModels,
       currentUserFullName,
-      refreshSnapshot,
+      scheduleSoftRefresh,
       onAcquireBoxLock,
       ensureOperatorId,
     ]

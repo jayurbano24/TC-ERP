@@ -589,6 +589,43 @@ export async function getPxReceptionSnapshot(
   };
 }
 
+/** Meta ligera de una caja — evita GET snapshot completo en conflictos de versión. */
+export async function getPxBoxMeta(boxId: string): Promise<{
+  id: string;
+  box_code: string;
+  status: string;
+  declared_quantity: number;
+  captured_count: number;
+  version: number;
+  locked_by: string | null;
+  lock_expires_at: string | null;
+} | null> {
+  const supabase = getSupabaseServerClient();
+  const { data: box, error } = await supabase
+    .from('boxes')
+    .select('id, box_code, status, declared_quantity, version, locked_by, lock_expires_at')
+    .eq('id', boxId)
+    .maybeSingle();
+  if (error || !box) return null;
+
+  const { count } = await supabase
+    .from('px_reception_equipment')
+    .select('id', { count: 'exact', head: true })
+    .eq('box_id', boxId)
+    .eq('capture_status', 'active');
+
+  return {
+    id: box.id,
+    box_code: box.box_code,
+    status: box.status,
+    declared_quantity: box.declared_quantity ?? 0,
+    captured_count: count ?? 0,
+    version: box.version ?? 1,
+    locked_by: box.locked_by ?? null,
+    lock_expires_at: box.lock_expires_at ?? null,
+  };
+}
+
 export function mapRpcCaptureError(message: string): string {
   const msg = message || '';
   if (msg.includes('DUPLICATE_IN_RECEPTION')) {

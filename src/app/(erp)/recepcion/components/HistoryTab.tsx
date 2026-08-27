@@ -319,12 +319,21 @@ export const HistoryTab = ({
     setReceptionGuides((prev) => prev.filter((g) => activeIds.has(g.reception_id)));
   }, [cacRecords]);
 
+  const cacGuideIdsKey = useMemo(
+    () =>
+      cacHistoryGroups.sortedGroups
+        .slice((cacSafePage - 1) * CAC_HISTORY_PAGE_SIZE, cacSafePage * CAC_HISTORY_PAGE_SIZE)
+        .map((g) => g.master?.id)
+        .filter(Boolean)
+        .join(','),
+    [cacHistoryGroups.sortedGroups, cacSafePage]
+  );
+
   React.useEffect(() => {
     if (moduleMode !== 'cac') return;
+    if (!cacGuideIdsKey) return;
 
-    const masterIds = cacPaginatedGroups.map((g) => g.master?.id).filter(Boolean);
-    if (masterIds.length === 0) return;
-
+    const masterIds = cacGuideIdsKey.split(',');
     let cancelled = false;
     (async () => {
       try {
@@ -343,7 +352,7 @@ export const HistoryTab = ({
     return () => {
       cancelled = true;
     };
-  }, [cacPaginatedGroups, moduleMode]);
+  }, [moduleMode, cacGuideIdsKey]);
 
   const toggleLot = (loteId: string) => {
     setExpandedLots(prev => ({ ...prev, [loteId]: !prev[loteId] }));

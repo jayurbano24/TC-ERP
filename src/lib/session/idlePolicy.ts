@@ -5,8 +5,9 @@
  */
 export const SESSION_IDLE_MINUTES = 240;
 
-/** Intervalo del heartbeat de presencia mientras hay actividad (ms). */
-export const SESSION_HEARTBEAT_MS = 60_000;
+/** Intervalo del heartbeat de presencia mientras hay actividad (ms).
+ * 3 min: suficiente para idle 240 min y reduce ~3× las Edge Requests de /api/user-session. */
+export const SESSION_HEARTBEAT_MS = 180_000;
 
 /** Throttle de eventos de actividad en el cliente (ms). */
 export const SESSION_ACTIVITY_THROTTLE_MS = 15_000;

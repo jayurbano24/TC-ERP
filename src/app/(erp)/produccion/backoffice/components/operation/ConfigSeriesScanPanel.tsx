@@ -9,6 +9,11 @@ import {
   previewEquipmentReentry,
   formatIngresoLabel,
 } from '@/modules/recepcion/client/receptions';
+import {
+  clampSerialToMaxDigits,
+  getExpectedDigitsForSlot,
+  validateSerialExactDigits,
+} from '@/shared/validation/serialDigitRules';
 
 type Props = { ctx: OperationContext };
 
@@ -33,8 +38,14 @@ async function attachUnitReentry(target: GuideItem, unitIdx: number) {
 
 function addSerialToItem(
   item: GuideItem,
-  sn: string
+  sn: string,
+  expectedDigits: number | null
 ): { ok: true; unitIdx: number; completed: boolean } | { ok: false; reason: string } {
+  const lengthCheck = validateSerialExactDigits(sn, expectedDigits, 'Serie');
+  if (!lengthCheck.ok) {
+    return { ok: false, reason: lengthCheck.description || lengthCheck.message };
+  }
+
   if (item.series.flat().includes(sn)) {
     return { ok: false, reason: 'Serie ya existe' };
   }
@@ -87,7 +98,15 @@ export function ConfigSeriesScanPanel({ ctx }: Props) {
       target.unitReentryCounts = [...newItems[idx].unitReentryCounts!];
     }
 
-    const result = addSerialToItem(target, sn);
+    const lastUnit =
+      target.series.length > 0 && target.series[target.series.length - 1].length < target.seriesPerUnit
+        ? target.series[target.series.length - 1]
+        : null;
+    const slotIdx = lastUnit ? lastUnit.length : 0;
+    const model = MASTER_MODELOS.find((m) => m.id === target.modelo);
+    const expectedDigits = getExpectedDigitsForSlot(model?.digitsPerSeries, slotIdx);
+
+    const result = addSerialToItem(target, sn, expectedDigits);
     if (!result.ok) {
       notify.warning(result.reason);
       return;
@@ -111,9 +130,16 @@ export function ConfigSeriesScanPanel({ ctx }: Props) {
         const idx = selectedItemIdx;
         const techName = MASTER_TECNOLOGIAS.find((t) => t.id === item.tipo)?.nombre || '';
         const marcaName = MASTER_MARCAS.find((m) => m.id === item.marca)?.nombre || '';
-        const modeloName = MASTER_MODELOS.find((m) => m.id === item.modelo)?.nombre || '';
+        const modelo = MASTER_MODELOS.find((m) => m.id === item.modelo);
+        const modeloName = modelo?.nombre || '';
         const totalSeries = item.series.flat().length;
         const expectedSeries = item.cantidad * item.seriesPerUnit;
+        const slotIdx =
+          item.series.length > 0 &&
+          item.series[item.series.length - 1].length < item.seriesPerUnit
+            ? item.series[item.series.length - 1].length
+            : 0;
+        const expectedDigits = getExpectedDigitsForSlot(modelo?.digitsPerSeries, slotIdx);
 
         return (
           <div className="bg-slate-50 rounded-[2rem] p-8 border-2 border-[var(--accent)]/20 animate-rise-in">
@@ -146,6 +172,7 @@ export function ConfigSeriesScanPanel({ ctx }: Props) {
                   <input
                     type="text"
                     autoFocus
+                    maxLength={expectedDigits || undefined}
                     placeholder={`Pistolear ${
                       item.series.length > 0 &&
                       item.series[item.series.length - 1].length < item.seriesPerUnit
@@ -154,11 +181,14 @@ export function ConfigSeriesScanPanel({ ctx }: Props) {
                           ' / Unidad ' +
                           item.series.length
                         : 'Serie 1 / Unidad ' + (item.series.length + 1)
-                    }...`}
+                    }${expectedDigits ? ` (${expectedDigits} caracteres)` : ''}...`}
                     className="bg-white border-2 border-slate-200 rounded-xl px-4 py-3 text-xs font-mono font-bold outline-none focus:border-[var(--accent)] w-64 transition-all"
                     value={itemSeriesInputs[idx] || ''}
                     onChange={(e) =>
-                      setItemSeriesInputs({ ...itemSeriesInputs, [idx]: e.target.value })
+                      setItemSeriesInputs({
+                        ...itemSeriesInputs,
+                        [idx]: clampSerialToMaxDigits(e.target.value, expectedDigits),
+                      })
                     }
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {

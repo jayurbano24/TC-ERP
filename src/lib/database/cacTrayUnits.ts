@@ -93,8 +93,29 @@ export function isCacTrayRowStillInBackofficeQueue(row: {
   const label = String(row.unit_status_label || '')
     .trim()
     .toLowerCase();
-  if (status === 'in_central_warehouse' || status === 'ingresado_bodega') return false;
+
+  if (
+    status === 'in_central_warehouse' ||
+    status === 'ingresado_bodega' ||
+    status === 'in_control_warehouse' ||
+    status === 'in_workshop' ||
+    status === 'in_qc' ||
+    status === 'in_repair' ||
+    status === 'irreparable' ||
+    status === 'dispatched' ||
+    status === 'despachado' ||
+    status === 'returned' ||
+    status === 'devuelto' ||
+    status === 'devuelto_bloque' ||
+    status === 'devuelto_cac'
+  ) {
+    return false;
+  }
   if (label.includes('bodega general')) return false;
+  if (label.includes('devuelt') || label.includes('devolver') || label.includes('retorno')) {
+    return false;
+  }
+  if (label.includes('despach') || label.includes('fuera de cola')) return false;
   return true;
 }
 

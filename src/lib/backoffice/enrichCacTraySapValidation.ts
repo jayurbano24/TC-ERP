@@ -63,6 +63,21 @@ function resolveLiveUnitStatus(
   if (lower.some((s) => s === 'in_central_warehouse' || s === 'ingresado_bodega')) {
     return 'in_central_warehouse';
   }
+  // Si ninguna serie sigue en cola Backoffice, reflejar el estado operativo.
+  const stillInQueue = lower.some(
+    (s) =>
+      s === 'recepcionado_bodega_general' ||
+      s === 'pendiente_ingreso_bodega' ||
+      s === 'in_validation'
+  );
+  if (!stillInQueue && lower.length > 0) {
+    if (lower.every((s) => s === 'dispatched' || s === 'despachado')) return 'dispatched';
+    if (lower.some((s) => s === 'irreparable')) return 'irreparable';
+    if (lower.some((s) => s === 'in_qc')) return 'in_qc';
+    if (lower.some((s) => s === 'in_workshop' || s === 'in_repair')) return 'in_workshop';
+    if (lower.some((s) => s === 'in_control_warehouse')) return 'in_control_warehouse';
+    return lower[0] || fallbackStatus;
+  }
   if (lower.some((s) => s === 'recepcionado_bodega_general' || s === 'pendiente_ingreso_bodega')) {
     return 'RECEPCIONADO_BODEGA_GENERAL';
   }

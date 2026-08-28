@@ -1914,8 +1914,13 @@ export default function BodegaGestionV2({
               <div>
                 <p className="text-[10px] font-semibold tracking-wide text-[var(--muted)] uppercase">Total Cajas</p>
                 <h3 className="text-2xl font-bold text-[var(--heading)]">
-                  {(warehouseTotals?.total_boxes ?? inventory.length).toLocaleString()}
+                  {warehouseTotals
+                    ? warehouseTotals.total_boxes.toLocaleString()
+                    : '—'}
                 </h3>
+                {!warehouseTotals && (
+                  <p className="text-[9px] font-semibold text-[var(--muted)]">Cargando total global…</p>
+                )}
               </div>
             </div>
           </Card>
@@ -1927,10 +1932,9 @@ export default function BodegaGestionV2({
               <div>
                 <p className="text-[10px] font-semibold tracking-wide text-[var(--muted)] uppercase">Total Equipos TC</p>
                 <h3 className="text-2xl font-bold text-[var(--heading)]">
-                  {(
-                    warehouseTotals?.total_equipos ??
-                    inventory.reduce((sum, b) => sum + (b.unitCount ?? b.series?.length ?? 0), 0)
-                  ).toLocaleString()}
+                  {warehouseTotals
+                    ? warehouseTotals.total_equipos.toLocaleString()
+                    : '—'}
                 </h3>
                 <p className="text-[9px] font-semibold text-[var(--muted)]">Por OS (no series S1–S4)</p>
               </div>
@@ -1944,7 +1948,9 @@ export default function BodegaGestionV2({
               <div>
                 <p className="text-[10px] font-semibold tracking-wide text-[var(--muted)] uppercase">Cajas Completas</p>
                 <h3 className="text-2xl font-bold text-[var(--heading)]">
-                  {(warehouseTotals?.cajas_completas ?? inventory.filter((b) => b.status === 'Full').length).toLocaleString()}
+                  {warehouseTotals
+                    ? warehouseTotals.cajas_completas.toLocaleString()
+                    : '—'}
                 </h3>
               </div>
             </div>
@@ -1972,11 +1978,7 @@ export default function BodegaGestionV2({
               <div>
                 <p className="text-[10px] font-semibold tracking-wide text-[var(--muted)] uppercase">Cajas en Proceso</p>
                 <h3 className="text-2xl font-bold text-[var(--heading)]">
-                  {(warehouseTotals?.cajas_parciales ??
-                    inventory.filter(
-                      (b) => isBodegaOperationalRack(b.rack) && b.status === 'Parcial'
-                    ).length
-                  ).toLocaleString()}
+                  {warehouseTotals ? warehouseTotals.cajas_parciales.toLocaleString() : '—'}
                 </h3>
                 <p className="mt-0.5 text-[9px] font-semibold text-[var(--warning)]">Clic para reanudar pistoleo</p>
               </div>

@@ -132,13 +132,48 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  // Fallback rápido: no usar la página de 30 cajas (engañaba Total Cajas / Equipos).
+  console.error('warehouse_dashboard_kpis failed:', kpiError?.message);
+  const { data: fastTotals, error: fastError } = await supabase.rpc(
+    'warehouse_dashboard_totals_fast'
+  );
+
+  if (!fastError && fastTotals) {
+    const ft = fastTotals as DashboardTotals;
+    const cajas_parciales =
+      partialResolved.count >= 0
+        ? partialResolved.count
+        : Number(ft.cajas_parciales || 0);
+    const ghostParciales = Math.max(0, Number(ft.cajas_parciales || 0) - cajas_parciales);
+    return NextResponse.json({
+      stats: [] as TechStatRow[],
+      totals: {
+        total_boxes: Math.max(0, Number(ft.total_boxes || 0) - ghostParciales),
+        total_equipos: Number(ft.total_equipos || 0),
+        cajas_completas: Number(ft.cajas_completas || 0),
+        cajas_parciales,
+      },
+      unit: 'equipos',
+      mode: 'fast_totals',
+    });
+  }
+
   const { data: rpcData, error: rpcError } = await supabase.rpc('warehouse_stats_by_technology');
 
   if (rpcError) {
-    console.error('warehouse stats:', kpiError?.message || rpcError.message);
+    console.error('warehouse stats:', kpiError?.message || rpcError.message, fastError?.message);
     return NextResponse.json(
-      { error: 'FAILED_TO_LOAD_SUMMARY: ' + (kpiError?.message || rpcError.message) },
-      { status: 500 }
+      {
+        error: 'FAILED_TO_LOAD_SUMMARY: ' + (kpiError?.message || rpcError.message),
+        totals: {
+          total_boxes: 0,
+          total_equipos: 0,
+          cajas_completas: 0,
+          cajas_parciales: partialResolved.count >= 0 ? partialResolved.count : 0,
+        },
+        stats: [],
+      },
+      { status: 503 }
     );
   }
 

@@ -141,8 +141,7 @@ export async function queryCacTrayPage(
     throw new Error(trayError.message);
   }
 
-  const totalCount = count ?? 0;
-  const totalPages = Math.max(1, Math.ceil(totalCount / limit));
+  let totalCount = count ?? 0;
   const baseRows = (data || []) as CacTrayUnitRow[];
   const enriched =
     options?.includeSapValidation === false
@@ -152,10 +151,10 @@ export async function queryCacTrayPage(
   // aún diga Backoffice → ocultar esas filas de la bandeja operativa.
   const rows = enriched.filter(isCacTrayRowStillInBackofficeQueue);
 
-  // Best-effort: desactivar en DB las OS ya en bodega (migración 172).
+  // Desactivar en DB las OS ya en bodega y realinear el total (dato real).
   const toDeactivate = enriched.filter((r) => !isCacTrayRowStillInBackofficeQueue(r));
   if (toDeactivate.length > 0) {
-    void Promise.all(
+    await Promise.all(
       toDeactivate.map(async (r) => {
         try {
           await supabase.rpc('cac_tray_deactivate_if_in_warehouse', {
@@ -166,7 +165,19 @@ export async function queryCacTrayPage(
         }
       })
     );
+    try {
+      let recount = supabase
+        .from('cac_tray_units')
+        .select('id', { count: 'exact', head: true });
+      recount = applyTrayFilters(recount, params);
+      const { count: freshCount } = await recount;
+      if (typeof freshCount === 'number') totalCount = freshCount;
+    } catch {
+      totalCount = Math.max(0, totalCount - toDeactivate.length);
+    }
   }
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / limit));
 
   return {
     rows,

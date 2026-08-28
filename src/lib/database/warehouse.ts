@@ -588,6 +588,33 @@ export async function startOrAppendBodegaScan(input: {
 
   if (error) return { error: error.message };
   const row = data as { box_id: string; box_code: string; series_linked: number; equipos_count?: number };
+
+  // Al pistolear a Bodega, sacar OS del Historial Backoffice (dato real).
+  try {
+    const { data: seriesRows } = await supabase
+      .from('series')
+      .select('service_order_id')
+      .in('serial_number', uniqueSeries);
+    const osIds = [
+      ...new Set(
+        (seriesRows || [])
+          .map((r) => r.service_order_id)
+          .filter((id): id is string => typeof id === 'string' && id.length > 0)
+      ),
+    ];
+    await Promise.all(
+      osIds.map(async (osId) => {
+        try {
+          await supabase.rpc('cac_tray_deactivate_if_in_warehouse', { p_os_id: osId });
+        } catch {
+          /* RPC 172 opcional */
+        }
+      })
+    );
+  } catch {
+    /* no bloquear ingreso */
+  }
+
   return { data: row };
 }
 
@@ -606,6 +633,32 @@ export async function finalizeBodegaScan(input: {
   });
 
   if (error) return { error: error.message };
+
+  try {
+    const { data: seriesRows } = await supabase
+      .from('series')
+      .select('service_order_id')
+      .eq('current_box_id', input.boxId);
+    const osIds = [
+      ...new Set(
+        (seriesRows || [])
+          .map((r) => r.service_order_id)
+          .filter((id): id is string => typeof id === 'string' && id.length > 0)
+      ),
+    ];
+    await Promise.all(
+      osIds.map(async (osId) => {
+        try {
+          await supabase.rpc('cac_tray_deactivate_if_in_warehouse', { p_os_id: osId });
+        } catch {
+          /* RPC 172 opcional */
+        }
+      })
+    );
+  } catch {
+    /* no bloquear cierre de caja */
+  }
+
   return { data: data as { box_id: string; box_code: string; series_linked: number } };
 }
 
@@ -808,7 +861,7 @@ export async function createBoxWithSeries(boxData: any, seriesNumbers: string[])
       current_status: 'in_central_warehouse'
     })
     .in('serial_number', uniqueSeries)
-    .select('id');
+    .select('id, service_order_id');
 
   if (seriesError) {
     await supabase.from('boxes').update({ rack_location: 'ELIMINADO' }).eq('id', box.id);
@@ -823,6 +876,24 @@ export async function createBoxWithSeries(boxData: any, seriesNumbers: string[])
   await syncSapTransferIngresadoForSeries(
     supabase,
     linked.map((row) => row.id)
+  );
+
+  // Historial Backoffice: salir de la bandeja al ingresar a Bodega Central (dato real).
+  const osIds = [
+    ...new Set(
+      linked
+        .map((row) => row.service_order_id)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+    ),
+  ];
+  await Promise.all(
+    osIds.map(async (osId) => {
+      try {
+        await supabase.rpc('cac_tray_deactivate_if_in_warehouse', { p_os_id: osId });
+      } catch {
+        /* RPC 172 opcional */
+      }
+    })
   );
 
   try {
@@ -853,7 +924,7 @@ export async function addSeriesToBox(boxId: string, seriesNumbers: string[]) {
       current_status: 'in_central_warehouse'
     })
     .in('serial_number', seriesNumbers)
-    .select('id');
+    .select('id, service_order_id');
 
   if (seriesError) return { error: seriesError.message };
 
@@ -861,6 +932,23 @@ export async function addSeriesToBox(boxId: string, seriesNumbers: string[]) {
     await syncSapTransferIngresadoForSeries(
       supabase,
       linked.map((row) => row.id)
+    );
+
+    const osIds = [
+      ...new Set(
+        linked
+          .map((row) => row.service_order_id)
+          .filter((id): id is string => typeof id === 'string' && id.length > 0)
+      ),
+    ];
+    await Promise.all(
+      osIds.map(async (osId) => {
+        try {
+          await supabase.rpc('cac_tray_deactivate_if_in_warehouse', { p_os_id: osId });
+        } catch {
+          /* RPC 172 opcional */
+        }
+      })
     );
   }
 

@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useEffect, useMemo, useState, useCallback, startTransition } from 'react';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import {
@@ -46,6 +48,7 @@ import {
   Upload,
   Printer,
   FileSpreadsheet,
+  Eye,
 } from 'lucide-react';
 
 import { fetchDespachoBoxItems } from '@/lib/api/despachoBoxItems';
@@ -62,6 +65,11 @@ import {
   fetchDespachoPendientesViaApi,
   allocateOutboundCode,
 } from '@/lib/api/despachoReads';
+import {
+  filterDespachoHistoryGroups,
+  groupDespachoHistory,
+  type DespachoHistoryGroup,
+} from '@/lib/api/groupDespachoHistory';
 import { fetchReferenceCatalogsViaApi } from '@/lib/api/referenceCatalogs';
 import { DespachoSalidaModal } from './DespachoSalidaModal';
 import { EquipoListoPanel } from './EquipoListoPanel';
@@ -377,8 +385,22 @@ async function fetchDespachoData(): Promise<{ history: any[]; dispatches: Dispat
 
 export default function DespachoPage() {
   const queryClient = useQueryClient();
+  const searchParams = useSearchParams();
   type DespachoTabId = 'equipo_listo' | 'operacion' | 'historial' | 'cqrs' | 'lotes';
   const [activeTab, setActiveTab] = useState<DespachoTabId>('equipo_listo');
+
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (
+      tab === 'historial' ||
+      tab === 'operacion' ||
+      tab === 'equipo_listo' ||
+      tab === 'cqrs' ||
+      tab === 'lotes'
+    ) {
+      setActiveTab(tab);
+    }
+  }, [searchParams]);
 
   const despachoQuery = useQuery({
     queryKey: ['despacho-data', 'v1'],
@@ -388,9 +410,19 @@ export default function DespachoPage() {
   });
   const dispatchHistory = despachoQuery.data?.history ?? EMPTY_LIST;
   const [historyPage, setHistoryPage] = useState(1);
+  const [historySearch, setHistorySearch] = useState('');
   const [outboundPage, setOutboundPage] = useState(1);
 
-  const historyTotalCount = dispatchHistory.length;
+  const groupedDispatchHistory = useMemo(
+    () => groupDespachoHistory(dispatchHistory),
+    [dispatchHistory]
+  );
+  const filteredDispatchHistory = useMemo(
+    () => filterDespachoHistoryGroups(groupedDispatchHistory, historySearch),
+    [groupedDispatchHistory, historySearch]
+  );
+
+  const historyTotalCount = filteredDispatchHistory.length;
   const historyTotalPages = Math.max(1, Math.ceil(historyTotalCount / DESPACHO_HISTORY_PAGE_SIZE));
   const historySafePage = Math.min(historyPage, historyTotalPages);
 
@@ -406,8 +438,8 @@ export default function DespachoPage() {
 
   const dispatchHistoryPageItems = useMemo(() => {
     const start = (historySafePage - 1) * DESPACHO_HISTORY_PAGE_SIZE;
-    return dispatchHistory.slice(start, start + DESPACHO_HISTORY_PAGE_SIZE);
-  }, [dispatchHistory, historySafePage]);
+    return filteredDispatchHistory.slice(start, start + DESPACHO_HISTORY_PAGE_SIZE);
+  }, [filteredDispatchHistory, historySafePage]);
 
   const historyStartItem =
     historyTotalCount === 0 ? 0 : (historySafePage - 1) * DESPACHO_HISTORY_PAGE_SIZE + 1;
@@ -1307,22 +1339,24 @@ export default function DespachoPage() {
     }
   };
 
-  const handleReprintHistory = async (hist: any) => {
+  const handleReprintHistory = async (hist: DespachoHistoryGroup | any) => {
     try {
-      const data = await fetchDespachoHistoryReprint(hist.id);
-      if (!data.items?.length) {
+      const memberIds: string[] =
+        Array.isArray(hist.memberIds) && hist.memberIds.length > 0
+          ? hist.memberIds
+          : [hist.id];
+      const reprints = await Promise.all(
+        memberIds.map((id) => fetchDespachoHistoryReprint(id))
+      );
+      const withItems = reprints.filter((d) => d.items?.length);
+      if (!withItems.length) {
         notify.warning('Este conduce no tiene series para reimprimir.');
         return;
       }
-      const boxCode = data.box?.box_code || hist.box_code || '—';
-      const brandId = data.box?.brand_id || hist.brand_id;
-      const modelId = data.box?.model_id || hist.model_id;
-      const brandName = dbBrands.find((b) => b.id === brandId)?.name || 'N/A';
-      const model = dbModels.find((m) => m.id === modelId);
-      const modelName = model?.name || 'N/A';
-      const techName = dbTechs.find((t) => t.id === model?.technology_id)?.name || 'N/A';
+
+      const first = withItems[0]!;
       const fechaSalida = new Date(
-        data.dispatch.dispatched_at || hist.dispatched_at || hist.created_at || Date.now()
+        first.dispatch.dispatched_at || hist.dispatched_at || hist.created_at || Date.now()
       ).toLocaleString('es-PA', {
         day: '2-digit',
         month: '2-digit',
@@ -1332,15 +1366,38 @@ export default function DespachoPage() {
       });
 
       const isIndividual = String(hist.dispatch_type || '').toLowerCase() === 'individual';
-      const detalleRows = isIndividual
-        ? data.items.map((item: {
-            serial_number?: string;
-            s1?: string;
-            material?: string;
-            valuation?: string;
-            brand_id?: string | null;
-            model_id?: string | null;
-          }) => {
+      const detalleRows: Array<{
+        outboundCode: string;
+        brandName: string;
+        modelName: string;
+        techName: string;
+        cantidad: number;
+        material: string;
+        valuation: string;
+        series?: string[];
+      }> = [];
+      const labelPayloads: Array<{
+        outboundCode: string;
+        brandName: string;
+        modelName: string;
+        techName: string;
+        capacity: number;
+        boxMaterial: string;
+        boxValuation: string;
+        items: typeof first.items;
+      }> = [];
+
+      for (const data of withItems) {
+        const boxCode = data.box?.box_code || hist.box_code || '—';
+        const brandId = data.box?.brand_id || hist.brand_id;
+        const modelId = data.box?.model_id || hist.model_id;
+        const brandName = dbBrands.find((b) => b.id === brandId)?.name || 'N/A';
+        const model = dbModels.find((m) => m.id === modelId);
+        const modelName = model?.name || 'N/A';
+        const techName = dbTechs.find((t) => t.id === model?.technology_id)?.name || 'N/A';
+
+        if (isIndividual) {
+          for (const item of data.items) {
             const itemBrandId = item.brand_id || brandId;
             const itemModelId = item.model_id || modelId;
             const itemBrand = dbBrands.find((b) => b.id === itemBrandId)?.name || brandName;
@@ -1349,7 +1406,7 @@ export default function DespachoPage() {
             const itemTech =
               dbTechs.find((t) => t.id === itemModel?.technology_id)?.name || techName;
             const sn = String(item.serial_number || item.s1 || '').trim();
-            return {
+            detalleRows.push({
               outboundCode: boxCode,
               brandName: itemBrand,
               modelName: itemModelName,
@@ -1358,48 +1415,46 @@ export default function DespachoPage() {
               material: item.material || data.box?.material || hist.material || '',
               valuation: item.valuation || data.box?.valuation || hist.valuation || '',
               series: sn ? [sn] : [],
-            };
-          })
-        : [
-            {
-              outboundCode: boxCode,
-              brandName,
-              modelName,
-              techName,
-              cantidad: data.equipos_count || data.items.length,
-              material: data.box?.material || hist.material || '',
-              valuation: data.box?.valuation || hist.valuation || '',
-            },
-          ];
-
-      await printOutboundDetalle(detalleRows, {
-        fechaSalida,
-        numeroSalida: data.dispatch.guide_number || hist.guide_number || undefined,
-        trasladoSap: data.dispatch.traslado_sap || undefined,
-        notaEntrega: data.dispatch.nota_entrega || undefined,
-        destino: data.dispatch.destino || undefined,
-        origen: 'Tech Corps Guatemala S.A.',
-        includeSeries: isIndividual,
-      });
-
-      await printOutboundLabels(
-        [
-          {
+            });
+          }
+        } else {
+          detalleRows.push({
             outboundCode: boxCode,
             brandName,
             modelName,
             techName,
-            capacity: data.box?.capacity || data.items.length,
-            boxMaterial: data.box?.material || hist.material || '',
-            boxValuation: data.box?.valuation || hist.valuation || '',
-            items: data.items,
-          },
-        ],
-        {
-          onEmpty: () => notify.warning('No hay series para imprimir en este conduce.'),
-          onBarcodeError: () => notify.error('No se pudo generar la etiqueta de series.'),
+            cantidad: data.equipos_count || data.items.length,
+            material: data.box?.material || hist.material || '',
+            valuation: data.box?.valuation || hist.valuation || '',
+          });
         }
-      );
+
+        labelPayloads.push({
+          outboundCode: boxCode,
+          brandName,
+          modelName,
+          techName,
+          capacity: data.box?.capacity || data.items.length,
+          boxMaterial: data.box?.material || hist.material || '',
+          boxValuation: data.box?.valuation || hist.valuation || '',
+          items: data.items,
+        });
+      }
+
+      await printOutboundDetalle(detalleRows, {
+        fechaSalida,
+        numeroSalida: first.dispatch.guide_number || hist.guide_number || undefined,
+        trasladoSap: first.dispatch.traslado_sap || undefined,
+        notaEntrega: first.dispatch.nota_entrega || undefined,
+        destino: first.dispatch.destino || undefined,
+        origen: 'Tech Corps Guatemala S.A.',
+        includeSeries: isIndividual,
+      });
+
+      await printOutboundLabels(labelPayloads, {
+        onEmpty: () => notify.warning('No hay series para imprimir en este conduce.'),
+        onBarcodeError: () => notify.error('No se pudo generar la etiqueta de series.'),
+      });
     } catch (e: any) {
       notify.error('No se pudo reimprimir', {
         description: e?.message || 'Error al cargar el conduce.',
@@ -1407,42 +1462,59 @@ export default function DespachoPage() {
     }
   };
 
-  const handleExportHistoryExcel = async (hist: any) => {
+  const handleExportHistoryExcel = async (hist: DespachoHistoryGroup | any) => {
     try {
-      const data = await fetchDespachoHistoryReprint(hist.id);
-      if (!data.items?.length) {
+      const memberIds: string[] =
+        Array.isArray(hist.memberIds) && hist.memberIds.length > 0
+          ? hist.memberIds
+          : [hist.id];
+      const reprints = await Promise.all(
+        memberIds.map((id) => fetchDespachoHistoryReprint(id))
+      );
+      const withItems = reprints.filter((d) => d.items?.length);
+      if (!withItems.length) {
         notify.warning('Este conduce no tiene series para exportar.');
         return;
       }
-      const boxCode = data.box?.box_code || hist.box_code || '';
-      const brandId = data.box?.brand_id || hist.brand_id;
-      const modelId = data.box?.model_id || hist.model_id;
-      const brandName = dbBrands.find((b) => b.id === brandId)?.name || '';
-      const model = dbModels.find((m) => m.id === modelId);
-      const modelName = model?.name || '';
-      const techName = dbTechs.find((t) => t.id === model?.technology_id)?.name || '';
-      const ns = data.dispatch.guide_number || hist.guide_number || '';
-      const fecha = data.dispatch.dispatched_at || hist.dispatched_at || hist.created_at || '';
 
-      const rows = data.items.map((it, idx) => ({
-        'Nº Conduce': ns,
-        Outbound: boxCode,
-        Destino: data.dispatch.destino || hist.notes || '',
-        'Traslado SAP': data.dispatch.traslado_sap || '',
-        'Nota Entrega': data.dispatch.nota_entrega || '',
-        'Fecha salida': fecha ? new Date(fecha).toLocaleString('es-PA') : '',
-        Usuario: hist.dispatched_by_name || '',
-        Marca: brandName,
-        Modelo: modelName,
-        Tecnología: techName,
-        Material: it.material || data.box?.material || '',
-        Valoración: it.valuation || data.box?.valuation || '',
-        '#': idx + 1,
-        S1: it.s1 || it.serial_number || '',
-        S2: it.s2 || '',
-        S3: it.s3 || '',
-        S4: it.s4 || '',
-      }));
+      const ns =
+        withItems[0]?.dispatch.guide_number || hist.guide_number || '';
+      const rows: Record<string, string | number>[] = [];
+      let seq = 0;
+
+      for (const data of withItems) {
+        const boxCode = data.box?.box_code || hist.box_code || '';
+        const brandId = data.box?.brand_id || hist.brand_id;
+        const modelId = data.box?.model_id || hist.model_id;
+        const brandName = dbBrands.find((b) => b.id === brandId)?.name || '';
+        const model = dbModels.find((m) => m.id === modelId);
+        const modelName = model?.name || '';
+        const techName = dbTechs.find((t) => t.id === model?.technology_id)?.name || '';
+        const fecha = data.dispatch.dispatched_at || hist.dispatched_at || hist.created_at || '';
+
+        for (const it of data.items) {
+          seq += 1;
+          rows.push({
+            'Nº Conduce': ns,
+            Outbound: boxCode,
+            Destino: data.dispatch.destino || hist.notes || '',
+            'Traslado SAP': data.dispatch.traslado_sap || '',
+            'Nota Entrega': data.dispatch.nota_entrega || '',
+            'Fecha salida': fecha ? new Date(fecha).toLocaleString('es-PA') : '',
+            Usuario: hist.dispatched_by_name || '',
+            Marca: brandName,
+            Modelo: modelName,
+            Tecnología: techName,
+            Material: it.material || data.box?.material || '',
+            Valoración: it.valuation || data.box?.valuation || '',
+            '#': seq,
+            S1: it.s1 || it.serial_number || '',
+            S2: it.s2 || '',
+            S3: it.s3 || '',
+            S4: it.s4 || '',
+          });
+        }
+      }
 
       const ws = XLSX.utils.json_to_sheet(rows);
       const wb = XLSX.utils.book_new();
@@ -1850,39 +1922,75 @@ export default function DespachoPage() {
     },
   ];
 
-  const dispatchHistoryColumns: DataTableColumn<any>[] = [
+  const dispatchHistoryColumns: DataTableColumn<DespachoHistoryGroup>[] = [
     {
       id: 'conduce',
       header: 'Nº Conduce',
       width: 'minmax(160px,1.2fr)',
-      cell: (hist: any) => (
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600">
-            <Truck className="w-4 h-4" />
+      cell: (hist) => {
+        const guide = String(hist.guide_number || '').trim();
+        const href = guide
+          ? `/despacho/historial/${encodeURIComponent(guide)}`
+          : null;
+        const inner = (
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600 shrink-0">
+              <Truck className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <span className="text-sm font-black text-[var(--heading)] font-mono block truncate group-hover/link:text-emerald-700">
+                {guide || '—'}
+              </span>
+              {hist.box_count > 1 ? (
+                <span className="text-[9px] font-bold uppercase tracking-widest text-emerald-600">
+                  {hist.box_count} cajas
+                </span>
+              ) : null}
+            </div>
           </div>
-          <span className="text-sm font-black text-[var(--heading)] font-mono">
-            {hist.guide_number || '—'}
-          </span>
-        </div>
-      ),
+        );
+        if (!href) return inner;
+        return (
+          <Link
+            href={href}
+            className="group/link block hover:opacity-90 transition-opacity"
+            title="Ver cajas de este conduce"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {inner}
+          </Link>
+        );
+      },
     },
     {
       id: 'destino',
       header: 'Destino / Detalle',
       width: 'minmax(220px,1.8fr)',
-      cell: (hist: any) => (
-        <span className="text-xs font-bold text-slate-600 line-clamp-2">
-          {hist.notes || '—'}
-        </span>
+      cell: (hist) => (
+        <div className="min-w-0 space-y-1">
+          <span className="text-xs font-bold text-slate-600 line-clamp-2 block">
+            {hist.notes || '—'}
+          </span>
+          {hist.box_codes?.length ? (
+            <span
+              className="text-[10px] font-mono font-bold text-slate-400 line-clamp-1 block"
+              title={hist.box_codes.join(', ')}
+            >
+              {hist.box_codes.length <= 3
+                ? hist.box_codes.join(' · ')
+                : `${hist.box_codes.slice(0, 3).join(' · ')} +${hist.box_codes.length - 3}`}
+            </span>
+          ) : null}
+        </div>
       ),
     },
     {
       id: 'fecha',
       header: 'Fecha salida',
       width: '180px',
-      cell: (hist: any) => (
+      cell: (hist) => (
         <span className="text-xs font-bold text-slate-500">
-          {new Date(hist.dispatched_at || hist.created_at).toLocaleString()}
+          {new Date(hist.dispatched_at || hist.created_at || Date.now()).toLocaleString()}
         </span>
       ),
     },
@@ -1890,13 +1998,13 @@ export default function DespachoPage() {
       id: 'tipo',
       header: 'Tipo',
       width: '110px',
-      cell: (hist: any) => <Badge variant="blue">{formatDispatchType(hist.dispatch_type)}</Badge>,
+      cell: (hist) => <Badge variant="blue">{formatDispatchType(hist.dispatch_type)}</Badge>,
     },
     {
       id: 'items',
       header: 'Equipos',
       width: '90px',
-      cell: (hist: any) => (
+      cell: (hist) => (
         <span className="text-sm font-bold text-slate-700">
           {hist.equipos_count ?? hist.dispatch_items?.[0]?.count ?? 0}
         </span>
@@ -1906,7 +2014,7 @@ export default function DespachoPage() {
       id: 'usuario',
       header: 'Usuario',
       width: 'minmax(140px,1fr)',
-      cell: (hist: any) => (
+      cell: (hist) => (
         <span className="text-xs font-bold text-slate-500">
           {hist.dispatched_by_name || hist.dispatched_by || 'Sistema'}
         </span>
@@ -1915,33 +2023,46 @@ export default function DespachoPage() {
     {
       id: 'acciones',
       header: 'Acciones',
-      width: '120px',
-      cell: (hist: any) => (
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              void handleReprintHistory(hist);
-            }}
-            className="w-8 h-8 flex items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors"
-            title="Reimprimir conduce y series"
-          >
-            <Printer className="w-4 h-4" />
-          </button>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              void handleExportHistoryExcel(hist);
-            }}
-            className="w-8 h-8 flex items-center justify-center rounded-lg bg-sky-50 text-sky-700 hover:bg-sky-100 transition-colors"
-            title="Exportar series a Excel"
-          >
-            <FileSpreadsheet className="w-4 h-4" />
-          </button>
-        </div>
-      ),
+      width: '150px',
+      cell: (hist) => {
+        const guide = String(hist.guide_number || '').trim();
+        return (
+          <div className="flex items-center gap-1.5">
+            {guide ? (
+              <Link
+                href={`/despacho/historial/${encodeURIComponent(guide)}`}
+                onClick={(e) => e.stopPropagation()}
+                className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
+                title="Ver detalle de cajas"
+              >
+                <Eye className="w-4 h-4" />
+              </Link>
+            ) : null}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                void handleReprintHistory(hist);
+              }}
+              className="w-8 h-8 flex items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors"
+              title="Reimprimir conduce y series"
+            >
+              <Printer className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                void handleExportHistoryExcel(hist);
+              }}
+              className="w-8 h-8 flex items-center justify-center rounded-lg bg-sky-50 text-sky-700 hover:bg-sky-100 transition-colors"
+              title="Exportar series a Excel"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+            </button>
+          </div>
+        );
+      },
     },
   ];
 
@@ -2508,17 +2629,29 @@ export default function DespachoPage() {
         </div>
         ) : (
           <div className="space-y-6 animate-in fade-in">
+            <ModuleToolbar
+              onSearch={(v) => {
+                setHistorySearch(v);
+                startTransition(() => setHistoryPage(1));
+              }}
+              searchValue={historySearch}
+              searchPlaceholder="Buscar por serie, Nº conduce (NS-…) o caja (OB-…)"
+            />
             <Card padding="none" className="overflow-hidden">
               <DataTable
                 columns={dispatchHistoryColumns}
                 data={dispatchHistoryPageItems}
-                getRowId={(hist: any) => hist.id}
+                getRowId={(hist) => hist.guide_number || hist.id}
                 rowHeight={64}
                 maxBodyHeight={560}
                 minWidth={900}
                 headerClassName={erpTableHeader}
                 headerTextClassName={erpTableHeaderText}
-                emptyMessage="No hay historial de despachos registrados."
+                emptyMessage={
+                  historySearch.trim()
+                    ? `Sin resultados para «${historySearch.trim()}». Pruebe NS-000004, OB-000032 o un serial.`
+                    : 'No hay historial de despachos registrados.'
+                }
               />
               <TablePagination
                 totalCount={historyTotalCount}

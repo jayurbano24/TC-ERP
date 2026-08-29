@@ -725,6 +725,49 @@ function isSeriesAlreadyInScrapBox(row: {
   return code.startsWith('BOX-BAD');
 }
 
+/**
+ * OS con ≥1 serie ya en caja Bodega SCRAPS → salen de la cola Taller
+ * (aunque queden hermanos irreparable sin caja).
+ */
+async function filterOsIdsStillOnScrapFloor(
+  supabase: SupabaseClient,
+  osIds: string[]
+): Promise<string[]> {
+  if (osIds.length === 0) return [];
+  const excluded = new Set<string>();
+  const chunkSize = 80;
+  for (let i = 0; i < osIds.length; i += chunkSize) {
+    const chunk = osIds.slice(i, i + chunkSize);
+    const { data, error } = await supabase
+      .from('series')
+      .select('service_order_id, current_box_id, boxes(box_code, rack_location)')
+      .in('service_order_id', chunk)
+      .not('current_box_id', 'is', null);
+    if (error) {
+      console.warn('[workshop/server] scrap-floor OS filter:', error.message);
+      continue;
+    }
+    for (const row of data || []) {
+      const osId = String(row.service_order_id || '');
+      if (!osId) continue;
+      const boxes = row.boxes as
+        | { box_code?: string | null; rack_location?: string | null }
+        | { box_code?: string | null; rack_location?: string | null }[]
+        | null;
+      const box = Array.isArray(boxes) ? boxes[0] : boxes;
+      if (
+        isSeriesAlreadyInScrapBox({
+          current_box_id: row.current_box_id,
+          boxes: box ?? null,
+        })
+      ) {
+        excluded.add(osId);
+      }
+    }
+  }
+  return osIds.filter((id) => !excluded.has(id));
+}
+
 async function fetchWorkshopSeriesForOsIds(
   supabase: SupabaseClient,
   osIds: string[],
@@ -732,13 +775,18 @@ async function fetchWorkshopSeriesForOsIds(
 ): Promise<any[]> {
   if (osIds.length === 0) return [];
 
+  /** Cola SCRAPS = irreparable sin caja; OS con alguna serie en Bodega SCRAPS fuera. */
+  const scrapsUnboxedOnly = status === 'irreparable';
+  const eligibleOsIds = scrapsUnboxedOnly
+    ? await filterOsIdsStillOnScrapFloor(supabase, osIds)
+    : osIds;
+  if (eligibleOsIds.length === 0) return [];
+
   const rows: any[] = [];
   const chunkSize = 80;
-  /** Cola SCRAPS = irreparable sin caja; con caja ya están en Bodega SCRAPS. */
-  const scrapsUnboxedOnly = status === 'irreparable';
 
-  for (let i = 0; i < osIds.length; i += chunkSize) {
-    const chunk = osIds.slice(i, i + chunkSize);
+  for (let i = 0; i < eligibleOsIds.length; i += chunkSize) {
+    const chunk = eligibleOsIds.slice(i, i + chunkSize);
     let q = supabase
       .from('series')
       .select(WORKSHOP_SERIES_SELECT)
@@ -792,7 +840,22 @@ async function fetchWorkshopSeriesPaginated(
     rows.push(...(scrapsOnly ? data.filter((row) => !isSeriesAlreadyInScrapBox(row)) : data));
     if (data.length < PAGE_SIZE) break;
   }
-  return rows;
+
+  if (!scrapsOnly || rows.length === 0) return rows;
+
+  const osIds = [
+    ...new Set(
+      rows
+        .map((r) => r.service_order_id as string | null)
+        .filter((id): id is string => Boolean(id))
+    ),
+  ];
+  const floorOs = new Set(await filterOsIdsStillOnScrapFloor(supabase, osIds));
+  return rows.filter((r) => {
+    const osId = r.service_order_id as string | null;
+    if (!osId) return !isSeriesAlreadyInScrapBox(r);
+    return floorOs.has(String(osId));
+  });
 }
 
 async function loadWorkshopAuditIds(

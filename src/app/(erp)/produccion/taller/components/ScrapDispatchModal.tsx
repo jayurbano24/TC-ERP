@@ -17,6 +17,7 @@ import {
   locateWorkshopEquipmentViaApi,
   scrapDispatchViaApi,
 } from '@/lib/api/workshopTasks';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   getExpectedDigitsForSlot,
   prepareScannedSerial,
@@ -97,6 +98,7 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
   fetchTasks,
   onClose,
 }: Props) {
+  const queryClient = useQueryClient();
   const scrapTechId = useMemo(
     () => resolveCatalogTechId(catTecnologias, scrapBoxTecnologia),
     [catTecnologias, scrapBoxTecnologia]
@@ -954,6 +956,7 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
                     notify.success(`Etiqueta ${result.box_code} · captura de caja SCRAPS`, {
                       description: `${result.linked} serie(s) · detalle e impresión en /bodega/scraps`,
                     });
+                    await queryClient.invalidateQueries({ queryKey: ['workshop-tab-counts'] });
                     onClose();
                     fetchTasks();
                   } catch (err: unknown) {

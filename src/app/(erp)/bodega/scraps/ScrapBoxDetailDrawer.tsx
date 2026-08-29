@@ -6,6 +6,7 @@ import { AlertCircle, CheckCircle2, Cpu, Loader2, MapPin, Package, Printer, Scan
 import { fetchBoxSeriesUi } from '@/modules/inventario/client/warehouseBoxSeries';
 import { PrintBoxModal } from '@/app/(erp)/bodega/gestion/components/PrintBoxModal';
 import { scrapAppendSeriesViaApi, scrapCloseBoxViaApi } from '@/lib/api/workshopTasks';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   prepareScannedSerial,
   serialLengthCounterLabel,
@@ -63,6 +64,7 @@ export const ScrapBoxDetailDrawer = memo(function ScrapBoxDetailDrawer({
   onClose,
   onAppendSuccess,
 }: Props) {
+  const queryClient = useQueryClient();
   const [showPrint, setShowPrint] = useState(false);
   const [scanSN, setScanSN] = useState('');
   const [scanError, setScanError] = useState('');
@@ -143,6 +145,7 @@ export const ScrapBoxDetailDrawer = memo(function ScrapBoxDetailDrawer({
     try {
       const result = await scrapCloseBoxViaApi({ boxId: box.realDbId });
       await applyCloseResult(result.equipos_count, result.capacity);
+      await queryClient.invalidateQueries({ queryKey: ['workshop-tab-counts'] });
       notify.success(`Caja ${result.box_code} guardada y cerrada`, {
         description: `${result.equipos_count}/${result.capacity} equipos`,
       });
@@ -153,7 +156,7 @@ export const ScrapBoxDetailDrawer = memo(function ScrapBoxDetailDrawer({
     } finally {
       setClosing(false);
     }
-  }, [isComplete, box.displayId, box.realDbId, displayUnitCount, capacity, applyCloseResult]);
+  }, [isComplete, box.displayId, box.realDbId, displayUnitCount, capacity, applyCloseResult, queryClient]);
 
   const handleCloseResize = useCallback(async () => {
     if (displayUnitCount <= 0) return;
@@ -174,6 +177,7 @@ export const ScrapBoxDetailDrawer = memo(function ScrapBoxDetailDrawer({
         resizeCapacityToContents: true,
       });
       await applyCloseResult(result.equipos_count, result.capacity);
+      await queryClient.invalidateQueries({ queryKey: ['workshop-tab-counts'] });
       notify.success(`Caja ${result.box_code} cerrada`, {
         description: result.resized
           ? `Capacidad ajustada a ${result.capacity} (antes declarada mayor).`
@@ -186,7 +190,7 @@ export const ScrapBoxDetailDrawer = memo(function ScrapBoxDetailDrawer({
     } finally {
       setClosing(false);
     }
-  }, [displayUnitCount, capacity, box.realDbId, applyCloseResult]);
+  }, [displayUnitCount, capacity, box.realDbId, applyCloseResult, queryClient]);
 
   const handleScan = useCallback(async () => {
     const sn = prepareScannedSerial(scanSN);
@@ -218,6 +222,7 @@ export const ScrapBoxDetailDrawer = memo(function ScrapBoxDetailDrawer({
         closed: false,
         seriesRows: ui,
       });
+      await queryClient.invalidateQueries({ queryKey: ['workshop-tab-counts'] });
       notify.success(
         result.closed
           ? `Capacidad alcanzada · ${result.equipos_count}/${result.capacity} — pulse Guardar para cerrar`

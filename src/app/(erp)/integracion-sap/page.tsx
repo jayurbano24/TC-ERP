@@ -11,6 +11,10 @@ import { apiFetch } from '@/lib/http/apiFetch';
 import { useQuery } from '@tanstack/react-query';
 import { SapIntegracionErrorBoundary } from './SapIntegracionErrorBoundary';
 import { SAP_PARSE_UPLOAD_MAX_BYTES, SAP_PARSE_UPLOAD_MAX_MB } from '@/lib/sap/sapUploadLimits';
+import {
+  buildOsRealityTableRows,
+  type OsInventoryModules,
+} from '@/lib/sap/osInventoryModules';
 
 // Referencia estable para la query mientras no hay datos.
 const EMPTY_SAP_HISTORY: any[] = [];
@@ -328,7 +332,7 @@ function IntegracionSapPage() {
   // C6: dashboard e historial SAP vía TanStack Query (cachea y deja de
   // re-consultar en cada cambio de pestaña dentro de la ventana de staleTime).
   const dashboardQuery = useQuery({
-    queryKey: ['sap-dashboard', 'v5-os-activas-sum'],
+    queryKey: ['sap-dashboard', 'v6-os-reality'],
     queryFn: async () => {
       const data = await apiFetchJsonWithTimeout('/api/sap/dashboard', {}, 45_000);
       if (!data.success) throw new Error(String(data.error || 'Error al cargar dashboard SAP'));
@@ -541,109 +545,83 @@ function IntegracionSapPage() {
     const seriesValPct = seriesBase ? Math.round(((kpis?.seriesValidadas || 0) / seriesBase) * 100) : 0;
     const parcialPct = equiposBase ? Math.round(((kpis?.inconsistentes || 0) / equiposBase) * 100) : 0;
 
-    const mods = osModules as {
-      total?: number;
-      activas?: number;
-      activas_ledger?: number;
-      despachado?: number;
-      bodega_con_caja?: number;
-      pistoleo_en_curso?: number;
-      backoffice?: number;
-      qc?: number;
-      scrap?: number;
-      taller?: number;
-    } | null;
+    const mods = (osModules as OsInventoryModules | null) ?? null;
 
     const totalOs = Number(mods?.total ?? equiposBase ?? 0);
     const despachadas = Number(mods?.despachado ?? 0);
     const bodegaTotal = Number(mods?.bodega_con_caja ?? 0);
     const pistoleo = Number(mods?.pistoleo_en_curso ?? 0);
     const backofficeN = Number(mods?.backoffice ?? 0);
-    const qcN = Number(mods?.qc ?? 0);
-    const tallerN = Number(mods?.taller ?? 0);
-    const scrapN = Number(mods?.scrap ?? 0);
-    // Activas = siempre suma de tarjetas OS visibles (excluye Despachado).
+    const diagN = Number(mods?.taller_diagnostico ?? 0);
+    const repN = Number(mods?.taller_reparacion ?? 0);
+    const qcN = Number(mods?.taller_qc ?? mods?.qc ?? 0);
+    const l3N = Number(mods?.taller_l3 ?? 0);
+    const scrapsPisoN = Number(mods?.taller_scraps_piso ?? 0);
+    const bodegaScrapsN = Number(mods?.bodega_scraps ?? 0);
+    const equipoListoN = Number(mods?.equipo_listo ?? 0);
+    const tallerPisoN = Number(
+      mods?.taller_piso_total ?? diagN + repN + qcN + l3N + scrapsPisoN
+    );
+
     const activas =
-      bodegaTotal + pistoleo + backofficeN + qcN + tallerN + scrapN;
+      Number(mods?.activas ?? 0) ||
+      bodegaTotal +
+        pistoleo +
+        backofficeN +
+        diagN +
+        repN +
+        qcN +
+        l3N +
+        scrapsPisoN +
+        bodegaScrapsN;
     const activasLedger = Math.max(
       Number(mods?.activas_ledger ?? 0) || totalOs - despachadas,
       0
     );
     const residual = Math.max(activasLedger - activas, 0);
-    const pisoTallerQc = tallerN + qcN;
     const pctBodega = activas ? Math.round((bodegaTotal / activas) * 100) : 0;
-    const pctTallerQc = activas ? Math.round((pisoTallerQc / activas) * 100) : 0;
+    const pctTallerQc = activas
+      ? Math.round(((diagN + repN + qcN + l3N) / activas) * 100)
+      : 0;
 
-    const moduleCards: Array<{
-      key: string;
-      label: string;
-      value: number;
-      color: string;
-      bg: string;
-      unit: string;
-      muted?: boolean;
-    }> = [
-      {
-        key: 'bodega_con_caja',
-        label: 'Bodega con caja',
-        value: Number(mods?.bodega_con_caja ?? 0),
-        color: 'text-emerald-700',
-        bg: 'bg-emerald-50',
-        unit: 'OS',
-      },
-      ...(pistoleo > 0
-        ? [
-            {
-              key: 'pistoleo_en_curso',
-              label: 'Pistoleo en curso',
-              value: pistoleo,
-              color: 'text-teal-700',
-              bg: 'bg-teal-50',
-              unit: 'TMP',
-            },
-          ]
-        : []),
-      {
-        key: 'backoffice',
-        label: 'Backoffice (cola)',
-        value: Number(mods?.backoffice ?? 0),
-        color: 'text-amber-700',
-        bg: 'bg-amber-50',
-        unit: 'OS',
-      },
-      {
-        key: 'despachado',
-        label: 'Despachado',
-        value: despachadas,
-        color: 'text-slate-600',
-        bg: 'bg-slate-100',
-        unit: 'Histórico',
-        muted: true,
-      },
-      {
-        key: 'qc',
-        label: 'Ctrl. Calidad',
-        value: Number(mods?.qc ?? 0),
-        color: 'text-purple-700',
-        bg: 'bg-purple-50',
-        unit: 'OS',
-      },
-      {
-        key: 'taller',
-        label: 'Taller',
-        value: Number(mods?.taller ?? 0),
-        color: 'text-blue-700',
-        bg: 'bg-blue-50',
-        unit: 'OS',
-      },
-      {
-        key: 'scrap',
-        label: 'Scrap',
-        value: Number(mods?.scrap ?? 0),
-        color: 'text-rose-700',
-        bg: 'bg-rose-50',
-        unit: 'OS',
-      },
+    const realityRows = mods
+      ? buildOsRealityTableRows(mods)
+      : buildOsRealityTableRows({
+          total: totalOs,
+          despachado: despachadas,
+          activas_ledger: activasLedger,
+          activas,
+          bodega_con_caja: bodegaTotal,
+          pistoleo_en_curso: pistoleo,
+          backoffice: backofficeN,
+          series_recepcionado_bo: 0,
+          taller_diagnostico: diagN,
+          taller_reparacion: repN,
+          taller_reacondicionado: 0,
+          taller_qc: qcN,
+          taller_l3: l3N,
+          taller_scraps_piso: scrapsPisoN,
+          taller_piso_total: tallerPisoN,
+          bodega_scraps: bodegaScrapsN,
+          scrap_ledger: Number(mods?.scrap ?? 0),
+          equipo_listo: equipoListoN,
+          con_serie: 0,
+          sin_series: 0,
+          bodega_sin_caja: 0,
+          historial_backoffice: 0,
+          qc: qcN,
+          taller: diagN + l3N,
+          scrap: Number(mods?.scrap ?? 0),
+          control: 0,
+          otro: 0,
+        });
+
+    const kpiStrip = [
+      { label: 'Pendiente Bodega', value: backofficeN, tone: 'text-amber-700' },
+      { label: 'Bodega Central', value: bodegaTotal, tone: 'text-emerald-700' },
+      { label: 'Taller piso', value: tallerPisoN, tone: 'text-blue-700' },
+      { label: 'SCRAPS caja', value: bodegaScrapsN, tone: 'text-rose-700' },
+      { label: 'Equipo Listo', value: equipoListoN, tone: 'text-cyan-700' },
     ];
 
     return (
@@ -742,20 +720,19 @@ function IntegracionSapPage() {
                 <span className="font-black text-[var(--heading)]">{totalOs.toLocaleString()}</span> OS ·
                 Despachadas:{' '}
                 <span className="font-black text-slate-700">{despachadas.toLocaleString()}</span>.
-                Inventario físico (Activas) = suma de los módulos abajo →{' '}
+                Inventario físico (Activas módulos) →{' '}
                 <span className="font-black text-emerald-700">{activas.toLocaleString()}</span>
                 {activas > 0 ? (
                   <>
                     {' '}
-                    ({pctBodega}% bodega, {pctTallerQc}% taller/QC; resto backoffice/scrap
-                    {pistoleo > 0 ? '/pistoleo' : ''}).
+                    ({pctBodega}% bodega, {pctTallerQc}% taller/CQ
+                    {pistoleo > 0 ? ', pistoleo TMP' : ''}).
                   </>
                 ) : null}
                 {residual > 0 ? (
                   <>
                     {' '}
-                    Quedan ~{residual.toLocaleString()} OS en estados no mapeados (sin serie / otros),
-                    fuera de estas tarjetas.
+                    Residual ledger ~{residual.toLocaleString()} OS fuera de módulos.
                   </>
                 ) : null}
               </p>
@@ -770,27 +747,60 @@ function IntegracionSapPage() {
             </div>
           </div>
 
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 xl:grid-cols-6">
-              {moduleCards.map((stage) => (
+          <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+            {kpiStrip.map((k) => (
               <div
-                key={stage.key}
-                className={`rounded-xl border border-[var(--border)] p-4 text-center ${stage.bg} ${
-                  stage.muted ? 'opacity-90 ring-1 ring-slate-300/60' : ''
-                }`}
+                key={k.label}
+                className="rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] px-3 py-2 text-center"
               >
-                <p className="mb-1 text-[9px] font-black uppercase tracking-wide text-[var(--muted)]">
-                  {stage.label}
+                <p className="text-[8px] font-black uppercase tracking-widest text-[var(--muted)]">
+                  {k.label}
                 </p>
-                <p className={`text-2xl font-black ${stage.color}`}>
-                  {stage.value.toLocaleString()}
-                </p>
-                <p className="mt-1 text-[8px] font-bold text-[var(--muted)]">{stage.unit}</p>
+                <p className={`text-lg font-black ${k.tone}`}>{k.value.toLocaleString()}</p>
               </div>
             ))}
           </div>
+
+          <div className="overflow-x-auto rounded-xl border border-[var(--border)]">
+            <table className="w-full min-w-[640px] text-left text-xs">
+              <thead className="sticky top-0 bg-[var(--surface-hover)]">
+                <tr className="border-b border-[var(--border)]">
+                  <th className="px-3 py-2 text-[9px] font-black uppercase tracking-widest text-[var(--muted)]">
+                    Módulo
+                  </th>
+                  <th className="px-3 py-2 text-right text-[9px] font-black uppercase tracking-widest text-[var(--muted)]">
+                    OS
+                  </th>
+                  <th className="px-3 py-2 text-[9px] font-black uppercase tracking-widest text-[var(--muted)]">
+                    Definición
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {realityRows.map((row) => (
+                  <tr
+                    key={row.key}
+                    className={`border-b border-[var(--border)]/60 ${
+                      row.highlight
+                        ? 'bg-amber-50/80'
+                        : row.muted
+                          ? 'bg-[var(--surface)] opacity-80'
+                          : 'bg-[var(--surface)]'
+                    }`}
+                  >
+                    <td className="px-3 py-2 font-bold text-[var(--heading)]">{row.modulo}</td>
+                    <td className="px-3 py-2 text-right font-black tabular-nums text-[var(--heading)]">
+                      {row.os.toLocaleString()}
+                    </td>
+                    <td className="px-3 py-2 text-[var(--muted)]">{row.definicion}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           {!mods && (
             <p className="mt-3 text-[10px] font-bold text-[var(--warning)]">
-              Aplique la migración 226 (`count_os_inventory_modules`) en Supabase.
+              Aplique la migración 228 (`count_os_inventory_modules`) en Supabase para el desglose completo.
             </p>
           )}
         </Card>

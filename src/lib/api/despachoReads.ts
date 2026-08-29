@@ -133,6 +133,8 @@ export type DespachoHistoryRow = {
   /** Equipos = OS distintas (no filas series hermanas). */
   equipos_count?: number;
   dispatch_items?: Array<{ count: number }>;
+  /** Seriales del despacho (para búsqueda en historial). */
+  series_numbers?: string[];
 };
 
 export type DespachoHistoryReprint = {
@@ -185,6 +187,44 @@ export async function fetchDespachoHistoryReprint(dispatchId: string): Promise<D
     throw new Error(data.error ?? data.detail ?? `HTTP ${res.status}`);
   }
   return data as DespachoHistoryReprint;
+}
+
+export type DespachoHistoryGuideDetail = {
+  guide_number: string;
+  notes?: string | null;
+  dispatch_type?: string | null;
+  dispatched_at?: string | null;
+  dispatched_by?: string | null;
+  dispatched_by_name?: string;
+  box_count: number;
+  equipos_total: number;
+  boxes: Array<{
+    dispatch_id: string;
+    box_id: string | null;
+    box_code: string | null;
+    brand_id: string | null;
+    model_id: string | null;
+    material: string | null;
+    valuation: string | null;
+    capacity: number | null;
+    status: string | null;
+    equipos_count: number;
+    dispatched_at: string | null;
+    series_numbers: string[];
+    series_preview: string[];
+  }>;
+};
+
+export async function fetchDespachoHistoryByGuide(
+  guideNumber: string
+): Promise<DespachoHistoryGuideDetail> {
+  const encoded = encodeURIComponent(guideNumber.trim());
+  const res = await apiFetch(`/api/v1/despacho/history/by-guide/${encoded}`);
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.detail ?? data.error ?? `HTTP ${res.status}`);
+  }
+  return data as DespachoHistoryGuideDetail;
 }
 
 export async function fetchDespachoPendientesViaApi(): Promise<any[]> {

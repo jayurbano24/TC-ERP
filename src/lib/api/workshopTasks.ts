@@ -121,6 +121,79 @@ export async function scrapDispatchViaApi(input: {
   return data as ScrapDispatchResult;
 }
 
+export type ScrapAppendResult = {
+  success: true;
+  box_id: string;
+  box_code: string;
+  linked: number;
+  equipos_count: number;
+  capacity: number;
+  closed: boolean;
+  slots: { s1: string; s2: string; s3: string; s4: string };
+  os_label: string | null;
+};
+
+/** Agrega un equipo (serie) a una caja SCRAPS parcial hasta completar capacidad. */
+export async function scrapAppendSeriesViaApi(input: {
+  boxId: string;
+  seriesId?: string;
+  serialNumber?: string;
+}): Promise<ScrapAppendResult> {
+  const res = await apiFetch('/api/v1/workshop/scrap-dispatch/append', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      box_id: input.boxId,
+      series_id: input.seriesId,
+      serial_number: input.serialNumber,
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(
+      (typeof data.detail === 'string' && data.detail.trim()) ||
+        data.error ||
+        `HTTP ${res.status}`
+    );
+  }
+  return data as ScrapAppendResult;
+}
+
+export type ScrapCloseResult = {
+  success: true;
+  box_id: string;
+  box_code: string;
+  equipos_count: number;
+  capacity: number;
+  resized: boolean;
+};
+
+/** Cierra caja SCRAPS (Full). Con resize ajusta capacity = equipos actuales. */
+export async function scrapCloseBoxViaApi(input: {
+  boxId: string;
+  resizeCapacityToContents?: boolean;
+}): Promise<ScrapCloseResult> {
+  const res = await apiFetch('/api/v1/workshop/scrap-dispatch/close', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      box_id: input.boxId,
+      resize_capacity_to_contents: Boolean(input.resizeCapacityToContents),
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(
+      (typeof data.detail === 'string' && data.detail.trim()) ||
+        data.error ||
+        `HTTP ${res.status}`
+    );
+  }
+  return data as ScrapCloseResult;
+}
+
 /** Comentario operativo sobre una OS / series (historial + notes). */
 export async function addWorkshopCommentViaApi(input: {
   seriesIds: string[];

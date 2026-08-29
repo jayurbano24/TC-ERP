@@ -13,6 +13,13 @@ import {
   resolveCatalogBrandId,
   resolveCatalogTechId,
 } from '@/shared/catalogs/cascadeCatalogFilters';
+import {
+  getExpectedDigitsForSlot,
+  prepareScannedSerial,
+  resolveModelDigitRules,
+  serialLengthCounterLabel,
+  validateSerialForModelAnySlot,
+} from '@/shared/validation/serialDigitRules';
 
 type DespachoMovement = {
   id: string;
@@ -141,6 +148,21 @@ export const DespachoView = memo(function DespachoView({
     () => filterModelsByTechAndBrand(catModelos, despTechId, despBrandId || undefined),
     [catModelos, despTechId, despBrandId]
   );
+  const despScanModel = useMemo(() => {
+    const mov = despActiveMovements.find((m) => m.id === despBoxNumber);
+    const name = mov?.modelo || despBoxModelo;
+    if (!name) return null;
+    return (
+      catModelos.find((m) => m.name === name || m.id === name) ||
+      null
+    );
+  }, [despActiveMovements, despBoxNumber, despBoxModelo, catModelos]);
+  const despExpectedDigits = useMemo(() => {
+    if (!despScanModel) return null;
+    const rules = resolveModelDigitRules(despScanModel);
+    return getExpectedDigitsForSlot(rules.digitsPerSeries, 0);
+  }, [despScanModel]);
+  const despPreparedLen = prepareScannedSerial(despScanSN).length;
 
   return (
     <div className="space-y-0">
@@ -456,16 +478,25 @@ export const DespachoView = memo(function DespachoView({
                 <div>
                   <div className="flex justify-between mb-1">
                     <label className="text-xs font-black text-slate-700">SN <span className="text-rose-500">*</span></label>
-                    <span className="text-[10px] font-bold text-slate-400">Max: 15</span>
+                    <span className="text-[10px] font-bold text-slate-400">
+                      {despExpectedDigits
+                        ? `${despExpectedDigits} caracteres (modelo)`
+                        : 'Configure dígitos del modelo'}
+                    </span>
                   </div>
                   <input
-                    id="desp-sn-input" autoFocus type="text" maxLength={15}
+                    id="desp-sn-input" autoFocus type="text"
                     value={despScanSN}
-                    onChange={e => { setDespScanSN(e.target.value.toUpperCase()); setDespScanError(''); }}
+                    onChange={e => { setDespScanSN(e.target.value); setDespScanError(''); }}
                     onKeyDown={e => {
                       if (e.key === 'Enter') {
-                        const snVal = despScanSN.trim().toUpperCase();
+                        const snVal = prepareScannedSerial(despScanSN);
                         if (!snVal) { setDespScanError('El SN es obligatorio'); return; }
+                        const lengthCheck = validateSerialForModelAnySlot(snVal, despScanModel);
+                        if (!lengthCheck.valid) {
+                          setDespScanError(`${lengthCheck.title}. ${lengthCheck.message}`);
+                          return;
+                        }
                         if (despScannedItems.find(i => i.sn === snVal)) { setDespScanError(`"${snVal}" ya fue registrado`); setDespScanSN(''); return; }
                         const found = despTasks.find(t => (t.all_sns || [t.sn]).map((s: string) => s.toUpperCase()).includes(snVal));
                         if (!found) { setDespScanError(`"${snVal}" no está en ${origenDef.label} — verifica su estatus`); return; }
@@ -475,11 +506,25 @@ export const DespachoView = memo(function DespachoView({
                         document.getElementById('desp-sn-input')?.focus();
                       }
                     }}
-                    placeholder={`Escanear SN en ${origenDef.label}...`}
-                    className={`w-full px-4 py-3 border rounded-xl text-sm font-mono font-bold outline-none transition-colors ${despScanError ? 'border-rose-400 bg-rose-50' : 'border-slate-200 bg-white focus:border-indigo-400'}`}
+                    placeholder={
+                      despExpectedDigits
+                        ? `Escanear SN (${despExpectedDigits} caracteres)...`
+                        : `Escanear SN en ${origenDef.label}...`
+                    }
+                    className={`w-full px-4 py-3 border rounded-xl text-sm font-mono font-bold outline-none transition-colors uppercase ${despScanError ? 'border-rose-400 bg-rose-50' : 'border-slate-200 bg-white focus:border-indigo-400'}`}
                   />
                   <div className="flex justify-end mt-1">
-                    <span className="text-[10px] font-bold text-slate-400">{despScanSN.length} / 15</span>
+                    <span
+                      className={`text-[10px] font-bold ${
+                        despExpectedDigits &&
+                        despPreparedLen > 0 &&
+                        despPreparedLen !== despExpectedDigits
+                          ? 'text-amber-600'
+                          : 'text-slate-400'
+                      }`}
+                    >
+                      {serialLengthCounterLabel(despPreparedLen, despExpectedDigits)}
+                    </span>
                   </div>
                 </div>
                 {despScanError && (
@@ -622,6 +667,15 @@ export const DespachoView = memo(function DespachoView({
               onClick={async () => {
                 if (despScannedItems.length === 0) { notify.warning('Registra al menos un equipo antes de confirmar.'); return; }
                 if (!despGuideNumber.trim()) { notify.warning('El conduce es obligatorio.'); return; }
+                for (const item of despScannedItems) {
+                  const gate = validateSerialForModelAnySlot(String(item.sn || ''), despScanModel);
+                  if (!gate.valid) {
+                    notify.warning(gate.title || 'Serial inválido', {
+                      description: `${item.sn}: ${gate.message}`,
+                    });
+                    return;
+                  }
+                }
                 try {
                   setDespDispatching(true);
 

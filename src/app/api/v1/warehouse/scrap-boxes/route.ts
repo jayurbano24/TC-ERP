@@ -8,6 +8,7 @@ import {
 } from '@/shared/infrastructure/warehouse/enrichWarehouseBoxItems';
 import { isScrapStagingRack } from '@/lib/database/warehouse';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
+import { aggregateScrapBoxSeriesStats } from '@/lib/api/aggregateScrapBoxSeriesStats';
 
 const QuerySchema = z.object({
   cursor: z.string().uuid().optional(),
@@ -42,7 +43,9 @@ export async function GET(req: NextRequest) {
 
   let q = db
     .from('boxes')
-    .select('id, box_code, rack_location, capacity, created_at, brand_id, model_id')
+    .select(
+      'id, box_code, rack_location, capacity, created_at, brand_id, model_id, status, is_partial_box'
+    )
     .or('rack_location.eq.SCRAP,rack_location.eq.SCRAPS,rack_location.ilike.SCRAP%')
     .neq('rack_location', 'ELIMINADO')
     .order('created_at', { ascending: false })
@@ -79,63 +82,31 @@ export async function GET(req: NextRequest) {
   const page = staging.slice(0, limit);
   const pageIds = page.map((b) => String(b.id));
 
-  type SeriesSample = {
-    current_box_id: string;
-    brand_id: string | null;
-    model_id: string | null;
-    service_order_id: string | null;
-    id: string;
-  };
-
-  const seriesByBox = new Map<
-    string,
-    { sample: SeriesSample; seriesCount: number; osIds: Set<string> }
-  >();
-
-  let seriesFrom = 0;
-  for (;;) {
-    const { data: seriesRows, error: seriesError } = await db
-      .from('series')
-      .select('id, current_box_id, brand_id, model_id, service_order_id')
-      .in('current_box_id', pageIds)
-      .range(seriesFrom, seriesFrom + 999);
-    if (seriesError) {
-      return NextResponse.json({ error: 'QUERY_FAILED: ' + seriesError.message }, { status: 500 });
-    }
-    const chunk = (seriesRows ?? []) as SeriesSample[];
-    for (const row of chunk) {
-      const boxId = String(row.current_box_id);
-      const prev = seriesByBox.get(boxId);
-      if (!prev) {
-        seriesByBox.set(boxId, {
-          sample: row,
-          seriesCount: 1,
-          osIds: new Set([String(row.service_order_id || row.id)]),
-        });
-      } else {
-        prev.seriesCount += 1;
-        prev.osIds.add(String(row.service_order_id || row.id));
-      }
-    }
-    if (chunk.length < 1000) break;
-    seriesFrom += 1000;
+  let seriesByBox: Awaited<ReturnType<typeof aggregateScrapBoxSeriesStats>>;
+  try {
+    seriesByBox = await aggregateScrapBoxSeriesStats(db, pageIds);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'series aggregate failed';
+    return NextResponse.json({ error: 'QUERY_FAILED: ' + msg }, { status: 500 });
   }
 
   const candidates: WarehouseBoxListRow[] = page.map((b) => {
     const id = String(b.id);
     const stats = seriesByBox.get(id);
-    const sampleBrand = stats?.sample.brand_id ?? (b.brand_id as string | null) ?? null;
-    const sampleModel = stats?.sample.model_id ?? (b.model_id as string | null) ?? null;
+    const sampleBrand = stats?.sampleBrandId ?? (b.brand_id as string | null) ?? null;
+    const sampleModel = stats?.sampleModelId ?? (b.model_id as string | null) ?? null;
     return {
       box_id: id,
       rack: b.rack_location as string | null,
       label: b.box_code as string | null,
       capacity: b.capacity as number | null,
+      box_status: (b as { status?: string | null }).status ?? null,
+      is_partial_box: Boolean((b as { is_partial_box?: boolean | null }).is_partial_box),
       series_count: stats?.seriesCount ?? 0,
-      equipos_count: stats?.osIds.size ?? 0,
+      equipos_count: stats?.equiposCount ?? 0,
       sample_brand_id: sampleBrand,
       sample_model_id: sampleModel,
-      sample_service_order_id: stats?.sample.service_order_id ?? null,
+      sample_service_order_id: stats?.sampleServiceOrderId ?? null,
       last_movement_at: null,
     };
   });

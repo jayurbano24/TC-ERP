@@ -58,6 +58,8 @@ type ApiBox = {
   capacity?: number | null;
   series_count?: number | null;
   equipos_count?: number | null;
+  box_status?: string | null;
+  is_partial_box?: boolean | null;
   brand_name?: string | null;
   model_name?: string | null;
   tech_name?: string | null;
@@ -139,6 +141,7 @@ export default function BodegaScrapsPage() {
   const debouncedSearch = useDebouncedValue(search, 300);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(true);
   const [filterTech, setFilterTech] = useState('');
+  const [filterBrand, setFilterBrand] = useState('');
   const [filterModel, setFilterModel] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [inventoryPage, setInventoryPage] = useState(1);
@@ -258,13 +261,44 @@ export default function BodegaScrapsPage() {
     setDetailBox(row);
     setDetailSeries([]);
     setDetailLoading(true);
-    const ui = await loadScrapBoxSeries(row.realDbId);
-    setDetailSeries(ui);
-    setDetailLoading(false);
-  }, []);
+    try {
+      const ui = await loadScrapBoxSeries(row.realDbId);
+      setDetailSeries(ui);
+      const equipos = ui.length;
+      const capacity = Math.max(1, Number(row.capacity) || 1);
+      const synced: ScrapBoxRow = {
+        ...row,
+        unitCount: equipos,
+        status: resolveBoxDisplayStatus(equipos, capacity),
+      };
+      setDetailBox(synced);
+      // Corrige el listado si el conteo del API venía corto (p.ej. BOX-BAD-038 2/10 vs 10 equipos).
+      if (equipos !== row.unitCount) {
+        queryClient.setQueriesData<{ pages: Array<{ items?: ApiBox[] }> }>(
+          { queryKey: ['warehouse-scrap-boxes'] },
+          (old) => {
+            if (!old?.pages) return old;
+            return {
+              ...old,
+              pages: old.pages.map((page) => ({
+                ...page,
+                items: (page.items || []).map((item) =>
+                  String(item.box_id) === String(row.realDbId)
+                    ? { ...item, equipos_count: equipos, series_count: equipos }
+                    : item
+                ),
+              })),
+            };
+          }
+        );
+      }
+    } finally {
+      setDetailLoading(false);
+    }
+  }, [queryClient]);
 
   const query = useInfiniteQuery({
-    queryKey: ['warehouse-scrap-boxes', debouncedSearch],
+    queryKey: ['warehouse-scrap-boxes', 'v3-count', debouncedSearch],
     queryFn: ({ pageParam }) =>
       fetchScrapPage({ pageParam: pageParam as string | undefined, search: debouncedSearch }),
     initialPageParam: undefined as string | undefined,
@@ -318,6 +352,7 @@ export default function BodegaScrapsPage() {
         techName: b.tech_name || '---',
         unitCount: units,
         capacity,
+        // Estatus visual por llenado: Parcial (amarillo) si equipos < capacidad.
         status: resolveBoxDisplayStatus(units, capacity),
         usuarioIngreso: b.ingreso_user_name || 'Sin registro',
         fechaIngreso: new Date(b.created_at || Date.now()).toLocaleString('es-GT', {
@@ -342,11 +377,31 @@ export default function BodegaScrapsPage() {
     return map;
   }, [catTecnologias]);
 
+  const brandNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const b of catMarcas) map.set(b.id, b.name);
+    return map;
+  }, [catMarcas]);
+
+  const hasActiveFilters = Boolean(filterTech || filterBrand || filterModel || filterStatus);
+
+  const clearFilters = useCallback(() => {
+    setFilterTech('');
+    setFilterBrand('');
+    setFilterModel('');
+    setFilterStatus('');
+    setInventoryPage(1);
+  }, []);
+
   const filteredInventory = useMemo(() => {
     return inventory.filter((row) => {
       if (filterTech) {
         const techLabel = techNameById.get(filterTech) || '';
         if (techLabel && row.techName.toLowerCase() !== techLabel.toLowerCase()) return false;
+      }
+      if (filterBrand) {
+        const brandLabel = brandNameById.get(filterBrand) || '';
+        if (brandLabel && row.marcaLabel.toLowerCase() !== brandLabel.toLowerCase()) return false;
       }
       if (filterModel) {
         const model = catModelos.find((m) => m.id === filterModel);
@@ -356,9 +411,19 @@ export default function BodegaScrapsPage() {
       }
       if (filterStatus === 'Full' && row.status !== 'Full') return false;
       if (filterStatus === 'Partial' && row.status !== 'Parcial') return false;
+      if (filterStatus === 'Empty' && row.status !== 'Vacía') return false;
       return true;
     });
-  }, [inventory, filterTech, filterModel, filterStatus, techNameById, catModelos]);
+  }, [
+    inventory,
+    filterTech,
+    filterBrand,
+    filterModel,
+    filterStatus,
+    techNameById,
+    brandNameById,
+    catModelos,
+  ]);
 
   const totals = useMemo(() => {
     const totalBoxes = filteredInventory.length;
@@ -368,10 +433,13 @@ export default function BodegaScrapsPage() {
     return { totalBoxes, totalEquipos, cajasCompletas, cajasParciales };
   }, [filteredInventory]);
 
-  const modelsForTech = useMemo(() => {
-    if (!filterTech) return [];
-    return catModelos.filter((m) => String(m.technology_id || '') === filterTech);
-  }, [catModelos, filterTech]);
+  const modelsForFilters = useMemo(() => {
+    return catModelos.filter((m) => {
+      if (filterTech && String(m.technology_id || '') !== filterTech) return false;
+      if (filterBrand && String(m.brand_id || '') !== filterBrand) return false;
+      return true;
+    });
+  }, [catModelos, filterTech, filterBrand]);
 
   const inventoryTotalCount = filteredInventory.length;
   const inventoryTotalPages = Math.max(1, Math.ceil(inventoryTotalCount / PAGE_SIZE));
@@ -776,7 +844,28 @@ export default function BodegaScrapsPage() {
               </div>
             </div>
           </Card>
-          <Card className="border-l-4 border-l-success" padding="md">
+          <Card
+            className={`cursor-pointer border-l-4 border-l-success transition-all hover:shadow-md ${
+              filterStatus === 'Full' ? 'bg-success/10 ring-2 ring-success/40' : ''
+            }`}
+            padding="md"
+            role="button"
+            tabIndex={0}
+            onClick={() => {
+              setFilterStatus((prev) => (prev === 'Full' ? '' : 'Full'));
+              setInventoryPage(1);
+              setShowAdvancedFilters(true);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setFilterStatus((prev) => (prev === 'Full' ? '' : 'Full'));
+                setInventoryPage(1);
+                setShowAdvancedFilters(true);
+              }
+            }}
+            title="Filtrar cajas completas (Full)"
+          >
             <div className="flex items-center gap-4">
               <div className="rounded-2xl bg-success/10 p-3">
                 <PackageCheck className="h-6 w-6 text-success" />
@@ -788,6 +877,9 @@ export default function BodegaScrapsPage() {
                 <h3 className="text-2xl font-bold text-[var(--heading)]">
                   {totals.cajasCompletas.toLocaleString()}
                 </h3>
+                <p className="mt-0.5 text-[9px] font-semibold text-[var(--success)]">
+                  Clic para filtrar Full
+                </p>
               </div>
             </div>
           </Card>
@@ -801,12 +893,14 @@ export default function BodegaScrapsPage() {
             onClick={() => {
               setFilterStatus((prev) => (prev === 'Partial' ? '' : 'Partial'));
               setInventoryPage(1);
+              setShowAdvancedFilters(true);
             }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
                 setFilterStatus((prev) => (prev === 'Partial' ? '' : 'Partial'));
                 setInventoryPage(1);
+                setShowAdvancedFilters(true);
               }
             }}
             title="Filtrar cajas parciales"
@@ -841,59 +935,112 @@ export default function BodegaScrapsPage() {
             onExport={handleExport}
             onAdd={() => void openCreateScrapBox()}
             addLabel="Crear Caja Bodega SCRAPS"
-            onFilter={() => setShowAdvancedFilters(!showAdvancedFilters)}
             filters={
-              showAdvancedFilters && (
-                <div className="flex flex-wrap gap-2 animate-in fade-in zoom-in duration-200">
-                  <select
-                    value={filterTech}
-                    onChange={(e) => {
-                      setFilterTech(e.target.value);
-                      setFilterModel('');
-                      setInventoryPage(1);
-                    }}
-                    className="h-10 rounded-lg border border-border bg-surface px-3 text-sm text-foreground outline-none focus:border-accent"
-                  >
-                    <option value="">Todas las Tecnologías</option>
-                    {catTecnologias.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    value={filterModel}
-                    onChange={(e) => {
-                      setFilterModel(e.target.value);
-                      setInventoryPage(1);
-                    }}
-                    disabled={!filterTech}
-                    title={!filterTech ? 'Primero elija una tecnología' : 'Filtrar por modelo'}
-                    className="h-10 min-w-[10rem] rounded-lg border border-border bg-surface px-3 text-sm text-foreground outline-none focus:border-accent disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <option value="">{!filterTech ? 'Elija tecnología…' : 'Todos los modelos'}</option>
-                    {modelsForTech.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    value={filterStatus}
-                    onChange={(e) => {
-                      setFilterStatus(e.target.value);
-                      setInventoryPage(1);
-                    }}
-                    className="h-10 rounded-lg border border-border bg-surface px-3 text-sm text-foreground outline-none focus:border-accent"
-                  >
-                    <option value="">Todos los Estatus</option>
-                    <option value="Full">Cajas Completas</option>
-                    <option value="Partial">Cajas Parciales</option>
-                  </select>
-                </div>
-              )
+              <button
+                type="button"
+                onClick={() => setShowAdvancedFilters((v) => !v)}
+                className={`inline-flex h-11 items-center gap-2 rounded-xl border-2 px-4 text-sm font-semibold ${
+                  showAdvancedFilters || hasActiveFilters
+                    ? 'border-accent bg-accent/10 text-accent'
+                    : 'border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]'
+                }`}
+                aria-pressed={showAdvancedFilters}
+              >
+                Filtros
+                {hasActiveFilters ? (
+                  <span className="rounded-md bg-accent px-1.5 py-0.5 text-[10px] font-black text-white">
+                    {[filterTech, filterBrand, filterModel, filterStatus].filter(Boolean).length}
+                  </span>
+                ) : null}
+              </button>
             }
           />
+
+          {showAdvancedFilters && (
+            <div className="mb-4 flex flex-wrap items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3 animate-in fade-in zoom-in duration-200">
+              <select
+                value={filterTech}
+                onChange={(e) => {
+                  setFilterTech(e.target.value);
+                  setFilterModel('');
+                  setInventoryPage(1);
+                }}
+                className="h-10 rounded-lg border border-border bg-surface px-3 text-sm text-foreground outline-none focus:border-accent"
+                aria-label="Filtrar por tecnología"
+              >
+                <option value="">Todas las tecnologías</option>
+                {catTecnologias.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={filterBrand}
+                onChange={(e) => {
+                  setFilterBrand(e.target.value);
+                  setFilterModel('');
+                  setInventoryPage(1);
+                }}
+                className="h-10 min-w-[9rem] rounded-lg border border-border bg-surface px-3 text-sm text-foreground outline-none focus:border-accent"
+                aria-label="Filtrar por marca"
+              >
+                <option value="">Todas las marcas</option>
+                {catMarcas.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={filterModel}
+                onChange={(e) => {
+                  setFilterModel(e.target.value);
+                  setInventoryPage(1);
+                }}
+                disabled={!filterTech && !filterBrand}
+                title={
+                  !filterTech && !filterBrand
+                    ? 'Elija tecnología o marca primero'
+                    : 'Filtrar por modelo'
+                }
+                className="h-10 min-w-[10rem] rounded-lg border border-border bg-surface px-3 text-sm text-foreground outline-none focus:border-accent disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label="Filtrar por modelo"
+              >
+                <option value="">
+                  {!filterTech && !filterBrand ? 'Elija tech/marca…' : 'Todos los modelos'}
+                </option>
+                {modelsForFilters.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={filterStatus}
+                onChange={(e) => {
+                  setFilterStatus(e.target.value);
+                  setInventoryPage(1);
+                }}
+                className="h-10 rounded-lg border border-border bg-surface px-3 text-sm text-foreground outline-none focus:border-accent"
+                aria-label="Filtrar por estatus"
+              >
+                <option value="">Todos los estatus</option>
+                <option value="Full">Full (completas)</option>
+                <option value="Partial">Parcial</option>
+                <option value="Empty">Vacía</option>
+              </select>
+              {hasActiveFilters && (
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="h-10 px-3 text-[10px] font-black tracking-widest text-[var(--muted)] uppercase hover:text-[var(--heading)]"
+                >
+                  Limpiar filtros
+                </button>
+              )}
+            </div>
+          )}
 
           {selectedBoxIds.length > 0 && (
             <div className="flex flex-col items-stretch justify-between gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface-hover)] p-4 text-[var(--foreground)] shadow-xl animate-in fade-in slide-in-from-top-2 duration-200 sm:flex-row sm:items-center">
@@ -997,6 +1144,20 @@ export default function BodegaScrapsPage() {
           loading={detailLoading}
           seriesRows={detailSeries}
           onClose={() => setDetailBox(null)}
+          onAppendSuccess={({ unitCount, capacity, seriesRows }) => {
+            setDetailSeries(seriesRows);
+            setDetailBox((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    unitCount,
+                    capacity,
+                    status: resolveBoxDisplayStatus(unitCount, capacity),
+                  }
+                : prev
+            );
+            void refreshScrapLists();
+          }}
         />
       )}
 

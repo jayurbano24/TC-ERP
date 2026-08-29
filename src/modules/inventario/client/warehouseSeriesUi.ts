@@ -75,6 +75,8 @@ export function groupSeriesToUiRows(rawSeries: any[]): any[] {
       s3: slots.s3,
       s4: slots.s4,
       allSeries: [slots.s1, slots.s2, slots.s3, slots.s4].filter(Boolean),
+      /** UUIDs de series del grupo (para filtrar hermanas fuera de caja). */
+      _seriesIds: group.map((g) => String(g.id)).filter(Boolean),
       material: main.material || '',
       lote: main.valuation || '',
       marca: brandId,

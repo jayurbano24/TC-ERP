@@ -17,6 +17,13 @@ import {
   locateWorkshopEquipmentViaApi,
   scrapDispatchViaApi,
 } from '@/lib/api/workshopTasks';
+import {
+  getExpectedDigitsForSlot,
+  prepareScannedSerial,
+  resolveModelDigitRules,
+  serialLengthCounterLabel,
+  validateSerialForModelAnySlot,
+} from '@/shared/validation/serialDigitRules';
 
 type Props = {
   filteredTasks: any[];
@@ -188,13 +195,35 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
     return '';
   };
 
+  const scrapBoxModelRow = useMemo(() => {
+    return (
+      scrapModelOptions.find((m: { name?: string; id?: string }) => m.name === scrapBoxModelo || m.id === scrapBoxModelo) ||
+      catModelos.find((m: { name?: string; id?: string }) => m.name === scrapBoxModelo || m.id === scrapBoxModelo) ||
+      null
+    );
+  }, [scrapModelOptions, catModelos, scrapBoxModelo]);
+
+  const scrapExpectedDigits = useMemo(() => {
+    if (!scrapBoxModelRow) return null;
+    const rules = resolveModelDigitRules(scrapBoxModelRow);
+    return getExpectedDigitsForSlot(rules.digitsPerSeries, 0);
+  }, [scrapBoxModelRow]);
+
   const registerScan = async () => {
-    const snVal = scrapScanSN.trim().toUpperCase();
+    const snVal = prepareScannedSerial(scrapScanSN);
     if (!snVal) {
       setScrapScanError('El SN es obligatorio');
       focusSnInput();
       return;
     }
+
+    const lengthCheck = validateSerialForModelAnySlot(snVal, scrapBoxModelRow);
+    if (!lengthCheck.valid) {
+      setScrapScanError(`${lengthCheck.title}. ${lengthCheck.message}`);
+      focusSnInput();
+      return;
+    }
+
     if (scrapScannedItems.find((i: any) => String(i.sn || '').toUpperCase() === snVal)) {
       setScrapScanError(`"${snVal}" ya fue registrado en esta caja`);
       setScrapScanSN('');
@@ -604,20 +633,23 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
                 <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
                   <h3 className="text-sm font-black text-[#181c3a]">Escáner de Series</h3>
 
-                  {/* Campo SN único */}
+                  {/* Campo SN único — longitud exacta según digits_per_series del modelo */}
                   <div>
                     <div className="flex justify-between mb-1">
                       <label className="text-xs font-black text-slate-700">SN <span className="text-rose-500">*</span></label>
-                      <span className="text-[10px] font-bold text-slate-400">Max: 15</span>
+                      <span className="text-[10px] font-bold text-slate-400">
+                        {scrapExpectedDigits
+                          ? `${scrapExpectedDigits} caracteres (modelo)`
+                          : 'Configure dígitos del modelo'}
+                      </span>
                     </div>
                     <input
                       ref={snInputRef}
                       id="scrap-sn-input"
                       autoFocus
                       type="text"
-                      maxLength={15}
                       value={scrapScanSN}
-                      onChange={e => { setScrapScanSN(e.target.value.toUpperCase()); setScrapScanError(''); }}
+                      onChange={e => { setScrapScanSN(e.target.value); setScrapScanError(''); }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                           e.preventDefault();
@@ -625,15 +657,32 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
                         }
                       }}
                       disabled={scrapLookingUp}
-                      placeholder="Escanear SN (15 dig)..."
-                      className={`w-full px-4 py-3 border rounded-xl text-sm font-mono font-bold outline-none transition-colors ${
+                      placeholder={
+                        scrapExpectedDigits
+                          ? `Escanear SN (${scrapExpectedDigits} caracteres)...`
+                          : 'Escanear SN...'
+                      }
+                      className={`w-full px-4 py-3 border rounded-xl text-sm font-mono font-bold outline-none transition-colors uppercase ${
                         scrapScanError && !scrapLookingUp
                           ? 'border-rose-400 bg-rose-50'
                           : 'border-slate-200 bg-white focus:border-rose-400'
                       }`}
                     />
                     <div className="flex justify-end mt-1">
-                      <span className="text-[10px] font-bold text-slate-400">{scrapScanSN.length} / 15</span>
+                      <span
+                        className={`text-[10px] font-bold ${
+                          scrapExpectedDigits &&
+                          prepareScannedSerial(scrapScanSN).length > 0 &&
+                          prepareScannedSerial(scrapScanSN).length !== scrapExpectedDigits
+                            ? 'text-amber-600'
+                            : 'text-slate-400'
+                        }`}
+                      >
+                        {serialLengthCounterLabel(
+                          prepareScannedSerial(scrapScanSN).length,
+                          scrapExpectedDigits
+                        )}
+                      </span>
                     </div>
                   </div>
 
@@ -812,7 +861,14 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
 
               <Button
                 variant="primary"
-                className="w-full bg-rose-500 hover:bg-rose-600 text-white shadow-lg shadow-rose-500/20 font-black py-4"
+                className="w-full bg-rose-500 hover:bg-rose-600 text-white shadow-lg shadow-rose-500/20 font-black py-4 disabled:opacity-50"
+                disabled={
+                  scrapDispatching ||
+                  scrapScannedItems.length === 0 ||
+                  (typeof scrapBoxCantidad === 'number' &&
+                    scrapBoxCantidad > 0 &&
+                    scrapScannedItems.length < scrapBoxCantidad)
+                }
                 rightIcon={scrapDispatching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Package className="w-4 h-4" />}
                 onClick={async () => {
                   if (scrapScannedItems.length === 0) {
@@ -830,7 +886,17 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
                     notify.warning('No se pudo resolver el modelo de catálogo para la caja.');
                     return;
                   }
-                  const capacity =
+                  // Nivel 2: revalidar longitud de cada SN antes de persistir
+                  for (const item of scrapScannedItems) {
+                    const gate = validateSerialForModelAnySlot(String(item.sn || ''), modelRow);
+                    if (!gate.valid) {
+                      notify.warning(gate.title || 'Serial inválido', {
+                        description: `${item.sn}: ${gate.message}`,
+                      });
+                      return;
+                    }
+                  }
+                  const capacityTarget =
                     typeof scrapBoxCantidad === 'number' && scrapBoxCantidad > 0
                       ? scrapBoxCantidad
                       : scrapScannedItems.length;
@@ -857,7 +923,23 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
                     notify.warning('Revisa el escaneo', {
                       description: `Hay ${scrapScannedItems.length} SN en caja pero ${seriesIds.length} serie(s) únicas. Vuelve a pistolear si mezclaste OS multi-serie.`,
                     });
+                    return;
                   }
+                  // Caja SCRAPS solo se cierra al completar la cantidad declarada.
+                  if (seriesIds.length < capacityTarget) {
+                    notify.warning('Caja incompleta', {
+                      description: `Faltan ${capacityTarget - seriesIds.length} de ${capacityTarget}. Completa el pistoleo antes de ingresar.`,
+                    });
+                    return;
+                  }
+                  if (seriesIds.length > capacityTarget) {
+                    notify.warning('Exceso de series', {
+                      description: `Hay ${seriesIds.length} SN y la caja es de ${capacityTarget}. Quita excedentes o sube la cantidad.`,
+                    });
+                    return;
+                  }
+
+                  const capacity = capacityTarget;
 
                   setScrapDispatching(true);
                   try {
@@ -884,7 +966,11 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
               >
                 {scrapDispatching
                   ? 'Ingresando a Bodega SCRAPS…'
-                  : `Confirmar ingreso (${scrapScannedItems.length})`}
+                  : typeof scrapBoxCantidad === 'number' &&
+                      scrapBoxCantidad > 0 &&
+                      scrapScannedItems.length < scrapBoxCantidad
+                    ? `Completar pistoleo (${scrapScannedItems.length}/${scrapBoxCantidad})`
+                    : `Confirmar ingreso (${scrapScannedItems.length}/${scrapBoxCantidad || scrapScannedItems.length})`}
               </Button>
             </div>
           )}

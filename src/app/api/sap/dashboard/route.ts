@@ -3,6 +3,7 @@ import { COUNT_HEAD, SAP_UPLOAD_SELECT } from '@/shared/constants/dbProjections'
 import { requireApiUser } from '@/shared/infrastructure/http/requireApiUser';
 import { resolveReadClient } from '@/shared/infrastructure/http/resolveReadClient';
 import { logOnlyRoleCheck, ROLES_RETURNS_SAP } from '@/shared/authz/roleGuard';
+import { fetchOsInventoryModules } from '@/lib/sap/osInventoryModules';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -29,6 +30,7 @@ export async function GET(request: Request) {
       sinCoincidenciaRes,
       inconsistentesRes,
       lastUploadRes,
+      osModules,
     ] = await Promise.all([
       supabase
         .from('series')
@@ -67,6 +69,7 @@ export async function GET(request: Request) {
         .order('fecha', { ascending: false })
         .limit(1)
         .maybeSingle(),
+      fetchOsInventoryModules(supabase),
     ]);
 
     const firstError =
@@ -108,6 +111,7 @@ export async function GET(request: Request) {
         seriesValidadas: seriesValidadasRes.count || 0,
         seriesSinMatch: seriesSinMatchRes.count || 0,
       },
+      osModules,
       lastUpload: lastUploadRes.data || null,
     });
   } catch (error: unknown) {

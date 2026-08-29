@@ -95,6 +95,18 @@ export async function createScrapDispatchBox(
     throw new Error('Ninguna serie válida para ingreso a Bodega SCRAPS.');
   }
 
+  // Solo cerrar caja completa: validar ANTES de consumir correlativo BOX-BAD.
+  if (eligible.length < cap) {
+    throw new Error(
+      `Caja incompleta: capacidad ${cap} pero solo ${eligible.length} serie(s) válidas. Completa el pistoleo antes de ingresar.`
+    );
+  }
+  if (eligible.length > cap) {
+    throw new Error(
+      `Hay ${eligible.length} serie(s) para capacidad ${cap}. Ajusta la cantidad de la caja o quita excedentes.`
+    );
+  }
+
   // Correlativo SCRAPS independiente (BOX-BAD-001…), no comparte BOX-N de Bodega Central.
   const { data: boxCodeRaw, error: codeError } = await admin.rpc('next_scrap_box_code');
   if (codeError || !boxCodeRaw) {
@@ -108,8 +120,10 @@ export async function createScrapDispatchBox(
     brand_id: brandId,
     model_id: modelId,
     capacity: cap,
+    // Cerrada solo al completar (mismo tamaño que series vinculadas).
     status: 'closed',
-    is_partial_box: eligible.length < cap,
+    is_partial_box: false,
+    assigned_operator_id: userId || null,
   };
   if (receptionId) {
     insertRow.reception_id = receptionId;
@@ -148,6 +162,28 @@ export async function createScrapDispatchBox(
     if (linked === 0) {
       throw new Error('Ninguna serie pudo vincularse a la caja SCRAPS.');
     }
+
+    if (linked !== cap) {
+      // Evita cajas “vacías/parciales” fantasma: rollback si no se llenó al 100%.
+      await admin
+        .from('series')
+        .update({ current_box_id: null })
+        .eq('current_box_id', boxId);
+      throw new Error(
+        `Ingreso incompleto: se vincularon ${linked}/${cap} series. Reintenta el pistoleo completo.`
+      );
+    }
+
+    // Alinear metadatos al conteo real vinculado (evita Full/Parcial desfasado).
+    await admin
+      .from('boxes')
+      .update({
+        capacity: linked,
+        is_partial_box: false,
+        status: 'closed',
+        assigned_operator_id: userId || null,
+      })
+      .eq('id', boxId);
 
     const auditPayload = {
       status: 'irreparable',
@@ -192,18 +228,23 @@ export async function createScrapDispatchBox(
         rack_location: 'SCRAP',
         brand_id: brandId,
         model_id: modelId,
-        capacity: cap,
+        capacity: linked,
         linked,
         reference: reference || null,
         notes: notes || null,
         operator_name: operatorName,
+        assigned_operator_id: userId || null,
       },
       user_agent: 'api/v1/workshop/scrap-dispatch',
     });
   } catch (err) {
+    await admin
+      .from('series')
+      .update({ current_box_id: null })
+      .eq('current_box_id', boxId);
     await admin.from('boxes').update({ rack_location: 'ELIMINADO' }).eq('id', boxId);
     throw err;
   }
 
-  return { boxId, boxCode, linked, capacity: cap };
+  return { boxId, boxCode, linked, capacity: linked };
 }

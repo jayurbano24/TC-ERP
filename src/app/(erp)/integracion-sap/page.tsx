@@ -328,7 +328,7 @@ function IntegracionSapPage() {
   // C6: dashboard e historial SAP vía TanStack Query (cachea y deja de
   // re-consultar en cada cambio de pestaña dentro de la ventana de staleTime).
   const dashboardQuery = useQuery({
-    queryKey: ['sap-dashboard'],
+    queryKey: ['sap-dashboard', 'v5-os-activas-sum'],
     queryFn: async () => {
       const data = await apiFetchJsonWithTimeout('/api/sap/dashboard', {}, 45_000);
       if (!data.success) throw new Error(String(data.error || 'Error al cargar dashboard SAP'));
@@ -530,12 +530,121 @@ function IntegracionSapPage() {
       );
     }
 
-    const { kpis, lastUpload } = dashboardData || { kpis: {}, lastUpload: null };
+    const { kpis, lastUpload, osModules } = dashboardData || {
+      kpis: {},
+      lastUpload: null,
+      osModules: null,
+    };
     const equiposBase = kpis?.totalTC || 0;
     const seriesBase = kpis?.totalSeries || 0;
     const validadosPct = equiposBase ? Math.round((kpis.validados / equiposBase) * 100) : 0;
     const seriesValPct = seriesBase ? Math.round(((kpis?.seriesValidadas || 0) / seriesBase) * 100) : 0;
     const parcialPct = equiposBase ? Math.round(((kpis?.inconsistentes || 0) / equiposBase) * 100) : 0;
+
+    const mods = osModules as {
+      total?: number;
+      activas?: number;
+      activas_ledger?: number;
+      despachado?: number;
+      bodega_con_caja?: number;
+      pistoleo_en_curso?: number;
+      backoffice?: number;
+      qc?: number;
+      scrap?: number;
+      taller?: number;
+    } | null;
+
+    const totalOs = Number(mods?.total ?? equiposBase ?? 0);
+    const despachadas = Number(mods?.despachado ?? 0);
+    const bodegaTotal = Number(mods?.bodega_con_caja ?? 0);
+    const pistoleo = Number(mods?.pistoleo_en_curso ?? 0);
+    const backofficeN = Number(mods?.backoffice ?? 0);
+    const qcN = Number(mods?.qc ?? 0);
+    const tallerN = Number(mods?.taller ?? 0);
+    const scrapN = Number(mods?.scrap ?? 0);
+    // Activas = siempre suma de tarjetas OS visibles (excluye Despachado).
+    const activas =
+      bodegaTotal + pistoleo + backofficeN + qcN + tallerN + scrapN;
+    const activasLedger = Math.max(
+      Number(mods?.activas_ledger ?? 0) || totalOs - despachadas,
+      0
+    );
+    const residual = Math.max(activasLedger - activas, 0);
+    const pisoTallerQc = tallerN + qcN;
+    const pctBodega = activas ? Math.round((bodegaTotal / activas) * 100) : 0;
+    const pctTallerQc = activas ? Math.round((pisoTallerQc / activas) * 100) : 0;
+
+    const moduleCards: Array<{
+      key: string;
+      label: string;
+      value: number;
+      color: string;
+      bg: string;
+      unit: string;
+      muted?: boolean;
+    }> = [
+      {
+        key: 'bodega_con_caja',
+        label: 'Bodega con caja',
+        value: Number(mods?.bodega_con_caja ?? 0),
+        color: 'text-emerald-700',
+        bg: 'bg-emerald-50',
+        unit: 'OS',
+      },
+      ...(pistoleo > 0
+        ? [
+            {
+              key: 'pistoleo_en_curso',
+              label: 'Pistoleo en curso',
+              value: pistoleo,
+              color: 'text-teal-700',
+              bg: 'bg-teal-50',
+              unit: 'TMP',
+            },
+          ]
+        : []),
+      {
+        key: 'backoffice',
+        label: 'Backoffice (cola)',
+        value: Number(mods?.backoffice ?? 0),
+        color: 'text-amber-700',
+        bg: 'bg-amber-50',
+        unit: 'OS',
+      },
+      {
+        key: 'despachado',
+        label: 'Despachado',
+        value: despachadas,
+        color: 'text-slate-600',
+        bg: 'bg-slate-100',
+        unit: 'Histórico',
+        muted: true,
+      },
+      {
+        key: 'qc',
+        label: 'Ctrl. Calidad',
+        value: Number(mods?.qc ?? 0),
+        color: 'text-purple-700',
+        bg: 'bg-purple-50',
+        unit: 'OS',
+      },
+      {
+        key: 'taller',
+        label: 'Taller',
+        value: Number(mods?.taller ?? 0),
+        color: 'text-blue-700',
+        bg: 'bg-blue-50',
+        unit: 'OS',
+      },
+      {
+        key: 'scrap',
+        label: 'Scrap',
+        value: Number(mods?.scrap ?? 0),
+        color: 'text-rose-700',
+        bg: 'bg-rose-50',
+        unit: 'OS',
+      },
+    ];
 
     return (
       <div className="space-y-6">
@@ -543,7 +652,9 @@ function IntegracionSapPage() {
           <Card className="p-5 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)] flex flex-col justify-between h-32">
             <div className="flex justify-between items-start">
               <div>
-                <p className="text-[10px] font-black text-[var(--muted)] uppercase tracking-widest mb-1">Equipos TC (OS)</p>
+                <p className="text-[10px] font-black text-[var(--muted)] uppercase tracking-widest mb-1">
+                  Equipos TC (histórico)
+                </p>
                 <h3 className="text-2xl font-black text-[var(--heading)]">{(kpis?.totalTC ?? 0).toLocaleString()}</h3>
               </div>
               <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${erpSoftStat.accent}`}>
@@ -551,7 +662,7 @@ function IntegracionSapPage() {
               </div>
             </div>
             <p className="text-[10px] font-bold text-[var(--muted)]">
-              {(kpis?.totalSeries ?? 0).toLocaleString()} series ligadas · 1 OS = 1 equipo
+              Activas {(activas || 0).toLocaleString()} · Despachadas {despachadas.toLocaleString()}
             </p>
           </Card>
 
@@ -620,6 +731,69 @@ function IntegracionSapPage() {
             </Button>
           </Card>
         </div>
+
+        {/* Capacidad instalada: OS Activas vs Despachadas */}
+        <Card className="p-6 border-2 border-[var(--border)] shadow-sm rounded-3xl">
+          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="max-w-3xl">
+              <h3 className="text-lg font-black text-[var(--heading)]">Inventario OS · Capacidad instalada</h3>
+              <p className="mt-2 text-xs font-medium leading-relaxed text-[var(--muted)]">
+                Histórico:{' '}
+                <span className="font-black text-[var(--heading)]">{totalOs.toLocaleString()}</span> OS ·
+                Despachadas:{' '}
+                <span className="font-black text-slate-700">{despachadas.toLocaleString()}</span>.
+                Inventario físico (Activas) = suma de los módulos abajo →{' '}
+                <span className="font-black text-emerald-700">{activas.toLocaleString()}</span>
+                {activas > 0 ? (
+                  <>
+                    {' '}
+                    ({pctBodega}% bodega, {pctTallerQc}% taller/QC; resto backoffice/scrap
+                    {pistoleo > 0 ? '/pistoleo' : ''}).
+                  </>
+                ) : null}
+                {residual > 0 ? (
+                  <>
+                    {' '}
+                    Quedan ~{residual.toLocaleString()} OS en estados no mapeados (sin serie / otros),
+                    fuera de estas tarjetas.
+                  </>
+                ) : null}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <span className="rounded-lg bg-emerald-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-emerald-700">
+                Activas {activas.toLocaleString()}
+              </span>
+              <span className="rounded-lg bg-slate-100 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                Despachadas {despachadas.toLocaleString()}
+              </span>
+            </div>
+          </div>
+
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 xl:grid-cols-6">
+              {moduleCards.map((stage) => (
+              <div
+                key={stage.key}
+                className={`rounded-xl border border-[var(--border)] p-4 text-center ${stage.bg} ${
+                  stage.muted ? 'opacity-90 ring-1 ring-slate-300/60' : ''
+                }`}
+              >
+                <p className="mb-1 text-[9px] font-black uppercase tracking-wide text-[var(--muted)]">
+                  {stage.label}
+                </p>
+                <p className={`text-2xl font-black ${stage.color}`}>
+                  {stage.value.toLocaleString()}
+                </p>
+                <p className="mt-1 text-[8px] font-bold text-[var(--muted)]">{stage.unit}</p>
+              </div>
+            ))}
+          </div>
+          {!mods && (
+            <p className="mt-3 text-[10px] font-bold text-[var(--warning)]">
+              Aplique la migración 226 (`count_os_inventory_modules`) en Supabase.
+            </p>
+          )}
+        </Card>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Card className="p-6 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)]">

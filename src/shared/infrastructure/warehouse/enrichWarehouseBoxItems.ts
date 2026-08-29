@@ -8,6 +8,9 @@ export type WarehouseBoxListRow = {
   series_count?: number;
   equipos_count?: number | null;
   capacity?: number | null;
+  /** Estado físico de boxes.status (open|closed|…). SCRAPS: Full solo si closed. */
+  box_status?: string | null;
+  is_partial_box?: boolean | null;
   sample_status?: string | null;
   sample_brand_id?: string | null;
   sample_model_id?: string | null;
@@ -240,6 +243,93 @@ async function fetchIngresoAuditActorByBox(
   return map;
 }
 
+/**
+ * Creador real de caja SCRAPS (no el received_by de la recepción PX/CAC).
+ * Preferir CAJA SCRAPS CREADA (record_id = box_id); fallback INGRESO BODEGA SCRAPS.
+ */
+async function fetchScrapCreatorActorByBox(
+  supabase: SupabaseClient,
+  boxIds: string[]
+): Promise<Map<string, MovementActor>> {
+  const map = new Map<string, MovementActor>();
+  if (boxIds.length === 0) return map;
+
+  for (let i = 0; i < boxIds.length; i += 80) {
+    const chunk = boxIds.slice(i, i + 80);
+    const { data: createdRows, error: createdErr } = await supabase
+      .from('erp_audit_logs')
+      .select('record_id, user_id, created_at')
+      .eq('action', 'CAJA SCRAPS CREADA')
+      .in('record_id', chunk)
+      .order('created_at', { ascending: true })
+      .limit(400);
+
+    if (createdErr) {
+      console.error('[warehouse] scrap create audit:', createdErr.message);
+    } else {
+      for (const row of createdRows ?? []) {
+        const boxId = String((row as { record_id: string }).record_id);
+        const userId = (row as { user_id?: string | null }).user_id ?? null;
+        if (!userId || map.has(boxId)) continue;
+        map.set(boxId, { name: null, userId });
+      }
+    }
+  }
+
+  const missing = boxIds.filter((id) => !map.has(id));
+  if (missing.length === 0) return map;
+
+  // Fallback: audits por serie con new_values.box_id
+  for (let i = 0; i < missing.length; i += 40) {
+    const chunk = missing.slice(i, i + 40);
+    const { data: seriesRows, error: seriesErr } = await supabase
+      .from('series')
+      .select('id, current_box_id')
+      .in('current_box_id', chunk)
+      .limit(Math.min(chunk.length * 3, 300));
+
+    if (seriesErr) {
+      console.error('[warehouse] scrap series for audit:', seriesErr.message);
+      continue;
+    }
+
+    const seriesIds = (seriesRows ?? []).map((r) => String((r as { id: string }).id));
+    const seriesToBox = new Map(
+      (seriesRows ?? []).map((r) => [
+        String((r as { id: string }).id),
+        String((r as { current_box_id: string }).current_box_id),
+      ])
+    );
+    if (seriesIds.length === 0) continue;
+
+    for (let j = 0; j < seriesIds.length; j += 80) {
+      const sidChunk = seriesIds.slice(j, j + 80);
+      const { data: scrapRows, error: scrapErr } = await supabase
+        .from('erp_audit_logs')
+        .select('record_id, user_id')
+        .eq('action', 'INGRESO BODEGA SCRAPS')
+        .in('record_id', sidChunk)
+        .order('created_at', { ascending: true })
+        .limit(400);
+
+      if (scrapErr) {
+        console.error('[warehouse] scrap ingreso audit:', scrapErr.message);
+        continue;
+      }
+
+      for (const row of scrapRows ?? []) {
+        const seriesId = String((row as { record_id: string }).record_id);
+        const userId = (row as { user_id?: string | null }).user_id ?? null;
+        const boxId = seriesToBox.get(seriesId);
+        if (!userId || !boxId || map.has(boxId)) continue;
+        map.set(boxId, { name: null, userId });
+      }
+    }
+  }
+
+  return map;
+}
+
 /** Enriquece filas de warehouse_list_boxes_page con nombres y metadatos de caja. */
 export async function enrichWarehouseBoxItems(
   supabase: SupabaseClient,
@@ -251,18 +341,20 @@ export async function enrichWarehouseBoxItems(
   const brandIds = [...new Set(items.map((i) => i.sample_brand_id).filter(Boolean) as string[])];
   const modelIds = [...new Set(items.map((i) => i.sample_model_id).filter(Boolean) as string[])];
 
-  const [boxMetaMap, brandMap, modelMap, movementByBox, auditByBox] = await Promise.all([
-    fetchMapById(
-      supabase,
-      'boxes',
-      boxIds,
-      'id, capacity, created_at, deletion_status, assigned_operator_id, reception_id'
-    ),
-    fetchMapById(supabase, 'brands', brandIds, BRAND_SELECT),
-    fetchMapById(supabase, 'models', modelIds, MODEL_SELECT),
-    fetchBestMovementActorByBox(supabase, boxIds),
-    fetchIngresoAuditActorByBox(supabase, boxIds),
-  ]);
+  const [boxMetaMap, brandMap, modelMap, movementByBox, auditByBox, scrapCreatorByBox] =
+    await Promise.all([
+      fetchMapById(
+        supabase,
+        'boxes',
+        boxIds,
+        'id, capacity, created_at, deletion_status, assigned_operator_id, reception_id, rack_location'
+      ),
+      fetchMapById(supabase, 'brands', brandIds, BRAND_SELECT),
+      fetchMapById(supabase, 'models', modelIds, MODEL_SELECT),
+      fetchBestMovementActorByBox(supabase, boxIds),
+      fetchIngresoAuditActorByBox(supabase, boxIds),
+      fetchScrapCreatorActorByBox(supabase, boxIds),
+    ]);
 
   const receptionIds = [
     ...new Set(
@@ -284,6 +376,7 @@ export async function enrichWarehouseBoxItems(
         ...[...boxMetaMap.values()].map((b) => b.assigned_operator_id as string | undefined),
         ...[...movementByBox.values()].map((m) => m.userId || undefined),
         ...[...auditByBox.values()].map((m) => m.userId || undefined),
+        ...[...scrapCreatorByBox.values()].map((m) => m.userId || undefined),
         ...[...receptionMap.values()]
           .map((r) => {
             const rb = String(r.received_by || '').trim();
@@ -317,6 +410,10 @@ export async function enrichWarehouseBoxItems(
     const movementProfile = movement?.userId ? profileMap.get(movement.userId) : undefined;
     const audit = auditByBox.get(item.box_id);
     const auditProfile = audit?.userId ? profileMap.get(audit.userId) : undefined;
+    const scrapCreator = scrapCreatorByBox.get(item.box_id);
+    const scrapCreatorProfile = scrapCreator?.userId
+      ? profileMap.get(scrapCreator.userId)
+      : undefined;
     const receptionId = (boxMeta?.reception_id as string | undefined) ?? null;
     const reception = receptionId ? receptionMap.get(receptionId) : undefined;
     const receivedByRaw = String(reception?.received_by || '').trim();
@@ -326,27 +423,48 @@ export async function enrichWarehouseBoxItems(
       : displayPersonName(receivedByRaw, null);
     const notesName = parseRecibidoPorFromNotes(reception?.notes as string | undefined);
 
-    const ingresoUserName =
-      displayPersonName(
-        assignedProfile?.full_name as string | undefined,
-        assignedProfile?.email as string | undefined
-      ) ||
-      displayPersonName(
-        movementProfile?.full_name as string | undefined,
-        movementProfile?.email as string | undefined
-      ) ||
-      displayPersonName(movement?.name, null) ||
-      displayPersonName(
-        auditProfile?.full_name as string | undefined,
-        auditProfile?.email as string | undefined
-      ) ||
-      displayPersonName(
-        receivedByProfile?.full_name as string | undefined,
-        receivedByProfile?.email as string | undefined
-      ) ||
-      receivedByName ||
-      notesName ||
-      null;
+    const rack = String(
+      (boxMeta?.rack_location as string | undefined) || item.rack || ''
+    ).toUpperCase();
+    const isScrapBox = rack === 'SCRAP' || rack === 'SCRAPS' || rack.startsWith('SCRAP');
+
+    // SCRAPS: priorizar creador de caja (assigned / audit SCRAPS), NUNCA received_by PX.
+    const ingresoUserName = isScrapBox
+      ? displayPersonName(
+          assignedProfile?.full_name as string | undefined,
+          assignedProfile?.email as string | undefined
+        ) ||
+        displayPersonName(
+          scrapCreatorProfile?.full_name as string | undefined,
+          scrapCreatorProfile?.email as string | undefined
+        ) ||
+        displayPersonName(scrapCreator?.name, null) ||
+        displayPersonName(
+          movementProfile?.full_name as string | undefined,
+          movementProfile?.email as string | undefined
+        ) ||
+        displayPersonName(movement?.name, null) ||
+        null
+      : displayPersonName(
+          assignedProfile?.full_name as string | undefined,
+          assignedProfile?.email as string | undefined
+        ) ||
+        displayPersonName(
+          movementProfile?.full_name as string | undefined,
+          movementProfile?.email as string | undefined
+        ) ||
+        displayPersonName(movement?.name, null) ||
+        displayPersonName(
+          auditProfile?.full_name as string | undefined,
+          auditProfile?.email as string | undefined
+        ) ||
+        displayPersonName(
+          receivedByProfile?.full_name as string | undefined,
+          receivedByProfile?.email as string | undefined
+        ) ||
+        receivedByName ||
+        notesName ||
+        null;
 
     return {
       ...item,

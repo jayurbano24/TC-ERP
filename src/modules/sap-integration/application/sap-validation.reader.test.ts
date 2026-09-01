@@ -34,11 +34,12 @@ describe('DefaultSapValidationReader (gate de validación SAP)', () => {
     expect(noMatch.allowed).toBe(false);
   });
 
-  it('bloquea despacho y traslado en estados "Sin Coincidencia" y "Obsoleto"', () => {
-    for (const status of ['Sin Coincidencia', 'Obsoleto']) {
-      expect(reader.authorize({ integrationStatus: status }, 'dispatch').allowed).toBe(false);
-      expect(reader.authorize({ integrationStatus: status }, 'transfer').allowed).toBe(false);
-    }
+  it('permite despacho con "Sin Coincidencia"; bloquea Obsoleto en despacho y traslado', () => {
+    expect(reader.authorize({ integrationStatus: 'Sin Coincidencia' }, 'dispatch').allowed).toBe(
+      true
+    );
+    expect(reader.authorize({ integrationStatus: 'Obsoleto' }, 'dispatch').allowed).toBe(false);
+    expect(reader.authorize({ integrationStatus: 'Obsoleto' }, 'transfer').allowed).toBe(false);
   });
 
   it('exige todas las series validadas para considerar la unidad "Validado SAP"', () => {

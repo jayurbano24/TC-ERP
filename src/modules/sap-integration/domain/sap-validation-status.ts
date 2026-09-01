@@ -85,7 +85,8 @@ export function getSapStatusMeta(status: SapValidationState): SapStatusMeta {
         label: 'Sin Coincidencia',
         shortLabel: 'NO',
         className: 'border border-[var(--danger)]/30 bg-[var(--danger)]/15 text-[var(--danger)]',
-        canDispatch: false,
+        // Salida operativa permitida aunque no haya match SAP (Conduce / Despacho).
+        canDispatch: true,
         canTransfer: false,
       };
     case 'Pendiente Revisión':

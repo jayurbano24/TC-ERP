@@ -888,7 +888,7 @@ export default function DespachoPage() {
     if (!sapDecision.allowed) {
       const sapLabel = getSapStatusMeta(sapDecision.status).label;
       notify.error('Bloqueo operativo (Integración SAP)', {
-        description: `No se puede pistoleo en Outbound: estado «${sapLabel}». Sin Coincidencia y Obsoleto están bloqueados para despacho.`,
+        description: `No se puede pistoleo en Outbound: estado «${sapLabel}». Obsoleto está bloqueado para despacho.`,
         duration: 0,
       });
       return;

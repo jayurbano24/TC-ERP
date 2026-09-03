@@ -15,9 +15,12 @@ import {
   canCreateNewPxBox,
 } from '../../utils/pxBoxUtils';
 import {
-  clampSerialToMaxDigits,
   getExpectedDigitsForSlot,
+  modelHasDigitRules,
+  prepareScannedSerial,
   resolveModelDigitRules,
+  serialLengthCounterLabel,
+  validateSerialLength,
 } from '@/shared/validation/serialDigitRules';
 
 export const PxBoxDetailView = (props: any) => {
@@ -297,18 +300,25 @@ export const PxBoxDetailView = (props: any) => {
                       <div className="flex flex-col gap-5">
                         {Array.from({ length: expectedScans }).map((_, idx) => {
                           const currentVal = currentScans[idx] || '';
-                          const currentUpper = currentVal.trim().toUpperCase();
+                          const currentPrepared = prepareScannedSerial(currentVal);
                           const expectedDigits = getExpectedDigitsForSlot(
                             digitRules.digitsPerSeries,
                             idx
                           );
+                          const hasRules = modelHasDigitRules(model);
                           const lengthOk =
-                            !expectedDigits ||
-                            currentUpper.length === 0 ||
-                            currentUpper.length === expectedDigits;
-                          const isDuplicate = currentUpper !== '' && (
-                            scannedSerialUpperSet.has(currentUpper) ||
-                            currentScans.some((v: string, i: number) => i !== idx && v.trim().toUpperCase() === currentUpper)
+                            currentPrepared.length === 0 ||
+                            (hasRules &&
+                              expectedDigits != null &&
+                              currentPrepared.length === expectedDigits);
+                          const lengthWarn =
+                            hasRules &&
+                            expectedDigits != null &&
+                            currentPrepared.length > 0 &&
+                            currentPrepared.length !== expectedDigits;
+                          const isDuplicate = currentPrepared !== '' && (
+                            scannedSerialUpperSet.has(currentPrepared) ||
+                            currentScans.some((v: string, i: number) => i !== idx && prepareScannedSerial(v) === currentPrepared)
                           );
 
                           return (
@@ -319,19 +329,19 @@ export const PxBoxDetailView = (props: any) => {
                                   <span className="ml-2 text-[var(--muted)] normal-case tracking-normal font-bold">
                                     ({expectedDigits} caracteres)
                                   </span>
-                                ) : null}
+                                ) : (
+                                  <span className="ml-2 text-amber-600 normal-case tracking-normal font-bold">
+                                    (sin longitud configurada)
+                                  </span>
+                                )}
                               </label>
                               <input 
                                 id={`scan-input-${idx}`}
                                 type="text" 
                                 value={currentVal}
-                                maxLength={expectedDigits || undefined}
                                 onChange={(e) => {
                                   const newScans = [...currentScans];
-                                  newScans[idx] = clampSerialToMaxDigits(
-                                    e.target.value,
-                                    expectedDigits
-                                  );
+                                  newScans[idx] = e.target.value;
                                   setCurrentScans(newScans);
                                 }}
                                 onKeyDown={(e) => {
@@ -340,19 +350,18 @@ export const PxBoxDetailView = (props: any) => {
                                       e.preventDefault();
                                       return;
                                     }
-                                    if (
-                                      expectedDigits &&
-                                      currentUpper.length > 0 &&
-                                      currentUpper.length !== expectedDigits
-                                    ) {
-                                      e.preventDefault();
-                                      notify.warning(
-                                        `Serie ${idx + 1}: cantidad de caracteres incorrecta`,
-                                        {
-                                          description: `La regla exige ${expectedDigits} caracteres. Escaneado: ${currentUpper.length}.`,
-                                        }
+                                    if (currentPrepared.length > 0) {
+                                      const check = validateSerialLength(
+                                        currentPrepared,
+                                        expectedDigits
                                       );
-                                      return;
+                                      if (!check.valid) {
+                                        e.preventDefault();
+                                        notify.warning(check.title, {
+                                          description: check.message,
+                                        });
+                                        return;
+                                      }
                                     }
                                     if (idx < expectedScans - 1) {
                                       e.preventDefault();
@@ -367,23 +376,35 @@ export const PxBoxDetailView = (props: any) => {
                                     : `Escanear Serie ${idx + 1}...`
                                 }
                                 className={`w-full h-12 px-4 bg-white border-2 rounded-lg text-sm font-mono font-bold outline-none transition-colors shadow-inner uppercase ${
-                                  isDuplicate || !lengthOk
+                                  isDuplicate || lengthWarn
                                     ? 'border-rose-500 text-rose-600 focus:border-rose-500 bg-rose-50'
                                     : 'border-slate-200 focus:border-[var(--accent)]'
                                 }`}
                                 autoFocus={idx === 0 && !isBoxClosed && !boxEditDisabled}
                                 disabled={boxItems.length === 0 || boxEditDisabled}
                               />
-                              {isDuplicate && (
-                                <span className="text-[10px] text-rose-500 font-bold absolute -bottom-4 left-0">
-                                  Esta serie ya fue escaneada
+                              <div className="flex justify-between items-center min-h-[1rem]">
+                                {isDuplicate ? (
+                                  <span className="text-[10px] text-rose-500 font-bold">
+                                    Esta serie ya fue escaneada
+                                  </span>
+                                ) : lengthWarn && expectedDigits ? (
+                                  <span className="text-[10px] text-rose-500 font-bold">
+                                    {currentPrepared.length < expectedDigits
+                                      ? 'Serial incompleto'
+                                      : 'Longitud incorrecta — no se truncará'}
+                                  </span>
+                                ) : (
+                                  <span />
+                                )}
+                                <span
+                                  className={`text-[10px] font-bold ${
+                                    lengthWarn ? 'text-amber-600' : 'text-slate-400'
+                                  }`}
+                                >
+                                  {serialLengthCounterLabel(currentPrepared.length, expectedDigits)}
                                 </span>
-                              )}
-                              {!isDuplicate && !lengthOk && (
-                                <span className="text-[10px] text-rose-500 font-bold absolute -bottom-4 left-0">
-                                  Debe tener {expectedDigits} caracteres (va {currentUpper.length})
-                                </span>
-                              )}
+                              </div>
                             </div>
                           );
                         })}

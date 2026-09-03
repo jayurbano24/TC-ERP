@@ -309,11 +309,11 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
     setScrapScannedItems((prev: any[]) => [
       ...prev,
       {
-        num: idx + 1,
-        sn: snVal,
-        os: found.id,
-        marca: found.marca,
-        modelo: found.modelo,
+      num: idx + 1,
+      sn: snVal,
+      os: found.id,
+      marca: found.marca,
+      modelo: found.modelo,
         dbId: seriesId,
         // Solo la serie pistoleada — no las hermanas de la OS
         all_dbIds: [seriesId],
@@ -444,7 +444,7 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
                   >
                     <option value="">{scrapBoxMarca ? 'Seleccionar modelo...' : 'Primero selecciona una marca'}</option>
                     {scrapModelOptions.map((m: any) => (
-                      <option key={m.id} value={m.name}>{m.name}</option>
+                        <option key={m.id} value={m.name}>{m.name}</option>
                     ))}
                   </select>
                 </div>
@@ -577,24 +577,24 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
                               <tr key={i} className="hover:bg-slate-50">
                                 <td className="px-4 py-2.5 text-xs font-medium whitespace-nowrap text-slate-700 uppercase">
                                   {g.marca}
-                                </td>
+                              </td>
                                 <td className="px-4 py-2.5 text-xs font-medium whitespace-nowrap text-slate-700 uppercase">
                                   {g.modelo}
-                                </td>
+                              </td>
                                 <td className="px-4 py-2.5 text-xs font-medium whitespace-nowrap text-slate-500 uppercase">
                                   {g.tecnologia}
-                                </td>
+                              </td>
                                 <td className="px-4 py-2.5 text-xs font-medium tabular-nums text-slate-700">
                                   {g.cantidad}
-                                </td>
+                              </td>
                                 <td
                                   className="max-w-[220px] truncate px-4 py-2.5 font-mono text-xs font-medium text-slate-600"
                                   title={g.series.join(', ')}
                                 >
                                   {preview}
                                   {more}
-                                </td>
-                              </tr>
+                              </td>
+                            </tr>
                             );
                           })}
                         </tbody>
@@ -788,7 +788,7 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
                                 {scrapScannedItems.length - i}
                               </td>
                               <td className="px-3 py-2.5 text-xs font-medium whitespace-nowrap text-slate-700">
-                                OK (SN)
+                                  OK (SN)
                               </td>
                               <td className="px-3 py-2.5 font-mono text-xs font-medium whitespace-nowrap text-slate-700">
                                 {sc.sn}
@@ -840,11 +840,11 @@ export const ScrapDispatchModal = memo(function ScrapDispatchModal({
               <div>
                 <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1.5">
                   Referencia interna (opcional)
-                </label>
-                <input
-                  type="text"
-                  value={scrapGuideNumber}
-                  onChange={e => setScrapGuideNumber(e.target.value)}
+                  </label>
+                  <input
+                    type="text"
+                    value={scrapGuideNumber}
+                    onChange={e => setScrapGuideNumber(e.target.value)}
                   placeholder="Ej. lote reciclaje, orden interna…"
                   className="w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl text-sm font-bold text-[#181c3a] outline-none focus:border-rose-400 transition-colors"
                 />

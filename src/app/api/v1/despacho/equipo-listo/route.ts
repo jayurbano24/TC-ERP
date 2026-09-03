@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { requireApiUser } from '@/shared/infrastructure/http/requireApiUser';
 import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
 import { ROLES_BODEGA_DESPACHO } from '@/shared/authz/roleGuard';
-import { queryWorkshopTasksPage } from '@/modules/workshop/server/workshopTasksService';
+import { queryWorkshopTasksPage, fetchEquipoListoByTechnology } from '@/modules/workshop/server/workshopTasksService';
 import { estimateJsonBytes, logEgress } from '@/shared/infrastructure/http/egressLog';
 import { getCorrelationIdFromHeaders } from '@/shared/infrastructure/http/correlationId';
 import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
@@ -44,11 +44,23 @@ export const GET = withErrorHandler(
 
     const { cursor, limit, q } = parsed.data;
     const db = getWorkshopReadClient();
-    const page = await queryWorkshopTasksPage(db, 'listo', {
-      cursor: cursor ?? null,
-      limit,
-      search: q,
-    });
+
+    // KPIs por tecnología solo en primera página (sin cursor) — evita costo en paginación Excel.
+    const [page, byTechnology] = await Promise.all([
+      queryWorkshopTasksPage(db, 'listo', {
+        cursor: cursor ?? null,
+        limit,
+        search: q,
+      }),
+      !cursor
+        ? fetchEquipoListoByTechnology(db)
+        : Promise.resolve([] as Awaited<ReturnType<typeof fetchEquipoListoByTechnology>>),
+    ]);
+
+    const responseBody = {
+      ...page,
+      byTechnology,
+    };
 
     logEgress({
       route,
@@ -56,12 +68,12 @@ export const GET = withErrorHandler(
       action: 'list_equipo_listo',
       correlationId,
       rowCount: page.items.length,
-      bytesEstimate: estimateJsonBytes(page),
+      bytesEstimate: estimateJsonBytes(responseBody),
       durationMs: Date.now() - started,
       status: 200,
     });
 
-    return NextResponse.json(page);
+    return NextResponse.json(responseBody);
   },
   { module: 'despacho', action: 'list_equipo_listo', roles: ROLES_BODEGA_DESPACHO }
 );

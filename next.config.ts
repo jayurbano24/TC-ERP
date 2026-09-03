@@ -13,6 +13,15 @@ const nextConfig: NextConfig = {
   experimental: {
     proxyClientMaxBodySize: '32mb',
   },
+  // ZKTeco ADMS usa /iclock/* (hardcoded en firmware); la API vive en /api/iclock/*
+  async rewrites() {
+    return [
+      {
+        source: '/iclock/:path*',
+        destination: '/api/iclock/:path*',
+      },
+    ];
+  },
   // WASM / COOP para onnxruntime-web en kiosco biométrico
   async headers() {
     return [

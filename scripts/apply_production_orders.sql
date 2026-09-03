@@ -1,2 +1,0 @@
--- Ejecutar en Supabase SQL Editor:
--- web/supabase/migrations/051_production_orders.sql

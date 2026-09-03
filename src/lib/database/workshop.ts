@@ -20,6 +20,7 @@ const WORKSHOP_AUDIT_ACTIONS_LIST = [...TALLER_WORKSHOP_AUDIT_ACTIONS];
 export type WorkshopTabId =
   | 'diagnostico'
   | 'reparacion'
+  | 'esperando_partes'
   | 'reacondicionado'
   | 'qc'
   | 'l3'
@@ -29,6 +30,7 @@ export type WorkshopTabId =
 const TAB_TO_STATUS: Record<WorkshopTabId, string> = {
   diagnostico: 'in_workshop',
   reparacion: 'in_qc',
+  esperando_partes: 'waiting_parts',
   reacondicionado: 'ready_to_dispatch',
   qc: 'in_validation',
   l3: 'in_control_warehouse',

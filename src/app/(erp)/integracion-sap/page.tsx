@@ -5,7 +5,7 @@ import {
   Database, UploadCloud, Activity, LayoutDashboard, History, Settings, FileSpreadsheet, 
   Search, ArrowRightLeft, FileWarning, CheckCircle2, AlertTriangle, Loader2, Download
 } from 'lucide-react';
-import { Card, Button, Badge, DataTable, type DataTableColumn, notify } from '@/components/ui';
+import { Card, Button, Badge, DataTable, TablePagination, type DataTableColumn, notify } from '@/components/ui';
 import { erpTab, erpSoftStat, erpInputClass } from '@/lib/design/tokens';
 import { apiFetch } from '@/lib/http/apiFetch';
 import { useQuery } from '@tanstack/react-query';
@@ -15,9 +15,11 @@ import {
   type OsInventoryModules,
 } from '@/lib/sap/osInventoryModules';
 import { OsCapacityInstalledPanel } from './_components/OsCapacityInstalledPanel';
+import { DEFAULT_PAGE_SIZE, useClientPagination } from '@/hooks/useClientPagination';
 
 // Referencia estable para la query mientras no hay datos.
 const EMPTY_SAP_HISTORY: any[] = [];
+const SAP_HISTORY_PAGE_SIZE = DEFAULT_PAGE_SIZE; // 25
 
 // Columnas del historial de validaciones SAP (C3: tabla virtualizada).
 const SAP_HISTORY_COLUMNS: DataTableColumn<any>[] = [
@@ -33,11 +35,18 @@ const SAP_HISTORY_COLUMNS: DataTableColumn<any>[] = [
     cell: (h) => h.encontrados,
   },
   {
-    id: 'errores',
-    header: 'Error / Inconsistencia',
+    id: 'sin_coincidencia',
+    header: 'Sin coincidencia',
     align: 'right',
     cellClassName: 'text-[var(--danger)]',
-    cell: (h) => h.no_encontrados + h.inconsistencias,
+    cell: (h) => h.no_encontrados ?? 0,
+  },
+  {
+    id: 'inconsistencias',
+    header: 'Inconsist.',
+    align: 'right',
+    cellClassName: 'text-[var(--warning)]',
+    cell: (h) => h.inconsistencias ?? 0,
   },
   {
     id: 'estado',
@@ -332,18 +341,48 @@ function IntegracionSapPage() {
   // C6: dashboard e historial SAP vía TanStack Query (cachea y deja de
   // re-consultar en cada cambio de pestaña dentro de la ventana de staleTime).
   const dashboardQuery = useQuery({
-    queryKey: ['sap-dashboard', 'v7-os-capacity-ux'],
+    queryKey: ['sap-dashboard', 'v8-inconsistentes-card'],
     queryFn: async () => {
       const data = await apiFetchJsonWithTimeout('/api/sap/dashboard', {}, 45_000);
       if (!data.success) throw new Error(String(data.error || 'Error al cargar dashboard SAP'));
       return data;
     },
-    enabled: activeTab === 'dashboard',
+    enabled: activeTab === 'dashboard' || activeTab === 'diferencias',
     retry: 1,
     staleTime: 60_000,
   });
   const dashboardData = dashboardQuery.data ?? null;
   const isLoadingDashboard = dashboardQuery.isLoading;
+
+  const inconsistentQuery = useQuery({
+    queryKey: ['sap-inconsistent'],
+    queryFn: async () => {
+      const data = await apiFetchJsonWithTimeout('/api/sap/inconsistent', {}, 60_000);
+      if (!data.success) throw new Error(String(data.error || 'Error al cargar inconsistencias'));
+      return data as {
+        success: boolean;
+        count: number;
+        data: Array<{
+          id: string;
+          os_label: string | null;
+          main_serial: string | null;
+          materials: string[];
+          material_count: number;
+          series: Array<{
+            serial_number: string;
+            material: string | null;
+            valuation: string | null;
+            sap_status: string | null;
+            current_status: string | null;
+            box_code: string | null;
+          }>;
+        }>;
+      };
+    },
+    enabled: activeTab === 'diferencias',
+    retry: 1,
+    staleTime: 30_000,
+  });
 
   const historyQuery = useQuery({
     queryKey: ['sap-history'],
@@ -357,6 +396,10 @@ function IntegracionSapPage() {
     staleTime: 30_000,
   });
   const historyData = historyQuery.data ?? EMPTY_SAP_HISTORY;
+  const historyPagination = useClientPagination(historyData, SAP_HISTORY_PAGE_SIZE, [
+    historyData.length,
+    activeTab,
+  ]);
   const isLoadingHistory = historyQuery.isLoading;
 
   const [queryInput, setQueryInput] = useState('');
@@ -571,7 +614,7 @@ function IntegracionSapPage() {
 
     return (
       <div className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
           <Card className="p-5 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)] flex flex-col justify-between h-32">
             <div className="flex justify-between items-start">
               <div>
@@ -618,9 +661,38 @@ function IntegracionSapPage() {
               </div>
             </div>
             <p className="text-[10px] font-bold text-[var(--muted)]">
-              Equipos cargados después de subir el SAP (o sin serie para cruzar)
+              {lastUpload?.fecha
+                ? `Ingresados después del último G985 (${new Date(lastUpload.fecha).toLocaleDateString()}) — aún sin cruzar`
+                : 'Sin G985 completado reciente — equipos aún sin cruzar contra SAP'}
             </p>
           </Card>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('diferencias')}
+            className="text-left p-5 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)] flex flex-col justify-between min-h-32 gap-2 hover:border-[var(--warning)]/60 hover:shadow-md transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--warning)]"
+            title="Ver series con 2+ materiales SAP"
+          >
+            <div className="flex justify-between items-start w-full">
+              <div>
+                <p className="text-[10px] font-black text-[var(--muted)] uppercase tracking-widest mb-1">
+                  2 materiales
+                </p>
+                <h3 className="text-2xl font-black text-[var(--warning)]">
+                  {(kpis?.inconsistentes ?? 0).toLocaleString()}
+                </h3>
+              </div>
+              <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${erpSoftStat.warning}`}>
+                <FileWarning className="w-5 h-5" />
+              </div>
+            </div>
+            <p className="text-[10px] font-bold text-[var(--muted)]">
+              Mismo equipo (OS) con 2+ materiales en el G985 · clic para ver series
+            </p>
+            <span className="text-[9px] font-black uppercase tracking-widest text-[var(--warning)]">
+              Revisar detalle →
+            </span>
+          </button>
 
           <Card className="p-5 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)] flex flex-col justify-between min-h-32 gap-2">
             <div className="flex justify-between items-start">
@@ -724,11 +796,126 @@ function IntegracionSapPage() {
     );
   };
 
+  const renderInconsistencias = () => {
+    const rows = inconsistentQuery.data?.data ?? [];
+    return (
+      <Card className="p-6 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)]">
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+          <div>
+            <h3 className="text-xl font-black text-[var(--heading)] uppercase tracking-tight">
+              Mismo equipo · 2+ materiales SAP
+            </h3>
+            <p className="text-[11px] font-bold text-[var(--muted)] mt-1 max-w-2xl leading-relaxed">
+              OS en estado <span className="text-[var(--warning)]">Pendiente Revisión</span>: al cruzar el G985,
+              distintas series del mismo equipo trajeron materiales distintos. Revisá cuál material es el correcto.
+            </p>
+          </div>
+          <Badge className="bg-[var(--warning)]/15 text-[var(--warning)] border-none uppercase text-[10px] font-black tracking-widest">
+            {(inconsistentQuery.data?.count ?? rows.length).toLocaleString()} equipo(s)
+          </Badge>
+        </div>
+
+        {inconsistentQuery.isLoading ? (
+          <div className="flex justify-center items-center py-12">
+            <Loader2 className="w-8 h-8 animate-spin text-[var(--accent)]" />
+          </div>
+        ) : inconsistentQuery.isError ? (
+          <div className={`${erpSoftStat.danger} p-4 rounded-xl flex items-start gap-3`}>
+            <AlertTriangle className="w-5 h-5 shrink-0" />
+            <div>
+              <p className="text-sm font-bold mb-2">
+                {inconsistentQuery.error instanceof Error
+                  ? inconsistentQuery.error.message
+                  : 'No se pudo cargar el detalle'}
+              </p>
+              <Button type="button" variant="outline" onClick={() => void inconsistentQuery.refetch()}>
+                Reintentar
+              </Button>
+            </div>
+          </div>
+        ) : rows.length === 0 ? (
+          <p className="text-sm font-bold text-[var(--muted)] py-10 text-center">
+            No hay equipos con 2 materiales en este momento.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            {rows.map((eq) => (
+              <div
+                key={eq.id}
+                className="rounded-2xl border border-[var(--border)] overflow-hidden bg-[var(--surface-hover)]/40"
+              >
+                <div className="px-4 py-3 flex flex-wrap items-center gap-3 border-b border-[var(--border)] bg-[var(--surface)]">
+                  <span className="font-black text-[var(--heading)] font-mono text-sm">{eq.os_label || '—'}</span>
+                  <span className="text-[10px] font-bold text-[var(--muted)] uppercase tracking-widest">
+                    Main {eq.main_serial || '—'}
+                  </span>
+                  <div className="flex flex-wrap gap-1.5 ml-auto">
+                    {eq.materials.map((m) => (
+                      <Badge
+                        key={m}
+                        className="bg-[var(--warning)]/15 text-[var(--warning)] border-none font-mono text-[10px] font-black"
+                      >
+                        Mat {m}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="text-[9px] font-black uppercase tracking-widest text-[var(--muted)] border-b border-[var(--border)]">
+                        <th className="px-4 py-2">Serie</th>
+                        <th className="px-4 py-2">Material</th>
+                        <th className="px-4 py-2">Valoración</th>
+                        <th className="px-4 py-2">SAP status</th>
+                        <th className="px-4 py-2">Caja</th>
+                        <th className="px-4 py-2">Estado TC</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {eq.series.map((s) => (
+                        <tr key={s.serial_number} className="border-b border-[var(--border)]/60 last:border-0">
+                          <td className="px-4 py-2 font-mono font-bold text-[var(--heading)]">{s.serial_number}</td>
+                          <td className="px-4 py-2 font-mono font-black text-[var(--warning)]">
+                            {s.material || '—'}
+                          </td>
+                          <td className="px-4 py-2 font-mono">{s.valuation || '—'}</td>
+                          <td className="px-4 py-2">{s.sap_status || '—'}</td>
+                          <td className="px-4 py-2 font-mono">{s.box_code || '—'}</td>
+                          <td className="px-4 py-2">{s.current_status || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="px-4 py-2 border-t border-[var(--border)] flex justify-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="text-[10px] font-black uppercase tracking-widest"
+                    onClick={() => {
+                      setQueryInput(eq.main_serial || eq.series[0]?.serial_number || '');
+                      setActiveTab('consulta');
+                    }}
+                  >
+                    Consultar serie principal
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+    );
+  };
+
   const renderTabs = () => {
     const tabs = [
       { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={14} /> },
       { id: 'cargar', label: 'Cargar Archivo', icon: <UploadCloud size={14} /> },
       { id: 'historial', label: 'Historial', icon: <History size={14} /> },
+      { id: 'diferencias', label: '2 Materiales', icon: <FileWarning size={14} /> },
       { id: 'consulta', label: 'Consultar Serie', icon: <Search size={14} /> },
     ];
 
@@ -757,7 +944,14 @@ function IntegracionSapPage() {
   const renderHistory = () => {
     return (
       <Card className="p-6 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)]">
-        <h3 className="text-xl font-black text-[var(--heading)] uppercase tracking-tight mb-6">Historial de Validaciones</h3>
+        <h3 className="text-xl font-black text-[var(--heading)] uppercase tracking-tight mb-2">
+          Historial de Validaciones
+        </h3>
+        <p className="text-[11px] font-bold text-[var(--muted)] mb-6 max-w-3xl leading-relaxed">
+          <span className="text-[var(--danger)]">Sin coincidencia</span> = equipos en TC que no estaban en ese
+          G985 (no es por espacios: el cruce normaliza trim/espacios/mayúsculas).{' '}
+          <span className="text-[var(--warning)]">Inconsist.</span> = mismo equipo con materiales SAP distintos.
+        </p>
         {isLoadingHistory ? (
           <div className="flex justify-center items-center py-12"><Loader2 className="w-8 h-8 animate-spin text-[var(--accent)]" /></div>
         ) : historyQuery.isError ? (
@@ -775,14 +969,26 @@ function IntegracionSapPage() {
             </div>
           </div>
         ) : (
-          <DataTable
-            columns={SAP_HISTORY_COLUMNS}
-            data={historyData}
-            getRowId={(h) => h.id}
-            minWidth={760}
-            maxBodyHeight={560}
-            emptyMessage="No hay registros de cargas."
-          />
+          <>
+            <DataTable
+              columns={SAP_HISTORY_COLUMNS}
+              data={historyPagination.slice}
+              getRowId={(h) => h.id}
+              minWidth={860}
+              maxBodyHeight={560}
+              emptyMessage="No hay registros de cargas."
+            />
+            <TablePagination
+              totalCount={historyPagination.totalCount}
+              page={historyPagination.page}
+              totalPages={historyPagination.totalPages}
+              startItem={historyPagination.startItem}
+              endItem={historyPagination.endItem}
+              pageSize={historyPagination.pageSize}
+              onPageChange={historyPagination.setPage}
+              itemLabel="cargas"
+            />
+          </>
         )}
       </Card>
     );
@@ -959,6 +1165,7 @@ function IntegracionSapPage() {
         )}
 
         {activeTab === 'historial' && renderHistory()}
+        {activeTab === 'diferencias' && renderInconsistencias()}
         {activeTab === 'consulta' && renderQuery()}
       </div>
     </div>

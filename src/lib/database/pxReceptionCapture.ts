@@ -628,11 +628,24 @@ export async function getPxBoxMeta(boxId: string): Promise<{
 
 export function mapRpcCaptureError(message: string): string {
   const msg = message || '';
+  if (msg.includes('DUPLICATE_IN_OTHER_GUIDE')) {
+    return msg.replace(
+      /^.*DUPLICATE_IN_OTHER_GUIDE:\s*/i,
+      'Serie ya capturada en otra guía. Elimine el duplicado antes de continuar: ',
+    );
+  }
   if (msg.includes('DUPLICATE_IN_RECEPTION')) {
-    return 'Serie repetida en esta recepción PX (mismo lote). Ya fue capturada en esta caja o recepción.';
+    // Preferir texto del RPC (incluye guía/caja) cuando viene enriquecido
+    if (/Elimine el duplicado/i.test(msg)) {
+      return msg.replace(/^.*DUPLICATE_IN_RECEPTION:\s*/i, '');
+    }
+    return 'Serie repetida en esta recepción PX. Ya está en otra caja de esta guía — elimínela ahí antes de continuar.';
   }
   if (msg.includes('DUPLICATE_GLOBAL')) {
-    return msg.replace(/^.*DUPLICATE_GLOBAL:\s*/i, 'Serie ya en inventario TC (orden abierta): ');
+    return msg.replace(
+      /^.*DUPLICATE_GLOBAL:\s*/i,
+      'Serie ya en inventario TC (orden abierta). No capture de nuevo: ',
+    );
   }
   if (msg.includes('DUPLICATE_IN_EQUIPMENT')) {
     return 'Serie repetida en el mismo equipo (mismo lote de caja). Revise que S1–S4 no estén duplicadas.';

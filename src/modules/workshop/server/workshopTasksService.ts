@@ -13,6 +13,7 @@ import { resolveEntrySource } from '@/modules/workshop/shared/entrySource';
 export type WorkshopTabId =
   | 'diagnostico'
   | 'reparacion'
+  | 'esperando_partes'
   | 'reacondicionado'
   | 'qc'
   | 'l3'
@@ -22,6 +23,7 @@ export type WorkshopTabId =
 const TAB_TO_STATUS: Record<Exclude<WorkshopTabId, 'listo'>, string> = {
   diagnostico: 'in_workshop',
   reparacion: 'in_qc',
+  esperando_partes: 'waiting_parts',
   reacondicionado: 'ready_to_dispatch',
   qc: 'in_validation',
   l3: 'in_control_warehouse',
@@ -31,6 +33,7 @@ const TAB_TO_STATUS: Record<Exclude<WorkshopTabId, 'listo'>, string> = {
 const STATUS_TO_TAB: Record<string, WorkshopTabId> = {
   in_workshop: 'diagnostico',
   in_qc: 'reparacion',
+  waiting_parts: 'esperando_partes',
   ready_to_dispatch: 'reacondicionado',
   in_validation: 'qc',
   in_control_warehouse: 'l3',
@@ -42,6 +45,7 @@ const STATUS_TO_TAB: Record<string, WorkshopTabId> = {
 export const WORKSHOP_TAB_LABELS: Record<WorkshopTabId, string> = {
   diagnostico: 'Diagnóstico',
   reparacion: 'Reparación',
+  esperando_partes: 'Esperando Partes',
   reacondicionado: 'Reacondicionado',
   qc: 'Control de Calidad',
   l3: 'L3 (Avanzado)',
@@ -1237,6 +1241,33 @@ export type WorkshopTasksPageResult = {
   nextCursor: string | null;
   totalOs: number | null;
 };
+
+export type EquipoListoTechStat = {
+  technology_id: string | null;
+  tech_name: string;
+  total_os: number;
+};
+
+/** Conteo de OS Equipo Listo por tecnología (RPC 230). */
+export async function fetchEquipoListoByTechnology(
+  supabase: SupabaseClient
+): Promise<EquipoListoTechStat[]> {
+  const { data, error } = await supabase.rpc('count_equipo_listo_by_technology');
+  if (error) {
+    if (!isRpcMissing(error)) {
+      console.warn('[workshop/server] count_equipo_listo_by_technology:', error.message);
+    }
+    return [];
+  }
+  if (!Array.isArray(data)) return [];
+  return (data as Array<Record<string, unknown>>)
+    .map((row) => ({
+      technology_id: row.technology_id ? String(row.technology_id) : null,
+      tech_name: String(row.tech_name || 'SIN TECNOLOGÍA').trim() || 'SIN TECNOLOGÍA',
+      total_os: Number(row.total_os) || 0,
+    }))
+    .filter((row) => row.total_os >= 0);
+}
 
 /** Cola paginada por OS — evita cargar 400+ OS de una sola vez. */
 export async function queryWorkshopTasksPage(

@@ -20,7 +20,6 @@ import { apiFetch } from '@/lib/http/apiFetch';
 import { sapValidationReader, getSapStatusMeta, type SapValidationState } from '@/modules/sap-integration';
 import * as XLSX from 'xlsx';
 import { ModulePage, ModuleToolbar } from '@/components/module-page';
-import { DispatchBatchPanel } from './DispatchBatchPanel';
 import {
   filterBrandsByTechnologyId,
   filterModelsByTechAndBrand,
@@ -49,6 +48,7 @@ import {
   Printer,
   FileSpreadsheet,
   Eye,
+  Layers,
 } from 'lucide-react';
 
 import { fetchDespachoBoxItems } from '@/lib/api/despachoBoxItems';
@@ -62,7 +62,6 @@ import {
   fetchDespachoBoxesViaApi,
   fetchDespachoHistoryViaApi,
   fetchDespachoHistoryReprint,
-  fetchDespachoPendientesViaApi,
   allocateOutboundCode,
 } from '@/lib/api/despachoReads';
 import {
@@ -75,6 +74,10 @@ import { DespachoSalidaModal } from './DespachoSalidaModal';
 import { EquipoListoPanel } from './EquipoListoPanel';
 import { printOutboundLabel, printOutboundLabels } from './printOutboundLabel';
 import { printOutboundDetalle } from './printOutboundDetalle';
+import {
+  buildEquipmentSerialSlots,
+  coalesceMaterialLote,
+} from '@/lib/sap/equipmentSerialSlots';
 
 const SERIES_BOX_SELECT =
   'id, serial_number, service_order_id, current_status, current_box_id, brand_id, model_id, material, valuation, sap_status, updated_at, created_at';
@@ -86,6 +89,35 @@ const BOX_DESPACHO_SELECT =
 
 const DESPACHO_HISTORY_PAGE_SIZE = 25;
 const DESPACHO_OUTBOUND_PAGE_SIZE = 20;
+const TARIMA_STORAGE_KEY = 'tc-erp.despacho.outbound-tarimas.v1';
+
+type OutboundTarima = {
+  id: string;
+  code: string;
+  boxIds: string[];
+  createdAt: string;
+};
+
+function readStoredTarimas(): OutboundTarima[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = sessionStorage.getItem(TARIMA_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as OutboundTarima[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function nextTarimaCode(existing: OutboundTarima[]): string {
+  let max = 0;
+  for (const t of existing) {
+    const m = /^TR-(\d+)$/i.exec(t.code);
+    if (m) max = Math.max(max, Number(m[1]) || 0);
+  }
+  return `TR-${String(max + 1).padStart(4, '0')}`;
+}
 
 type DispatchItem = {
   id: string;
@@ -104,40 +136,6 @@ type DispatchItem = {
   estatus: 'Pendiente' | 'En Ruta' | 'Entregado';
   fecha?: string;
 };
-
-function looksLikeSapSn(sn: string): boolean {
-  return /^\d{12,}$/.test(sn.trim());
-}
-
-function looksLikeMac(sn: string): boolean {
-  const s = sn.trim();
-  return /^[0-9A-Fa-f]{12}$/.test(s) && /[A-Fa-f]/.test(s);
-}
-
-/** Prioriza serie SAP (SN numérico) sobre MAC/CAS para columna S1. */
-function pickSapPrimary(
-  sibs: Array<{ serial_number?: string; material?: string | null; valuation?: string | null }>,
-  mainSerial?: string | null
-) {
-  if (!sibs.length) return null;
-  const norm = (s: string) => s.trim().toUpperCase();
-  const main = mainSerial?.trim() || '';
-  if (main && looksLikeSapSn(main)) {
-    const hit = sibs.find((s) => norm(String(s.serial_number || '')) === norm(main));
-    if (hit) return hit;
-  }
-  const score = (s: (typeof sibs)[number]) => {
-    const sn = String(s.serial_number || '');
-    let n = 0;
-    if (looksLikeSapSn(sn)) n += 100;
-    if (looksLikeMac(sn)) n -= 50;
-    if (main && norm(sn) === norm(main)) n += 15;
-    if (String(s.material ?? '').trim()) n += 30;
-    if (String(s.valuation ?? '').trim()) n += 10;
-    return n;
-  };
-  return [...sibs].sort((a, b) => score(b) - score(a))[0]!;
-}
 
 const EMPTY_LIST: any[] = [];
 
@@ -258,22 +256,6 @@ function checkOutboundScanMaterialValuation(
   return { ok: true };
 }
 
-/** Toma Material y Lote de cualquier serie hermana (SAP a menudo llena solo una). */
-function coalesceMaterialLote(
-  rows: Array<{ material?: string | null; valuation?: string | null }>
-): { material: string; valuation: string } {
-  let material = '';
-  let valuation = '';
-  for (const s of rows) {
-    const m = String(s.material ?? '').trim();
-    const v = String(s.valuation ?? '').trim();
-    if (!material && m) material = m;
-    if (!valuation && v) valuation = v;
-    if (material && valuation) break;
-  }
-  return { material, valuation };
-}
-
 async function fetchDespachoData(): Promise<{ history: any[]; dispatches: DispatchItem[] }> {
   // Historial y Outbounds independientes: un fallo de historial no debe vaciar la tabla.
   const historyResult = await fetchDespachoHistoryViaApi()
@@ -386,18 +368,12 @@ async function fetchDespachoData(): Promise<{ history: any[]; dispatches: Dispat
 export default function DespachoPage() {
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
-  type DespachoTabId = 'equipo_listo' | 'operacion' | 'historial' | 'cqrs' | 'lotes';
+  type DespachoTabId = 'equipo_listo' | 'operacion' | 'historial';
   const [activeTab, setActiveTab] = useState<DespachoTabId>('equipo_listo');
 
   useEffect(() => {
     const tab = searchParams.get('tab');
-    if (
-      tab === 'historial' ||
-      tab === 'operacion' ||
-      tab === 'equipo_listo' ||
-      tab === 'cqrs' ||
-      tab === 'lotes'
-    ) {
+    if (tab === 'historial' || tab === 'operacion' || tab === 'equipo_listo') {
       setActiveTab(tab);
     }
   }, [searchParams]);
@@ -614,20 +590,80 @@ export default function DespachoPage() {
 
   const dispatches = despachoQuery.data?.dispatches ?? (EMPTY_LIST as DispatchItem[]);
   const [outboundSearch, setOutboundSearch] = useState('');
+  const [outboundTarimas, setOutboundTarimas] = useState<OutboundTarima[]>([]);
+  const [tarimasHydrated, setTarimasHydrated] = useState(false);
+
+  useEffect(() => {
+    setOutboundTarimas(readStoredTarimas());
+    setTarimasHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!tarimasHydrated) return;
+    try {
+      sessionStorage.setItem(TARIMA_STORAGE_KEY, JSON.stringify(outboundTarimas));
+    } catch {
+      /* ignore quota */
+    }
+  }, [outboundTarimas, tarimasHydrated]);
+
+  const tarimaByBoxId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const t of outboundTarimas) {
+      for (const id of t.boxIds) map.set(id, t.code);
+    }
+    return map;
+  }, [outboundTarimas]);
+
+  useEffect(() => {
+    if (!tarimasHydrated) return;
+    const liveIds = new Set(dispatches.map((d) => d.dbId).filter(Boolean) as string[]);
+    setOutboundTarimas((prev) => {
+      const next = prev
+        .map((t) => ({ ...t, boxIds: t.boxIds.filter((id) => liveIds.has(id)) }))
+        .filter((t) => t.boxIds.length > 0);
+      const same =
+        next.length === prev.length &&
+        next.every((t, i) => {
+          const p = prev[i]!;
+          return (
+            t.id === p.id &&
+            t.boxIds.length === p.boxIds.length &&
+            t.boxIds.every((id, j) => id === p.boxIds[j])
+          );
+        });
+      return same ? prev : next;
+    });
+  }, [dispatches, tarimasHydrated]);
 
   const filteredDispatches = useMemo(() => {
     const term = outboundSearch.trim().toLowerCase();
-    if (!term) return dispatches;
-    const compact = term.replace(/^ob-/, '').replace(/^0+/, '');
-    return dispatches.filter((d) => {
-      const code = String(d.id || '').toLowerCase();
-      const material = String(d.material || '').toLowerCase();
-      const valuation = String(d.valuation || '').toLowerCase();
-      if (code.includes(term) || material.includes(term) || valuation.includes(term)) return true;
-      if (compact && code.replace(/^ob-/, '').replace(/^0+/, '').includes(compact)) return true;
-      return false;
+    let list = dispatches;
+    if (term) {
+      const compact = term.replace(/^ob-/, '').replace(/^0+/, '');
+      list = dispatches.filter((d) => {
+        const code = String(d.id || '').toLowerCase();
+        const material = String(d.material || '').toLowerCase();
+        const valuation = String(d.valuation || '').toLowerCase();
+        const tarima = d.dbId ? (tarimaByBoxId.get(d.dbId) || '').toLowerCase() : '';
+        if (code.includes(term) || material.includes(term) || valuation.includes(term) || tarima.includes(term)) {
+          return true;
+        }
+        if (compact && code.replace(/^ob-/, '').replace(/^0+/, '').includes(compact)) return true;
+        return false;
+      });
+    }
+    return [...list].sort((a, b) => {
+      const ta = a.dbId ? tarimaByBoxId.get(a.dbId) || '' : '';
+      const tb = b.dbId ? tarimaByBoxId.get(b.dbId) || '' : '';
+      if (ta && !tb) return -1;
+      if (!ta && tb) return 1;
+      if (ta !== tb) return ta.localeCompare(tb);
+      const na = parseOutboundCodeNumber(a.id) ?? 0;
+      const nb = parseOutboundCodeNumber(b.id) ?? 0;
+      return na - nb;
     });
-  }, [dispatches, outboundSearch]);
+  }, [dispatches, outboundSearch, tarimaByBoxId]);
 
   const outboundTotalCount = filteredDispatches.length;
   const outboundTotalPages = Math.max(1, Math.ceil(outboundTotalCount / DESPACHO_OUTBOUND_PAGE_SIZE));
@@ -695,6 +731,40 @@ export default function DespachoPage() {
   const clearBoxSelection = () => setSelectedBoxIds(new Set());
 
   const selectedBoxes = dispatches.filter((d) => d.dbId && selectedBoxIds.has(d.dbId));
+
+  const handleArmarTarima = () => {
+    const ids = [...selectedBoxIds];
+    if (ids.length < 2) {
+      notify.warning('Seleccione al menos 2 Outbound para armar una tarima.');
+      return;
+    }
+    const idSet = new Set(ids);
+    const code = nextTarimaCode(outboundTarimas);
+    const tarima: OutboundTarima = {
+      id: crypto.randomUUID(),
+      code,
+      boxIds: ids,
+      createdAt: new Date().toISOString(),
+    };
+    setOutboundTarimas((prev) => {
+      const cleaned = prev
+        .map((t) => ({ ...t, boxIds: t.boxIds.filter((bid) => !idSet.has(bid)) }))
+        .filter((t) => t.boxIds.length > 0);
+      return [tarima, ...cleaned];
+    });
+    notify.success(`Tarima ${code} armada`, {
+      description: `${ids.length} Outbound agrupados. Puede despacharlos juntos.`,
+    });
+  };
+
+  const selectTarimaBoxes = (tarima: OutboundTarima) => {
+    setSelectedBoxIds(new Set(tarima.boxIds));
+  };
+
+  const dissolveTarima = (tarimaId: string) => {
+    setOutboundTarimas((prev) => prev.filter((t) => t.id !== tarimaId));
+    notify.info('Tarima disuelta. Las cajas quedan sin agrupación.');
+  };
 
   const salidaBoxes = useMemo(
     () =>
@@ -790,18 +860,33 @@ export default function DespachoPage() {
           const siblings = siblingsData.filter((s) => s.service_order_id === serviceOrder.id);
           const sibs = siblings.length > 0 ? siblings : [item];
           const { material, valuation } = coalesceMaterialLote([item, ...siblings]);
-          const primary = pickSapPrimary(sibs, mainByOs.get(serviceOrder.id)) || sibs[0];
-          const mainSn = primary.serial_number;
-          const otherSiblings = sibs.filter((s) => s.serial_number !== mainSn);
-          const orderedSiblings = [primary, ...otherSiblings];
+          const slots = buildEquipmentSerialSlots(
+            sibs.map((s: {
+              id: string;
+              serial_number?: string | null;
+              material?: string | null;
+              valuation?: string | null;
+              sap_status?: string | null;
+              created_at?: string | null;
+            }) => ({
+              id: String(s.id),
+              serial_number: s.serial_number ?? null,
+              material: s.material,
+              valuation: s.valuation,
+              sap_status: s.sap_status,
+              created_at: s.created_at,
+            })),
+            mainByOs.get(serviceOrder.id)
+          );
 
           enrichedData.push({
             ...item,
-            id: orderedSiblings[0]?.id || item.id,
-            s1: orderedSiblings[0]?.serial_number || item.serial_number,
-            s2: orderedSiblings[1]?.serial_number || '',
-            s3: orderedSiblings[2]?.serial_number || '',
-            s4: orderedSiblings[3]?.serial_number || '',
+            id: slots.primary.id || item.id,
+            s1: slots.s1 || item.serial_number,
+            s2: slots.s2,
+            s3: slots.s3,
+            s4: slots.s4,
+            serial_number: slots.s1 || item.serial_number,
             material,
             valuation,
           });
@@ -1767,15 +1852,30 @@ export default function DespachoPage() {
     {
       id: 'outbound',
       header: 'Outbound',
-      width: 'minmax(130px,1fr)',
+      width: 'minmax(120px,1fr)',
       cell: (disp: DispatchItem) => (
         <span className="text-sm font-black text-[var(--heading)] font-mono tracking-tight">{disp.id}</span>
       ),
     },
     {
+      id: 'tarima',
+      header: 'Tarima',
+      width: '100px',
+      cell: (disp: DispatchItem) => {
+        const code = disp.dbId ? tarimaByBoxId.get(disp.dbId) : undefined;
+        if (!code) return <span className="text-xs text-slate-300">—</span>;
+        return (
+          <span className="inline-flex items-center gap-1 rounded-md border border-indigo-100 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wide text-indigo-700 font-mono">
+            <Layers className="h-3 w-3" />
+            {code}
+          </span>
+        );
+      },
+    },
+    {
       id: 'fecha',
       header: 'Fecha',
-      width: '110px',
+      width: '100px',
       cell: (disp: DispatchItem) => (
         <span className="text-xs font-bold text-slate-500">{disp.fecha || '—'}</span>
       ),
@@ -2101,16 +2201,14 @@ export default function DespachoPage() {
         </div>
       }
     >
-      <div className="space-y-6">
+      <div className="space-y-4">
         <div className={`${erpTab.list} w-fit flex-wrap`}>
           {(
             [
               { id: 'equipo_listo' as const, label: 'Equipo Listo', icon: CheckCircle2 },
               { id: 'operacion' as const, label: 'Gestión de Outbound', icon: null },
               { id: 'historial' as const, label: 'Historial de Despachos', icon: null },
-              { id: 'cqrs' as const, label: 'Pendientes (CQRS Eventos)', icon: Boxes },
-              { id: 'lotes' as const, label: 'Lotes de salida', icon: Boxes },
-            ] satisfies Array<{ id: DespachoTabId; label: string; icon: typeof Boxes | null }>
+            ] satisfies Array<{ id: DespachoTabId; label: string; icon: typeof CheckCircle2 | null }>
           ).map(({ id, label, icon: Icon }) => {
             const active = activeTab === id;
             return (
@@ -2120,7 +2218,7 @@ export default function DespachoPage() {
                 onClick={() => setActiveTab(id)}
                 className={[
                   erpTab.trigger,
-                  'px-6 py-2.5 text-sm normal-case tracking-normal',
+                  'px-5 py-2 text-sm normal-case tracking-normal',
                   active ? erpTab.triggerActive : erpTab.triggerInactive,
                   Icon ? 'flex items-center gap-2' : '',
                 ].filter(Boolean).join(' ')}
@@ -2134,44 +2232,8 @@ export default function DespachoPage() {
 
         {activeTab === 'equipo_listo' ? (
           <EquipoListoPanel />
-        ) : activeTab === 'lotes' ? (
-          <DispatchBatchPanel />
-        ) : activeTab === 'cqrs' ? (
-          <div className="space-y-6 animate-in fade-in">
-            <Card className="p-6">
-              <div className="flex justify-between items-center mb-6">
-                <div>
-                  <h3 className="text-xl font-bold text-slate-800">Despachos Pendientes Asíncronos</h3>
-                  <p className="text-sm text-slate-500">Ordenes creadas automáticamente al finalizar reparaciones en Taller.</p>
-                </div>
-                <Button variant="primary" onClick={async () => {
-                  try {
-                    const items = await fetchDespachoPendientesViaApi();
-                    const ws = XLSX.utils.json_to_sheet(items);
-                    const wb = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(wb, ws, "Despachos Pendientes");
-                    XLSX.writeFile(wb, `Despachos_CQRS_${new Date().toISOString().split('T')[0]}.xlsx`);
-                  } catch (e) {
-                    console.error(e);
-                    notify.error('No se pudo exportar pendientes', {
-                      description: 'Verifique que el módulo Despacho CQRS esté activo.',
-                    });
-                  }
-                }}>
-                  Exportar Reporte CQRS
-                </Button>
-              </div>
-              <div className="py-12 flex flex-col items-center justify-center border-2 border-dashed border-[var(--border)] rounded-[2rem] bg-[var(--surface-hover)]/50">
-                <Truck className="w-16 h-16 text-[var(--accent)] mb-4 opacity-50" />
-                <h4 className="font-bold text-slate-600 mb-2">Módulo en modo Strangler Fig</h4>
-                <p className="text-slate-400 text-sm max-w-md text-center">
-                  Las órdenes se están orquestando en segundo plano gracias al Event Bus. Descarga el Excel para visualizar la data segregada (Read Model).
-                </p>
-              </div>
-            </Card>
-          </div>
         ) : activeTab === 'operacion' ? (
-          <div className="space-y-10 animate-in fade-in">
+          <div className="space-y-4 animate-in fade-in">
         
         {showUploadSAPModal && (
           <div className="fixed inset-0 bg-[#0b0e20]/80 backdrop-blur-sm z-50 flex items-center justify-center animate-in fade-in">
@@ -2504,23 +2566,30 @@ export default function DespachoPage() {
           </Card>
         )}
 
-        <section className="space-y-6">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <ModuleToolbar
-              onSearch={(v) => {
-                setOutboundSearch(v);
-                startTransition(() => setOutboundPage(1));
-              }}
-              addLabel="Nuevo Despacho"
-            />
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex flex-wrap items-end gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] px-3 py-2">
+        <section className="space-y-3">
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-2.5 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative min-w-[12rem] flex-1">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--muted)]" />
+                <input
+                  type="search"
+                  placeholder="Buscar OB, material, tarima…"
+                  value={outboundSearch}
+                  onChange={(e) => {
+                    setOutboundSearch(e.target.value);
+                    startTransition(() => setOutboundPage(1));
+                  }}
+                  className={`${erpFieldClass} h-9 pl-8 text-xs`}
+                  aria-label="Buscar Outbound"
+                />
+              </div>
+              <div className="flex flex-wrap items-end gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface-hover)] px-2 py-1.5">
                 <div className="space-y-0.5">
-                  <label className="text-[9px] font-black uppercase tracking-widest text-[var(--muted)]">
+                  <label className="text-[8px] font-black uppercase tracking-widest text-[var(--muted)]">
                     Desde OB
                   </label>
                   <input
-                    className={`${erpFieldClass} h-8 w-[7.5rem] py-1 text-xs font-mono`}
+                    className={`${erpFieldClass} h-8 w-[6.5rem] py-1 text-xs font-mono`}
                     placeholder="32"
                     value={outboundRangeFrom}
                     onChange={(e) => setOutboundRangeFrom(e.target.value)}
@@ -2528,11 +2597,11 @@ export default function DespachoPage() {
                   />
                 </div>
                 <div className="space-y-0.5">
-                  <label className="text-[9px] font-black uppercase tracking-widest text-[var(--muted)]">
+                  <label className="text-[8px] font-black uppercase tracking-widest text-[var(--muted)]">
                     Hasta OB
                   </label>
                   <input
-                    className={`${erpFieldClass} h-8 w-[7.5rem] py-1 text-xs font-mono`}
+                    className={`${erpFieldClass} h-8 w-[6.5rem] py-1 text-xs font-mono`}
                     placeholder="150"
                     value={outboundRangeTo}
                     onChange={(e) => setOutboundRangeTo(e.target.value)}
@@ -2559,36 +2628,91 @@ export default function DespachoPage() {
               </div>
               <Button
                 variant="outline"
-                leftIcon={<FileSpreadsheet className="w-4 h-4" />}
+                size="sm"
+                leftIcon={<FileSpreadsheet className="w-3.5 h-3.5" />}
                 disabled={exportingBulkExcel || dispatches.every((d) => !d.dbId)}
                 onClick={() => void handleBulkOutboundExcelExport()}
               >
                 {exportingBulkExcel
-                  ? 'Generando Excel…'
+                  ? 'Generando…'
                   : selectedBoxIds.size > 0
-                    ? `Excel selección (${selectedBoxIds.size})`
-                    : `Reporte Excel masivo (${dispatches.filter((d) => d.dbId).length})`}
+                    ? `Excel (${selectedBoxIds.size})`
+                    : 'Excel masivo'}
               </Button>
-            {selectedBoxIds.size > 0 && (
-              <div className="flex items-center gap-3">
-                <span className="text-xs font-bold text-slate-500">
-                  {selectedBoxIds.size} Outbound · {selectedBoxes.reduce((n, b) => n + (b.filled_count ?? 0), 0)} equipos
-                </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 border-t border-[var(--border)] pt-2">
+              <span className="text-[11px] font-bold text-slate-500 mr-auto">
+                {selectedBoxIds.size > 0
+                  ? `${selectedBoxIds.size} Outbound · ${selectedBoxes.reduce((n, b) => n + (b.filled_count ?? 0), 0)} equipos`
+                  : 'Seleccione cajas para armar tarima o despachar'}
+              </span>
+              {selectedBoxIds.size > 0 ? (
                 <Button variant="outline" size="sm" onClick={clearBoxSelection}>
-                  Limpiar selección
+                  Limpiar
                 </Button>
-                <Button
-                  variant="primary"
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                  leftIcon={<Truck className="w-4 h-4" />}
-                  onClick={openSalidaForSelection}
-                >
-                  Despachar seleccionados
-                </Button>
-              </div>
-            )}
+              ) : null}
+              <Button
+                variant="outline"
+                size="sm"
+                leftIcon={<Layers className="w-3.5 h-3.5" />}
+                disabled={selectedBoxIds.size < 2}
+                onClick={handleArmarTarima}
+                title={
+                  selectedBoxIds.size < 2
+                    ? 'Seleccione al menos 2 Outbound'
+                    : 'Agrupar selección en una tarima'
+                }
+              >
+                Armar Tarima
+                {selectedBoxIds.size >= 2 ? ` (${selectedBoxIds.size})` : ''}
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                leftIcon={<Truck className="w-3.5 h-3.5" />}
+                disabled={selectedBoxIds.size === 0}
+                onClick={openSalidaForSelection}
+              >
+                Despachar seleccionados
+                {selectedBoxIds.size > 0 ? ` (${selectedBoxIds.size})` : ''}
+              </Button>
             </div>
           </div>
+
+          {outboundTarimas.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-indigo-100 bg-indigo-50/60 px-2.5 py-2">
+              <span className="text-[9px] font-black uppercase tracking-widest text-indigo-700">
+                Tarimas armadas
+              </span>
+              {outboundTarimas.map((t) => (
+                <div
+                  key={t.id}
+                  className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-white px-2 py-1"
+                >
+                  <button
+                    type="button"
+                    onClick={() => selectTarimaBoxes(t)}
+                    className="inline-flex items-center gap-1 text-[11px] font-black font-mono text-indigo-800 hover:underline"
+                    title="Seleccionar cajas de esta tarima"
+                  >
+                    <Layers className="h-3 w-3" />
+                    {t.code}
+                    <span className="font-bold text-indigo-500">· {t.boxIds.length}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => dissolveTarima(t.id)}
+                    className="rounded p-0.5 text-indigo-400 hover:bg-rose-50 hover:text-rose-600"
+                    title="Disolver tarima"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
 
           <Card padding="none" className="overflow-hidden">
             <DataTable
@@ -2599,9 +2723,9 @@ export default function DespachoPage() {
               rowClassName={(disp: DispatchItem) =>
                 `group cursor-pointer ${disp.dbId && selectedBoxIds.has(disp.dbId) ? 'bg-sky-50/80' : ''}`
               }
-              rowHeight={64}
+              rowHeight={52}
               maxBodyHeight={560}
-              minWidth={1100}
+              minWidth={1180}
               headerClassName={erpTableHeader}
               headerTextClassName={erpTableHeaderText}
               emptyMessage={

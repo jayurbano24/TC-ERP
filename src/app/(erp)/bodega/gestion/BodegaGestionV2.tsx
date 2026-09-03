@@ -33,7 +33,7 @@ import {
   Clock,
   X,
   Truck,
-  PackageMinus
+  PackageMinus,
 } from 'lucide-react';
 import { getInventoryBoxes, transferBoxesToArea, transferBoxesToAreaInBatches, startOrAppendBodegaScan, finalizeBodegaScan, listInProgressBodegaBoxes, requestBoxDeletion, addSeriesToBox, dispatchBoxFromWarehouse, dispatchSpecificSeries, transferSpecificSeriesToArea, canScanSeriesIntoWarehouse, resolveBoxDisplayStatus, resolveBoxListCapacity, isWarehouseScanInProgress, getBoxHistory, expandSelectedSeriesForOs } from '@/modules/inventario/client/warehouseBoxes';
 import { isBodegaOperationalRack } from '@/lib/database/warehouse';
@@ -60,6 +60,10 @@ import {
   catalogLabelKey,
   normalizeCatalogLabel,
 } from '@/shared/catalogs/normalizeCatalogName';
+import {
+  prepareScannedSerial,
+  validateSerialForModelAnySlot,
+} from '@/shared/validation/serialDigitRules';
 
 function isWarehouseSummaryMissingError(message: unknown): boolean {
   const text = String(message ?? '');
@@ -908,6 +912,19 @@ export default function BodegaGestionV2({
         return;
       }
 
+      const boxModel =
+        catModelos.find((m) => m.id === newBox.modelo) ||
+        catModelos.find((m) => m.name === newBox.modelo);
+      for (const row of tempSerials) {
+        const gate = validateSerialForModelAnySlot(String(row.sn || ''), boxModel);
+        if (!gate.valid) {
+          notify.warning(gate.title || 'Serial inválido', {
+            description: `${row.sn}: ${gate.message}`,
+          });
+          return;
+        }
+      }
+
       if (!draftBoxId) {
         notify.warning('No hay sesión de pistoleo en servidor', {
           description: 'Escanee al menos una serie (queda guardada en EN_PROCESO) y luego finalice.',
@@ -938,10 +955,23 @@ export default function BodegaGestionV2({
 
   const handleScanForNewBox = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentSN) return;
+    const sn = prepareScannedSerial(currentSN);
+    if (!sn) return;
     if (tempSerials.length >= newBox.cantidad) return notify.warning("Cantidad completada");
 
-    if (tempSerials.find(s => s.sn === currentSN)) return notify.warning("Serie ya escaneada");
+    if (tempSerials.find(s => s.sn === sn)) return notify.warning("Serie ya escaneada");
+
+    const boxModel =
+      catModelos.find((m) => m.id === newBox.modelo) ||
+      catModelos.find((m) => m.name === newBox.modelo);
+    const lengthCheck = validateSerialForModelAnySlot(sn, boxModel);
+    if (!lengthCheck.valid) {
+      notify.warning(lengthCheck.title || 'Longitud incorrecta', {
+        description: lengthCheck.message,
+        duration: 0,
+      });
+      return;
+    }
 
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
@@ -953,7 +983,7 @@ export default function BodegaGestionV2({
         receptions (*),
         service_orders (id, os_label, reentry_count)
       `)
-      .eq('serial_number', currentSN)
+      .eq('serial_number', sn)
       .single();
 
     if (error || !mainSeries) {
@@ -969,9 +999,9 @@ export default function BodegaGestionV2({
     );
     if (!ingresoGate.ok) {
       if (ingresoGate.reason === 'already_ingresado') {
-        notify.warning(`La serie ${currentSN} ya está ingresada en Bodega General.`);
+        notify.warning(`La serie ${sn} ya está ingresada en Bodega General.`);
       } else {
-        notify.warning(`El equipo ${currentSN} no está listo para ingreso a almacén`, {
+        notify.warning(`El equipo ${sn} no está listo para ingreso a almacén`, {
           description: `Estatus recepción: ${mainSeries.receptions?.status || 'SIN RECEPCIÓN'} · Estatus serie: ${mainSeries.current_status || 'N/A'}.`,
         });
       }
@@ -1225,9 +1255,23 @@ export default function BodegaGestionV2({
 
   const handleAddSN = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentSN || !selectedBox) return;
+    if (!selectedBox) return;
+    const sn = prepareScannedSerial(currentSN);
+    if (!sn) return;
     
-    if (selectedBox.series.find((s: any) => s.sn === currentSN)) return notify.warning("Serie ya escaneada en esta caja");
+    if (selectedBox.series.find((s: any) => s.sn === sn)) return notify.warning("Serie ya escaneada en esta caja");
+
+    const boxModel =
+      catModelos.find((m) => m.id === selectedBox.modelo || m.id === selectedBox.model_id) ||
+      catModelos.find((m) => m.name === selectedBox.modelo);
+    const lengthCheck = validateSerialForModelAnySlot(sn, boxModel);
+    if (!lengthCheck.valid) {
+      notify.warning(lengthCheck.title || 'Longitud incorrecta', {
+        description: lengthCheck.message,
+        duration: 0,
+      });
+      return;
+    }
 
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
@@ -1240,7 +1284,7 @@ export default function BodegaGestionV2({
         receptions (*),
         service_orders (id, os_label)
       `)
-      .eq('serial_number', currentSN)
+      .eq('serial_number', sn)
       .single();
 
     if (error || !mainSeries) {
@@ -1256,9 +1300,9 @@ export default function BodegaGestionV2({
     );
     if (!ingresoGate.ok) {
       if (ingresoGate.reason === 'already_ingresado') {
-        notify.warning(`La serie ${currentSN} ya está ingresada en Bodega General.`);
+        notify.warning(`La serie ${sn} ya está ingresada en Bodega General.`);
       } else {
-        notify.warning(`El equipo ${currentSN} no está listo para ingreso a almacén`, {
+        notify.warning(`El equipo ${sn} no está listo para ingreso a almacén`, {
           description: `Estatus recepción: ${mainSeries.receptions?.status || 'SIN RECEPCIÓN'} · Estatus serie: ${mainSeries.current_status || 'N/A'}.`,
         });
       }
@@ -1857,6 +1901,14 @@ export default function BodegaGestionV2({
               leftIcon={<Trash2 className="w-4 h-4" />}
             >
               Bodega SCRAPS
+            </Button>
+          </Link>
+          <Link href="/bodega/partes" className="inline-flex">
+            <Button
+              variant="outline"
+              leftIcon={<PackageCheck className="w-4 h-4" />}
+            >
+              Bodega de Partes
             </Button>
           </Link>
           <Link href="/bodega/inventario" className="inline-flex">

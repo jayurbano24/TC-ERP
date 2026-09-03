@@ -5,8 +5,8 @@ import type React from 'react';
 import { notify } from '@/components/ui';
 import type { GuideItem, CatalogModel } from '../../types';
 import {
-  getExpectedDigitsForSlot,
-  validateSerialExactDigits,
+  prepareScannedSerial,
+  validateSerialForModelSlot,
 } from '@/shared/validation/serialDigitRules';
 
 type Params = {
@@ -27,13 +27,12 @@ export function useBulkSeriesModal({ guideItems, setGuideItems, MASTER_MODELOS =
       .flatMap((l) => l.split(','))
       .flatMap((l) => l.split('\t'))
       .flatMap((l) => l.split(' '))
-      .map((s) => s.trim().toUpperCase())
+      .map((s) => prepareScannedSerial(s))
       .filter((s) => s !== '');
 
     const targetItem = { ...guideItems[bulkTargetIdx] };
     const seriesPerUnit = targetItem.seriesPerUnit;
     const model = MASTER_MODELOS.find((m) => m.id === targetItem.modelo);
-    const digits = model?.digitsPerSeries;
     const newSeries = [...targetItem.series];
     let currentUnit =
       newSeries.length > 0 && newSeries[newSeries.length - 1].length < seriesPerUnit
@@ -46,13 +45,12 @@ export function useBulkSeriesModal({ guideItems, setGuideItems, MASTER_MODELOS =
       const flatSeries = newSeries.flat().concat(currentUnit);
       if (flatSeries.includes(sn)) continue;
       const slotIdx = currentUnit.length;
-      const expected = getExpectedDigitsForSlot(digits, slotIdx);
-      const check = validateSerialExactDigits(sn, expected, `Serie ${slotIdx + 1}`);
-      if (!check.ok) {
+      const check = validateSerialForModelSlot(sn, model, slotIdx);
+      if (!check.valid) {
         skippedDigits += 1;
         continue;
       }
-      currentUnit.push(sn);
+      currentUnit.push(check.serial);
       if (currentUnit.length === seriesPerUnit) {
         newSeries.push(currentUnit);
         targetItem.scannedCount = newSeries.length;

@@ -23,7 +23,8 @@ import {
   Truck,
   CheckSquare,
   Users,
-  Palette
+  Palette,
+  Package
 } from 'lucide-react';
 import { useAuthz } from '@/components/authz';
 import { canConfigureThemes } from '@/lib/design/seasonal-presets';
@@ -45,6 +46,7 @@ import { adminChangeUserPassword } from '@/app/actions/admin';
 import { ConfigModal } from './components/ConfigModal';
 import { AgenciasView } from './components/AgenciasView';
 import { CatalogTableView } from './components/CatalogTableView';
+import { PiezasCatalogView } from './components/PiezasCatalogView';
 
 type Marca = { id: string; nombre: string };
 type Modelo = { 
@@ -94,7 +96,7 @@ export default function ConfiguracionPage() {
   const [sessionEmail, setSessionEmail] = useState<string | null>(null);
   const resolvedEmail = authzEmail || snapshot.email || sessionEmail;
   const canEditThemes = canConfigureThemes(resolvedEmail);
-  const [activeView, setActiveView] = useState<'tema' | 'marcas' | 'modelos' | 'tecnologias' | 'diagnosticos' | 'reparaciones' | 'reacondicionado' | 'agencias' | 'transportes' | 'usuarios' | 'px_providers' | 'razones_devolucion'>('marcas');
+  const [activeView, setActiveView] = useState<'tema' | 'marcas' | 'modelos' | 'tecnologias' | 'diagnosticos' | 'reparaciones' | 'reacondicionado' | 'agencias' | 'transportes' | 'usuarios' | 'px_providers' | 'razones_devolucion' | 'piezas'>('marcas');
   const [showModal, setShowModal] = useState(false);
 
   useEffect(() => {
@@ -601,6 +603,17 @@ export default function ConfiguracionPage() {
           </button>
           
           <div className="pt-4 mt-4 border-t border-slate-100">
+            <p className="mb-2 px-6 text-[9px] font-black tracking-widest text-neutral-800 uppercase">Bodega de Partes</p>
+            <button 
+              type="button"
+              onClick={() => setActiveView('piezas')}
+              className={`w-full flex items-center gap-3 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all ${activeView === 'piezas' ? 'bg-[#181c3a] text-white shadow-xl' : 'text-black hover:bg-neutral-100'}`}
+            >
+              <Package size={14} /> Piezas / SKU
+            </button>
+          </div>
+
+          <div className="pt-4 mt-4 border-t border-slate-100">
             <p className="mb-2 px-6 text-[9px] font-black tracking-widest text-neutral-800 uppercase">Soporte Técnico</p>
             <button 
               onClick={() => setActiveView('diagnosticos')}
@@ -709,6 +722,8 @@ export default function ConfiguracionPage() {
               onDelete={handleDelete}
             />
           )}
+
+          {activeView === 'piezas' && <PiezasCatalogView />}
 
           {activeView === 'razones_devolucion' && (
             <CatalogTableView

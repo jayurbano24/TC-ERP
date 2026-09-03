@@ -8,6 +8,12 @@ import {
   filterBrandsByTechnologyId,
   filterModelsByTechAndBrand,
 } from '@/shared/catalogs/cascadeCatalogFilters';
+import {
+  getExpectedDigitsForSlot,
+  prepareScannedSerial,
+  resolveModelDigitRules,
+  serialLengthCounterLabel,
+} from '@/shared/validation/serialDigitRules';
 
 type Props = {
   newBox: any;
@@ -63,6 +69,15 @@ export const NewBoxModal = memo(function NewBoxModal({
     () => filterModelsByTechAndBrand(catModelos, newBox.tecnologia, newBox.marca),
     [catModelos, newBox.tecnologia, newBox.marca]
   );
+  const expectedSerialDigits = useMemo(() => {
+    const model =
+      catModelos.find((m) => m.id === newBox.modelo) ||
+      catModelos.find((m) => m.name === newBox.modelo);
+    if (!model) return null;
+    const rules = resolveModelDigitRules(model);
+    return getExpectedDigitsForSlot(rules.digitsPerSeries, 0);
+  }, [catModelos, newBox.modelo]);
+  const preparedSnLen = prepareScannedSerial(currentSN).length;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6 backdrop-blur-sm">
@@ -245,11 +260,26 @@ export const NewBoxModal = memo(function NewBoxModal({
                   <input
                     type="text"
                     autoFocus
-                    placeholder="PISTOLÉE SERIE (SN)..."
+                    placeholder={
+                      expectedSerialDigits
+                        ? `PISTOLÉE SERIE (${expectedSerialDigits} caracteres)...`
+                        : 'PISTOLÉE SERIE (SN)...'
+                    }
                     className="h-20 w-full rounded-2xl border-2 border-[var(--border)] bg-[var(--surface-hover)] pr-6 pl-16 font-mono text-2xl font-black text-[var(--foreground)] uppercase outline-none transition-all focus:border-[var(--accent)] focus:bg-[var(--surface)]"
                     value={currentSN}
                     onChange={(e) => setCurrentSN(e.target.value)}
                   />
+                  <p
+                    className={`mt-2 text-right text-[11px] font-bold ${
+                      expectedSerialDigits &&
+                      preparedSnLen > 0 &&
+                      preparedSnLen !== expectedSerialDigits
+                        ? 'text-amber-600'
+                        : 'text-[var(--muted)]'
+                    }`}
+                  >
+                    {serialLengthCounterLabel(preparedSnLen, expectedSerialDigits)}
+                  </p>
                 </form>
 
                 <div className="mt-auto flex shrink-0 gap-4 pt-4">

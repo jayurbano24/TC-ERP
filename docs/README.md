@@ -121,6 +121,19 @@
 
 ---
 
+## Seguridad (Security Advisor)
+
+| Documento | Descripción |
+|-----------|-------------|
+| [CHG-013](changes/CHG-013-security-advisor-debt.md) | Higiene DEFINER + Auth leaked passwords |
+| [CHG-014](changes/CHG-014-internal-schema-p0.md) | Schema `internal` P0 + allowlist 151 |
+| [RPC allowlist A/B/C](security/security-rpc-allowlist.md) | Inventario EXECUTE |
+| [Fase 3 roadmap](security/security-rpc-phase3-roadmap.md) | Schema `internal` + API service_role |
+
+Migraciones: `148`–`151` (higiene → internal P0 → allowlist).
+
+---
+
 ## Gobierno de código (recordatorio)
 
 1. Archivos ≤ 300 líneas.
@@ -133,4 +146,4 @@
 
 ---
 
-**Última actualización:** 2026-06-18
+**Última actualización:** 2026-07-18

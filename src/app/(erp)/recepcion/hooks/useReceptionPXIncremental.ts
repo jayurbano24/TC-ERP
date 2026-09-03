@@ -36,6 +36,7 @@ import {
 import { getCurrentReceptionActor } from '@/modules/recepcion/client/receptionActor';
 import {
   resolveModelDigitRules,
+  prepareScannedSerial,
   validateScanSlotsAgainstDigitRules,
 } from '@/shared/validation/serialDigitRules';
 
@@ -528,7 +529,7 @@ export function useReceptionPXIncremental({
         return;
       }
 
-      const validScans = currentScans.map((s) => s?.trim().toUpperCase()).filter(Boolean);
+      const validScans = currentScans.map((s) => prepareScannedSerial(s)).filter(Boolean);
       if (new Set(validScans).size !== validScans.length) {
         notify.warning('Duplicado en el mismo equipo', {
           description:

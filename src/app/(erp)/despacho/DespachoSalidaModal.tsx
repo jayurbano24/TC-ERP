@@ -11,6 +11,10 @@ import { getAgencies, getPxProviders } from '@/lib/database/config';
 import { allocateSalidaCode } from '@/lib/api/despachoReads';
 import { printOutboundLabels } from './printOutboundLabel';
 import { printOutboundDetalle } from './printOutboundDetalle';
+import {
+  buildEquipmentSerialSlots,
+  coalesceMaterialLote,
+} from '@/lib/sap/equipmentSerialSlots';
 
 export type SalidaBoxSummary = {
   id: string;
@@ -53,30 +57,6 @@ function isBoxComplete(b: SalidaBoxSummary, itemCount?: number): boolean {
   return cap > 0 && filled >= cap;
 }
 
-function looksLikeSapSn(sn: string): boolean {
-  return /^\d{12,}$/.test(sn.trim());
-}
-
-function looksLikeMac(sn: string): boolean {
-  const s = sn.trim();
-  return /^[0-9A-Fa-f]{12}$/.test(s) && /[A-Fa-f]/.test(s);
-}
-
-function coalesceMaterialLote(
-  rows: Array<{ material?: string | null; valuation?: string | null }>
-): { material: string; valuation: string } {
-  let material = '';
-  let valuation = '';
-  for (const s of rows) {
-    const m = String(s.material ?? '').trim();
-    const v = String(s.valuation ?? '').trim();
-    if (!material && m) material = m;
-    if (!valuation && v) valuation = v;
-    if (material && valuation) break;
-  }
-  return { material, valuation };
-}
-
 /** Carga series de la caja vía Supabase (fallback si falla la API). */
 async function loadBoxItemsViaSupabase(boxDbId: string): Promise<DespachoBoxItem[]> {
   const supabase = getSupabaseBrowserClient();
@@ -85,7 +65,7 @@ async function loadBoxItemsViaSupabase(boxDbId: string): Promise<DespachoBoxItem
   const { data: inBox, error } = await supabase
     .from('series')
     .select(
-      'id, serial_number, service_order_id, material, valuation, created_at, updated_at'
+      'id, serial_number, service_order_id, material, valuation, sap_status, created_at, updated_at'
     )
     .eq('current_box_id', boxDbId)
     .order('updated_at', { ascending: false });
@@ -93,14 +73,22 @@ async function loadBoxItemsViaSupabase(boxDbId: string): Promise<DespachoBoxItem
   if (error || !inBox?.length) return [];
 
   const osIds = [...new Set(inBox.map((r) => r.service_order_id).filter(Boolean))] as string[];
-  let siblings: any[] = [];
+  let siblings: Array<{
+    id: string;
+    serial_number: string | null;
+    service_order_id?: string | null;
+    material?: string | null;
+    valuation?: string | null;
+    sap_status?: string | null;
+    created_at?: string | null;
+  }> = [];
   const mainByOs = new Map<string, string>();
 
   if (osIds.length > 0) {
     const [{ data: sibData }, { data: osData }] = await Promise.all([
       supabase
         .from('series')
-        .select('id, serial_number, service_order_id, material, valuation, created_at')
+        .select('id, serial_number, service_order_id, material, valuation, sap_status, created_at')
         .in('service_order_id', osIds)
         .order('created_at', { ascending: true }),
       supabase.from('service_orders').select('id, main_serial').in('id', osIds),
@@ -111,7 +99,7 @@ async function loadBoxItemsViaSupabase(boxDbId: string): Promise<DespachoBoxItem
     }
   }
 
-  const byOs = new Map<string, any[]>();
+  const byOs = new Map<string, typeof siblings>();
   for (const s of siblings) {
     const key = String(s.service_order_id);
     if (!byOs.has(key)) byOs.set(key, []);
@@ -129,25 +117,24 @@ async function loadBoxItemsViaSupabase(boxDbId: string): Promise<DespachoBoxItem
       processed.add(osId);
       const sibs = byOs.get(osId) ?? [item];
       const { material, valuation } = coalesceMaterialLote(sibs);
-      const main = mainByOs.get(osId);
-      const score = (s: any) => {
-        const sn = String(s.serial_number || '');
-        let n = 0;
-        if (looksLikeSapSn(sn)) n += 100;
-        if (looksLikeMac(sn)) n -= 50;
-        if (main && sn.trim().toUpperCase() === main.trim().toUpperCase()) n += 15;
-        if (String(s.material ?? '').trim()) n += 30;
-        return n;
-      };
-      const primary = [...sibs].sort((a, b) => score(b) - score(a))[0]!;
-      const ordered = [primary, ...sibs.filter((s) => s.serial_number !== primary.serial_number)];
+      const slots = buildEquipmentSerialSlots(
+        sibs.map((s) => ({
+          id: String(s.id),
+          serial_number: s.serial_number,
+          material: s.material,
+          valuation: s.valuation,
+          sap_status: s.sap_status,
+          created_at: s.created_at,
+        })),
+        mainByOs.get(osId)
+      );
       enriched.push({
-        id: ordered[0]?.id || item.id,
-        serial_number: ordered[0]?.serial_number,
-        s1: ordered[0]?.serial_number || item.serial_number,
-        s2: ordered[1]?.serial_number || '',
-        s3: ordered[2]?.serial_number || '',
-        s4: ordered[3]?.serial_number || '',
+        id: slots.primary.id || item.id,
+        serial_number: slots.s1 || item.serial_number,
+        s1: slots.s1 || item.serial_number,
+        s2: slots.s2,
+        s3: slots.s3,
+        s4: slots.s4,
         material,
         valuation,
         service_order_id: osId,

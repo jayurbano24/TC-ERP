@@ -152,7 +152,7 @@ export async function GET(req: NextRequest) {
       { wch: 10 },
       { wch: 20 },
     ];
-
+    
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Detalle Cajas');
     const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });

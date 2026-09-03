@@ -37,7 +37,9 @@ export function useBackofficeCatalogs() {
           nombre: normalizeCatalogLabel(m.name),
           tecnologiaId: m.technology_id,
           seriesCount: m.series_count || 1,
-          digitsPerSeries: m.digits_per_series || [12],
+          digitsPerSeries: Array.isArray(m.digits_per_series)
+            ? m.digits_per_series
+            : [],
         }))
       );
       // Cargo Express / couriers nunca son Agencia CAC.

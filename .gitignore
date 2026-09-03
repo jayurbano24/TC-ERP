@@ -63,3 +63,5 @@ scripts/*_six_files.js
 **/_wire_*.py
 **/_migrate_*.py
 **/_commit_msg.txt
+
+.vercel

@@ -1,4 +1,10 @@
 {
+  "rewrites": [
+    {
+      "source": "/iclock/:path*",
+      "destination": "/api/iclock/:path*"
+    }
+  ],
   "crons": [
     {
       "path": "/api/internal/outbox-publish",

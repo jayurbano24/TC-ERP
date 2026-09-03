@@ -6,6 +6,12 @@ import {
   Warehouse, Cpu, MapPin, QrCode, Info, Calendar, PackageCheck,
   ArrowRight, History, Eye, Pencil, Printer, Trash2,
 } from 'lucide-react';
+import {
+  getExpectedDigitsForSlot,
+  prepareScannedSerial,
+  resolveModelDigitRules,
+  serialLengthCounterLabel,
+} from '@/shared/validation/serialDigitRules';
 
 type Props = {
   selectedBox: any;
@@ -55,6 +61,15 @@ export const DetalleCajaModal = memo(function DetalleCajaModal({
   // Lookups O(1) para evitar .find() por celda (importante con muchas unidades).
   const marcaMap = useMemo(() => new Map(catMarcas.map((b) => [b.id, b.name])), [catMarcas]);
   const modeloMap = useMemo(() => new Map(catModelos.map((m) => [m.id, m.name])), [catModelos]);
+  const expectedSerialDigits = useMemo(() => {
+    const model =
+      catModelos.find((m) => m.id === selectedBox?.modelo || m.id === selectedBox?.model_id) ||
+      catModelos.find((m) => m.name === selectedBox?.modelo);
+    if (!model) return null;
+    const rules = resolveModelDigitRules(model);
+    return getExpectedDigitsForSlot(rules.digitsPerSeries, 0);
+  }, [catModelos, selectedBox?.modelo, selectedBox?.model_id]);
+  const preparedSnLen = prepareScannedSerial(currentSN).length;
   const tecMap = useMemo(() => new Map(catTecnologias.map((t) => [t.id, t.name])), [catTecnologias]);
 
   const seriesColumns = useMemo<DataTableColumn<any>[]>(() => [
@@ -174,18 +189,35 @@ export const DetalleCajaModal = memo(function DetalleCajaModal({
                   </div>
                   <span className="text-[10px] font-bold text-[var(--muted)] italic">Sincronizado con Recepción / Backoffice</span>
                 </div>
-                <form onSubmit={onAddSN} className="flex gap-3">
-                  <input
-                    type="text"
-                    autoFocus
-                    className="flex-1 h-16 px-6 bg-[var(--surface)] border-2 border-[var(--border)] rounded-2xl text-xl font-mono font-bold outline-none focus:border-[var(--accent)] shadow-sm transition-all"
-                    placeholder="Escanee SN del equipo..."
-                    value={currentSN}
-                    onChange={e => setCurrentSN(e.target.value)}
-                  />
-                  <Button type="submit" className="h-16 px-8 rounded-2xl shadow-lg">
-                    <ArrowRight className="w-6 h-6" />
-                  </Button>
+                <form onSubmit={onAddSN} className="flex flex-col gap-2">
+                  <div className="flex gap-3">
+                    <input
+                      type="text"
+                      autoFocus
+                      className="flex-1 h-16 px-6 bg-[var(--surface)] border-2 border-[var(--border)] rounded-2xl text-xl font-mono font-bold outline-none focus:border-[var(--accent)] shadow-sm transition-all uppercase"
+                      placeholder={
+                        expectedSerialDigits
+                          ? `Escanee SN (${expectedSerialDigits} caracteres)...`
+                          : 'Escanee SN del equipo...'
+                      }
+                      value={currentSN}
+                      onChange={e => setCurrentSN(e.target.value)}
+                    />
+                    <Button type="submit" className="h-16 px-8 rounded-2xl shadow-lg">
+                      <ArrowRight className="w-6 h-6" />
+                    </Button>
+                  </div>
+                  <p
+                    className={`text-right text-[11px] font-bold ${
+                      expectedSerialDigits &&
+                      preparedSnLen > 0 &&
+                      preparedSnLen !== expectedSerialDigits
+                        ? 'text-amber-600'
+                        : 'text-[var(--muted)]'
+                    }`}
+                  >
+                    {serialLengthCounterLabel(preparedSnLen, expectedSerialDigits)}
+                  </p>
                 </form>
               </div>
 

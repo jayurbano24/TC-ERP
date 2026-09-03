@@ -1,7 +1,7 @@
 'use client';
 
 import { memo } from 'react';
-import { Card, Badge, Button } from '@/components/ui';
+import { Card, Button } from '@/components/ui';
 import { X, Layers, CheckCircle2 } from 'lucide-react';
 
 type Props = {
@@ -210,12 +210,15 @@ export const ConfigModal = memo(function ConfigModal({
                       value={formData.seriesCount || ''}
                       onChange={e => updateSeriesCount(parseInt(e.target.value))}
                     />
+                    <p className="text-[9px] text-slate-400 font-medium">Número de slots SN (S1…S4), no cantidad de equipos.</p>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4 animate-rise-in">
                     {Array.from({ length: formData.seriesCount || 0 }).map((_, i) => (
                       <div key={i} className="space-y-2">
-                        <label className="text-[9px] font-black uppercase text-amber-500">Dígitos Serie {i + 1}</label>
+                        <label className="text-[9px] font-black uppercase text-amber-500">
+                          Dígitos Serie {i + 1}
+                        </label>
                         <input
                           type="number" required min="1"
                           className="w-full bg-amber-50/50 p-4 rounded-xl border border-amber-200 font-bold text-[#181c3a]"
@@ -226,24 +229,45 @@ export const ConfigModal = memo(function ConfigModal({
                             setFormData({ ...formData, digitsPerSeries: newDigits });
                           }}
                         />
+                        <p className="text-[8px] text-amber-600/80 font-bold uppercase tracking-wide">
+                          = caracteres exactos del Serial S{i + 1}
+                        </p>
                       </div>
                     ))}
                   </div>
                 </div>
               </div>
 
-              <div className="bg-slate-50 rounded-2xl p-6 border border-slate-100">
-                <p className="text-[10px] font-black uppercase text-slate-400 mb-4 tracking-widest">Modelos Existentes</p>
-                <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+              <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 flex flex-col min-h-0">
+                <p className="text-[10px] font-black uppercase text-slate-400 mb-2 tracking-widest shrink-0">
+                  Modelos Existentes
+                </p>
+                <div className="flex-1 space-y-0.5 max-h-[400px] overflow-y-auto pr-1 custom-scrollbar">
                   {formData.marcaId ? (
                     modelsInSelectedBrand.length > 0 ? (
                       modelsInSelectedBrand.map(m => (
-                        <div key={m.id} className="flex flex-col bg-white p-4 rounded-xl border border-slate-200 gap-2">
-                          <span className="text-xs font-bold text-slate-600">{m.nombre}</span>
-                          <div className="flex flex-wrap gap-1">
-                            {m.digitsPerSeries?.map((d: number, idx: number) => (
-                              <Badge key={idx} className="text-[7px] bg-slate-50 text-slate-400 border-none">S{idx+1}: {d}D</Badge>
-                            ))}
+                        <div
+                          key={m.id}
+                          className="flex items-center gap-2 bg-white px-2.5 py-1.5 rounded-lg border border-slate-100 hover:border-slate-200"
+                        >
+                          <span className="text-[11px] font-bold text-slate-700 truncate min-w-0 flex-1">
+                            {m.nombre}
+                          </span>
+                          <div className="flex flex-wrap items-center gap-1 shrink-0 justify-end">
+                            {m.digitsPerSeries?.length ? (
+                              m.digitsPerSeries.map((d: number, idx: number) => (
+                                <span
+                                  key={idx}
+                                  className="text-[9px] font-mono font-black text-slate-500 tabular-nums"
+                                >
+                                  S{idx + 1}:{d}D
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-[8px] font-black uppercase text-amber-600">
+                                Sin dígitos
+                              </span>
+                            )}
                           </div>
                         </div>
                       ))
@@ -337,7 +361,9 @@ export const ConfigModal = memo(function ConfigModal({
                 <div className="grid grid-cols-2 gap-4">
                   {Array.from({ length: formData.seriesCount || 0 }).map((_, i) => (
                     <div key={i} className="space-y-2">
-                      <label className="text-[9px] font-black uppercase text-slate-400">Dígitos Serie {i + 1}</label>
+                      <label className="text-[9px] font-black uppercase text-slate-400">
+                        Dígitos Serie {i + 1}
+                      </label>
                       <input
                         type="number" required
                         className="w-full bg-slate-50 p-4 rounded-xl border border-slate-100 font-bold"
@@ -348,6 +374,9 @@ export const ConfigModal = memo(function ConfigModal({
                           setFormData({ ...formData, digitsPerSeries: newDigits });
                         }}
                       />
+                      <p className="text-[8px] text-slate-400 font-bold uppercase">
+                        = caracteres exactos del Serial S{i + 1}
+                      </p>
                     </div>
                   ))}
                 </div>

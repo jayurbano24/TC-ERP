@@ -1171,7 +1171,7 @@ export async function getEngineKPIs(timeRange: string = 'Hoy') {
     for (let i = 0; i < auditIds.length; i += 80) {
       const chunk = auditIds.slice(i, i + 80);
       const { data: logs } = await supabase
-        .from('erp_audit_logs')
+    .from('erp_audit_logs')
         .select('record_id, user_id')
         .eq('action', 'INGRESO BODEGA')
         .in('record_id', chunk)

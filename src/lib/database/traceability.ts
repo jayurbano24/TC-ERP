@@ -687,12 +687,12 @@ export async function getEquipmentTraceabilityHistory(params: {
 
   const [auditChunks, domainByAggregate, domainByCorrelation, warehouseRows, boxCode] =
     await Promise.all([
-      Promise.all(auditPromises),
-      domainPromise,
-      correlationPromise,
+    Promise.all(auditPromises),
+    domainPromise,
+    correlationPromise,
       warehousePromise,
       boxCodePromise,
-    ]);
+  ]);
 
   const auditRows = new Map<string, { row: any; alreadyScoped: boolean }>();
   for (const chunk of auditChunks) {

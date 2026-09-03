@@ -46,6 +46,8 @@ function isPublicApiPath(pathname: string): boolean {
   return (
     pathname === '/api/health' ||
     pathname.startsWith('/api/iclock') ||
+    // ADMS ZKTeco pega /iclock/* (sin /api); rewrite en vercel.json → /api/iclock/*
+    pathname.startsWith('/iclock') ||
     // Telemetría sendBeacon: no lleva Authorization; no debe exigir sesión ni provocar 401 ruidosos.
     pathname === '/api/observability/web-vitals'
   );

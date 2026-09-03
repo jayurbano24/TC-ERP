@@ -16,9 +16,29 @@ import {
   History,
   Package,
 } from 'lucide-react';
-import { listBoxDeletionRequests, reviewBoxDeletion } from '@/modules/inventario/client/warehouseBoxes';
+import {
+  listBoxDeletionRequests,
+  reviewBoxDeletion,
+} from '@/modules/inventario/client/warehouseBoxes';
+import {
+  fetchPartDeletionRequests,
+  reviewPartDeletionApi,
+} from '@/lib/api/parts';
 
 type Tab = 'pending' | 'approved' | 'rejected' | 'all';
+
+type AuthRow = {
+  id: string;
+  kind: 'box' | 'part';
+  status: string;
+  title: string;
+  reason: string;
+  observations?: string | null;
+  requested_at?: string | null;
+  reviewed_at?: string | null;
+  review_notes?: string | null;
+  meta?: string;
+};
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'pending', label: 'Pendientes' },
@@ -34,6 +54,46 @@ function statusBadge(status: string) {
   return <Badge variant="default">{status}</Badge>;
 }
 
+async function loadAuthRows(statusParam: string): Promise<AuthRow[]> {
+  const [boxes, parts] = await Promise.all([
+    listBoxDeletionRequests(statusParam, 100),
+    fetchPartDeletionRequests(statusParam).catch(() => [] as any[]),
+  ]);
+  if (boxes.error) throw new Error(boxes.error);
+
+  const boxRows: AuthRow[] = (boxes.data || []).map((r: any) => ({
+    id: r.id,
+    kind: 'box' as const,
+    status: r.status,
+    title: r.box_code || r.box_id,
+    reason: r.reason,
+    observations: r.observations,
+    requested_at: r.requested_at,
+    reviewed_at: r.reviewed_at,
+    review_notes: r.review_notes,
+    meta: `${r.equipos_count ?? 0} equipos · rack ${r.rack || '—'}`,
+  }));
+
+  const partRows: AuthRow[] = (parts || []).map((r: any) => ({
+    id: r.id,
+    kind: 'part' as const,
+    status: r.status,
+    title: `${r.sku || '—'} · ${r.part_name || 'Pieza'}`,
+    reason: r.reason,
+    observations: r.observations,
+    requested_at: r.requested_at,
+    reviewed_at: r.reviewed_at,
+    review_notes: r.review_notes,
+    meta: `Stock al solicitar: ${r.qty_on_hand ?? 0}`,
+  }));
+
+  return [...boxRows, ...partRows].sort((a, b) => {
+    const ta = a.requested_at ? new Date(a.requested_at).getTime() : 0;
+    const tb = b.requested_at ? new Date(b.requested_at).getTime() : 0;
+    return tb - ta;
+  });
+}
+
 export default function AutorizacionesPage() {
   const { isAdmin, isLoading: authzLoading } = useAuthz();
   const router = useRouter();
@@ -44,22 +104,15 @@ export default function AutorizacionesPage() {
   const statusParam = tab === 'all' ? 'all' : tab;
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ['box-deletion-requests', statusParam],
-    queryFn: async () => {
-      const res = await listBoxDeletionRequests(statusParam, 100);
-      if (res.error) throw new Error(res.error);
-      return res.data || [];
-    },
+    queryKey: ['authorization-requests', statusParam],
+    queryFn: () => loadAuthRows(statusParam),
     enabled: isAdmin,
     refetchInterval: isAdmin && tab === 'pending' ? 20_000 : false,
   });
 
   const { data: pendingCountData } = useQuery({
-    queryKey: ['box-deletion-requests', 'pending', 'count'],
-    queryFn: async () => {
-      const res = await listBoxDeletionRequests('pending', 100);
-      return (res.data || []).length;
-    },
+    queryKey: ['authorization-requests', 'pending', 'count'],
+    queryFn: async () => (await loadAuthRows('pending')).length,
     enabled: isAdmin,
     refetchInterval: isAdmin ? 20_000 : false,
   });
@@ -82,8 +135,8 @@ export default function AutorizacionesPage() {
         tone: erpSoftStat.accent,
       },
       {
-        label: 'Tipo',
-        value: 'Eliminación de cajas',
+        label: 'Tipos',
+        value: 'Cajas + Piezas',
         icon: <Package className="w-5 h-5" />,
         tone: erpSoftStat.muted,
         isText: true,
@@ -92,26 +145,38 @@ export default function AutorizacionesPage() {
     [pendingCount, rows.length]
   );
 
-  const review = async (requestId: string, decision: 'approve' | 'reject') => {
-    setBusyId(requestId);
+  const review = async (row: AuthRow, decision: 'approve' | 'reject') => {
+    setBusyId(row.id);
     try {
-      const res = await reviewBoxDeletion({ requestId, decision });
-      if (res.error) {
-        notify.error('No se pudo resolver la solicitud', { description: res.error });
-        return;
-      }
-      notify.success(decision === 'approve' ? 'Eliminación autorizada' : 'Solicitud rechazada', {
-        description:
+      if (row.kind === 'box') {
+        const res = await reviewBoxDeletion({ requestId: row.id, decision });
+        if (res.error) {
+          notify.error('No se pudo resolver la solicitud', { description: res.error });
+          return;
+        }
+        notify.success(
+          decision === 'approve' ? 'Eliminación de caja autorizada' : 'Solicitud rechazada'
+        );
+      } else {
+        await reviewPartDeletionApi(row.id, decision);
+        notify.success(
           decision === 'approve'
-            ? 'La caja quedó en soft delete (ELIMINADO).'
-            : 'La caja continúa activa.',
-      });
+            ? 'Eliminación de pieza autorizada'
+            : 'Solicitud de pieza rechazada'
+        );
+      }
       await Promise.all([
         refetch(),
+        queryClient.invalidateQueries({ queryKey: ['authorization-requests'] }),
         queryClient.invalidateQueries({ queryKey: ['box-deletion-requests'] }),
+        queryClient.invalidateQueries({ queryKey: ['parts-inventory'] }),
+        queryClient.invalidateQueries({ queryKey: ['parts-catalog'] }),
         queryClient.invalidateQueries({ queryKey: ['warehouse-boxes'] }),
-        queryClient.invalidateQueries({ queryKey: ['warehouse-stats'] }),
       ]);
+    } catch (e: unknown) {
+      notify.error('No se pudo resolver', {
+        description: e instanceof Error ? e.message : undefined,
+      });
     } finally {
       setBusyId(null);
     }
@@ -127,17 +192,13 @@ export default function AutorizacionesPage() {
 
   if (!isAdmin) {
     return (
-      <ModulePage
-        title="Autorizaciones"
-        subtitle="Acceso restringido"
-        category="Gestión"
-      >
+      <ModulePage title="Autorizaciones" subtitle="Acceso restringido" category="Gestión">
         <Card className="p-8 text-center space-y-3">
           <ShieldCheck className="w-10 h-10 text-[var(--muted)] mx-auto" />
           <h3 className="text-lg font-black text-[var(--heading)]">Solo Gerente General</h3>
           <p className="text-sm text-[var(--muted)] max-w-md mx-auto">
-            Este módulo concentra las solicitudes que requieren autorización previa
-            (por ejemplo, eliminación de cajas de bodega).
+            Este módulo concentra las solicitudes que requieren autorización previa (cajas y
+            piezas con stock).
           </p>
           <Button variant="outline" onClick={() => router.push('/dashboard')}>
             Volver al Dashboard
@@ -172,7 +233,9 @@ export default function AutorizacionesPage() {
                 <p className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)]">
                   {s.label}
                 </p>
-                <p className={`font-black text-[var(--heading)] ${s.isText ? 'text-sm mt-1' : 'text-2xl'}`}>
+                <p
+                  className={`font-black text-[var(--heading)] ${s.isText ? 'text-sm mt-1' : 'text-2xl'}`}
+                >
                   {s.value}
                 </p>
               </div>
@@ -184,9 +247,7 @@ export default function AutorizacionesPage() {
           items={TABS.map((t) => ({
             id: t.id,
             label:
-              t.id === 'pending' && pendingCount > 0
-                ? `${t.label} (${pendingCount})`
-                : t.label,
+              t.id === 'pending' && pendingCount > 0 ? `${t.label} (${pendingCount})` : t.label,
           }))}
           value={tab}
           onChange={(id) => setTab(id as Tab)}
@@ -197,9 +258,10 @@ export default function AutorizacionesPage() {
           <div className="border-b border-[var(--border)] bg-[var(--surface)] px-6 py-4 flex items-center gap-3">
             <ShieldCheck className="w-5 h-5 text-[var(--accent)]" />
             <div>
-              <h3 className="font-bold text-[var(--heading)]">Eliminación de cajas — Bodega</h3>
+              <h3 className="font-bold text-[var(--heading)]">Solicitudes de eliminación</h3>
               <p className="text-[11px] text-[var(--muted)]">
-                Soft delete solo tras aprobación. Las series se conservan para auditoría.
+                Cajas de bodega y piezas con stock. Soft delete / desactivación solo tras
+                aprobación.
               </p>
             </div>
           </div>
@@ -210,21 +272,26 @@ export default function AutorizacionesPage() {
             ) : rows.length === 0 ? (
               <div className="py-12 text-center space-y-2">
                 <Inbox className="w-8 h-8 text-[var(--muted)]/40 mx-auto" />
-                <p className="text-sm font-bold text-[var(--foreground)]">No hay solicitudes en esta vista</p>
+                <p className="text-sm font-bold text-[var(--foreground)]">
+                  No hay solicitudes en esta vista
+                </p>
                 <p className="text-[12px] text-[var(--muted)]">
-                  Cuando Bodega solicite eliminar una caja, aparecerá aquí.
+                  Cuando Bodega solicite eliminar una caja o una pieza con stock, aparecerá aquí.
                 </p>
               </div>
             ) : (
-              rows.map((r: any) => (
+              rows.map((r) => (
                 <div
-                  key={r.id}
+                  key={`${r.kind}-${r.id}`}
                   className="rounded-2xl border border-[var(--border)] bg-[var(--surface-hover)] p-4 flex flex-col lg:flex-row lg:items-center gap-4 justify-between"
                 >
                   <div className="min-w-0 space-y-1.5">
                     <div className="flex items-center gap-2 flex-wrap">
+                      <Badge variant={r.kind === 'part' ? 'blue' : 'slate'}>
+                        {r.kind === 'part' ? 'Pieza' : 'Caja'}
+                      </Badge>
                       <span className="font-mono font-black text-[var(--heading)] text-lg">
-                        {r.box_code || r.box_id}
+                        {r.title}
                       </span>
                       {statusBadge(r.status)}
                       <span className="text-[10px] text-[var(--muted)]">
@@ -236,16 +303,20 @@ export default function AutorizacionesPage() {
                       <span className="font-bold">Motivo:</span> {r.reason}
                     </p>
                     {r.observations ? (
-                      <p className="text-[12px] text-[var(--muted)]">Observaciones: {r.observations}</p>
+                      <p className="text-[12px] text-[var(--muted)]">
+                        Observaciones: {r.observations}
+                      </p>
                     ) : null}
                     <p className="text-[11px] text-[var(--muted)]">
-                      {r.equipos_count ?? 0} equipos · rack {r.rack || '—'}
+                      {r.meta}
                       {r.reviewed_at
                         ? ` · Revisada ${new Date(r.reviewed_at).toLocaleString()}`
                         : ''}
                     </p>
                     {r.review_notes ? (
-                      <p className="text-[12px] text-[var(--muted)]">Nota revisión: {r.review_notes}</p>
+                      <p className="text-[12px] text-[var(--muted)]">
+                        Nota revisión: {r.review_notes}
+                      </p>
                     ) : null}
                   </div>
 
@@ -256,7 +327,7 @@ export default function AutorizacionesPage() {
                         className="text-rose-600 border-rose-200 hover:bg-rose-50"
                         disabled={busyId === r.id}
                         leftIcon={<XCircle className="w-4 h-4" />}
-                        onClick={() => void review(r.id, 'reject')}
+                        onClick={() => void review(r, 'reject')}
                       >
                         Rechazar
                       </Button>
@@ -265,7 +336,7 @@ export default function AutorizacionesPage() {
                         className="bg-emerald-600 hover:bg-emerald-700 border-none"
                         disabled={busyId === r.id}
                         leftIcon={<CheckCircle2 className="w-4 h-4" />}
-                        onClick={() => void review(r.id, 'approve')}
+                        onClick={() => void review(r, 'approve')}
                       >
                         Autorizar
                       </Button>

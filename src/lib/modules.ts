@@ -23,6 +23,7 @@ export const erpModules: ErpModule[] = [
   { id: 8, categoria: 'Bodega', nombre: "Tipos de Salida", descripcion: "Salidas masivas: Producción, Obsoleto, etc.", ruta: "/bodega/salidas" },
   { id: 20, categoria: 'Bodega', nombre: "Bodega de Salida", descripcion: "Cajas OUTBOUND / staging de despacho (LEGACY).", ruta: "/bodega/salida" },
   { id: 21, categoria: 'Bodega', nombre: "Bodega SCRAPS", descripcion: "Cajas SCRAP transferidas o de despacho scrap.", ruta: "/bodega/scraps" },
+  { id: 22, categoria: 'Bodega', nombre: "Bodega de Partes", descripcion: "Catálogo, inventario, solicitudes y compras de piezas.", ruta: "/bodega/partes" },
 
   // DESPACHO
   { id: 10, categoria: 'Bodega', nombre: "Despacho Final", descripcion: "Masivo, individual y Master Box.", ruta: "/despacho" },
@@ -69,9 +70,9 @@ export const navigationGroups = [
       { label: "Backoffice", href: "/produccion/backoffice", descripcion: "Aceptación & SN", icon: "Laptop" },
       { label: "Taller", href: "/produccion/taller", descripcion: "Reparación & QC", icon: "Wrench" },
       { label: "Bodega", href: "/bodega/gestion", descripcion: "Racks & Stock", icon: "Warehouse" },
-      { label: "Bodega Salida", href: "/bodega/salida", descripcion: "OUTBOUND / Despacho", icon: "PackageMinus", permissionKey: "Bodega" },
       { label: "Bodega SCRAPS", href: "/bodega/scraps", descripcion: "Cajas SCRAP", icon: "Trash2", permissionKey: "Bodega" },
       { label: "Accesorios", href: "/bodega/accesorios", descripcion: "Bodega de Accesorios", icon: "Boxes", permissionKey: "Accesorios" },
+      { label: "Bodega de Partes", href: "/bodega/partes", descripcion: "Piezas / Solicitudes", icon: "PackageCheck", permissionKey: "Bodega" },
       { label: "Despacho", href: "/despacho", descripcion: "Salida de Equipos", icon: "Truck", permissionKey: "Despacho" },
       { label: "Integración SAP", href: "/integracion-sap", descripcion: "Centro de Validación", icon: "Database", permissionKey: "Integración SAP" },
     ]

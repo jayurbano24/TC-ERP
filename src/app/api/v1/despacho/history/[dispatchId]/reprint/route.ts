@@ -6,9 +6,13 @@ import { ROLES_BODEGA_DESPACHO } from '@/shared/authz/roleGuard';
 import { assertBatchLimit } from '@/shared/infrastructure/http/batchLimit';
 import { estimateJsonBytes, logEgress } from '@/shared/infrastructure/http/egressLog';
 import { getCorrelationIdFromHeaders } from '@/shared/infrastructure/http/correlationId';
+import {
+  buildEquipmentSerialSlots,
+  coalesceMaterialLote,
+} from '@/lib/sap/equipmentSerialSlots';
 
 const SIBLING_SELECT =
-  'id, serial_number, service_order_id, material, valuation, brand_id, model_id, created_at';
+  'id, serial_number, service_order_id, material, valuation, sap_status, brand_id, model_id, created_at';
 
 type Sib = {
   id: string;
@@ -16,54 +20,11 @@ type Sib = {
   service_order_id?: string | null;
   material?: string | null;
   valuation?: string | null;
+  sap_status?: string | null;
   brand_id?: string | null;
   model_id?: string | null;
+  created_at?: string | null;
 };
-
-function coalesceMaterialLote(
-  rows: Array<{ material?: string | null; valuation?: string | null }>
-): { material: string; valuation: string } {
-  let material = '';
-  let valuation = '';
-  for (const s of rows) {
-    const m = String(s.material ?? '').trim();
-    const v = String(s.valuation ?? '').trim();
-    if (!material && m) material = m;
-    if (!valuation && v) valuation = v;
-    if (material && valuation) break;
-  }
-  return { material, valuation };
-}
-
-function looksLikeSapSn(sn: string): boolean {
-  return /^\d{12,}$/.test(sn.trim());
-}
-
-function looksLikeMac(sn: string): boolean {
-  const s = sn.trim();
-  return /^[0-9A-Fa-f]{12}$/.test(s) && /[A-Fa-f]/.test(s);
-}
-
-function pickSapPrimary(sibs: Sib[], mainSerial?: string | null): Sib {
-  if (!sibs.length) throw new Error('no siblings');
-  const norm = (s: string) => s.trim().toUpperCase();
-  const main = mainSerial?.trim() || '';
-  if (main && looksLikeSapSn(main)) {
-    const hit = sibs.find((s) => norm(String(s.serial_number || '')) === norm(main));
-    if (hit) return hit;
-  }
-  const score = (s: Sib) => {
-    const sn = String(s.serial_number || '');
-    let n = 0;
-    if (looksLikeSapSn(sn)) n += 100;
-    if (looksLikeMac(sn)) n -= 50;
-    if (main && norm(sn) === norm(main)) n += 15;
-    if (String(s.material ?? '').trim()) n += 30;
-    if (String(s.valuation ?? '').trim()) n += 10;
-    return n;
-  };
-  return [...sibs].sort((a, b) => score(b) - score(a))[0]!;
-}
 
 type RouteContext = { params: Promise<{ dispatchId: string }> };
 
@@ -177,17 +138,27 @@ export const GET = withErrorHandler(
       let sibs: Sib[] = osId ? siblingsByOs.get(osId) ?? [item] : [item];
       if (!sibs.length) sibs = [item];
 
-      const primary = pickSapPrimary(sibs, osId ? mainByOs.get(osId) : null);
-      const ordered = [primary, ...sibs.filter((s) => s.id !== primary.id)];
-      const { material, valuation } = coalesceMaterialLote(ordered);
+      const slots = buildEquipmentSerialSlots(
+        sibs.map((s) => ({
+          id: String(s.id),
+          serial_number: s.serial_number,
+          material: s.material,
+          valuation: s.valuation,
+          sap_status: s.sap_status,
+          created_at: s.created_at,
+        })),
+        osId ? mainByOs.get(osId) : null
+      );
+      const { material, valuation } = coalesceMaterialLote(sibs);
+      const primary = sibs.find((s) => String(s.id) === slots.primary.id) ?? sibs[0]!;
 
       enriched.push({
         id: primary.id,
-        serial_number: primary.serial_number,
-        s1: ordered[0]?.serial_number ?? '',
-        s2: ordered[1]?.serial_number ?? '',
-        s3: ordered[2]?.serial_number ?? '',
-        s4: ordered[3]?.serial_number ?? '',
+        serial_number: slots.s1 || primary.serial_number,
+        s1: slots.s1,
+        s2: slots.s2,
+        s3: slots.s3,
+        s4: slots.s4,
         material,
         valuation,
         brand_id: primary.brand_id ?? item.brand_id,

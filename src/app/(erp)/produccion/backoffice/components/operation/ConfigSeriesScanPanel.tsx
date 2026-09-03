@@ -10,9 +10,11 @@ import {
   formatIngresoLabel,
 } from '@/modules/recepcion/client/receptions';
 import {
-  clampSerialToMaxDigits,
   getExpectedDigitsForSlot,
-  validateSerialExactDigits,
+  prepareScannedSerial,
+  serialLengthCounterLabel,
+  validateSerialForModelSlot,
+  validateSerialLength,
 } from '@/shared/validation/serialDigitRules';
 
 type Props = { ctx: OperationContext };
@@ -39,15 +41,17 @@ async function attachUnitReentry(target: GuideItem, unitIdx: number) {
 function addSerialToItem(
   item: GuideItem,
   sn: string,
-  expectedDigits: number | null
-): { ok: true; unitIdx: number; completed: boolean } | { ok: false; reason: string } {
-  const lengthCheck = validateSerialExactDigits(sn, expectedDigits, 'Serie');
-  if (!lengthCheck.ok) {
-    return { ok: false, reason: lengthCheck.description || lengthCheck.message };
+  model: { digitsPerSeries?: number[] } | null | undefined,
+  slotIdx: number
+): { ok: true; unitIdx: number; completed: boolean } | { ok: false; title: string; reason: string } {
+  const lengthCheck = validateSerialForModelSlot(sn, model, slotIdx);
+  if (!lengthCheck.valid) {
+    return { ok: false, title: lengthCheck.title, reason: lengthCheck.message };
   }
+  const normalized = lengthCheck.serial;
 
-  if (item.series.flat().includes(sn)) {
-    return { ok: false, reason: 'Serie ya existe' };
+  if (item.series.flat().includes(normalized)) {
+    return { ok: false, title: 'Serie duplicada', reason: 'Serie ya existe' };
   }
 
   let lastUnit = item.series.length > 0 ? item.series[item.series.length - 1] : null;
@@ -55,14 +59,14 @@ function addSerialToItem(
   let completed = false;
 
   if (lastUnit && lastUnit.length < item.seriesPerUnit) {
-    lastUnit.push(sn);
+    lastUnit.push(normalized);
     unitIdx = item.series.length - 1;
     completed = lastUnit.length >= item.seriesPerUnit;
   } else {
     if (item.series.length >= item.cantidad) {
-      return { ok: false, reason: 'Límite de unidades alcanzado' };
+      return { ok: false, title: 'Límite alcanzado', reason: 'Límite de unidades alcanzado' };
     }
-    item.series.push([sn]);
+    item.series.push([normalized]);
     unitIdx = item.series.length - 1;
     completed = item.seriesPerUnit <= 1;
     const counts = [...(item.unitReentryCounts || [])];
@@ -89,7 +93,7 @@ export function ConfigSeriesScanPanel({ ctx }: Props) {
   } = ctx;
 
   const handleAddSerial = async (idx: number, raw: string) => {
-    const sn = raw.trim().toUpperCase();
+    const sn = prepareScannedSerial(raw);
     if (!sn) return;
 
     const newItems = [...guideItems];
@@ -104,11 +108,10 @@ export function ConfigSeriesScanPanel({ ctx }: Props) {
         : null;
     const slotIdx = lastUnit ? lastUnit.length : 0;
     const model = MASTER_MODELOS.find((m) => m.id === target.modelo);
-    const expectedDigits = getExpectedDigitsForSlot(model?.digitsPerSeries, slotIdx);
 
-    const result = addSerialToItem(target, sn, expectedDigits);
+    const result = addSerialToItem(target, sn, model, slotIdx);
     if (!result.ok) {
-      notify.warning(result.reason);
+      notify.warning(result.title || 'Serial inválido', { description: result.reason });
       return;
     }
 
@@ -168,41 +171,56 @@ export function ConfigSeriesScanPanel({ ctx }: Props) {
                 >
                   <Table size={12} className="mr-1.5" /> Carga Masiva
                 </Button>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    autoFocus
-                    maxLength={expectedDigits || undefined}
-                    placeholder={`Pistolear ${
-                      item.series.length > 0 &&
-                      item.series[item.series.length - 1].length < item.seriesPerUnit
-                        ? 'Serie ' +
-                          (item.series[item.series.length - 1].length + 1) +
-                          ' / Unidad ' +
-                          item.series.length
-                        : 'Serie 1 / Unidad ' + (item.series.length + 1)
-                    }${expectedDigits ? ` (${expectedDigits} caracteres)` : ''}...`}
-                    className="bg-white border-2 border-slate-200 rounded-xl px-4 py-3 text-xs font-mono font-bold outline-none focus:border-[var(--accent)] w-64 transition-all"
-                    value={itemSeriesInputs[idx] || ''}
-                    onChange={(e) =>
-                      setItemSeriesInputs({
-                        ...itemSeriesInputs,
-                        [idx]: clampSerialToMaxDigits(e.target.value, expectedDigits),
-                      })
-                    }
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        void handleAddSerial(idx, itemSeriesInputs[idx] || '');
+                <div className="flex flex-col gap-1">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      autoFocus
+                      placeholder={`Pistolear ${
+                        item.series.length > 0 &&
+                        item.series[item.series.length - 1].length < item.seriesPerUnit
+                          ? 'Serie ' +
+                            (item.series[item.series.length - 1].length + 1) +
+                            ' / Unidad ' +
+                            item.series.length
+                          : 'Serie 1 / Unidad ' + (item.series.length + 1)
+                      }${expectedDigits ? ` (${expectedDigits} caracteres)` : ''}...`}
+                      className="bg-white border-2 border-slate-200 rounded-xl px-4 py-3 text-xs font-mono font-bold outline-none focus:border-[var(--accent)] w-64 transition-all uppercase"
+                      value={itemSeriesInputs[idx] || ''}
+                      onChange={(e) =>
+                        setItemSeriesInputs({
+                          ...itemSeriesInputs,
+                          [idx]: e.target.value,
+                        })
                       }
-                    }}
-                  />
-                  <Button
-                    variant="secondary"
-                    className="h-12 w-12 p-0 rounded-xl bg-[var(--heading)] text-white hover:bg-[var(--accent)]"
-                    onClick={() => void handleAddSerial(idx, itemSeriesInputs[idx] || '')}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          void handleAddSerial(idx, itemSeriesInputs[idx] || '');
+                        }
+                      }}
+                    />
+                    <Button
+                      variant="secondary"
+                      className="h-12 w-12 p-0 rounded-xl bg-[var(--heading)] text-white hover:bg-[var(--accent)]"
+                      onClick={() => void handleAddSerial(idx, itemSeriesInputs[idx] || '')}
+                    >
+                      <Plus size={16} />
+                    </Button>
+                  </div>
+                  <span
+                    className={`text-right text-[10px] font-bold ${
+                      expectedDigits &&
+                      prepareScannedSerial(itemSeriesInputs[idx] || '').length > 0 &&
+                      prepareScannedSerial(itemSeriesInputs[idx] || '').length !== expectedDigits
+                        ? 'text-amber-600'
+                        : 'text-slate-400'
+                    }`}
                   >
-                    <Plus size={16} />
-                  </Button>
+                    {serialLengthCounterLabel(
+                      prepareScannedSerial(itemSeriesInputs[idx] || '').length,
+                      expectedDigits
+                    )}
+                  </span>
                 </div>
               </div>
             </div>
@@ -272,10 +290,22 @@ export function ConfigSeriesScanPanel({ ctx }: Props) {
                                             prompt: { defaultValue: currentSN },
                                           });
                                           if (newSN !== null && newSN.trim() !== '') {
+                                            const prepared = prepareScannedSerial(newSN);
+                                            const check = validateSerialLength(
+                                              prepared,
+                                              getExpectedDigitsForSlot(
+                                                modelo?.digitsPerSeries,
+                                                sIdx
+                                              )
+                                            );
+                                            if (!check.valid) {
+                                              notify.warning(check.title, {
+                                                description: check.message,
+                                              });
+                                              return;
+                                            }
                                             const newItems = [...guideItems];
-                                            newItems[idx].series[uIdx][sIdx] = newSN
-                                              .trim()
-                                              .toUpperCase();
+                                            newItems[idx].series[uIdx][sIdx] = check.serial;
                                             setGuideItems(newItems);
                                           }
                                         }}

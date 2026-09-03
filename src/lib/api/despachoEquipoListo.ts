@@ -2,10 +2,17 @@ import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
 import { apiFetch } from '@/lib/http/apiFetch';
 import { parseWorkshopSearchTokens } from '@/modules/workshop/shared/workshopSearch';
 
+export type DespachoEquipoListoTechStat = {
+  technology_id: string | null;
+  tech_name: string;
+  total_os: number;
+};
+
 export type DespachoEquipoListoPage = {
   items: DespachoEquipoListoRow[];
   nextCursor: string | null;
   totalOs: number | null;
+  byTechnology?: DespachoEquipoListoTechStat[];
   searchTruncated?: boolean;
 };
 
@@ -57,6 +64,9 @@ export async function fetchDespachoEquipoListoPage(opts?: {
     items: (data.items ?? []) as DespachoEquipoListoRow[],
     nextCursor: data.nextCursor ?? null,
     totalOs: data.totalOs ?? null,
+    byTechnology: Array.isArray(data.byTechnology)
+      ? (data.byTechnology as DespachoEquipoListoTechStat[])
+      : [],
     searchTruncated,
   };
 }

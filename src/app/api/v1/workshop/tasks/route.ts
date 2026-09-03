@@ -15,7 +15,16 @@ import { WORKSHOP_SEARCH_Q_MAX_CHARS } from '@/modules/workshop/shared/workshopS
 
 const TasksQuery = z.object({
   tab: z
-    .enum(['diagnostico', 'reparacion', 'qc', 'reacondicionado', 'l3', 'scraps', 'listo'])
+    .enum([
+      'diagnostico',
+      'reparacion',
+      'esperando_partes',
+      'qc',
+      'reacondicionado',
+      'l3',
+      'scraps',
+      'listo',
+    ])
     .default('diagnostico'),
   cursor: z.string().max(64).optional(),
   q: z.string().max(WORKSHOP_SEARCH_Q_MAX_CHARS).optional(),

@@ -38,15 +38,39 @@ export async function fetchWorkshopTasksPageViaApi(
     }
   }
 
-  const res = await apiFetch(`/api/v1/workshop/tasks?${params}`, { credentials: 'include' });
-  const data = await res.json();
+  const url = `/api/v1/workshop/tasks?${params}`;
+  let res: Response;
+  try {
+    res = await apiFetch(url, { credentials: 'include' });
+  } catch (err) {
+    // HMR / reinicio de Next: un reintento corto evita toast "Failed to fetch" espurio.
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/failed to fetch|networkerror|load failed/i.test(msg)) {
+      await new Promise((r) => setTimeout(r, 600));
+      try {
+        res = await apiFetch(url, { credentials: 'include' });
+      } catch {
+        throw new Error(
+          'No se pudo conectar con la API de Taller. Recarga la página o reinicia el servidor (npm run dev).'
+        );
+      }
+    } else {
+      throw err;
+    }
+  }
+
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(data.error ?? data.detail ?? `HTTP ${res.status}`);
+    throw new Error(
+      (data as { error?: string; detail?: string }).error ??
+        (data as { detail?: string }).detail ??
+        `HTTP ${res.status}`
+    );
   }
   return {
-    items: (data.items ?? []) as any[],
-    nextCursor: data.nextCursor ?? null,
-    totalOs: data.totalOs ?? null,
+    items: ((data as WorkshopTasksPage).items ?? []) as any[],
+    nextCursor: (data as WorkshopTasksPage).nextCursor ?? null,
+    totalOs: (data as WorkshopTasksPage).totalOs ?? null,
     searchTruncated,
     searchTotal,
   };

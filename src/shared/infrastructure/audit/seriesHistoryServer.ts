@@ -260,13 +260,13 @@ export async function querySeriesHistory(
   // PostgREST .in() soporta bien lotes moderados; partimos por si acaso.
   for (let i = 0; i < idList.length; i += 80) {
     const chunk = idList.slice(i, i + 80);
-    const { data, error } = await supabase
-      .from('erp_audit_logs')
+  const { data, error } = await supabase
+    .from('erp_audit_logs')
       .select('id, action, created_at, new_values, user_id, observations, record_id')
       .in('record_id', chunk)
       .order('created_at', { ascending: false })
       .limit(500);
-    if (error) throw error;
+  if (error) throw error;
     auditChunks.push(data || []);
   }
 

@@ -440,33 +440,33 @@ export async function printOutboundLabels(
     if (!filledCount) continue;
 
     const barcodeBlock: BarcodeRenderer = (value, slot) => {
-      const raw = String(value || '').trim();
-      if (!raw) return '';
+    const raw = String(value || '').trim();
+    if (!raw) return '';
       const moduleW = uniformModuleWidth(raw, BARCODE_TARGET_WIDTH_PX);
-      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      try {
-        JsBarcode(svg, raw, {
-          format: 'CODE128',
-          displayValue: false,
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    try {
+      JsBarcode(svg, raw, {
+        format: 'CODE128',
+        displayValue: false,
           margin: BARCODE_QUIET_MARGIN,
           width: moduleW,
           height: metrics.barHeightPx,
-          background: '#ffffff',
-          lineColor: '#000000',
-        });
-      } catch {
+        background: '#ffffff',
+        lineColor: '#000000',
+      });
+    } catch {
         return `<div class="bc-wrap"><div class="bc-text slot-${slot}">${escapeHtml(raw)}</div></div>`;
-      }
-      svg.setAttribute('class', 'bc');
+    }
+    svg.setAttribute('class', 'bc');
       svg.setAttribute('preserveAspectRatio', 'xMinYMid meet');
-      svg.removeAttribute('width');
-      svg.removeAttribute('height');
-      return `
+    svg.removeAttribute('width');
+    svg.removeAttribute('height');
+    return `
       <div class="bc-wrap">
         <div class="bc-frame">${svg.outerHTML}</div>
         <div class="bc-text slot-${slot}">${escapeHtml(raw)}</div>
       </div>`;
-    };
+  };
 
     const html = buildLabelHtml(label, barcodeBlock);
     if (html) parts.push(html);

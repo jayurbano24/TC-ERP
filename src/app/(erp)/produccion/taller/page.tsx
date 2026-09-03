@@ -48,6 +48,7 @@ import { ScrapCommentModal } from './components/ScrapCommentModal';
 import { DespachoView } from './components/DespachoView';
 import { OperationDrawer } from './components/OperationDrawer';
 import { RequestPartModal } from './components/RequestPartModal';
+import { fetchOsPartStatus } from '@/lib/api/parts';
 
 type TabType = 'diagnostico' | 'reparacion' | 'esperando_partes' | 'reacondicionado' | 'qc' | 'l3' | 'scraps' | 'listo' | 'despacho' | 'po';
 
@@ -805,6 +806,30 @@ ${funcNotes || 'Ninguno evaluado'}
         if (!prereq.ok) {
           notify.warning(prereq.message);
           return;
+        }
+      }
+
+      if (activeTab === 'reparacion' || activeTab === 'qc' || activeTab === 'reacondicionado') {
+        const items = Array.isArray(selectedForOperation)
+          ? selectedForOperation
+          : [selectedForOperation];
+        for (const item of items) {
+          const osId = item?.dbId || item?.groupId;
+          if (!osId) continue;
+          try {
+            const partStatus = await fetchOsPartStatus(String(osId));
+            if (partStatus.pendingReturns?.length > 0) {
+              notify.warning(
+                'Hay una pieza reemplazada pendiente de retorno a Bodega Mala. Debe entregarse antes de avanzar.'
+              );
+              return;
+            }
+          } catch (error: unknown) {
+            notify.error('No se pudo validar el retorno de piezas', {
+              description: error instanceof Error ? error.message : 'Error desconocido',
+            });
+            return;
+          }
         }
       }
 

@@ -1243,7 +1243,9 @@ export async function getOsPartStatus(serviceOrderId: string, db?: SupabaseClien
     requests: requests || [],
     hasOpenRequest: Boolean(openRequest),
     pendingReturns,
-    canAdvance: !openRequest && pendingReturns.length === 0,
+    // Solicitar piezas es opcional. Solo un retorno físico pendiente conserva
+    // el bloqueo para evitar perder trazabilidad de la pieza reemplazada.
+    canAdvance: pendingReturns.length === 0,
   };
 }
 

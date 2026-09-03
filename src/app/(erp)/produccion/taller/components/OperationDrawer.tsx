@@ -263,7 +263,7 @@ export const OperationDrawer = memo(function OperationDrawer({
                     <PackagePlus className="h-3.5 w-3.5" />
                     Solicitar pieza (opcional)
                   </Button>
-                  {partStatus && (!partStatus.canAdvance || partStatus.pendingReturns.length > 0) && (
+                  {partStatus && (partStatus.hasOpenRequest || partStatus.pendingReturns.length > 0) && (
                     <div className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[10px] font-semibold text-amber-800">
                       {partStatus.hasOpenRequest && (
                         <p>Solicitud de piezas abierta. Es informativa y no bloquea completar la reparación.</p>
@@ -271,7 +271,7 @@ export const OperationDrawer = memo(function OperationDrawer({
                       {partStatus.pendingReturns.length > 0 && (
                         <p>
                           Retorno pendiente: {partStatus.pendingReturns.length} pieza(s) por entregar en
-                          Bodega Mala. La reparación puede continuar.
+                          Bodega Mala. Debe completarse antes de avanzar.
                         </p>
                       )}
                     </div>

@@ -27,11 +27,13 @@ describe('Bodega de Partes — reglas de circuito', () => {
     expect(availableQty(2, 5)).toBe(0);
   });
 
-  it('solicitar piezas es opcional y no condiciona el siguiente flujo', () => {
+  it('solicitar piezas es opcional; solo un retorno pendiente bloquea', () => {
     const mayAdvanceWithoutRequest = true;
     const mayAdvanceWithOpenRequest = true;
+    const mayAdvanceWithPendingReturn = false;
     expect(mayAdvanceWithoutRequest).toBe(true);
     expect(mayAdvanceWithOpenRequest).toBe(true);
+    expect(mayAdvanceWithPendingReturn).toBe(false);
   });
 
   it('un lote conserva una solicitud independiente por cada OS', () => {

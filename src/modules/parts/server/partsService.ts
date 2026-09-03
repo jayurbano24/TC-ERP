@@ -446,7 +446,9 @@ export async function createPartRequestBatch(
     .eq('id', batch.id);
 
   if (created.length === 0) {
-    throw new BusinessException('No se pudo crear ninguna solicitud del lote');
+    throw new BusinessException(
+      `No se pudo crear ninguna solicitud del lote: ${errors[0]?.message || 'error desconocido'}`
+    );
   }
   return { batch, created, errors };
 }

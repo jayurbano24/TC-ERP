@@ -7,7 +7,8 @@ import { createPartRequestBatch } from '@/modules/parts/server/partsService';
 
 const Body = z.object({
   catalogId: z.string().uuid(),
-  qtyPerOrder: z.number().int().positive(),
+  // El lote entrega una pieza por orden; la UI no permite editarlo.
+  qtyPerOrder: z.literal(1),
   priority: z.enum(['NORMAL', 'URGENTE']).optional(),
   reason: z.string().max(500).optional().nullable(),
   notes: z.string().max(1000).optional().nullable(),

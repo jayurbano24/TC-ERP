@@ -10,6 +10,9 @@ import {
 } from '@/lib/api/parts';
 import { Loader2, PackagePlus, X } from 'lucide-react';
 
+/** Un lote entrega una pieza por orden; cambiarlo rompe la paridad OS ↔ pieza. */
+const BATCH_QTY_PER_ORDER = 1;
+
 export type PartRequestTarget = {
   serviceOrderId: string;
   seriesId?: string | null;
@@ -140,7 +143,7 @@ export function RequestPartModal({
       notify.warning('Selecciona una pieza del catálogo');
       return;
     }
-    const qtyNum = Number(qty);
+    const qtyNum = isBatch ? BATCH_QTY_PER_ORDER : Number(qty);
     if (!Number.isFinite(qtyNum) || qtyNum < 1) {
       notify.warning('Cantidad inválida');
       return;
@@ -275,14 +278,21 @@ export function RequestPartModal({
           <div className="grid grid-cols-2 gap-3">
             <label className="block space-y-1">
               <span className={erpLabelClass}>
-                {isBatch ? 'Cantidad por OS *' : 'Cantidad *'}
+                {isBatch ? 'Cantidad por OS' : 'Cantidad *'}
               </span>
               <input
                 type="number"
                 min={1}
-                className={erpFieldClass}
-                value={qty}
-                onChange={(e) => setQty(e.target.value)}
+                readOnly={isBatch}
+                aria-readonly={isBatch}
+                className={`${erpFieldClass}${
+                  isBatch ? ' cursor-not-allowed bg-[var(--muted-bg,#f1f5f9)] text-[var(--muted)]' : ''
+                }`}
+                value={isBatch ? String(BATCH_QTY_PER_ORDER) : qty}
+                onChange={(e) => {
+                  if (isBatch) return;
+                  setQty(e.target.value);
+                }}
               />
             </label>
             <label className="block space-y-1">
@@ -300,7 +310,8 @@ export function RequestPartModal({
           {isBatch && (
             <p className="rounded-md border border-sky-200 bg-sky-50 px-2.5 py-2 text-[10px] font-semibold text-sky-800">
               Se crearán {requestTargets.length} solicitudes independientes y trazables, una por OS,
-              agrupadas bajo el mismo número de lote.
+              agrupadas bajo el mismo número de lote. La cantidad es fija: {BATCH_QTY_PER_ORDER} pieza
+              por OS.
             </p>
           )}
 

@@ -568,16 +568,29 @@ export function BiometricKiosk() {
       const normalizeEventForTimeLog = (rawEvent: string): string => {
         const event = String(rawEvent || '').trim().toUpperCase();
         const aliases: Record<string, string> = {
-          DESAYUNO_INICIO: 'SALIDA_REFACCION',
-          DESAYUNO_FIN: 'REGRESO_REFACCION',
-          ALMUERZO_INICIO: 'SALIDA_ALMUERZO',
-          ALMUERZO_FIN: 'REGRESO_ALMUERZO',
-          REGRESO_DESAYUNO: 'REGRESO_REFACCION',
+          // Canonicalize legacy aliases to the current event names
+          SALIDA_REFACCION: 'DESAYUNO_INICIO',
+          REGRESO_REFACCION: 'DESAYUNO_FIN',
+          SALIDA_ALMUERZO: 'ALMUERZO_INICIO',
+          REGRESO_ALMUERZO: 'ALMUERZO_FIN',
+          REGRESO_DESAYUNO: 'DESAYUNO_FIN',
           INGRESO_ESPECIAL: 'INGRESO',
           SALIDA_ESPECIAL: 'SALIDA_FINAL',
+          SALIDA: 'SALIDA_FINAL',
           MARCAJE_ESPECIAL: 'INGRESO',
         };
         return aliases[event] || event;
+      };
+
+      const normalizeEstadoMarcacionForTimeLog = (rawEstado: string): string | null => {
+        const estado = String(rawEstado || '').trim().toUpperCase();
+        if (!estado) return null;
+        const aliases: Record<string, string> = {
+          EXCESO_DESAYUNO: 'JUSTIFICADO',
+          EXCESO_ALMUERZO: 'JUSTIFICADO',
+          SALIDA_ANTICIPADA: 'TEMPRANO',
+        };
+        return aliases[estado] || estado;
       };
 
       const eventToLog = normalizeEventForTimeLog(punchData.action);
@@ -667,7 +680,7 @@ export function BiometricKiosk() {
           desayuno_fin_prog,
           almuerzo_inicio_prog,
           almuerzo_fin_prog,
-          estado_marcacion: punchData.estado_marcacion || null,
+          estado_marcacion: normalizeEstadoMarcacionForTimeLog(punchData.estado_marcacion),
           tardanza_segundos: punchData.tardanza_segundos || 0,
           tiempo_desayuno_segundos:
             punchData.exceso_desayuno_segundos > 0

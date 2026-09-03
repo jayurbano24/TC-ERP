@@ -125,6 +125,35 @@ export async function createPartRequestApi(body: Record<string, unknown>) {
   return readJson(res);
 }
 
+export async function createPartRequestBatchApi(body: {
+  catalogId: string;
+  qtyPerOrder: number;
+  priority: 'NORMAL' | 'URGENTE';
+  reason?: string | null;
+  notes?: string | null;
+  orders: Array<{
+    serviceOrderId: string;
+    seriesId?: string | null;
+    seriesIds?: string[];
+    serialNumber?: string | null;
+    serialNumbers?: string[];
+    brandId?: string | null;
+    modelId?: string | null;
+  }>;
+}) {
+  const res = await apiFetch('/api/v1/parts/requests/batch', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return readJson<{
+    batch: { id: string; batch_number: string };
+    created: Array<{ requestId: string; serviceOrderId: string }>;
+    errors: Array<{ serviceOrderId: string; message: string }>;
+  }>(res);
+}
+
 function isUuid(v: unknown): v is string {
   return typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 }
@@ -160,6 +189,26 @@ export async function dispatchPartRequestApi(requestId: string, notes?: string) 
     body: JSON.stringify({ notes }),
   });
   return readJson(res);
+}
+
+export async function dispatchPartRequestBatchApi(
+  batchId: string,
+  sourceType: 'NEW' | 'RECOVERED',
+  notes?: string
+) {
+  const res = await apiFetch(`/api/v1/parts/batches/${batchId}/dispatch`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sourceType, notes }),
+  });
+  return readJson<{
+    batchId: string;
+    batchNumber: string;
+    status: 'PARTIAL' | 'FULFILLED';
+    dispatched: Array<{ requestId: string; dispatchId: string; serviceOrderId: string }>;
+    errors: Array<{ requestId: string; serviceOrderId: string; message: string }>;
+  }>(res);
 }
 
 export async function rejectPartRequestApi(requestId: string, reason?: string) {

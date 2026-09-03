@@ -8,7 +8,9 @@ import { createPartRequest, listPartRequests } from '@/modules/parts/server/part
 const CreateBody = z.object({
   serviceOrderId: z.string().uuid(),
   seriesId: z.string().uuid().optional().nullable(),
+  seriesIds: z.array(z.string().uuid()).max(100).optional(),
   serialNumber: z.string().max(64).optional().nullable(),
+  serialNumbers: z.array(z.string().max(64)).max(100).optional(),
   brandId: z.string().uuid().optional().nullable(),
   modelId: z.string().uuid().optional().nullable(),
   technicianName: z.string().max(120).optional().nullable(),

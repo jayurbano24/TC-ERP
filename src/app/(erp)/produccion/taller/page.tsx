@@ -48,7 +48,6 @@ import { ScrapCommentModal } from './components/ScrapCommentModal';
 import { DespachoView } from './components/DespachoView';
 import { OperationDrawer } from './components/OperationDrawer';
 import { RequestPartModal } from './components/RequestPartModal';
-import { fetchOsPartStatus } from '@/lib/api/parts';
 
 type TabType = 'diagnostico' | 'reparacion' | 'esperando_partes' | 'reacondicionado' | 'qc' | 'l3' | 'scraps' | 'listo' | 'despacho' | 'po';
 
@@ -809,32 +808,6 @@ ${funcNotes || 'Ninguno evaluado'}
         }
       }
 
-      if (activeTab === 'reparacion' || activeTab === 'qc' || activeTab === 'reacondicionado') {
-        const items = Array.isArray(selectedForOperation)
-          ? selectedForOperation
-          : [selectedForOperation];
-        for (const item of items) {
-          const osId = item?.dbId || item?.groupId;
-          if (!osId) continue;
-          try {
-            const partStatus = await fetchOsPartStatus(String(osId));
-            if (!partStatus.canAdvance) {
-              notify.warning(
-                partStatus.hasOpenRequest
-                  ? 'Hay una solicitud de piezas abierta. Espera el despacho o cancélala en Bodega de Partes.'
-                  : 'Hay retorno de pieza pendiente en Bodega Mala. No se puede avanzar la OS.'
-              );
-              return;
-            }
-          } catch (err: any) {
-            notify.error('No se pudo validar estado de piezas', {
-              description: err?.message,
-            });
-            return;
-          }
-        }
-      }
-
       setOperateProgress({
         processedSeries: 0,
         totalSeries: seriesIds.length,
@@ -1478,6 +1451,22 @@ ${funcNotes || 'Ninguno evaluado'}
                       </div>
                     ) : selectedRows.length > 0 ? (
                       <div className="flex flex-wrap gap-2 animate-rise-in w-full xl:w-auto">
+                            {activeTab === 'reparacion' && selectedRows.length > 1 && (
+                              <Button
+                                variant="outline"
+                                className="border-sky-300 bg-sky-50 text-sky-800 font-black"
+                                leftIcon={<PackagePlus className="w-4 h-4" />}
+                                onClick={() => {
+                                  const selectedItems = filteredTasks.filter((task) =>
+                                    selectedRows.includes(task.dbId)
+                                  );
+                                  setRequestPartTarget(selectedItems);
+                                  setShowRequestPart(true);
+                                }}
+                              >
+                                Solicitar pieza por lote ({selectedRows.length} OS)
+                              </Button>
+                            )}
                             <Button 
                               variant="primary" 
                               className="bg-[var(--primary)] text-[var(--primary-foreground)] shadow-lg hover:opacity-90" 
@@ -1698,17 +1687,24 @@ ${funcNotes || 'Ninguno evaluado'}
           }}
           onCreated={async () => {
             setSelectedForOperation(null);
+            setSelectedRows([]);
             await queryClient.invalidateQueries({ queryKey: ['workshop-tab-counts'] });
             setActiveTab('esperando_partes');
           }}
-          serviceOrderId={String(requestPartTarget.dbId || requestPartTarget.groupId)}
-          seriesId={requestPartTarget.seriesId || requestPartTarget.all_dbIds?.[0] || null}
-          serialNumber={requestPartTarget.sn || null}
-          brandId={requestPartTarget.brandId || null}
-          modelId={requestPartTarget.modelId || null}
-          brandName={requestPartTarget.marca || null}
-          modelName={requestPartTarget.modelo || null}
-          osLabel={requestPartTarget.id || null}
+          targets={(Array.isArray(requestPartTarget) ? requestPartTarget : [requestPartTarget]).map(
+            (target) => ({
+              serviceOrderId: String(target.dbId || target.groupId),
+              seriesId: target.seriesId || target.all_dbIds?.[0] || null,
+              seriesIds: (target.all_dbIds || [target.seriesId]).filter(Boolean),
+              serialNumber: target.sn || null,
+              serialNumbers: (target.all_sns || [target.sn]).filter(Boolean),
+              brandId: target.brandId || null,
+              modelId: target.modelId || null,
+              brandName: target.marca || null,
+              modelName: target.modelo || null,
+              osLabel: target.id || null,
+            })
+          )}
         />
       )}
       {/* Modal de Historial */}

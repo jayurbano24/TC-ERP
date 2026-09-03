@@ -3,14 +3,31 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Button, notify } from '@/components/ui';
 import { erpFieldClass, erpLabelClass } from '@/lib/design/tokens';
-import { createPartRequestApi, fetchPartsCatalog } from '@/lib/api/parts';
+import {
+  createPartRequestApi,
+  createPartRequestBatchApi,
+  fetchPartsCatalog,
+} from '@/lib/api/parts';
 import { Loader2, PackagePlus, X } from 'lucide-react';
+
+export type PartRequestTarget = {
+  serviceOrderId: string;
+  seriesId?: string | null;
+  seriesIds?: string[];
+  serialNumber?: string | null;
+  serialNumbers?: string[];
+  brandId?: string | null;
+  modelId?: string | null;
+  brandName?: string | null;
+  modelName?: string | null;
+  osLabel?: string | null;
+};
 
 type Props = {
   open: boolean;
   onClose: () => void;
   onCreated?: () => void;
-  serviceOrderId: string;
+  serviceOrderId?: string;
   seriesId?: string | null;
   serialNumber?: string | null;
   brandId?: string | null;
@@ -20,6 +37,7 @@ type Props = {
   osLabel?: string | null;
   technicianId?: string | null;
   technicianName?: string | null;
+  targets?: PartRequestTarget[];
 };
 
 export function RequestPartModal({
@@ -36,6 +54,7 @@ export function RequestPartModal({
   osLabel,
   technicianId,
   technicianName,
+  targets,
 }: Props) {
   const [catalog, setCatalog] = useState<any[]>([]);
   const [loadingCat, setLoadingCat] = useState(false);
@@ -46,6 +65,43 @@ export function RequestPartModal({
   const [reason, setReason] = useState('');
   const [notes, setNotes] = useState('');
 
+  const requestTargets = useMemo<PartRequestTarget[]>(() => {
+    if (targets?.length) {
+      return [
+        ...new Map(
+          targets
+            .filter((target) => target.serviceOrderId)
+            .map((target) => [target.serviceOrderId, target])
+        ).values(),
+      ];
+    }
+    if (!serviceOrderId) return [];
+    return [
+      {
+        serviceOrderId,
+        seriesId,
+        serialNumber,
+        brandId,
+        modelId,
+        brandName,
+        modelName,
+        osLabel,
+      },
+    ];
+  }, [
+    targets,
+    serviceOrderId,
+    seriesId,
+    serialNumber,
+    brandId,
+    modelId,
+    brandName,
+    modelName,
+    osLabel,
+  ]);
+  const isBatch = requestTargets.length > 1;
+  const primaryTarget = requestTargets[0];
+
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -53,8 +109,8 @@ export function RequestPartModal({
       setLoadingCat(true);
       try {
         const items = await fetchPartsCatalog({
-          brandId: brandId || undefined,
-          modelId: modelId || undefined,
+          brandId: isBatch ? undefined : primaryTarget?.brandId || undefined,
+          modelId: isBatch ? undefined : primaryTarget?.modelId || undefined,
           activeOnly: true,
         });
         if (!cancelled) {
@@ -70,7 +126,7 @@ export function RequestPartModal({
     return () => {
       cancelled = true;
     };
-  }, [open, brandId, modelId]);
+  }, [open, isBatch, primaryTarget?.brandId, primaryTarget?.modelId]);
 
   const selected = useMemo(
     () => catalog.find((c) => c.id === catalogId),
@@ -91,21 +147,52 @@ export function RequestPartModal({
     }
     setSaving(true);
     try {
-      await createPartRequestApi({
-        serviceOrderId,
-        seriesId: seriesId || null,
-        serialNumber: serialNumber || null,
-        brandId: brandId || null,
-        modelId: modelId || null,
-        technicianId: technicianId || null,
-        technicianName: technicianName || null,
-        priority,
-        reason: reason || null,
-        notes: notes || null,
-        catalogId,
-        qty: qtyNum,
-      });
-      notify.success('Solicitud creada · OS en Esperando Partes');
+      if (isBatch) {
+        const result = await createPartRequestBatchApi({
+          catalogId,
+          qtyPerOrder: qtyNum,
+          priority,
+          reason: reason || null,
+          notes: notes || null,
+          orders: requestTargets.map((target) => ({
+            serviceOrderId: target.serviceOrderId,
+            seriesId: target.seriesId || null,
+            seriesIds: target.seriesIds || [],
+            serialNumber: target.serialNumber || null,
+            serialNumbers: target.serialNumbers || [],
+            brandId: target.brandId || null,
+            modelId: target.modelId || null,
+          })),
+        });
+        notify.success(`Lote ${result.batch.batch_number} creado`, {
+          description:
+            result.errors.length > 0
+              ? `${result.created.length} OS creadas; ${result.errors.length} con error.`
+              : `${result.created.length} órdenes enviadas a Esperando Partes.`,
+        });
+      } else {
+        if (!primaryTarget?.serviceOrderId) {
+          notify.warning('No se pudo identificar la orden de servicio');
+          return;
+        }
+        await createPartRequestApi({
+          serviceOrderId: primaryTarget.serviceOrderId,
+          seriesId: primaryTarget.seriesId || null,
+          seriesIds: primaryTarget.seriesIds || [],
+          serialNumber: primaryTarget.serialNumber || null,
+          serialNumbers: primaryTarget.serialNumbers || [],
+          brandId: primaryTarget.brandId || null,
+          modelId: primaryTarget.modelId || null,
+          technicianId: technicianId || null,
+          technicianName: technicianName || null,
+          priority,
+          reason: reason || null,
+          notes: notes || null,
+          catalogId,
+          qty: qtyNum,
+        });
+        notify.success('Solicitud creada · OS en Esperando Partes');
+      }
       onCreated?.();
       onClose();
     } catch (e: any) {
@@ -121,7 +208,9 @@ export function RequestPartModal({
         <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
           <div className="flex items-center gap-2">
             <PackagePlus className="h-4 w-4 text-blue-500" />
-            <h3 className="text-xs font-black uppercase tracking-wider">Solicitar pieza</h3>
+            <h3 className="text-xs font-black uppercase tracking-wider">
+              {isBatch ? `Solicitar pieza por lote · ${requestTargets.length} OS` : 'Solicitar pieza'}
+            </h3>
           </div>
           <button type="button" onClick={onClose} className="rounded-lg p-1 hover:bg-[var(--surface-hover)]">
             <X className="h-4 w-4" />
@@ -131,16 +220,28 @@ export function RequestPartModal({
           <div className="rounded-lg bg-[var(--surface-hover)] p-2 text-[11px] space-y-0.5">
             <div>
               <span className="text-[var(--muted)]">OS </span>
-              <strong>{osLabel || serviceOrderId.slice(0, 8)}</strong>
+              <strong>
+                {isBatch
+                  ? `${requestTargets.length} órdenes seleccionadas`
+                  : primaryTarget?.osLabel || primaryTarget?.serviceOrderId.slice(0, 8)}
+              </strong>
             </div>
-            <div>
-              <span className="text-[var(--muted)]">SN </span>
-              {serialNumber || '—'}
-            </div>
-            <div>
-              <span className="text-[var(--muted)]">Equipo </span>
-              {[brandName, modelName].filter(Boolean).join(' · ') || '—'}
-            </div>
+            {isBatch ? (
+              <div className="max-h-20 overflow-auto font-mono text-[10px]">
+                {requestTargets.map((target) => target.osLabel || target.serviceOrderId.slice(0, 8)).join(' · ')}
+              </div>
+            ) : (
+              <>
+                <div>
+                  <span className="text-[var(--muted)]">SN </span>
+                  {primaryTarget?.serialNumber || '—'}
+                </div>
+                <div>
+                  <span className="text-[var(--muted)]">Equipo </span>
+                  {[primaryTarget?.brandName, primaryTarget?.modelName].filter(Boolean).join(' · ') || '—'}
+                </div>
+              </>
+            )}
           </div>
 
           <label className="block space-y-1">
@@ -173,7 +274,9 @@ export function RequestPartModal({
 
           <div className="grid grid-cols-2 gap-3">
             <label className="block space-y-1">
-              <span className={erpLabelClass}>Cantidad *</span>
+              <span className={erpLabelClass}>
+                {isBatch ? 'Cantidad por OS *' : 'Cantidad *'}
+              </span>
               <input
                 type="number"
                 min={1}
@@ -194,6 +297,12 @@ export function RequestPartModal({
               </select>
             </label>
           </div>
+          {isBatch && (
+            <p className="rounded-md border border-sky-200 bg-sky-50 px-2.5 py-2 text-[10px] font-semibold text-sky-800">
+              Se crearán {requestTargets.length} solicitudes independientes y trazables, una por OS,
+              agrupadas bajo el mismo número de lote.
+            </p>
+          )}
 
           <label className="block space-y-1">
             <span className={erpLabelClass}>Motivo</span>

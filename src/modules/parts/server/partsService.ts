@@ -27,7 +27,9 @@ export type PartCatalogInput = {
 export type CreatePartRequestInput = {
   serviceOrderId: string;
   seriesId?: string | null;
+  seriesIds?: string[];
   serialNumber?: string | null;
+  serialNumbers?: string[];
   brandId?: string | null;
   modelId?: string | null;
   technicianId?: string | null;
@@ -40,6 +42,25 @@ export type CreatePartRequestInput = {
 };
 
 export type StockSourceType = 'NEW' | 'RECOVERED';
+
+export type CreatePartRequestBatchInput = {
+  catalogId: string;
+  qtyPerOrder: number;
+  priority?: 'NORMAL' | 'URGENTE';
+  reason?: string | null;
+  notes?: string | null;
+  technicianId?: string | null;
+  technicianName?: string | null;
+  orders: Array<{
+    serviceOrderId: string;
+    seriesId?: string | null;
+    seriesIds?: string[];
+    serialNumber?: string | null;
+    serialNumbers?: string[];
+    brandId?: string | null;
+    modelId?: string | null;
+  }>;
+};
 
 function adminClient(db?: SupabaseClient): SupabaseClient {
   return db ?? getSupabaseServerClient();
@@ -284,7 +305,17 @@ export async function createPartRequest(input: CreatePartRequestInput, db?: Supa
       request_number: reqNum || null,
       service_order_id: input.serviceOrderId,
       series_id: input.seriesId || null,
+      series_ids: input.seriesIds?.length
+        ? [...new Set(input.seriesIds.filter(Boolean))]
+        : input.seriesId
+          ? [input.seriesId]
+          : [],
       serial_number: input.serialNumber || null,
+      serial_numbers: input.serialNumbers?.length
+        ? [...new Set(input.serialNumbers.filter(Boolean))]
+        : input.serialNumber
+          ? [input.serialNumber]
+          : [],
       brand_id: input.brandId || null,
       model_id: input.modelId || null,
       technician_id: input.technicianId || null,
@@ -321,6 +352,105 @@ export async function createPartRequest(input: CreatePartRequestInput, db?: Supa
   return { request, item, catalog };
 }
 
+/** Crea una solicitud independiente por OS y las agrupa bajo un lote auditable. */
+export async function createPartRequestBatch(
+  input: CreatePartRequestBatchInput,
+  db?: SupabaseClient
+) {
+  const admin = adminClient(db);
+  const orders = [
+    ...new Map(
+      input.orders
+        .filter((order) => order.serviceOrderId)
+        .map((order) => [order.serviceOrderId, order])
+    ).values(),
+  ];
+  if (!input.catalogId || !Number.isInteger(input.qtyPerOrder) || input.qtyPerOrder <= 0) {
+    throw new ValidationException('Pieza y cantidad por OS son obligatorias');
+  }
+  if (orders.length < 2) {
+    throw new ValidationException('El lote requiere al menos dos órdenes de servicio');
+  }
+
+  const now = new Date();
+  const batchNumber = `PL-${now
+    .toISOString()
+    .replace(/\D/g, '')
+    .slice(0, 14)}-${Math.floor(100 + Math.random() * 900)}`;
+  const { data: batch, error: batchError } = await admin
+    .from('part_request_batches')
+    .insert({
+      batch_number: batchNumber,
+      catalog_id: input.catalogId,
+      qty_per_order: input.qtyPerOrder,
+      total_orders: orders.length,
+      priority: input.priority || 'NORMAL',
+      reason: input.reason || null,
+      notes: input.notes || null,
+      status: 'OPEN',
+      requested_by: input.technicianId || null,
+      requested_by_name: input.technicianName || null,
+    })
+    .select('*')
+    .single();
+  if (batchError || !batch) {
+    throw new BusinessException(batchError?.message || 'No se pudo crear lote de solicitudes');
+  }
+
+  const created: Array<{ requestId: string; serviceOrderId: string }> = [];
+  const errors: Array<{ serviceOrderId: string; message: string }> = [];
+  for (const order of orders) {
+    try {
+      const result = await createPartRequest(
+        {
+          serviceOrderId: order.serviceOrderId,
+          seriesId: order.seriesId || null,
+          seriesIds: order.seriesIds || [],
+          serialNumber: order.serialNumber || null,
+          serialNumbers: order.serialNumbers || [],
+          brandId: order.brandId || null,
+          modelId: order.modelId || null,
+          technicianId: input.technicianId || null,
+          technicianName: input.technicianName || null,
+          priority: input.priority || 'NORMAL',
+          reason: input.reason || null,
+          notes: input.notes || null,
+          catalogId: input.catalogId,
+          qty: input.qtyPerOrder,
+        },
+        admin
+      );
+      const { error } = await admin
+        .from('part_requests')
+        .update({ batch_id: batch.id })
+        .eq('id', result.request.id);
+      if (error) throw new BusinessException(error.message);
+      created.push({
+        requestId: String(result.request.id),
+        serviceOrderId: order.serviceOrderId,
+      });
+    } catch (error) {
+      errors.push({
+        serviceOrderId: order.serviceOrderId,
+        message: error instanceof Error ? error.message : 'Error desconocido',
+      });
+    }
+  }
+
+  await admin
+    .from('part_request_batches')
+    .update({
+      status: errors.length > 0 ? (created.length > 0 ? 'PARTIAL' : 'CANCELLED') : 'OPEN',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', batch.id);
+
+  if (created.length === 0) {
+    throw new BusinessException('No se pudo crear ninguna solicitud del lote');
+  }
+  return { batch, created, errors };
+}
+
 export async function listPartRequests(db?: SupabaseClient, opts?: { status?: string }) {
   const admin = adminClient(db);
   let q = admin
@@ -328,6 +458,7 @@ export async function listPartRequests(db?: SupabaseClient, opts?: { status?: st
     .select(
       `*,
       service_orders:service_order_id(id, os_label),
+      batch:batch_id(id, batch_number, total_orders, status),
       brands:brand_id(id, name),
       models:model_id(id, name),
       items:part_request_items(
@@ -518,6 +649,7 @@ export async function dispatchPartRequest(opts: {
   userId?: string | null;
   userName?: string | null;
   notes?: string | null;
+  sourceType?: StockSourceType;
 }, db?: SupabaseClient) {
   const admin = adminClient(db);
   const { data: request } = await admin
@@ -533,12 +665,31 @@ export async function dispatchPartRequest(opts: {
     throw new BusinessException(`Solicitud en estado ${request.status}`);
   }
 
+  // Reservar todo antes de crear el encabezado evita despachos vacíos si falta stock.
+  for (const item of request.items || []) {
+    const need = Number(item.qty_requested) - Number(item.qty_dispatched);
+    if (need <= 0) continue;
+    const reservedQty = Number(item.qty_reserved);
+    if (reservedQty < need) {
+      await reservePartRequestItem(
+        {
+          requestItemId: item.id,
+          qty: need - reservedQty,
+          userId: opts.userId,
+          sourceType: opts.sourceType || 'NEW',
+        },
+        admin
+      );
+    }
+  }
+
   const { data: dispNum } = await admin.rpc('next_part_dispatch_number');
   const { data: dispatch, error: dErr } = await admin
     .from('part_dispatches')
     .insert({
       dispatch_number: dispNum || null,
       request_id: request.id,
+      batch_id: request.batch_id || null,
       service_order_id: request.service_order_id,
       series_id: request.series_id,
       dispatched_by: opts.userId || null,
@@ -550,18 +701,8 @@ export async function dispatchPartRequest(opts: {
   if (dErr || !dispatch) throw new BusinessException(dErr?.message || 'No se pudo crear despacho');
 
   for (const item of request.items || []) {
-    // Asegurar reserva del pendiente
-    const need =
-      Number(item.qty_requested) - Number(item.qty_dispatched);
+    const need = Number(item.qty_requested) - Number(item.qty_dispatched);
     if (need <= 0) continue;
-    let reservedQty = Number(item.qty_reserved);
-    if (reservedQty < need) {
-      await reservePartRequestItem(
-        { requestItemId: item.id, qty: need - reservedQty, userId: opts.userId, sourceType: 'NEW' },
-        admin
-      );
-      reservedQty = need;
-    }
 
     const { data: reservations } = await admin
       .from('part_reservations')
@@ -671,6 +812,68 @@ export async function dispatchPartRequest(opts: {
     .eq('current_status', 'waiting_parts');
 
   return dispatch;
+}
+
+/** Despacha todas las solicitudes abiertas de un lote, una por OS. */
+export async function dispatchPartRequestBatch(opts: {
+  batchId: string;
+  userId?: string | null;
+  userName?: string | null;
+  notes?: string | null;
+  sourceType?: StockSourceType;
+}, db?: SupabaseClient) {
+  const admin = adminClient(db);
+  const { data: batch } = await admin
+    .from('part_request_batches')
+    .select('id, batch_number, status')
+    .eq('id', opts.batchId)
+    .maybeSingle();
+  if (!batch) throw new BusinessException('Lote de solicitudes no encontrado');
+
+  const { data: requests, error } = await admin
+    .from('part_requests')
+    .select('id, service_order_id, status')
+    .eq('batch_id', opts.batchId)
+    .in('status', ['PENDING', 'PARTIAL'])
+    .order('created_at', { ascending: true });
+  if (error) throw new BusinessException(error.message);
+  if (!requests?.length) throw new BusinessException('El lote no tiene solicitudes pendientes');
+
+  const dispatched: Array<{ requestId: string; dispatchId: string; serviceOrderId: string }> = [];
+  const errors: Array<{ requestId: string; serviceOrderId: string; message: string }> = [];
+  for (const request of requests) {
+    try {
+      const dispatch = await dispatchPartRequest(
+        {
+          requestId: String(request.id),
+          userId: opts.userId,
+          userName: opts.userName,
+          notes: opts.notes,
+          sourceType: opts.sourceType,
+        },
+        admin
+      );
+      dispatched.push({
+        requestId: String(request.id),
+        dispatchId: String(dispatch.id),
+        serviceOrderId: String(request.service_order_id),
+      });
+    } catch (dispatchError) {
+      errors.push({
+        requestId: String(request.id),
+        serviceOrderId: String(request.service_order_id),
+        message: dispatchError instanceof Error ? dispatchError.message : 'Error desconocido',
+      });
+    }
+  }
+
+  const status = errors.length > 0 ? 'PARTIAL' : 'FULFILLED';
+  await admin
+    .from('part_request_batches')
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq('id', opts.batchId);
+
+  return { batchId: opts.batchId, batchNumber: batch.batch_number, status, dispatched, errors };
 }
 
 export async function listPartDispatches(db?: SupabaseClient) {

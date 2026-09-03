@@ -28,6 +28,7 @@ import {
   createPurchaseOrderApi,
   deleteOrRequestPartApi,
   dispatchPartRequestApi,
+  dispatchPartRequestBatchApi,
   fetchPartDispatches,
   fetchPartRequests,
   fetchPartReturns,
@@ -475,6 +476,17 @@ export default function BodegaPartesPage() {
       cell: (r) => <span className="font-mono text-[11px] font-bold">{r.request_number || r.id?.slice(0, 8)}</span>,
     },
     { id: 'os', header: 'OS', cell: (r) => <span className="font-semibold text-xs">{osLabel(r)}</span> },
+    {
+      id: 'batch',
+      header: 'Lote',
+      width: '118px',
+      cell: (r) =>
+        r.batch?.batch_number ? (
+          <Badge variant="blue">{r.batch.batch_number}</Badge>
+        ) : (
+          <span className="text-[11px] text-[var(--muted)]">Individual</span>
+        ),
+    },
     { id: 'sn', header: 'SN', cell: (r) => <span className="font-mono text-[11px]">{r.serial_number || '—'}</span> },
     {
       id: 'pieza',
@@ -919,6 +931,31 @@ export default function BodegaPartesPage() {
     }
   };
 
+  const handleDispatchBatch = async (
+    batchId: string,
+    sourceType: 'NEW' | 'RECOVERED'
+  ) => {
+    setBusy(true);
+    try {
+      const result = await dispatchPartRequestBatchApi(batchId, sourceType);
+      if (result.errors.length > 0) {
+        notify.warning(`Lote ${result.batchNumber} despachado parcialmente`, {
+          description: `${result.dispatched.length} OS despachadas; ${result.errors.length} pendientes.`,
+        });
+      } else {
+        notify.success(`Lote ${result.batchNumber} despachado`, {
+          description: `${result.dispatched.length} órdenes procesadas con trazabilidad individual.`,
+        });
+      }
+      setSelectedRequest(null);
+      await refreshAll();
+    } catch (e: any) {
+      notify.error('No se pudo despachar el lote', { description: e?.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleReject = async (requestId: string) => {
     setBusy(true);
     try {
@@ -1115,9 +1152,19 @@ export default function BodegaPartesPage() {
                       <strong>{osLabel(selectedRequest)}</strong>
                     </div>
                     <div>
-                      <span className="text-[var(--muted)]">SN </span>
-                      {selectedRequest.serial_number || '—'}
+                      <span className="text-[var(--muted)]">Series </span>
+                      {selectedRequest.serial_numbers?.length
+                        ? selectedRequest.serial_numbers.join(' · ')
+                        : selectedRequest.serial_number || '—'}
                     </div>
+                    {selectedRequest.batch?.batch_number && (
+                      <div>
+                        <span className="text-[var(--muted)]">Lote </span>
+                        <strong>{selectedRequest.batch.batch_number}</strong>
+                        {' · '}
+                        {selectedRequest.batch.total_orders} OS
+                      </div>
+                    )}
                     <div>
                       <span className="text-[var(--muted)]">Estado </span>
                       {selectedRequest.status}
@@ -1176,13 +1223,37 @@ export default function BodegaPartesPage() {
                   </div>
                   <div className="flex flex-col gap-2 pt-1">
                     {['PENDING', 'PARTIAL', 'RESERVED'].includes(String(selectedRequest.status)) && (
-                      <Button
-                        className="h-9 text-[10px] font-black uppercase"
-                        disabled={busy}
-                        onClick={() => void handleDispatch(selectedRequest.id)}
-                      >
-                        Despachar → Reparación
-                      </Button>
+                      selectedRequest.batch?.id ? (
+                        <div className="grid grid-cols-2 gap-2">
+                          <Button
+                            className="h-9 text-[9px] font-black uppercase"
+                            disabled={busy}
+                            onClick={() =>
+                              void handleDispatchBatch(selectedRequest.batch.id, 'NEW')
+                            }
+                          >
+                            Lote nuevo ({selectedRequest.batch.total_orders})
+                          </Button>
+                          <Button
+                            variant="outline"
+                            className="h-9 text-[9px] font-black uppercase"
+                            disabled={busy}
+                            onClick={() =>
+                              void handleDispatchBatch(selectedRequest.batch.id, 'RECOVERED')
+                            }
+                          >
+                            Lote recuperado ({selectedRequest.batch.total_orders})
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button
+                          className="h-9 text-[10px] font-black uppercase"
+                          disabled={busy}
+                          onClick={() => void handleDispatch(selectedRequest.id)}
+                        >
+                          Despachar → Reparación
+                        </Button>
+                      )
                     )}
                     {['PENDING', 'PARTIAL'].includes(String(selectedRequest.status)) && (
                       <Button
@@ -1696,7 +1767,7 @@ function Kpi({
 }: {
   label: string;
   value: number;
-  tone?: 'amber' | 'emerald' | 'rose';
+  tone?: 'amber' | 'emerald' | 'rose' | 'blue' | 'purple';
 }) {
   const color =
     tone === 'amber'
@@ -1705,6 +1776,10 @@ function Kpi({
         ? 'text-emerald-600'
         : tone === 'rose'
           ? 'text-rose-600'
+          : tone === 'blue'
+            ? 'text-sky-600'
+            : tone === 'purple'
+              ? 'text-violet-600'
           : 'text-[var(--foreground)]';
   return (
     <Card className="p-3">

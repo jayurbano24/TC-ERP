@@ -306,6 +306,18 @@ export default function BodegaPartesPage() {
       cell: (r) => <span className="text-xs font-semibold">{r.name || '—'}</span>,
     },
     {
+      id: 'brand',
+      header: 'Marca',
+      width: '96px',
+      cell: (r) => <span className="text-xs">{r.brand_name || r.brands?.name || '—'}</span>,
+    },
+    {
+      id: 'model',
+      header: 'Modelo',
+      width: '100px',
+      cell: (r) => <span className="text-xs">{r.model_name || r.models?.name || '—'}</span>,
+    },
+    {
       id: 'on_hand',
       header: 'Total',
       width: '72px',
@@ -1040,7 +1052,7 @@ export default function BodegaPartesPage() {
                   columns={inventoryCols}
                   data={filteredInventory as any[]}
                   getRowId={(r) => r.id}
-                  minWidth={860}
+                  minWidth={1040}
                   emptyMessage={
                     inventoryQuery.isLoading
                       ? 'Cargando…'

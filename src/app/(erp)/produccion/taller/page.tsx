@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { ModulePage } from "@/components/module-page";
 import { Card, Button, Badge, notify, confirmDialog, DataTable, type DataTableColumn } from "@/components/ui";
-import { Wrench, Stethoscope, Search, Filter, Box, Plus, Activity, AlertCircle, ArrowRight, XCircle, Clock, ChevronLeft, ChevronRight, ChevronDown, User, CheckSquare, ServerCrash, RefreshCw, Zap, Trash2, Loader2, RotateCcw, History, ClipboardList, Package, Send, ScanLine, X, BarChart3, Layers, Edit2, Eye, Printer, Download, MessageSquare } from 'lucide-react';
+import { Wrench, Stethoscope, Search, Filter, Box, Plus, Activity, AlertCircle, ArrowRight, XCircle, Clock, ChevronLeft, ChevronRight, ChevronDown, User, CheckSquare, ServerCrash, RefreshCw, Zap, Trash2, Loader2, RotateCcw, History, ClipboardList, Package, Send, ScanLine, X, BarChart3, Layers, Edit2, Eye, Printer, Download, MessageSquare, PackagePlus, Hourglass } from 'lucide-react';
 import { type WorkshopTabId } from '@/modules/workshop/client/workshop';
 import { fetchWorkshopTasksPageViaApi, locateWorkshopEquipmentViaApi, addWorkshopCommentViaApi, type WorkshopLocateResult } from '@/lib/api/workshopTasks';
 import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
@@ -47,8 +47,10 @@ import { ScrapDispatchModal } from './components/ScrapDispatchModal';
 import { ScrapCommentModal } from './components/ScrapCommentModal';
 import { DespachoView } from './components/DespachoView';
 import { OperationDrawer } from './components/OperationDrawer';
+import { RequestPartModal } from './components/RequestPartModal';
+import { fetchOsPartStatus } from '@/lib/api/parts';
 
-type TabType = 'diagnostico' | 'reparacion' | 'reacondicionado' | 'qc' | 'l3' | 'scraps' | 'listo' | 'despacho' | 'po';
+type TabType = 'diagnostico' | 'reparacion' | 'esperando_partes' | 'reacondicionado' | 'qc' | 'l3' | 'scraps' | 'listo' | 'despacho' | 'po';
 
 const TALLER_TABLE_HEADER = 'bg-[var(--primary)]';
 const TALLER_TABLE_HEADER_TEXT = 'text-[var(--primary-foreground)]';
@@ -72,6 +74,8 @@ export default function TallerPage() {
   const [activeTab, setActiveTab] = useState<TabType>('diagnostico');
   const useProductionOrderHex = isHexagonalProductionOrderEnabled();
   const [selectedForOperation, setSelectedForOperation] = useState<any | null>(null);
+  const [showRequestPart, setShowRequestPart] = useState(false);
+  const [requestPartTarget, setRequestPartTarget] = useState<any | null>(null);
   
   // Selection State
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
@@ -399,6 +403,7 @@ export default function TallerPage() {
 
     const stageRaw = t.current_status === 'in_workshop' ? 'PARA DIAGNOSTICAR'
       : t.current_status === 'in_qc' ? 'REPARACION'
+      : t.current_status === 'waiting_parts' ? 'ESPERANDO PARTES'
       : t.current_status === 'in_validation' ? 'CONTROL DE CALIDAD'
       : t.current_status === 'in_control_warehouse' ? 'L3'
       : t.current_status === 'ready_to_dispatch' ? 'REACONDICIONADO'
@@ -463,6 +468,9 @@ export default function TallerPage() {
       ingress_count: t.ingress_count || 1,
       current_diagnostics: diagIds,
       diagnosticoLabel,
+      brandId: t.brand_id || brandId || null,
+      modelId: t.model_id || modelId || null,
+      seriesId: t.all_dbIds?.[0] || t.id || null,
     };
   };
 
@@ -499,6 +507,10 @@ export default function TallerPage() {
   };
 
   const openOperationForSelection = async (selection: any | any[]) => {
+    if (activeTab === 'esperando_partes') {
+      notify.info('Esta OS espera piezas. Usa Bodega de Partes para despachar, o abre en Reparación tras el despacho.');
+      return;
+    }
     const items = Array.isArray(selection) ? selection : [selection];
     const equipmentCount = countEquipmentsInSelection(items);
     const seriesCount = countSeriesInSelection(items);
@@ -652,10 +664,14 @@ export default function TallerPage() {
       }
     } catch (err) {
       if (seq !== tasksFetchSeqRef.current) return;
+      const message =
+        err instanceof Error && /failed to fetch/i.test(err.message)
+          ? 'Servidor no disponible (reinicio o compilación). Recarga en unos segundos.'
+          : err instanceof Error
+            ? err.message
+            : undefined;
       console.error('Error loading workshop tasks:', err);
-      notify.error('No se pudo cargar la cola de taller', {
-        description: err instanceof Error ? err.message : undefined,
-      });
+      notify.error('No se pudo cargar la cola de taller', { description: message });
       if (!append) {
         setTasks([]);
         setLocateHint(null);
@@ -793,6 +809,32 @@ ${funcNotes || 'Ninguno evaluado'}
         }
       }
 
+      if (activeTab === 'reparacion' || activeTab === 'qc' || activeTab === 'reacondicionado') {
+        const items = Array.isArray(selectedForOperation)
+          ? selectedForOperation
+          : [selectedForOperation];
+        for (const item of items) {
+          const osId = item?.dbId || item?.groupId;
+          if (!osId) continue;
+          try {
+            const partStatus = await fetchOsPartStatus(String(osId));
+            if (!partStatus.canAdvance) {
+              notify.warning(
+                partStatus.hasOpenRequest
+                  ? 'Hay una solicitud de piezas abierta. Espera el despacho o cancélala en Bodega de Partes.'
+                  : 'Hay retorno de pieza pendiente en Bodega Mala. No se puede avanzar la OS.'
+              );
+              return;
+            }
+          } catch (err: any) {
+            notify.error('No se pudo validar estado de piezas', {
+              description: err?.message,
+            });
+            return;
+          }
+        }
+      }
+
       setOperateProgress({
         processedSeries: 0,
         totalSeries: seriesIds.length,
@@ -912,6 +954,7 @@ ${funcNotes || 'Ninguno evaluado'}
       : []),
     { id: 'diagnostico', label: 'Diagnóstico', icon: Stethoscope, color: 'text-amber-500', bg: 'bg-amber-50' },
     { id: 'reparacion', label: 'Reparación', icon: Wrench, color: 'text-blue-500', bg: 'bg-blue-50' },
+    { id: 'esperando_partes', label: 'Esperando Partes', icon: Hourglass, color: 'text-sky-600', bg: 'bg-sky-50' },
     { id: 'reacondicionado', label: 'Reacondicionado', icon: RefreshCw, color: 'text-emerald-500', bg: 'bg-emerald-50' },
     { id: 'qc', label: 'Control de Calidad', icon: CheckSquare, color: 'text-purple-500', bg: 'bg-purple-50' },
     { id: 'l3', label: 'L3 (Avanzado)', icon: Zap, color: 'text-orange-500', bg: 'bg-orange-50' },
@@ -1167,12 +1210,33 @@ ${funcNotes || 'Ninguno evaluado'}
               {
                 id: 'accion',
                 header: 'Acc.',
-                width: activeTab === 'diagnostico' ? '40px' : activeTab === 'scraps' ? '96px' : '84px',
+                width:
+                  activeTab === 'diagnostico'
+                    ? '40px'
+                    : activeTab === 'reparacion'
+                      ? '116px'
+                      : activeTab === 'scraps'
+                        ? '96px'
+                        : '84px',
                 sticky: 'end',
                 align: 'right',
                 headerClassName: `justify-end ${TALLER_TABLE_HEADER} ${TALLER_TABLE_HEADER_TEXT}`,
                 cell: (item: any) => (
                   <div className="flex items-center justify-end gap-0.5">
+                    {activeTab === 'reparacion' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRequestPartTarget(item);
+                          setShowRequestPart(true);
+                        }}
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-sky-200 bg-sky-50 text-sky-700 transition-colors hover:border-sky-400 hover:bg-sky-100"
+                        title="Solicitar pieza a Bodega de Partes"
+                        aria-label={`Solicitar pieza para ${item.id || item.sn || 'la OS'}`}
+                      >
+                        <PackagePlus size={13} />
+                      </button>
+                    )}
                     {activeTab !== 'diagnostico' && (
                       <button
                         type="button"
@@ -1616,6 +1680,35 @@ ${funcNotes || 'Ninguno evaluado'}
           catModelos={catModelos}
           catReacondicionadoTests={catReacondicionadoTests}
           handleCompleteOperation={handleCompleteOperation}
+          onRequestPart={() => {
+            const target = Array.isArray(selectedForOperation)
+              ? selectedForOperation[0]
+              : selectedForOperation;
+            setRequestPartTarget(target);
+            setShowRequestPart(true);
+          }}
+        />
+      )}
+      {showRequestPart && requestPartTarget && (
+        <RequestPartModal
+          open={showRequestPart}
+          onClose={() => {
+            setShowRequestPart(false);
+            setRequestPartTarget(null);
+          }}
+          onCreated={async () => {
+            setSelectedForOperation(null);
+            await queryClient.invalidateQueries({ queryKey: ['workshop-tab-counts'] });
+            setActiveTab('esperando_partes');
+          }}
+          serviceOrderId={String(requestPartTarget.dbId || requestPartTarget.groupId)}
+          seriesId={requestPartTarget.seriesId || requestPartTarget.all_dbIds?.[0] || null}
+          serialNumber={requestPartTarget.sn || null}
+          brandId={requestPartTarget.brandId || null}
+          modelId={requestPartTarget.modelId || null}
+          brandName={requestPartTarget.marca || null}
+          modelName={requestPartTarget.modelo || null}
+          osLabel={requestPartTarget.id || null}
         />
       )}
       {/* Modal de Historial */}

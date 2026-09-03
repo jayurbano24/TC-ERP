@@ -4,8 +4,10 @@ import { memo, useMemo } from 'react';
 import { Card, Button, Badge, notify } from '@/components/ui';
 import {
   Stethoscope, Box, ChevronDown, AlertCircle, Wrench, Activity,
-  RefreshCw, XCircle, Loader2, Printer,
+  RefreshCw, XCircle, Loader2, Printer, PackagePlus,
 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { fetchOsPartStatus } from '@/lib/api/parts';
 import {
   isKaonQcPrintableModel,
   printKaonQcLabel,
@@ -54,6 +56,7 @@ type Props = {
   catModelos: any[];
   catReacondicionadoTests: any[];
   handleCompleteOperation: () => void;
+  onRequestPart?: () => void;
 };
 
 /**
@@ -105,7 +108,43 @@ export const OperationDrawer = memo(function OperationDrawer({
   catModelos,
   catReacondicionadoTests,
   handleCompleteOperation,
+  onRequestPart,
 }: Props) {
+  const [partStatus, setPartStatus] = useState<{
+    hasOpenRequest: boolean;
+    pendingReturns: any[];
+    canAdvance: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const target = Array.isArray(selectedForOperation)
+      ? selectedForOperation[0]
+      : selectedForOperation;
+    const osId = target?.dbId || target?.groupId;
+    if (!osId || (activeTab !== 'reparacion' && activeTab !== 'qc')) {
+      setPartStatus(null);
+      return;
+    }
+    (async () => {
+      try {
+        const status = await fetchOsPartStatus(String(osId));
+        if (!cancelled) {
+          setPartStatus({
+            hasOpenRequest: Boolean(status.hasOpenRequest),
+            pendingReturns: status.pendingReturns || [],
+            canAdvance: Boolean(status.canAdvance),
+          });
+        }
+      } catch {
+        if (!cancelled) setPartStatus(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedForOperation, activeTab]);
+
   const canPrintKaonLabel = useMemo(() => {
     if (!selectedForOperation || Array.isArray(selectedForOperation)) return false;
     if (activeTab !== 'qc') return false;
@@ -212,6 +251,33 @@ export const OperationDrawer = memo(function OperationDrawer({
             </div>
 
             <div className="p-3 bg-slate-50/50 space-y-3 overflow-y-auto flex-1 min-h-0">
+
+              {activeTab === 'reparacion' && onRequestPart && !Array.isArray(selectedForOperation) && (
+                <div className="flex flex-col gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-9 w-full gap-1.5 border-blue-200 bg-blue-50 text-[10px] font-black uppercase text-blue-700"
+                    onClick={onRequestPart}
+                  >
+                    <PackagePlus className="h-3.5 w-3.5" />
+                    Solicitar pieza
+                  </Button>
+                  {partStatus && (!partStatus.canAdvance || partStatus.pendingReturns.length > 0) && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[10px] font-semibold text-amber-800">
+                      {partStatus.hasOpenRequest && (
+                        <p>Solicitud de piezas abierta — OS en cola Esperando Partes hasta despacho.</p>
+                      )}
+                      {partStatus.pendingReturns.length > 0 && (
+                        <p>
+                          Retorno pendiente: {partStatus.pendingReturns.length} pieza(s) deben entregarse
+                          en Bodega Mala.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
 
               {/* 2. CLASIFICACIÓN COSMÉTICA */}

@@ -565,7 +565,22 @@ export function BiometricKiosk() {
       const supabase = getSupabaseBrowserClient();
       if (!supabase) return;
       
-      const eventToLog = punchData.action;
+      const normalizeEventForTimeLog = (rawEvent: string): string => {
+        const event = String(rawEvent || '').trim().toUpperCase();
+        const aliases: Record<string, string> = {
+          DESAYUNO_INICIO: 'SALIDA_REFACCION',
+          DESAYUNO_FIN: 'REGRESO_REFACCION',
+          ALMUERZO_INICIO: 'SALIDA_ALMUERZO',
+          ALMUERZO_FIN: 'REGRESO_ALMUERZO',
+          REGRESO_DESAYUNO: 'REGRESO_REFACCION',
+          INGRESO_ESPECIAL: 'INGRESO',
+          SALIDA_ESPECIAL: 'SALIDA_FINAL',
+          MARCAJE_ESPECIAL: 'INGRESO',
+        };
+        return aliases[event] || event;
+      };
+
+      const eventToLog = normalizeEventForTimeLog(punchData.action);
 
       const now = new Date();
       const currentDay = (now.getDay() || 7).toString();

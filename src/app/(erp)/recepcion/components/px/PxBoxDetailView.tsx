@@ -22,7 +22,7 @@ import {
   serialLengthCounterLabel,
   validateSerialLength,
 } from '@/shared/validation/serialDigitRules';
-import type { PxRejectedSerialScan } from '@/lib/database/pxReceptionCapture.shared';
+import type { PxRejectedSerialScan } from '@/modules/recepcion/client/pxCapture';
 
 export const PxBoxDetailView = (props: any) => {
   const {

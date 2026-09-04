@@ -15,7 +15,7 @@ import {
   canCreateNewPxBox,
 } from '../../utils/pxBoxUtils';
 import type { PxFinalizeProgress } from '../../services/pxIncrementalApi';
-import type { PxBoxSnapshot } from '@/lib/database/pxReceptionCapture.shared';
+import type { PxBoxSnapshot } from '@/modules/recepcion/client/pxCapture';
 
 export const PxDashboardView = (props: any) => {
   const {

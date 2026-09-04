@@ -4,6 +4,7 @@
 export type {
   PxLotInput,
   PxBoxSnapshot,
+  PxRejectedSerialScan,
   PxReceptionSnapshot,
   PxReceptionSyncStamp,
 } from '@/lib/database/pxReceptionCapture.shared';

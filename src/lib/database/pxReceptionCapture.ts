@@ -815,7 +815,7 @@ export function mapRpcCaptureError(message: string): string {
     return 'No hay equipos capturados para finalizar.';
   }
   if (msg.includes('statement timeout') || msg.includes('57014')) {
-    return 'La finalización tardó demasiado (timeout). Cierre todas las cajas e intente de nuevo.';
+    return 'La finalización tardó demasiado (timeout). Pulse Finalizar de nuevo: las cajas cerradas y los equipos ya ingresados se conservan.';
   }
   return msg;
 }

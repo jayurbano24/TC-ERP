@@ -20,7 +20,7 @@ import {
   fetchPxInProgressList,
   fetchPxReceptionSnapshot,
   fetchPxBoxMeta,
-  finalizePxReceptionApi,
+  finalizePxReceptionStepwise,
   isPxReceptionResumable,
   type PxFinalizeProgress,
   joinOrStartPxReceptionApi,
@@ -1161,31 +1161,18 @@ export function useReceptionPXIncremental({
     }
 
     try {
-      setFinalizeProgress({
-        phase: 'prep',
-        prepDone: 0,
-        prepTotal: readiness.boxCodes.length,
-        promoteDone: 0,
-        promoteTotal: totalCaptured,
-        label: 'Iniciando…',
-      });
-
-      setFinalizeProgress({
-        phase: 'promote',
-        prepDone: readiness.boxCodes.length,
-        prepTotal: readiness.boxCodes.length,
-        promoteDone: 0,
-        promoteTotal: totalCaptured,
-        label: 'Servidor procesando cajas y equipos de forma persistente…',
-      });
-
-      const result = await finalizePxReceptionApi({
-        receptionId: incrementalReceptionId,
-        expectedVersion: receptionVersion,
-        varianceReason,
-        operatorId,
-        operatorName: currentUserFullName,
-      });
+      const result = await finalizePxReceptionStepwise(
+        {
+          receptionId: incrementalReceptionId,
+          expectedVersion: receptionVersion,
+          varianceReason,
+          operatorId,
+          operatorName: currentUserFullName,
+          prepTotal: readiness.boxCodes.length,
+          promoteTotal: totalCaptured,
+        },
+        setFinalizeProgress,
+      );
 
       const batchDesc =
         result.batches && (result.batches.prep > 0 || result.batches.promote > 0)

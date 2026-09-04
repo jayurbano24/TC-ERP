@@ -48,6 +48,7 @@ import { ScrapCommentModal } from './components/ScrapCommentModal';
 import { DespachoView } from './components/DespachoView';
 import { OperationDrawer } from './components/OperationDrawer';
 import { RequestPartModal } from './components/RequestPartModal';
+import { fetchDispatchedSkusByOsApi } from '@/lib/api/parts';
 import { fetchOsPartStatus } from '@/lib/api/parts';
 
 type TabType = 'diagnostico' | 'reparacion' | 'esperando_partes' | 'reacondicionado' | 'qc' | 'l3' | 'scraps' | 'listo' | 'despacho' | 'po';
@@ -637,8 +638,25 @@ export default function TallerPage() {
       if (seq !== tasksFetchSeqRef.current) return;
 
       const adapted = page.items.map(adaptWorkshopRow);
+      if (seq !== tasksFetchSeqRef.current) return;
+      let withParts = adapted;
+      if (workshopTab === 'reparacion') {
+        try {
+          const osIds = adapted.map((row) => String(row.dbId || '')).filter(Boolean);
+          const skuRows = await fetchDispatchedSkusByOsApi(osIds);
+          if (seq !== tasksFetchSeqRef.current) return;
+          const labelByOs = new Map(skuRows.map((row) => [row.serviceOrderId, row.label]));
+          withParts = adapted.map((row) => ({
+            ...row,
+            dispatchedSkuLabel: labelByOs.get(String(row.dbId)) || '',
+          }));
+        } catch {
+          if (seq !== tasksFetchSeqRef.current) return;
+          withParts = adapted.map((row) => ({ ...row, dispatchedSkuLabel: '' }));
+        }
+      }
 
-      setTasks((prev) => (append ? [...prev, ...adapted] : adapted));
+      setTasks((prev) => (append ? [...prev, ...withParts] : withParts));
       setTasksCursor(page.nextCursor);
       setTasksHasMore(Boolean(page.nextCursor) && !search);
       setTasksTotalOs(page.totalOs);
@@ -1160,6 +1178,28 @@ ${funcNotes || 'Ninguno evaluado'}
                 cell: (item: any) =>
                   plainCell(`${item.marca || ''} ${item.modelo || ''}`.trim().toUpperCase() || '—'),
               },
+              ...(activeTab === 'reparacion'
+                ? [
+                    {
+                      id: 'sku',
+                      header: 'SKU',
+                      width: 'minmax(88px, 0.7fr)',
+                      cell: (item: any) => {
+                        const label = String(item.dispatchedSkuLabel || '').trim();
+                        return (
+                          <span
+                            title={label || 'Sin pieza despachada'}
+                            className={`block min-w-0 truncate font-mono text-[10px] font-bold ${
+                              label ? 'text-[var(--foreground)]' : 'text-[var(--muted)]'
+                            }`}
+                          >
+                            {label || '—'}
+                          </span>
+                        );
+                      },
+                    } as DataTableColumn<any>,
+                  ]
+                : []),
               {
                 id: 'caja',
                 header: 'Caja',

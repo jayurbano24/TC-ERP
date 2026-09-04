@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Badge,
@@ -22,6 +22,8 @@ import {
   ShoppingCart,
   Pencil,
   Trash2,
+  ScanLine,
+  Send,
 } from 'lucide-react';
 import {
   adjustPartsStock,
@@ -41,7 +43,6 @@ import {
   receivePartReturnApi,
   receivePurchaseOrderApi,
   rejectPartRequestApi,
-  reservePartRequestItemApi,
   savePartsCatalog,
   updatePartsLocationApi,
 } from '@/lib/api/parts';
@@ -77,6 +78,7 @@ const MOVEMENT_LABELS: Record<string, string> = {
   RESERVE: 'Reserva',
   UNRESERVE: 'Libera reserva',
   DISPATCH: 'Despacho',
+  IN_RETURN_GOOD: 'Devolución buena',
   RETURN_BAD: 'Retorno mala',
   SCRAP: 'Scrap',
   VENDOR_RETURN: 'Dev. proveedor',
@@ -94,8 +96,17 @@ function num(v: unknown): number {
   return Number(v ?? 0) || 0;
 }
 
+const tableBadgeClass = 'px-1 py-0 text-[8px] tracking-wide rounded-sm';
+const tableBtnClass = '!h-6 !min-h-0 !px-1.5 !text-[8px] !rounded-md !shadow-none !border';
+
 function osLabel(row: any): string {
   return row?.service_orders?.os_label || row?.service_order_id?.slice?.(0, 8) || '—';
+}
+
+function requestQtyNeed(request: { items?: Array<{ qty_requested?: unknown; qty_dispatched?: unknown }> } | null | undefined): number {
+  return (request?.items || []).reduce((sum, item) => {
+    return sum + Math.max(0, num(item.qty_requested) - num(item.qty_dispatched));
+  }, 0);
 }
 
 export default function BodegaPartesPage() {
@@ -104,6 +115,9 @@ export default function BodegaPartesPage() {
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState('');
   const [selectedRequest, setSelectedRequest] = useState<any | null>(null);
+  const [selectedRequestIds, setSelectedRequestIds] = useState<string[]>([]);
+  const [scannedSku, setScannedSku] = useState('');
+  const skuScannerRef = useRef<HTMLInputElement>(null);
 
   const [showCatalogModal, setShowCatalogModal] = useState(false);
   const [editingCatalogSku, setEditingCatalogSku] = useState<string | null>(null);
@@ -124,6 +138,7 @@ export default function BodegaPartesPage() {
   const [showAdjustModal, setShowAdjustModal] = useState(false);
   const [adjustCatalogId, setAdjustCatalogId] = useState('');
   const [adjustQty, setAdjustQty] = useState('1');
+  const [adjustDirection, setAdjustDirection] = useState<'IN' | 'OUT'>('IN');
   const [adjustStockType, setAdjustStockType] = useState<'NEW' | 'RECOVERED'>('NEW');
   const [adjustNotes, setAdjustNotes] = useState('');
 
@@ -278,10 +293,20 @@ export default function BodegaPartesPage() {
     );
   }, [movements, search]);
 
+  // Una solicitud despachada, rechazada o cancelada ya no es trabajo de bodega:
+  // su rastro queda en Despachos e Historial.
+  const queueRequests = useMemo(
+    () =>
+      (requests as any[]).filter((request) =>
+        ['PENDING', 'PARTIAL', 'RESERVED'].includes(String(request.status))
+      ),
+    [requests]
+  );
+
   const filteredRequests = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return requests;
-    return (requests as any[]).filter((r) => {
+    if (!q) return queueRequests;
+    return queueRequests.filter((r) => {
       const hay = [
         r.request_number,
         osLabel(r),
@@ -291,61 +316,174 @@ export default function BodegaPartesPage() {
       ];
       return hay.filter(Boolean).some((x) => String(x).toLowerCase().includes(q));
     });
-  }, [requests, search]);
+  }, [queueRequests, search]);
+
+  const requestKpis = useMemo(() => {
+    const rows = queueRequests;
+    const pending = rows.filter((request) =>
+      ['PENDING', 'PARTIAL'].includes(String(request.status))
+    ).length;
+    const reserved = rows.filter((request) => String(request.status) === 'RESERVED').length;
+    const urgent = rows.filter(
+      (request) => request.priority === 'URGENTE'
+    ).length;
+    return {
+      total: rows.length,
+      pending,
+      reserved,
+      open: pending + reserved,
+      urgent,
+    };
+  }, [queueRequests]);
+  const openRequests = useMemo(
+    () =>
+      (filteredRequests as any[]).filter((request) =>
+        ['PENDING', 'PARTIAL', 'RESERVED'].includes(String(request.status))
+      ),
+    [filteredRequests]
+  );
+  const selectedRequests = useMemo(
+    () =>
+      queueRequests.filter((request) => selectedRequestIds.includes(String(request.id))),
+    [queueRequests, selectedRequestIds]
+  );
+  const selectedSkus = useMemo(
+    () =>
+      [
+        ...new Set(
+          selectedRequests
+            .map((request) => request.items?.[0]?.catalog?.sku)
+            .filter(Boolean)
+            .map(String)
+        ),
+      ],
+    [selectedRequests]
+  );
+  const selectedStock = useMemo(() => {
+    const catalogId = String(selectedRequests[0]?.items?.[0]?.catalog_id || '');
+    const part = (catalog as any[]).find((row) => String(row.id) === catalogId);
+    const need = selectedRequests.reduce((sum, request) => sum + requestQtyNeed(request), 0);
+    const availNew = num(part?.qty_new_available);
+    const availRecovered = num(part?.qty_recovered_available);
+    return {
+      need,
+      availNew,
+      availRecovered,
+      canNew: selectedSkus.length === 1 && availNew >= need && need > 0,
+      canRecovered: selectedSkus.length === 1 && availRecovered >= need && need > 0,
+    };
+  }, [catalog, selectedRequests, selectedSkus]);
+  const selectedRequestSku = String(
+    selectedRequest?.items?.[0]?.catalog?.sku || ''
+  ).trim();
+  const selectedRequestStock = useMemo(() => {
+    if (!selectedRequest) {
+      return { need: 0, availNew: 0, availRecovered: 0, canNew: false, canRecovered: false };
+    }
+    const catalogId = String(selectedRequest.items?.[0]?.catalog_id || '');
+    const part = (catalog as any[]).find((row) => String(row.id) === catalogId);
+    const batchId = selectedRequest.batch?.id ? String(selectedRequest.batch.id) : null;
+    const related = batchId
+      ? (requests as any[]).filter(
+          (request) =>
+            String(request.batch?.id || request.batch_id || '') === batchId &&
+            ['PENDING', 'PARTIAL', 'RESERVED'].includes(String(request.status))
+        )
+      : [selectedRequest];
+    const need = related.reduce((sum, request) => sum + requestQtyNeed(request), 0);
+    const availNew = num(part?.qty_new_available);
+    const availRecovered = num(part?.qty_recovered_available);
+    return {
+      need,
+      availNew,
+      availRecovered,
+      canNew: availNew >= need && need > 0,
+      canRecovered: availRecovered >= need && need > 0,
+    };
+  }, [catalog, requests, selectedRequest]);
+  const singleRequestStock = useMemo(() => {
+    if (!selectedRequest) {
+      return { need: 0, availNew: 0, availRecovered: 0, canNew: false, canRecovered: false };
+    }
+    const catalogId = String(selectedRequest.items?.[0]?.catalog_id || '');
+    const part = (catalog as any[]).find((row) => String(row.id) === catalogId);
+    const need = requestQtyNeed(selectedRequest);
+    const availNew = num(part?.qty_new_available);
+    const availRecovered = num(part?.qty_recovered_available);
+    return {
+      need,
+      availNew,
+      availRecovered,
+      canNew: availNew >= need && need > 0,
+      canRecovered: availRecovered >= need && need > 0,
+    };
+  }, [catalog, selectedRequest]);
+  const isSelectedSkuValidated =
+    selectedRequestSku.length > 0 &&
+    scannedSku.trim().toUpperCase() === selectedRequestSku.toUpperCase();
+  const allOpenRequestsSelected =
+    openRequests.length > 0 &&
+    openRequests.every((request) => selectedRequestIds.includes(String(request.id)));
+
+  const openRequestDetail = (request: any) => {
+    setSelectedRequest(request);
+    setScannedSku('');
+    window.setTimeout(() => skuScannerRef.current?.focus(), 50);
+  };
 
   const inventoryCols: DataTableColumn<any>[] = [
     {
       id: 'sku',
       header: 'SKU',
-      width: '100px',
-      cell: (r) => <span className="font-mono text-[11px] font-bold">{r.sku || '—'}</span>,
+      width: '88px',
+      cell: (r) => <span className="font-mono text-[10px] font-bold">{r.sku || '—'}</span>,
     },
     {
       id: 'name',
       header: 'Pieza',
-      width: 'minmax(120px,1.2fr)',
-      cell: (r) => <span className="text-xs font-semibold">{r.name || '—'}</span>,
+      width: 'minmax(100px,1.1fr)',
+      cell: (r) => <span className="truncate font-semibold">{r.name || '—'}</span>,
     },
     {
       id: 'brand',
       header: 'Marca',
-      width: '96px',
-      cell: (r) => <span className="text-xs">{r.brand_name || r.brands?.name || '—'}</span>,
+      width: '72px',
+      cell: (r) => <span className="truncate">{r.brand_name || r.brands?.name || '—'}</span>,
     },
     {
       id: 'model',
       header: 'Modelo',
-      width: '100px',
-      cell: (r) => <span className="text-xs">{r.model_name || r.models?.name || '—'}</span>,
+      width: '96px',
+      cell: (r) => <span className="truncate">{r.model_name || r.models?.name || '—'}</span>,
     },
     {
       id: 'on_hand',
       header: 'Total',
-      width: '72px',
+      width: '52px',
       cell: (r) => <span className="tabular-nums font-bold">{num(r.qty_on_hand)}</span>,
     },
     {
       id: 'on_hand_new',
       header: 'Nuevo',
-      width: '72px',
-      cell: (r) => <span className="tabular-nums text-sky-700 font-bold">{num(r.qty_new_on_hand)}</span>,
+      width: '52px',
+      cell: (r) => <span className="tabular-nums font-bold text-sky-700">{num(r.qty_new_on_hand)}</span>,
     },
     {
       id: 'on_hand_recovered',
       header: 'Recup.',
-      width: '72px',
-      cell: (r) => <span className="tabular-nums text-violet-700 font-bold">{num(r.qty_recovered_on_hand)}</span>,
+      width: '52px',
+      cell: (r) => <span className="tabular-nums font-bold text-violet-700">{num(r.qty_recovered_on_hand)}</span>,
     },
     {
       id: 'reserved',
-      header: 'Reservado',
-      width: '80px',
-      cell: (r) => <span className="tabular-nums text-amber-600 font-bold">{num(r.qty_reserved)}</span>,
+      header: 'Reserv.',
+      width: '56px',
+      cell: (r) => <span className="tabular-nums font-bold text-amber-600">{num(r.qty_reserved)}</span>,
     },
     {
       id: 'available',
-      header: 'Disponible',
-      width: '88px',
+      header: 'Disp.',
+      width: '52px',
       cell: (r) => {
         const avail = num(r.qty_available ?? Math.max(0, num(r.qty_on_hand) - num(r.qty_reserved)));
         return (
@@ -358,11 +496,11 @@ export default function BodegaPartesPage() {
     {
       id: 'location',
       header: 'Ubicación',
-      width: '140px',
+      width: '118px',
       cell: (r) => (
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 max-w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-left hover:border-sky-400 hover:bg-sky-50"
+          className="inline-flex h-6 max-w-full items-center gap-1 rounded border border-[var(--border)] bg-[var(--surface)] px-1.5 text-left hover:border-sky-400 hover:bg-sky-50"
           title="Editar ubicación"
           onClick={() => {
             setLocationCatalogId(r.id);
@@ -371,25 +509,26 @@ export default function BodegaPartesPage() {
             setShowLocationModal(true);
           }}
         >
-          <Pencil className="w-3.5 h-3.5 shrink-0 text-sky-600" />
-          <span className="text-[11px] truncate">{r.location || 'Sin ubicación'}</span>
+          <Pencil className="h-3 w-3 shrink-0 text-sky-600" />
+          <span className="truncate text-[10px]">{r.location || 'Sin ubicación'}</span>
         </button>
       ),
     },
     {
       id: 'actions',
-      header: 'Acciones',
-      width: '140px',
+      header: '',
+      width: '92px',
       sticky: 'end',
       cell: (r) => (
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-0.5">
           <Button
             size="sm"
             variant="outline"
-            className="h-7 text-[9px] font-black uppercase"
+            className={tableBtnClass}
             onClick={() => {
               setAdjustCatalogId(r.id);
               setAdjustQty('1');
+              setAdjustDirection('IN');
               setAdjustStockType('NEW');
               setAdjustNotes('');
               setShowAdjustModal(true);
@@ -399,7 +538,7 @@ export default function BodegaPartesPage() {
           </Button>
           <button
             type="button"
-            className="rounded-md border border-rose-200 p-1.5 hover:bg-rose-50 text-rose-600"
+            className="rounded border border-rose-200 p-1 text-rose-600 hover:bg-rose-50"
             title="Eliminar pieza"
             onClick={() => {
               setDeleteTarget(r);
@@ -408,7 +547,7 @@ export default function BodegaPartesPage() {
               setShowDeleteModal(true);
             }}
           >
-            <Trash2 className="w-3.5 h-3.5" />
+            <Trash2 className="h-3 w-3" />
           </button>
         </div>
       ),
@@ -438,9 +577,13 @@ export default function BodegaPartesPage() {
       width: '72px',
       cell: (r) =>
         r.requires_return ? (
-          <Badge variant="yellow">Sí</Badge>
+          <Badge variant="yellow" className={tableBadgeClass}>
+            Sí
+          </Badge>
         ) : (
-          <Badge variant="slate">No</Badge>
+          <Badge variant="slate" className={tableBadgeClass}>
+            No
+          </Badge>
         ),
     },
     {
@@ -448,7 +591,15 @@ export default function BodegaPartesPage() {
       header: 'Estado',
       width: '80px',
       cell: (r) =>
-        r.active ? <Badge variant="green">Activo</Badge> : <Badge variant="slate">Inactivo</Badge>,
+        r.active ? (
+          <Badge variant="green" className={tableBadgeClass}>
+            Activo
+          </Badge>
+        ) : (
+          <Badge variant="slate" className={tableBadgeClass}>
+            Inactivo
+          </Badge>
+        ),
     },
     {
       id: 'edit',
@@ -459,7 +610,7 @@ export default function BodegaPartesPage() {
         <Button
           size="sm"
           variant="outline"
-          className="h-7 gap-1 text-[9px] font-black uppercase"
+          className={`${tableBtnClass} gap-1 font-black uppercase`}
           onClick={() => openEditPart(r)}
         >
           <Pencil className="w-3 h-3" />
@@ -471,30 +622,83 @@ export default function BodegaPartesPage() {
 
   const requestCols: DataTableColumn<any>[] = [
     {
+      id: 'select',
+      width: '32px',
+      header: (
+        <input
+          type="checkbox"
+          aria-label="Seleccionar todas las solicitudes abiertas"
+          checked={allOpenRequestsSelected}
+          onChange={(event) =>
+            setSelectedRequestIds(
+              event.target.checked
+                ? openRequests.map((request) => String(request.id))
+                : []
+            )
+          }
+          className="h-3.5 w-3.5 accent-[var(--primary)]"
+        />
+      ),
+      cell: (request) => (
+        <input
+          type="checkbox"
+          aria-label={`Seleccionar solicitud ${request.request_number || request.id}`}
+          checked={selectedRequestIds.includes(String(request.id))}
+          disabled={!['PENDING', 'PARTIAL', 'RESERVED'].includes(String(request.status))}
+          onClick={(event) => event.stopPropagation()}
+          onChange={(event) =>
+            setSelectedRequestIds((current) =>
+              event.target.checked
+                ? [...new Set([...current, String(request.id)])]
+                : current.filter((id) => id !== String(request.id))
+            )
+          }
+          className="h-3.5 w-3.5 accent-[var(--primary)]"
+        />
+      ),
+    },
+    {
       id: 'num',
       header: 'Solicitud',
-      cell: (r) => <span className="font-mono text-[11px] font-bold">{r.request_number || r.id?.slice(0, 8)}</span>,
+      width: '92px',
+      cell: (r) => <span className="font-mono text-[10px] font-bold">{r.request_number || r.id?.slice(0, 8)}</span>,
     },
-    { id: 'os', header: 'OS', cell: (r) => <span className="font-semibold text-xs">{osLabel(r)}</span> },
+    {
+      id: 'os',
+      header: 'OS',
+      width: '88px',
+      cell: (r) => <span className="font-semibold text-[10px]">{osLabel(r)}</span>,
+    },
     {
       id: 'batch',
       header: 'Lote',
-      width: '118px',
+      width: '128px',
       cell: (r) =>
         r.batch?.batch_number ? (
-          <Badge variant="blue">{r.batch.batch_number}</Badge>
+          <span
+            className="max-w-full truncate font-mono text-[9px] font-bold text-sky-700"
+            title={r.batch.batch_number}
+          >
+            {r.batch.batch_number}
+          </span>
         ) : (
-          <span className="text-[11px] text-[var(--muted)]">Individual</span>
+          <span className="text-[10px] text-[var(--muted)]">Individual</span>
         ),
     },
-    { id: 'sn', header: 'SN', cell: (r) => <span className="font-mono text-[11px]">{r.serial_number || '—'}</span> },
+    {
+      id: 'sn',
+      header: 'SN',
+      width: 'minmax(110px,1fr)',
+      cell: (r) => <span className="font-mono text-[10px] truncate">{r.serial_number || '—'}</span>,
+    },
     {
       id: 'pieza',
       header: 'Pieza',
+      width: 'minmax(140px,1.1fr)',
       cell: (r) => {
         const it = r.items?.[0];
         return (
-          <span className="text-xs">
+          <span className="text-[10px] truncate">
             {it?.catalog?.sku || '—'} · {it?.catalog?.name || ''}
             {it ? ` ×${it.qty_requested}` : ''}
           </span>
@@ -503,30 +707,45 @@ export default function BodegaPartesPage() {
     },
     {
       id: 'prio',
-      header: 'Prioridad',
+      header: 'Prio.',
+      width: '78px',
       cell: (r) =>
         r.priority === 'URGENTE' ? (
-          <Badge variant="red">Urgente</Badge>
+          <Badge variant="red" className={tableBadgeClass}>
+            Urgente
+          </Badge>
         ) : (
-          <Badge variant="slate">Normal</Badge>
+          <Badge variant="slate" className={tableBadgeClass}>
+            Normal
+          </Badge>
         ),
     },
     {
       id: 'status',
       header: 'Estado',
-      cell: (r) => <Badge variant="outline">{r.status}</Badge>,
+      width: '82px',
+      cell: (r) => (
+        <Badge variant="outline" className={tableBadgeClass}>
+          {r.status}
+        </Badge>
+      ),
     },
     {
       id: 'act',
       header: '',
+      width: '92px',
+      sticky: 'end',
       cell: (r) => (
         <Button
           size="sm"
-          variant="outline"
-          className="h-7 text-[9px] font-black uppercase"
-          onClick={() => setSelectedRequest(r)}
+          variant="primary"
+          className={`${tableBtnClass} font-black uppercase`}
+          onClick={(event) => {
+            event.stopPropagation();
+            openRequestDetail(r);
+          }}
         >
-          Abrir
+          Despachar
         </Button>
       ),
     },
@@ -581,7 +800,7 @@ export default function BodegaPartesPage() {
         <div className="flex gap-1">
           <Button
             size="sm"
-            className="h-7 text-[9px] font-black uppercase"
+            className={`${tableBtnClass} font-black uppercase`}
             disabled={busy}
             onClick={() => void handleReceiveReturn(r.id, 'RECEIVED')}
           >
@@ -590,7 +809,7 @@ export default function BodegaPartesPage() {
           <Button
             size="sm"
             variant="outline"
-            className="h-7 text-[9px] font-black uppercase"
+            className={`${tableBtnClass} font-black uppercase`}
             disabled={busy}
             onClick={() => void handleReceiveReturn(r.id, 'SCRAP')}
           >
@@ -608,7 +827,7 @@ export default function BodegaPartesPage() {
       cell: (r) => <span className="font-mono text-[11px] font-bold">{r.po_number}</span>,
     },
     { id: 'supplier', header: 'Proveedor', cell: (r) => r.supplier || '—' },
-    { id: 'status', header: 'Estado', cell: (r) => <Badge variant="outline">{r.status}</Badge> },
+    { id: 'status', header: 'Estado', cell: (r) => <Badge variant="outline" className={tableBadgeClass}>{r.status}</Badge> },
     {
       id: 'items',
       header: 'Ítems',
@@ -624,7 +843,7 @@ export default function BodegaPartesPage() {
         r.status === 'OPEN' || r.status === 'PARTIAL' ? (
           <Button
             size="sm"
-            className="h-7 text-[9px] font-black uppercase"
+            className={`${tableBtnClass} font-black uppercase`}
             disabled={busy}
             onClick={() => void handleReceivePo(r.id)}
           >
@@ -638,14 +857,13 @@ export default function BodegaPartesPage() {
     {
       id: 'when',
       header: 'Fecha',
-      width: '132px',
+      width: '92px',
       cell: (r) => (
-        <span className="tabular-nums text-[11px]">
+        <span className="tabular-nums text-[10px]">
           {r.created_at
             ? new Date(r.created_at).toLocaleString('es-GT', {
                 day: '2-digit',
                 month: '2-digit',
-                year: '2-digit',
                 hour: '2-digit',
                 minute: '2-digit',
               })
@@ -656,9 +874,9 @@ export default function BodegaPartesPage() {
     {
       id: 'type',
       header: 'Tipo',
-      width: '120px',
+      width: '108px',
       cell: (r) => (
-        <Badge variant={movementTone(String(r.movement_type || ''))}>
+        <Badge variant={movementTone(String(r.movement_type || ''))} className={tableBadgeClass}>
           {MOVEMENT_LABELS[r.movement_type] || r.movement_type}
         </Badge>
       ),
@@ -666,29 +884,29 @@ export default function BodegaPartesPage() {
     {
       id: 'source',
       header: 'Stock',
-      width: '88px',
+      width: '64px',
       cell: (r) => (
-        <Badge variant={r.source_type === 'RECOVERED' ? 'purple' : 'blue'}>
-          {r.source_type === 'RECOVERED' ? 'Recuperado' : 'Nuevo'}
+        <Badge variant={r.source_type === 'RECOVERED' ? 'purple' : 'blue'} className={tableBadgeClass}>
+          {r.source_type === 'RECOVERED' ? 'Recup.' : 'Nuevo'}
         </Badge>
       ),
     },
     {
       id: 'sku',
       header: 'SKU',
-      width: '90px',
-      cell: (r) => <span className="font-mono text-[11px] font-bold">{r.sku || '—'}</span>,
+      width: '80px',
+      cell: (r) => <span className="font-mono text-[10px] font-bold">{r.sku || '—'}</span>,
     },
     {
       id: 'pieza',
       header: 'Pieza',
-      width: 'minmax(110px,1fr)',
-      cell: (r) => <span className="text-xs font-semibold">{r.part_name || '—'}</span>,
+      width: 'minmax(90px,1fr)',
+      cell: (r) => <span className="truncate font-semibold">{r.part_name || '—'}</span>,
     },
     {
       id: 'qty',
       header: 'Cant.',
-      width: '56px',
+      width: '44px',
       cell: (r) => {
         const inbound = String(r.movement_type || '').startsWith('IN_');
         const sign = inbound ? '+' : String(r.movement_type) === 'UNRESERVE' ? '±' : '−';
@@ -711,27 +929,31 @@ export default function BodegaPartesPage() {
     {
       id: 'os',
       header: 'OS',
-      width: '100px',
-      cell: (r) => <span className="font-semibold text-xs">{r.os_label || '—'}</span>,
+      width: '80px',
+      cell: (r) => <span className="truncate font-semibold">{r.os_label || '—'}</span>,
     },
     {
       id: 'sn',
       header: 'Serie',
-      width: '110px',
-      cell: (r) => <span className="font-mono text-[11px]">{r.serial_number || '—'}</span>,
+      width: '96px',
+      cell: (r) => <span className="truncate font-mono text-[10px]">{r.serial_number || '—'}</span>,
     },
     {
       id: 'user',
       header: 'Usuario',
       width: '120px',
-      cell: (r) => <span className="text-xs">{r.created_by_name || '—'}</span>,
+      cell: (r) => (
+        <span className="truncate" title={r.created_by_name || ''}>
+          {r.created_by_name || '—'}
+        </span>
+      ),
     },
     {
       id: 'notes',
       header: 'Notas',
-      width: 'minmax(100px,1fr)',
+      width: 'minmax(80px,0.8fr)',
       cell: (r) => (
-        <span className="text-[11px] text-[var(--muted)] truncate block max-w-[220px]" title={r.notes || ''}>
+        <span className="block truncate text-[var(--muted)]" title={r.notes || ''}>
           {r.notes || '—'}
         </span>
       ),
@@ -818,26 +1040,32 @@ export default function BodegaPartesPage() {
   const openLoadQty = () => {
     setAdjustCatalogId((catalog as any[]).find((c) => c.active !== false)?.id || '');
     setAdjustQty('1');
+    setAdjustDirection('IN');
     setAdjustStockType('NEW');
     setAdjustNotes('');
     setShowAdjustModal(true);
   };
 
   const handleAdjust = async () => {
-    const qty = Number(adjustQty);
-    if (!adjustCatalogId || !Number.isFinite(qty) || qty === 0) {
-      notify.warning('Indica pieza y cantidad distinta de 0');
+    const qty = Math.abs(Number(adjustQty));
+    if (!adjustCatalogId || !Number.isFinite(qty) || qty < 1) {
+      notify.warning('Indica pieza y una cantidad mayor a 0');
       return;
     }
+    const qtyDelta = adjustDirection === 'OUT' ? -qty : qty;
     setBusy(true);
     try {
       await adjustPartsStock({
         catalogId: adjustCatalogId,
-        qtyDelta: qty,
+        qtyDelta,
         stockType: adjustStockType,
         notes: adjustNotes || undefined,
       });
-      notify.success('Inventario ajustado');
+      notify.success(
+        adjustDirection === 'OUT'
+          ? `Se restaron ${qty} de stock ${adjustStockType === 'NEW' ? 'nuevo' : 'recuperado'}`
+          : `Se sumaron ${qty} a stock ${adjustStockType === 'NEW' ? 'nuevo' : 'recuperado'}`
+      );
       setShowAdjustModal(false);
       await refreshAll();
     } catch (e: any) {
@@ -901,28 +1129,39 @@ export default function BodegaPartesPage() {
     }
   };
 
-  const handleReserve = async (itemId: string, sourceType: 'NEW' | 'RECOVERED') => {
-    setBusy(true);
-    try {
-      await reservePartRequestItemApi(itemId, undefined, sourceType);
-      notify.success('Stock reservado');
-      await refreshAll();
-      const updated = await fetchPartRequests();
-      const current = updated.find((r: any) => r.id === selectedRequest?.id);
-      if (current) setSelectedRequest(current);
-    } catch (e: any) {
-      notify.error('No se pudo reservar', { description: e?.message });
-    } finally {
-      setBusy(false);
+  const handleDispatch = async (
+    requestId: string,
+    sourceType: 'NEW' | 'RECOVERED'
+  ) => {
+    const expectedSku = String(selectedRequest?.items?.[0]?.catalog?.sku || '').trim();
+    if (!expectedSku || scannedSku.trim().toUpperCase() !== expectedSku.toUpperCase()) {
+      notify.warning('Pistolea el SKU correcto antes de despachar', {
+        description: expectedSku ? `SKU esperado: ${expectedSku}` : 'La solicitud no tiene SKU.',
+      });
+      skuScannerRef.current?.focus();
+      return;
     }
-  };
-
-  const handleDispatch = async (requestId: string) => {
+    if (sourceType === 'NEW' && !singleRequestStock.canNew) {
+      notify.warning('Sin stock nuevo suficiente', {
+        description: `Se necesitan ${singleRequestStock.need}; disponible nuevo: ${singleRequestStock.availNew}.`,
+      });
+      return;
+    }
+    if (sourceType === 'RECOVERED' && !singleRequestStock.canRecovered) {
+      notify.warning('Sin stock recuperado suficiente', {
+        description: `Se necesitan ${singleRequestStock.need}; disponible recuperado: ${singleRequestStock.availRecovered}.`,
+      });
+      return;
+    }
     setBusy(true);
     try {
-      await dispatchPartRequestApi(requestId);
-      notify.success('Pieza despachada · OS vuelve a Reparación');
+      await dispatchPartRequestApi(requestId, sourceType);
+      notify.success('Pieza despachada · OS regresa a Reparación', {
+        description: `SKU ${expectedSku} · ${sourceType === 'NEW' ? 'stock nuevo' : 'stock recuperado'} · trazabilidad registrada.`,
+      });
       setSelectedRequest(null);
+      setScannedSku('');
+      setSelectedRequestIds((current) => current.filter((id) => id !== requestId));
       await refreshAll();
     } catch (e: any) {
       notify.error('No se pudo despachar', { description: e?.message });
@@ -931,10 +1170,88 @@ export default function BodegaPartesPage() {
     }
   };
 
+  const handleDispatchSelected = async (sourceType: 'NEW' | 'RECOVERED') => {
+    if (selectedRequests.length === 0) return;
+    if (selectedSkus.length !== 1) {
+      notify.warning('La selección contiene SKU diferentes', {
+        description: 'Selecciona solicitudes de la misma pieza para despacharlas juntas.',
+      });
+      return;
+    }
+    const expectedSku = selectedSkus[0];
+    if (scannedSku.trim().toUpperCase() !== expectedSku.toUpperCase()) {
+      notify.warning('Pistolea el SKU del lote antes de despachar', {
+        description: `SKU esperado: ${expectedSku}`,
+      });
+      skuScannerRef.current?.focus();
+      return;
+    }
+    if (sourceType === 'NEW' && !selectedStock.canNew) {
+      notify.warning('Sin stock nuevo suficiente', {
+        description: `Se necesitan ${selectedStock.need}; disponible nuevo: ${selectedStock.availNew}.`,
+      });
+      return;
+    }
+    if (sourceType === 'RECOVERED' && !selectedStock.canRecovered) {
+      notify.warning('Sin stock recuperado suficiente', {
+        description: `Se necesitan ${selectedStock.need}; disponible recuperado: ${selectedStock.availRecovered}.`,
+      });
+      return;
+    }
+
+    setBusy(true);
+    const succeeded: string[] = [];
+    const failed: Array<{ request: any; message: string }> = [];
+    for (const request of selectedRequests) {
+      try {
+        await dispatchPartRequestApi(String(request.id), sourceType);
+        succeeded.push(String(request.id));
+      } catch (error: unknown) {
+        failed.push({
+          request,
+          message: error instanceof Error ? error.message : 'Error desconocido',
+        });
+      }
+    }
+    setBusy(false);
+    setSelectedRequestIds((current) => current.filter((id) => !succeeded.includes(id)));
+    setScannedSku('');
+    await refreshAll();
+    if (failed.length > 0) {
+      notify.warning('Despacho múltiple procesado parcialmente', {
+        description: `${succeeded.length} despachadas; ${failed.length} pendientes. ${failed[0]?.message || ''}`,
+      });
+    } else {
+      notify.success(`${succeeded.length} solicitudes despachadas`, {
+        description: `SKU ${expectedSku} descontado y trazado individualmente por OS.`,
+      });
+    }
+  };
+
   const handleDispatchBatch = async (
     batchId: string,
     sourceType: 'NEW' | 'RECOVERED'
   ) => {
+    const expectedSku = String(selectedRequest?.items?.[0]?.catalog?.sku || '').trim();
+    if (!expectedSku || scannedSku.trim().toUpperCase() !== expectedSku.toUpperCase()) {
+      notify.warning('Pistolea el SKU correcto antes de despachar el lote', {
+        description: expectedSku ? `SKU esperado: ${expectedSku}` : 'El lote no tiene SKU.',
+      });
+      skuScannerRef.current?.focus();
+      return;
+    }
+    if (sourceType === 'NEW' && !selectedRequestStock.canNew) {
+      notify.warning('Sin stock nuevo suficiente para el lote', {
+        description: `Se necesitan ${selectedRequestStock.need}; disponible nuevo: ${selectedRequestStock.availNew}.`,
+      });
+      return;
+    }
+    if (sourceType === 'RECOVERED' && !selectedRequestStock.canRecovered) {
+      notify.warning('Sin stock recuperado suficiente para el lote', {
+        description: `Se necesitan ${selectedRequestStock.need}; disponible recuperado: ${selectedRequestStock.availRecovered}.`,
+      });
+      return;
+    }
     setBusy(true);
     try {
       const result = await dispatchPartRequestBatchApi(batchId, sourceType);
@@ -948,6 +1265,8 @@ export default function BodegaPartesPage() {
         });
       }
       setSelectedRequest(null);
+      setScannedSku('');
+      setSelectedRequestIds([]);
       await refreshAll();
     } catch (e: any) {
       notify.error('No se pudo despachar el lote', { description: e?.message });
@@ -1035,12 +1354,17 @@ export default function BodegaPartesPage() {
             <RefreshCw className="w-3.5 h-3.5" />
             Refrescar
           </Button>
-          {tab === 'inventario' && (
-            <Button size="sm" className="h-9 gap-1.5" onClick={openLoadQty}>
-              <Package className="w-3.5 h-3.5" />
-              Cargar cantidad
-            </Button>
-          )}
+          <Button
+            size="sm"
+            className="h-9 gap-1.5"
+            onClick={() => {
+              setTab('inventario');
+              openLoadQty();
+            }}
+          >
+            <Package className="w-3.5 h-3.5" />
+            Cargar repuesto
+          </Button>
           {tab === 'catalogo' && (
             <Button size="sm" className="h-9 gap-1.5" onClick={openNewPart}>
               <Plus className="w-3.5 h-3.5" />
@@ -1056,7 +1380,7 @@ export default function BodegaPartesPage() {
         </div>
       }
     >
-      <div className="space-y-4">
+      <div className="space-y-2">
         <SegmentedTabs
           items={TABS}
           value={tab}
@@ -1072,24 +1396,26 @@ export default function BodegaPartesPage() {
         />
 
         {tab === 'inventario' && (
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
-            <div className="lg:col-span-4 space-y-3">
-              <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
-                <Kpi label="Stock total" value={invKpis.fisico} />
-                <Kpi label="Stock nuevo" value={invKpis.nuevo} tone="blue" />
-                <Kpi label="Stock recuperado" value={invKpis.recuperado} tone="purple" />
-                <Kpi label="Reservado" value={invKpis.reservado} tone="amber" />
-                <Kpi label="Disponible" value={invKpis.disponible} tone="emerald" />
+          <div className="grid grid-cols-1 gap-2 lg:grid-cols-5">
+            <div className="space-y-2 lg:col-span-4">
+              <div className="grid grid-cols-2 gap-2 lg:grid-cols-5">
+                <Kpi label="Stock total" value={invKpis.fisico} compact />
+                <Kpi label="Stock nuevo" value={invKpis.nuevo} tone="blue" compact />
+                <Kpi label="Stock recuperado" value={invKpis.recuperado} tone="purple" compact />
+                <Kpi label="Reservado" value={invKpis.reservado} tone="amber" compact />
+                <Kpi label="Disponible" value={invKpis.disponible} tone="emerald" compact />
               </div>
               <Card className="overflow-hidden p-0">
-                <div className={`${erpTableHeader} px-3 py-2`}>
+                <div className={`${erpTableHeader} px-2.5 py-1.5`}>
                   <span className={erpTableHeaderText}>Inventario de piezas</span>
                 </div>
                 <DataTable
                   columns={inventoryCols}
                   data={filteredInventory as any[]}
                   getRowId={(r) => r.id}
-                  minWidth={1040}
+                  compact
+                  rowHeight={32}
+                  minWidth={920}
                   emptyMessage={
                     inventoryQuery.isLoading
                       ? 'Cargando…'
@@ -1098,7 +1424,7 @@ export default function BodegaPartesPage() {
                 />
               </Card>
             </div>
-            <Card className="lg:col-span-1 p-4 space-y-3 h-fit sticky top-4">
+            <Card className="sticky top-4 h-fit space-y-2 p-3 lg:col-span-1">
               <h3 className="text-[10px] font-black uppercase tracking-wider text-[var(--muted)]">
                 Acciones
               </h3>
@@ -1128,20 +1454,117 @@ export default function BodegaPartesPage() {
         )}
 
         {tab === 'solicitudes' && (
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
-            <Card className="lg:col-span-3 overflow-hidden p-0">
-              <div className={`${erpTableHeader} px-3 py-2`}>
-                <span className={erpTableHeaderText}>Cola de solicitudes</span>
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <Kpi label="En cola" value={requestKpis.total} compact />
+              <Kpi label="Pendientes" value={requestKpis.pending} tone="amber" compact />
+              <Kpi label="Reservadas" value={requestKpis.reserved} tone="blue" compact />
+              <Kpi label="Urgentes abiertas" value={requestKpis.urgent} tone="rose" compact />
+            </div>
+            <Card className="overflow-hidden p-0">
+              <div className={`${erpTableHeader} px-2.5 py-1.5`}>
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                  <span className={erpTableHeaderText}>Cola de solicitudes</span>
+                  <span className="text-[9px] font-bold uppercase tracking-wide text-[var(--muted)]">
+                    {requestKpis.open} abiertas · {requestKpis.pending} pendientes · {selectedRequests.length} seleccionada(s)
+                  </span>
+                </div>
               </div>
+              {selectedRequests.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 border-b border-[var(--border)] bg-sky-50/70 px-2.5 py-1.5">
+                  <div className="relative min-w-[220px] flex-1">
+                    <ScanLine className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-sky-600" />
+                    <input
+                      ref={skuScannerRef}
+                      className={`${erpFieldClass} h-8 pl-7 font-mono text-[11px] uppercase`}
+                      value={scannedSku}
+                      onChange={(event) => setScannedSku(event.target.value)}
+                      placeholder={
+                        selectedSkus.length === 1
+                          ? `1) Pistolear SKU: ${selectedSkus[0]}`
+                          : 'Selecciona solicitudes del mismo SKU'
+                      }
+                      autoComplete="off"
+                      aria-label="Pistolear SKU para selección"
+                    />
+                  </div>
+                  <Button
+                    size="sm"
+                    className="h-8 gap-1 px-2 text-[8px] font-black uppercase"
+                    disabled={busy || !selectedStock.canNew}
+                    title={
+                      selectedStock.canNew
+                        ? `Stock nuevo disponible: ${selectedStock.availNew}`
+                        : `Sin stock nuevo suficiente (disp. ${selectedStock.availNew} / need ${selectedStock.need})`
+                    }
+                    onClick={() => void handleDispatchSelected('NEW')}
+                  >
+                    <Send className="h-3 w-3" />
+                    Nuevo ({selectedRequests.length} · {selectedStock.availNew})
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 gap-1 px-2 text-[8px] font-black uppercase"
+                    disabled={busy || !selectedStock.canRecovered}
+                    title={
+                      selectedStock.canRecovered
+                        ? `Stock recuperado disponible: ${selectedStock.availRecovered}`
+                        : `Sin stock recuperado suficiente (disp. ${selectedStock.availRecovered} / need ${selectedStock.need})`
+                    }
+                    onClick={() => void handleDispatchSelected('RECOVERED')}
+                  >
+                    <Send className="h-3 w-3" />
+                    Recuperado ({selectedRequests.length} · {selectedStock.availRecovered})
+                  </Button>
+                </div>
+              )}
               <DataTable
                 columns={requestCols}
                 data={filteredRequests as any[]}
                 getRowId={(r) => r.id}
+                compact
+                rowHeight={32}
+                minWidth={920}
+                onRowClick={(request) => openRequestDetail(request)}
+                rowClassName={(request) =>
+                  selectedRequestIds.includes(String(request.id)) ? 'bg-sky-50' : undefined
+                }
                 emptyMessage={requestsQuery.isLoading ? 'Cargando…' : 'Sin solicitudes abiertas'}
               />
             </Card>
-            <Card className="lg:col-span-2 p-3 space-y-3">
-              <h3 className="text-xs font-black uppercase tracking-wider">Detalle</h3>
+            {selectedRequest && (
+              <button
+                type="button"
+                aria-label="Cerrar despacho"
+                className="fixed inset-0 z-40 bg-slate-950/45"
+                onClick={() => {
+                  setSelectedRequest(null);
+                  setScannedSku('');
+                }}
+              />
+            )}
+            <Card
+              className={`space-y-3 p-4 ${
+                selectedRequest
+                  ? 'fixed left-1/2 top-1/2 z-50 max-h-[90vh] w-[min(520px,calc(100vw-24px))] -translate-x-1/2 -translate-y-1/2 overflow-y-auto shadow-2xl'
+                  : 'hidden'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-xs font-black uppercase tracking-wider">Despachar solicitud</h3>
+                <button
+                  type="button"
+                  aria-label="Cerrar"
+                  className="rounded-md px-2 py-1 text-lg leading-none text-[var(--muted)] hover:bg-[var(--surface-hover)]"
+                  onClick={() => {
+                    setSelectedRequest(null);
+                    setScannedSku('');
+                  }}
+                >
+                  ×
+                </button>
+              </div>
               {!selectedRequest ? (
                 <p className="text-sm text-[var(--muted)]">Selecciona una solicitud.</p>
               ) : (
@@ -1174,6 +1597,36 @@ export default function BodegaPartesPage() {
                       {selectedRequest.reason || '—'}
                     </div>
                   </div>
+                  <label className="block space-y-1 border-t border-[var(--border)] pt-3">
+                    <span className={erpLabelClass}>Confirmar pieza con pistola *</span>
+                    <div className="relative">
+                      <ScanLine className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-sky-600" />
+                      <input
+                        ref={skuScannerRef}
+                        className={`${erpFieldClass} pl-8 font-mono uppercase ${
+                          scannedSku
+                            ? isSelectedSkuValidated
+                              ? 'border-emerald-500 bg-emerald-50'
+                              : 'border-rose-500 bg-rose-50'
+                            : ''
+                        }`}
+                        value={scannedSku}
+                        onChange={(event) => setScannedSku(event.target.value)}
+                        placeholder={`Pistolear SKU ${selectedRequestSku || ''}`}
+                        autoFocus
+                        autoComplete="off"
+                      />
+                    </div>
+                    <p
+                      className={`text-[10px] font-semibold ${
+                        isSelectedSkuValidated ? 'text-emerald-600' : 'text-[var(--muted)]'
+                      }`}
+                    >
+                      {isSelectedSkuValidated
+                        ? `SKU ${selectedRequestSku} validado`
+                        : 'El despacho se habilita únicamente al leer el SKU solicitado.'}
+                    </p>
+                  </label>
                   <div className="space-y-2 border-t border-[var(--border)] pt-2">
                     {(selectedRequest.items || []).map((it: any) => {
                       const cat = catalog.find((c: any) => c.id === it.catalog_id) as any;
@@ -1196,27 +1649,6 @@ export default function BodegaPartesPage() {
                           <div className="text-[10px] uppercase font-bold text-[var(--muted)]">
                             Ítem: {it.status}
                           </div>
-                          {['PENDING', 'PARTIAL', 'RESERVED'].includes(String(it.status)) && (
-                            <div className="grid grid-cols-2 gap-1">
-                              <Button
-                                size="sm"
-                                className="h-8 text-[9px] font-black uppercase"
-                                disabled={busy || availNew <= 0}
-                                onClick={() => void handleReserve(it.id, 'NEW')}
-                              >
-                                Reservar nuevo
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-8 text-[9px] font-black uppercase"
-                                disabled={busy || availRecovered <= 0}
-                                onClick={() => void handleReserve(it.id, 'RECOVERED')}
-                              >
-                                Reservar recuperado
-                              </Button>
-                            </div>
-                          )}
                         </div>
                       );
                     })}
@@ -1227,32 +1659,88 @@ export default function BodegaPartesPage() {
                         <div className="grid grid-cols-2 gap-2">
                           <Button
                             className="h-9 text-[9px] font-black uppercase"
-                            disabled={busy}
+                            disabled={busy || !isSelectedSkuValidated || !selectedRequestStock.canNew}
+                            title={
+                              selectedRequestStock.canNew
+                                ? `Stock nuevo: ${selectedRequestStock.availNew}`
+                                : `Sin stock nuevo (disp. ${selectedRequestStock.availNew} / need ${selectedRequestStock.need})`
+                            }
                             onClick={() =>
                               void handleDispatchBatch(selectedRequest.batch.id, 'NEW')
                             }
                           >
-                            Lote nuevo ({selectedRequest.batch.total_orders})
+                            Lote nuevo ({selectedRequest.batch.total_orders} · {selectedRequestStock.availNew})
                           </Button>
                           <Button
                             variant="outline"
                             className="h-9 text-[9px] font-black uppercase"
-                            disabled={busy}
+                            disabled={busy || !isSelectedSkuValidated || !selectedRequestStock.canRecovered}
+                            title={
+                              selectedRequestStock.canRecovered
+                                ? `Stock recuperado: ${selectedRequestStock.availRecovered}`
+                                : `Sin stock recuperado (disp. ${selectedRequestStock.availRecovered} / need ${selectedRequestStock.need})`
+                            }
                             onClick={() =>
                               void handleDispatchBatch(selectedRequest.batch.id, 'RECOVERED')
                             }
                           >
-                            Lote recuperado ({selectedRequest.batch.total_orders})
+                            Lote recuperado ({selectedRequest.batch.total_orders} · {selectedRequestStock.availRecovered})
+                          </Button>
+                          <Button
+                            variant="outline"
+                            className="h-9 text-[9px] font-black uppercase"
+                            disabled={busy || !isSelectedSkuValidated || !singleRequestStock.canNew}
+                            title={
+                              singleRequestStock.canNew
+                                ? `Stock nuevo: ${singleRequestStock.availNew}`
+                                : `Sin stock nuevo (disp. ${singleRequestStock.availNew} / need ${singleRequestStock.need})`
+                            }
+                            onClick={() => void handleDispatch(selectedRequest.id, 'NEW')}
+                          >
+                            Solo esta OS · nuevo
+                          </Button>
+                          <Button
+                            variant="outline"
+                            className="h-9 text-[9px] font-black uppercase"
+                            disabled={busy || !isSelectedSkuValidated || !singleRequestStock.canRecovered}
+                            title={
+                              singleRequestStock.canRecovered
+                                ? `Stock recuperado: ${singleRequestStock.availRecovered}`
+                                : `Sin stock recuperado (disp. ${singleRequestStock.availRecovered} / need ${singleRequestStock.need})`
+                            }
+                            onClick={() => void handleDispatch(selectedRequest.id, 'RECOVERED')}
+                          >
+                            Solo esta OS · recuperado
                           </Button>
                         </div>
                       ) : (
-                        <Button
-                          className="h-9 text-[10px] font-black uppercase"
-                          disabled={busy}
-                          onClick={() => void handleDispatch(selectedRequest.id)}
-                        >
-                          Despachar → Reparación
-                        </Button>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Button
+                            className="h-9 text-[9px] font-black uppercase"
+                            disabled={busy || !isSelectedSkuValidated || !selectedRequestStock.canNew}
+                            title={
+                              selectedRequestStock.canNew
+                                ? `Stock nuevo: ${selectedRequestStock.availNew}`
+                                : `Sin stock nuevo (disp. ${selectedRequestStock.availNew} / need ${selectedRequestStock.need})`
+                            }
+                            onClick={() => void handleDispatch(selectedRequest.id, 'NEW')}
+                          >
+                            Despachar nuevo ({selectedRequestStock.availNew})
+                          </Button>
+                          <Button
+                            variant="outline"
+                            className="h-9 text-[9px] font-black uppercase"
+                            disabled={busy || !isSelectedSkuValidated || !selectedRequestStock.canRecovered}
+                            title={
+                              selectedRequestStock.canRecovered
+                                ? `Stock recuperado: ${selectedRequestStock.availRecovered}`
+                                : `Sin stock recuperado (disp. ${selectedRequestStock.availRecovered} / need ${selectedRequestStock.need})`
+                            }
+                            onClick={() => void handleDispatch(selectedRequest.id, 'RECOVERED')}
+                          >
+                            Despachar recuperado ({selectedRequestStock.availRecovered})
+                          </Button>
+                        </div>
                       )
                     )}
                     {['PENDING', 'PARTIAL'].includes(String(selectedRequest.status)) && (
@@ -1274,13 +1762,15 @@ export default function BodegaPartesPage() {
 
         {tab === 'despachos' && (
           <Card className="overflow-hidden p-0">
-            <div className={`${erpTableHeader} px-3 py-2`}>
+            <div className={`${erpTableHeader} px-2.5 py-1.5`}>
               <span className={erpTableHeaderText}>Histórico de despachos</span>
             </div>
             <DataTable
               columns={dispatchCols}
               data={dispatches as any[]}
               getRowId={(r) => r.id}
+              compact
+              rowHeight={32}
               emptyMessage={dispatchesQuery.isLoading ? 'Cargando…' : 'Sin despachos'}
             />
           </Card>
@@ -1293,13 +1783,15 @@ export default function BodegaPartesPage() {
               <Kpi label="Retornos registrados" value={returns.length} />
             </div>
             <Card className="overflow-hidden p-0">
-              <div className={`${erpTableHeader} px-3 py-2`}>
+              <div className={`${erpTableHeader} px-2.5 py-1.5`}>
                 <span className={erpTableHeaderText}>Pendientes de retorno (pieza mala)</span>
               </div>
               <DataTable
                 columns={pendingReturnCols}
                 data={pendingReturns as any[]}
                 getRowId={(r) => r.id}
+                compact
+                rowHeight={32}
                 emptyMessage={
                   pendingReturnsQuery.isLoading ? 'Cargando…' : 'Sin retornos pendientes'
                 }
@@ -1310,13 +1802,15 @@ export default function BodegaPartesPage() {
 
         {tab === 'compras' && (
           <Card className="overflow-hidden p-0">
-            <div className={`${erpTableHeader} px-3 py-2`}>
+            <div className={`${erpTableHeader} px-2.5 py-1.5`}>
               <span className={erpTableHeaderText}>Órdenes de compra</span>
             </div>
             <DataTable
               columns={purchaseCols}
               data={purchases as any[]}
               getRowId={(r) => r.id}
+              compact
+              rowHeight={32}
               emptyMessage={purchasesQuery.isLoading ? 'Cargando…' : 'Sin POs'}
             />
           </Card>
@@ -1324,7 +1818,7 @@ export default function BodegaPartesPage() {
 
         {tab === 'historial' && (
           <Card className="overflow-hidden p-0">
-            <div className={`${erpTableHeader} px-3 py-2`}>
+            <div className={`${erpTableHeader} px-2.5 py-1.5`}>
               <span className={erpTableHeaderText}>
                 Historial de movimientos · ingresos, ajustes, reservas, despachos y retornos
               </span>
@@ -1333,7 +1827,9 @@ export default function BodegaPartesPage() {
               columns={movementCols}
               data={filteredMovements as any[]}
               getRowId={(r) => r.id}
-              minWidth={980}
+              compact
+              rowHeight={32}
+              minWidth={900}
               emptyMessage={
                 movementsQuery.isLoading
                   ? 'Cargando…'
@@ -1406,14 +1902,16 @@ export default function BodegaPartesPage() {
 
         {tab === 'catalogo' && (
           <Card className="overflow-hidden p-0">
-            <div className={`${erpTableHeader} px-3 py-2`}>
+            <div className={`${erpTableHeader} px-2.5 py-1.5`}>
               <span className={erpTableHeaderText}>Catálogo de piezas</span>
             </div>
             <DataTable
               columns={catalogCols}
               data={filteredCatalog as any[]}
               getRowId={(r) => r.id}
-              minWidth={900}
+              compact
+              rowHeight={32}
+              minWidth={860}
               emptyMessage={
                 catalogQuery.isLoading
                   ? 'Cargando…'
@@ -1424,12 +1922,37 @@ export default function BodegaPartesPage() {
         )}
 
         {tab === 'alertas' && (
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
-            <Kpi label="OS esperando" value={analytics?.alerts?.os_waiting ?? 0} tone="amber" />
-            <Kpi label="Sin stock" value={analytics?.alerts?.requests_without_stock ?? 0} tone="rose" />
-            <Kpi label="Retornos pend." value={analytics?.alerts?.returns_pending ?? 0} tone="amber" />
-            <Kpi label="Bajo mínimo" value={analytics?.alerts?.below_min ?? 0} tone="rose" />
-            <Kpi label="SKUs reservados" value={analytics?.alerts?.reserved_skus ?? 0} />
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 lg:grid-cols-6 gap-2">
+              <Kpi label="OS esperando" value={analytics?.alerts?.os_waiting ?? 0} tone="amber" />
+              <Kpi label="Sin stock" value={analytics?.alerts?.requests_without_stock ?? 0} tone="rose" />
+              <Kpi label="Retornos pend." value={analytics?.alerts?.returns_pending ?? 0} tone="amber" />
+              <Kpi label="No recibidas" value={analytics?.alerts?.parts_not_received ?? 0} tone="rose" />
+              <Kpi label="Bajo mínimo" value={analytics?.alerts?.below_min ?? 0} tone="rose" />
+              <Kpi label="SKUs reservados" value={analytics?.alerts?.reserved_skus ?? 0} />
+            </div>
+            {(analytics?.notReceived || []).length > 0 && (
+              <Card className="overflow-hidden p-0">
+                <div className={`${erpTableHeader} px-2.5 py-1.5`}>
+                  <span className={erpTableHeaderText}>Casos: taller no recibió la pieza</span>
+                </div>
+                <ul className="divide-y divide-[var(--border)] text-xs">
+                  {(analytics.notReceived as any[]).map((row) => (
+                    <li key={row.id} className="flex flex-wrap justify-between gap-2 px-3 py-2">
+                      <span className="font-semibold">
+                        <span className="font-mono">{row.catalog?.sku || '—'}</span>
+                        {row.catalog?.name ? ` · ${row.catalog.name}` : ''}
+                      </span>
+                      <span className="text-[var(--muted)]">
+                        {row.dispatch?.service_orders?.os_label || 'OS'}
+                        {row.dispatch?.dispatch_number ? ` · ${row.dispatch.dispatch_number}` : ''}
+                        {row.receipt_confirmed_by_name ? ` · ${row.receipt_confirmed_by_name}` : ''}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            )}
           </div>
         )}
       </div>
@@ -1570,9 +2093,20 @@ export default function BodegaPartesPage() {
       )}
 
       {showAdjustModal && (
-        <Modal title="Cargar cantidad a inventario" onClose={() => setShowAdjustModal(false)}>
+        <Modal title="Ajustar inventario" onClose={() => setShowAdjustModal(false)}>
+          {(() => {
+            const part = (catalog as any[]).find((c) => c.id === adjustCatalogId);
+            const qty = Math.abs(Number(adjustQty)) || 0;
+            const signed = adjustDirection === 'OUT' ? -qty : qty;
+            const currentNew = num(part?.qty_new_on_hand);
+            const currentRec = num(part?.qty_recovered_on_hand);
+            const nextNew = adjustStockType === 'NEW' ? currentNew + signed : currentNew;
+            const nextRec = adjustStockType === 'RECOVERED' ? currentRec + signed : currentRec;
+            const nextTotal = nextNew + nextRec;
+            return (
+          <>
           <p className="text-xs text-[var(--muted)] mb-3">
-            Elige la pieza del catálogo y la cantidad a sumar (+) o restar (−).
+            El total es la suma de Nuevo + Recuperado. Elige si sumas o restas, y sobre qué tipo de stock.
           </p>
           <div className="space-y-3">
             <Field label="Pieza del catálogo">
@@ -1586,34 +2120,82 @@ export default function BodegaPartesPage() {
                   .filter((c) => c.active !== false)
                   .map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.sku} · {c.name} (disp {c.qty_available ?? 0})
+                      {c.sku} · {c.name}
                     </option>
                   ))}
               </select>
             </Field>
-            <Field label="Cantidad (+ entrada / − salida)">
+            {part && (
+              <div className="grid grid-cols-3 gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2.5">
+                <div>
+                  <div className="text-[9px] font-black uppercase text-[var(--muted)]">Total</div>
+                  <div className="text-lg font-black tabular-nums">{num(part.qty_on_hand)}</div>
+                </div>
+                <div>
+                  <div className="text-[9px] font-black uppercase text-sky-600">Nuevo</div>
+                  <div className="text-lg font-black tabular-nums text-sky-700">{currentNew}</div>
+                </div>
+                <div>
+                  <div className="text-[9px] font-black uppercase text-violet-600">Recup.</div>
+                  <div className="text-lg font-black tabular-nums text-violet-700">{currentRec}</div>
+                </div>
+              </div>
+            )}
+            <Field label="Operación">
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={adjustDirection === 'IN' ? 'primary' : 'outline'}
+                  className="h-10 text-[10px] font-black uppercase"
+                  onClick={() => setAdjustDirection('IN')}
+                >
+                  Sumar
+                </Button>
+                <Button
+                  type="button"
+                  variant={adjustDirection === 'OUT' ? 'primary' : 'outline'}
+                  className="h-10 text-[10px] font-black uppercase"
+                  onClick={() => setAdjustDirection('OUT')}
+                >
+                  Restar
+                </Button>
+              </div>
+            </Field>
+            <Field label="Cantidad">
               <input
                 type="number"
+                min={1}
+                step={1}
                 className={erpFieldClass}
                 value={adjustQty}
-                onChange={(e) => setAdjustQty(e.target.value)}
+                onChange={(e) => setAdjustQty(e.target.value.replace(/-/g, ''))}
               />
             </Field>
-            <Field label="Tipo de stock">
+            <Field label="Ajustar sobre">
               <select
                 className={erpFieldClass}
                 value={adjustStockType}
                 onChange={(e) => setAdjustStockType(e.target.value as 'NEW' | 'RECOVERED')}
               >
-                <option value="NEW">Nuevo</option>
-                <option value="RECOVERED">Recuperado</option>
+                <option value="NEW">Stock nuevo</option>
+                <option value="RECOVERED">Stock recuperado</option>
               </select>
             </Field>
+            {part && qty > 0 && (
+              <p className={`rounded-md px-2.5 py-2 text-[10px] font-semibold ${
+                nextNew < 0 || nextRec < 0
+                  ? 'border border-rose-200 bg-rose-50 text-rose-700'
+                  : 'border border-sky-200 bg-sky-50 text-sky-800'
+              }`}>
+                Resultado: Total {nextTotal} · Nuevo {nextNew} · Recup. {nextRec}
+              </p>
+            )}
             <Field label="Notas">
               <input
                 className={erpFieldClass}
                 value={adjustNotes}
                 onChange={(e) => setAdjustNotes(e.target.value)}
+                placeholder="Motivo del ajuste…"
               />
             </Field>
           </div>
@@ -1622,9 +2204,12 @@ export default function BodegaPartesPage() {
               Cancelar
             </Button>
             <Button disabled={busy || !adjustCatalogId} onClick={() => void handleAdjust()}>
-              Aplicar
+              {adjustDirection === 'OUT' ? 'Restar del inventario' : 'Sumar al inventario'}
             </Button>
           </div>
+          </>
+            );
+          })()}
         </Modal>
       )}
 
@@ -1764,10 +2349,12 @@ function Kpi({
   label,
   value,
   tone,
+  compact = false,
 }: {
   label: string;
   value: number;
   tone?: 'amber' | 'emerald' | 'rose' | 'blue' | 'purple';
+  compact?: boolean;
 }) {
   const color =
     tone === 'amber'
@@ -1782,9 +2369,9 @@ function Kpi({
               ? 'text-violet-600'
           : 'text-[var(--foreground)]';
   return (
-    <Card className="p-3">
+    <Card className={compact ? 'px-2.5 py-1.5' : 'p-3'}>
       <div className="text-[9px] font-black uppercase tracking-wider text-[var(--muted)]">{label}</div>
-      <div className={`text-2xl font-black tabular-nums ${color}`}>{value}</div>
+      <div className={`${compact ? 'text-xl' : 'text-2xl'} font-black tabular-nums ${color}`}>{value}</div>
     </Card>
   );
 }

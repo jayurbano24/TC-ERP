@@ -9,6 +9,7 @@ type Ctx = { params: Promise<{ requestId: string }> };
 
 const Body = z.object({
   notes: z.string().max(1000).optional().nullable(),
+  sourceType: z.enum(['NEW', 'RECOVERED']).optional(),
 });
 
 export const POST = withErrorHandler(
@@ -25,6 +26,7 @@ export const POST = withErrorHandler(
       userId: auth.user?.id ?? null,
       userName: auth.user?.email ?? null,
       notes: parsed.success ? parsed.data.notes : null,
+      sourceType: parsed.success ? parsed.data.sourceType : undefined,
     });
     return NextResponse.json({ dispatch });
   },

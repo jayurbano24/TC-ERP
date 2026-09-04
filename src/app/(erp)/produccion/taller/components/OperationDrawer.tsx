@@ -1,17 +1,72 @@
 'use client';
 
 import { memo, useMemo } from 'react';
-import { Card, Button, Badge, notify } from '@/components/ui';
+import { Card, Button, Badge, notify, confirmDialog } from '@/components/ui';
 import {
   Stethoscope, Box, ChevronDown, AlertCircle, Wrench, Activity,
   RefreshCw, XCircle, Loader2, Printer, PackagePlus,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { fetchOsPartStatus } from '@/lib/api/parts';
+import { fetchOsPartStatus, confirmDispatchItemReceiptApi, returnUnusedGoodPartApi } from '@/lib/api/parts';
 import {
   isKaonQcPrintableModel,
   printKaonQcLabel,
 } from '../printKaonQcLabel';
+
+type DispatchedPart = {
+  id: string;
+  sku: string;
+  name: string;
+  qty: number;
+  dispatchNumber: string;
+  dispatchedAt: string | null;
+  returnRequired: boolean;
+  returnStatus: string;
+  receiptStatus: 'PENDING' | 'RECEIVED' | 'NOT_RECEIVED';
+  unusedReturned: boolean;
+};
+
+/** Aplana los despachos de la OS para listarlos con su fecha en el drawer. */
+function collectDispatchedParts(requests: any[] | undefined): DispatchedPart[] {
+  const rows: DispatchedPart[] = [];
+  for (const request of requests || []) {
+    for (const dispatch of request.dispatches || []) {
+      for (const item of dispatch.items || []) {
+        rows.push({
+          id: String(item.id),
+          sku: String(item.catalog?.sku || '—'),
+          name: String(item.catalog?.name || ''),
+          qty: Number(item.qty || 0),
+          dispatchNumber: String(dispatch.dispatch_number || ''),
+          dispatchedAt: dispatch.created_at || null,
+          returnRequired: Boolean(item.return_required),
+          returnStatus: String(item.return_status || ''),
+          receiptStatus:
+            item.receipt_status === 'RECEIVED' || item.receipt_status === 'NOT_RECEIVED'
+              ? item.receipt_status
+              : 'PENDING',
+          unusedReturned: String(item.unused_return_status) === 'RETURNED',
+        });
+      }
+    }
+  }
+  return rows.sort((a, b) => {
+    const ta = a.dispatchedAt ? new Date(a.dispatchedAt).getTime() : 0;
+    const tb = b.dispatchedAt ? new Date(b.dispatchedAt).getTime() : 0;
+    return tb - ta;
+  });
+}
+
+function formatDispatchDate(value: string | null): string {
+  if (!value) return 'Sin fecha';
+  return new Date(value).toLocaleString('es-GT', {
+    day: '2-digit',
+    month: '2-digit',
+    year: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
 
 type Props = {
   activeTab: string;
@@ -114,7 +169,19 @@ export const OperationDrawer = memo(function OperationDrawer({
     hasOpenRequest: boolean;
     pendingReturns: any[];
     canAdvance: boolean;
+    dispatchedParts: DispatchedPart[];
   } | null>(null);
+  const [receiptBusyId, setReceiptBusyId] = useState<string | null>(null);
+
+  const reloadPartStatus = async (osId: string) => {
+    const status = await fetchOsPartStatus(String(osId));
+    setPartStatus({
+      hasOpenRequest: Boolean(status.hasOpenRequest),
+      pendingReturns: status.pendingReturns || [],
+      canAdvance: Boolean(status.canAdvance),
+      dispatchedParts: collectDispatchedParts(status.requests),
+    });
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -134,6 +201,7 @@ export const OperationDrawer = memo(function OperationDrawer({
             hasOpenRequest: Boolean(status.hasOpenRequest),
             pendingReturns: status.pendingReturns || [],
             canAdvance: Boolean(status.canAdvance),
+            dispatchedParts: collectDispatchedParts(status.requests),
           });
         }
       } catch {
@@ -144,6 +212,59 @@ export const OperationDrawer = memo(function OperationDrawer({
       cancelled = true;
     };
   }, [selectedForOperation, activeTab]);
+
+  const handleReceipt = async (part: DispatchedPart, received: boolean) => {
+    const target = Array.isArray(selectedForOperation)
+      ? selectedForOperation[0]
+      : selectedForOperation;
+    const osId = target?.dbId || target?.groupId;
+    setReceiptBusyId(part.id);
+    try {
+      await confirmDispatchItemReceiptApi(part.id, received);
+      if (received) {
+        notify.success('Pieza marcada como recibida');
+      } else {
+        notify.warning('Caso marcado: no recibió la pieza', {
+          description: 'Se envió notificación a Bodega.',
+        });
+      }
+      if (osId) await reloadPartStatus(String(osId));
+    } catch (error) {
+      notify.error('No se pudo registrar la recepción', {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setReceiptBusyId(null);
+    }
+  };
+
+  const handleReturnGood = async (part: DispatchedPart) => {
+    const target = Array.isArray(selectedForOperation)
+      ? selectedForOperation[0]
+      : selectedForOperation;
+    const osId = target?.dbId || target?.groupId;
+    const ok = await confirmDialog({
+      title: 'Devolver pieza buena a bodega',
+      message: `${part.sku}${part.name ? ` · ${part.name}` : ''} volverá al stock (${part.qty} unidad(es)) sin pasar por Bodega Mala.`,
+      confirmText: 'Devolver a stock',
+      cancelText: 'Cancelar',
+    });
+    if (!ok) return;
+    setReceiptBusyId(part.id);
+    try {
+      await returnUnusedGoodPartApi(part.id);
+      notify.success('Pieza buena reingresada a stock', {
+        description: 'El movimiento quedó en Historial de Bodega.',
+      });
+      if (osId) await reloadPartStatus(String(osId));
+    } catch (error) {
+      notify.error('No se pudo devolver la pieza', {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setReceiptBusyId(null);
+    }
+  };
 
   const canPrintKaonLabel = useMemo(() => {
     if (!selectedForOperation || Array.isArray(selectedForOperation)) return false;
@@ -263,6 +384,91 @@ export const OperationDrawer = memo(function OperationDrawer({
                     <PackagePlus className="h-3.5 w-3.5" />
                     Solicitar pieza (opcional)
                   </Button>
+                  {partStatus && partStatus.dispatchedParts.length > 0 && (
+                    <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
+                      <p className="mb-1.5 text-[9px] font-black uppercase tracking-wider text-slate-500">
+                        Piezas despachadas a esta OS
+                      </p>
+                      <ul className="space-y-1">
+                        {partStatus.dispatchedParts.map((part) => (
+                          <li
+                            key={part.id}
+                            className="space-y-1 border-b border-slate-100 pb-1.5 last:border-b-0 last:pb-0"
+                          >
+                            <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
+                              <span className="text-[10px] font-bold text-slate-700">
+                                <span className="font-mono">{part.sku}</span>
+                                {part.name ? ` · ${part.name}` : ''}
+                                {part.qty > 1 ? ` ×${part.qty}` : ''}
+                              </span>
+                              <span className="text-[9px] font-semibold text-slate-500">
+                                {formatDispatchDate(part.dispatchedAt)}
+                                {part.dispatchNumber ? ` · ${part.dispatchNumber}` : ''}
+                              </span>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1">
+                              <span className="text-[9px] font-black uppercase text-slate-400">
+                                ¿Recibiste la pieza?
+                              </span>
+                              <Button
+                                size="sm"
+                                className="h-6 px-2 text-[8px] font-black uppercase"
+                                disabled={receiptBusyId === part.id}
+                                variant={part.receiptStatus === 'RECEIVED' ? 'primary' : 'outline'}
+                                onClick={() => void handleReceipt(part, true)}
+                              >
+                                Sí
+                              </Button>
+                              <Button
+                                size="sm"
+                                className="h-6 px-2 text-[8px] font-black uppercase text-rose-600"
+                                disabled={receiptBusyId === part.id}
+                                variant={part.receiptStatus === 'NOT_RECEIVED' ? 'primary' : 'outline'}
+                                onClick={() => void handleReceipt(part, false)}
+                              >
+                                No
+                              </Button>
+                              {part.receiptStatus === 'RECEIVED' && (
+                                <span className="text-[9px] font-black uppercase text-emerald-600">Recibida</span>
+                              )}
+                              {part.receiptStatus === 'NOT_RECEIVED' && (
+                                <span className="text-[9px] font-black uppercase text-rose-600">
+                                  No recibida · Bodega notificada
+                                </span>
+                              )}
+                              {part.unusedReturned && (
+                                <span className="text-[9px] font-black uppercase text-emerald-700">
+                                  Devuelta a stock (buena)
+                                </span>
+                              )}
+                              {!part.unusedReturned && part.receiptStatus !== 'NOT_RECEIVED' && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-6 px-2 text-[8px] font-black uppercase"
+                                  disabled={receiptBusyId === part.id}
+                                  onClick={() => void handleReturnGood(part)}
+                                >
+                                  Devolver buena
+                                </Button>
+                              )}
+                              {part.returnRequired && (
+                                <span
+                                  className={`text-[9px] font-black uppercase ${
+                                    part.returnStatus === 'PENDING' ? 'text-amber-600' : 'text-emerald-600'
+                                  }`}
+                                >
+                                  {part.returnStatus === 'PENDING'
+                                    ? 'Retorno pendiente'
+                                    : 'Retorno entregado'}
+                                </span>
+                              )}
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                   {partStatus && (partStatus.hasOpenRequest || partStatus.pendingReturns.length > 0) && (
                     <div className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[10px] font-semibold text-amber-800">
                       {partStatus.hasOpenRequest && (

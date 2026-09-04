@@ -181,12 +181,16 @@ export async function reservePartRequestItemApi(
   return readJson(res);
 }
 
-export async function dispatchPartRequestApi(requestId: string, notes?: string) {
+export async function dispatchPartRequestApi(
+  requestId: string,
+  sourceType: 'NEW' | 'RECOVERED' = 'NEW',
+  notes?: string
+) {
   const res = await apiFetch(`/api/v1/parts/requests/${requestId}/dispatch`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ notes }),
+    body: JSON.stringify({ sourceType, notes }),
   });
   return readJson(res);
 }
@@ -299,9 +303,42 @@ export async function fetchPartsMovements(params?: {
   return data.items ?? [];
 }
 
+export async function confirmDispatchItemReceiptApi(dispatchItemId: string, received: boolean) {
+  const res = await apiFetch(`/api/v1/parts/dispatch-items/${dispatchItemId}/receipt`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ received }),
+  });
+  return readJson(res);
+}
+
+export async function returnUnusedGoodPartApi(dispatchItemId: string, notes?: string) {
+  const res = await apiFetch(`/api/v1/parts/dispatch-items/${dispatchItemId}/return-good`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ notes }),
+  });
+  return readJson(res);
+}
+
 export async function fetchOsPartStatus(serviceOrderId: string) {
   const res = await apiFetch(`/api/v1/parts/os/${serviceOrderId}/status`, {
     credentials: 'include',
   });
   return readJson<any>(res);
+}
+
+export async function fetchDispatchedSkusByOsApi(serviceOrderIds: string[]) {
+  const ids = [...new Set(serviceOrderIds.filter(Boolean))].slice(0, 100);
+  if (ids.length === 0) return [];
+  const sp = new URLSearchParams({ ids: ids.join(',') });
+  const res = await apiFetch(`/api/v1/parts/os/dispatched-skus?${sp}`, {
+    credentials: 'include',
+  });
+  const data = await readJson<{
+    items: Array<{ serviceOrderId: string; label: string; items: Array<{ sku: string; name: string; qty: number }> }>;
+  }>(res);
+  return data.items ?? [];
 }

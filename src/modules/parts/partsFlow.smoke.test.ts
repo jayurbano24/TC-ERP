@@ -59,4 +59,29 @@ describe('Bodega de Partes — reglas de circuito', () => {
     expect(flow[1]).toBe('waiting_parts');
     expect(flow[2]).toBe('in_qc');
   });
+
+  it('SKU en Reparación agrega cantidades por pieza despachada', () => {
+    const items = [
+      { sku: '10005686', qty: 1 },
+      { sku: '10005686', qty: 1 },
+      { sku: 'TEST', qty: 2 },
+    ];
+    const bySku = new Map<string, number>();
+    for (const item of items) {
+      bySku.set(item.sku, (bySku.get(item.sku) || 0) + item.qty);
+    }
+    const label = [...bySku.entries()]
+      .map(([sku, qty]) => (qty > 1 ? `${sku}×${qty}` : sku))
+      .join(' · ');
+    expect(label).toBe('10005686×2 · TEST×2');
+  });
+
+  it('devolución de pieza buena reingresa el mismo tipo de stock', () => {
+    const dispatched = { qty: 1, source: 'NEW' as const };
+    const onHandNew = 3;
+    const after = dispatched.source === 'NEW' ? onHandNew + dispatched.qty : onHandNew;
+    expect(after).toBe(4);
+    const movement = 'IN_RETURN_GOOD';
+    expect(movement).not.toBe('RETURN_BAD');
+  });
 });

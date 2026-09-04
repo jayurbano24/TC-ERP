@@ -26,6 +26,18 @@ export type PartRequestTarget = {
   osLabel?: string | null;
 };
 
+/** Devuelve el valor compartido por todas las OS, o null si difieren. */
+function useSharedValue(
+  targets: PartRequestTarget[],
+  field: 'brandId' | 'modelId'
+): string | null {
+  return useMemo(() => {
+    const first = targets[0]?.[field];
+    if (!first) return null;
+    return targets.every((target) => target[field] === first) ? first : null;
+  }, [targets, field]);
+}
+
 type Props = {
   open: boolean;
   onClose: () => void;
@@ -105,6 +117,14 @@ export function RequestPartModal({
   const isBatch = requestTargets.length > 1;
   const primaryTarget = requestTargets[0];
 
+  /** Solo se filtra el catálogo si todas las OS comparten el mismo equipo. */
+  const sharedBrandId = useSharedValue(requestTargets, 'brandId');
+  const sharedModelId = useSharedValue(requestTargets, 'modelId');
+  const mixedEquipment = isBatch && (!sharedBrandId || !sharedModelId);
+  const equipmentLabel =
+    [primaryTarget?.brandName, primaryTarget?.modelName].filter(Boolean).join(' ') ||
+    'este equipo';
+
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -112,8 +132,8 @@ export function RequestPartModal({
       setLoadingCat(true);
       try {
         const items = await fetchPartsCatalog({
-          brandId: isBatch ? undefined : primaryTarget?.brandId || undefined,
-          modelId: isBatch ? undefined : primaryTarget?.modelId || undefined,
+          brandId: sharedBrandId || undefined,
+          modelId: sharedModelId || undefined,
           activeOnly: true,
         });
         if (!cancelled) {
@@ -129,7 +149,7 @@ export function RequestPartModal({
     return () => {
       cancelled = true;
     };
-  }, [open, isBatch, primaryTarget?.brandId, primaryTarget?.modelId]);
+  }, [open, sharedBrandId, sharedModelId]);
 
   const selected = useMemo(
     () => catalog.find((c) => c.id === catalogId),
@@ -230,9 +250,15 @@ export function RequestPartModal({
               </strong>
             </div>
             {isBatch ? (
-              <div className="max-h-20 overflow-auto font-mono text-[10px]">
-                {requestTargets.map((target) => target.osLabel || target.serviceOrderId.slice(0, 8)).join(' · ')}
-              </div>
+              <>
+                <div className="max-h-20 overflow-auto font-mono text-[10px]">
+                  {requestTargets.map((target) => target.osLabel || target.serviceOrderId.slice(0, 8)).join(' · ')}
+                </div>
+                <div>
+                  <span className="text-[var(--muted)]">Equipo </span>
+                  {mixedEquipment ? 'Modelos mixtos' : equipmentLabel}
+                </div>
+              </>
             ) : (
               <>
                 <div>
@@ -267,6 +293,17 @@ export function RequestPartModal({
                   </option>
                 ))}
               </select>
+            )}
+            {!loadingCat && catalog.length === 0 && (
+              <p className="text-[10px] font-semibold text-rose-600">
+                {`No hay piezas activas en el catálogo para ${equipmentLabel}. Regístrala en Bodega de Partes antes de solicitarla.`}
+              </p>
+            )}
+            {mixedEquipment && (
+              <p className="text-[10px] font-semibold text-amber-600">
+                Las OS seleccionadas no comparten marca y modelo, por eso se muestra el catálogo
+                completo. Selecciona equipos iguales para filtrar las piezas compatibles.
+              </p>
             )}
             {selected?.requires_return && (
               <p className="text-[10px] font-semibold text-amber-600">

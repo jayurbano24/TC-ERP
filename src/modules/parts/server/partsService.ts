@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
 import { BusinessException, ValidationException } from '@/shared/errors/Exceptions';
 import { resolveProfileDisplayNames } from '@/shared/infrastructure/profiles/resolveProfileDisplayNames';
+import { expandOperationalRoles } from '@/shared/authz/roleGuard';
 
 export type PartCatalogInput = {
   sku: string;
@@ -68,6 +69,40 @@ function adminClient(db?: SupabaseClient): SupabaseClient {
 
 function availableQty(onHand: number, reserved: number): number {
   return Math.max(0, onHand - reserved);
+}
+
+/**
+ * `part_reservations` es la fuente de verdad de lo reservado: los contadores de
+ * `parts_inventory` son un cache que puede quedar desfasado si una escritura
+ * falla a medias. Recalcularlos desde el libro evita reservados negativos.
+ */
+async function syncReservedCounters(admin: SupabaseClient, inventoryId: string, catalogId: string) {
+  const { data: active, error } = await admin
+    .from('part_reservations')
+    .select('qty, source_type')
+    .eq('catalog_id', catalogId)
+    .eq('status', 'ACTIVE');
+  if (error) throw new BusinessException(error.message);
+
+  let reservedNew = 0;
+  let reservedRecovered = 0;
+  for (const row of active || []) {
+    if (row.source_type === 'RECOVERED') reservedRecovered += Number(row.qty || 0);
+    else reservedNew += Number(row.qty || 0);
+  }
+
+  const { error: updateError } = await admin
+    .from('parts_inventory')
+    .update({
+      qty_reserved: reservedNew + reservedRecovered,
+      qty_new_reserved: reservedNew,
+      qty_recovered_reserved: reservedRecovered,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', inventoryId);
+  if (updateError) throw new BusinessException(updateError.message);
+
+  return { reservedNew, reservedRecovered };
 }
 
 async function ensureInventoryRow(admin: SupabaseClient, catalogId: string) {
@@ -526,22 +561,13 @@ export async function reservePartRequestItem(opts: {
     .single();
   if (rErr || !reservation) throw new BusinessException(rErr?.message || 'No se pudo reservar');
 
-  const { error: invErr } = await admin
-    .from('parts_inventory')
-    .update({
-      qty_reserved: Number(inv.qty_reserved) + qty,
-      qty_new_reserved:
-        source === 'NEW'
-          ? Number(inv.qty_new_reserved ?? inv.qty_reserved ?? 0) + qty
-          : Number(inv.qty_new_reserved ?? inv.qty_reserved ?? 0),
-      qty_recovered_reserved:
-        source === 'RECOVERED'
-          ? Number(inv.qty_recovered_reserved ?? 0) + qty
-          : Number(inv.qty_recovered_reserved ?? 0),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', inv.id);
-  if (invErr) throw new BusinessException(invErr.message);
+  try {
+    await syncReservedCounters(admin, String(inv.id), String(item.catalog_id));
+  } catch (counterError) {
+    // Sin contadores actualizados la reserva quedaría huérfana y bloquearía el despacho.
+    await admin.from('part_reservations').delete().eq('id', reservation.id);
+    throw counterError;
+  }
 
   await admin
     .from('part_request_items')
@@ -588,27 +614,12 @@ export async function rejectPartRequest(opts: {
     for (const res of reservations || []) {
       const inv = await ensureInventoryRow(admin, String(res.catalog_id));
       const source: StockSourceType = res.source_type === 'RECOVERED' ? 'RECOVERED' : 'NEW';
-      const nextNewReserved =
-        source === 'NEW'
-          ? Math.max(0, Number(inv.qty_new_reserved ?? inv.qty_reserved ?? 0) - Number(res.qty))
-          : Number(inv.qty_new_reserved ?? inv.qty_reserved ?? 0);
-      const nextRecReserved =
-        source === 'RECOVERED'
-          ? Math.max(0, Number(inv.qty_recovered_reserved ?? 0) - Number(res.qty))
-          : Number(inv.qty_recovered_reserved ?? 0);
-      await admin
-        .from('parts_inventory')
-        .update({
-          qty_reserved: Math.max(0, Number(inv.qty_reserved) - Number(res.qty)),
-          qty_new_reserved: nextNewReserved,
-          qty_recovered_reserved: nextRecReserved,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', inv.id);
-      await admin
+      const { error: releaseError } = await admin
         .from('part_reservations')
         .update({ status: 'RELEASED', released_at: new Date().toISOString() })
         .eq('id', res.id);
+      if (releaseError) throw new BusinessException(releaseError.message);
+      await syncReservedCounters(admin, String(inv.id), String(res.catalog_id));
       await writeMovement(admin, {
         catalog_id: String(res.catalog_id),
         movement_type: 'UNRESERVE',
@@ -721,41 +732,36 @@ export async function dispatchPartRequest(opts: {
       const source: StockSourceType = res.source_type === 'RECOVERED' ? 'RECOVERED' : 'NEW';
       const currentNewOnHand = Number(inv.qty_new_on_hand ?? inv.qty_on_hand ?? 0);
       const currentRecOnHand = Number(inv.qty_recovered_on_hand ?? 0);
-      const currentNewReserved = Number(inv.qty_new_reserved ?? inv.qty_reserved ?? 0);
-      const currentRecReserved = Number(inv.qty_recovered_reserved ?? 0);
       const nextNewOnHand = source === 'NEW' ? currentNewOnHand - take : currentNewOnHand;
       const nextRecOnHand = source === 'RECOVERED' ? currentRecOnHand - take : currentRecOnHand;
-      const nextNewReserved = source === 'NEW' ? currentNewReserved - take : currentNewReserved;
-      const nextRecReserved = source === 'RECOVERED' ? currentRecReserved - take : currentRecReserved;
-      const nextOnHand = nextNewOnHand + nextRecOnHand;
-      const nextReserved = nextNewReserved + nextRecReserved;
-      if (
-        nextOnHand < 0 ||
-        nextReserved < 0 ||
-        nextNewOnHand < 0 ||
-        nextRecOnHand < 0 ||
-        nextNewReserved < 0 ||
-        nextRecReserved < 0
-      ) {
-        throw new BusinessException('Inconsistencia de inventario al despachar');
+      if (nextNewOnHand < 0 || nextRecOnHand < 0) {
+        throw new BusinessException(
+          `Stock ${source === 'NEW' ? 'NUEVO' : 'RECUPERADO'} insuficiente para despachar ${take} de ${String(
+            item.catalog?.sku || item.catalog_id
+          )}.`
+        );
       }
-      await admin
-        .from('parts_inventory')
-        .update({
-          qty_on_hand: nextOnHand,
-          qty_reserved: nextReserved,
-          qty_new_on_hand: nextNewOnHand,
-          qty_recovered_on_hand: nextRecOnHand,
-          qty_new_reserved: nextNewReserved,
-          qty_recovered_reserved: nextRecReserved,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', inv.id);
 
-      await admin
+      // Consumir la reserva y bajar el reservado antes que el físico: el CHECK
+      // `reserved <= on_hand` rechazaría el orden inverso.
+      const { error: reservationError } = await admin
         .from('part_reservations')
         .update({ status: 'CONSUMED', released_at: new Date().toISOString() })
         .eq('id', res.id);
+      if (reservationError) throw new BusinessException(reservationError.message);
+
+      await syncReservedCounters(admin, String(inv.id), String(item.catalog_id));
+
+      const { error: inventoryError } = await admin
+        .from('parts_inventory')
+        .update({
+          qty_on_hand: nextNewOnHand + nextRecOnHand,
+          qty_new_on_hand: nextNewOnHand,
+          qty_recovered_on_hand: nextRecOnHand,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', inv.id);
+      if (inventoryError) throw new BusinessException(inventoryError.message);
 
       const requiresReturn = Boolean((item as any).catalog?.requires_return);
       const unitCost = Number((item as any).catalog?.standard_cost ?? 0);
@@ -792,7 +798,13 @@ export async function dispatchPartRequest(opts: {
       toDispatch -= take;
     }
 
-    await admin
+    if (toDispatch > 0) {
+      throw new BusinessException(
+        `Reserva insuficiente para completar el despacho de ${String(item.catalog?.sku || item.catalog_id)}`
+      );
+    }
+
+    const { error: itemUpdateError } = await admin
       .from('part_request_items')
       .update({
         qty_dispatched: Number(item.qty_dispatched) + need,
@@ -800,18 +812,21 @@ export async function dispatchPartRequest(opts: {
         status: 'DISPATCHED',
       })
       .eq('id', item.id);
+    if (itemUpdateError) throw new BusinessException(itemUpdateError.message);
   }
 
-  await admin
+  const { error: requestUpdateError } = await admin
     .from('part_requests')
     .update({ status: 'FULFILLED', updated_at: new Date().toISOString() })
     .eq('id', request.id);
+  if (requestUpdateError) throw new BusinessException(requestUpdateError.message);
 
-  await admin
+  const { error: seriesUpdateError } = await admin
     .from('series')
     .update({ current_status: 'in_qc', updated_at: new Date().toISOString() })
     .eq('service_order_id', request.service_order_id)
     .eq('current_status', 'waiting_parts');
+  if (seriesUpdateError) throw new BusinessException(seriesUpdateError.message);
 
   return dispatch;
 }
@@ -1121,6 +1136,7 @@ export async function getPartsAnalytics(db?: SupabaseClient) {
     listPartsCatalog(admin, { activeOnly: false }),
     admin.from('part_requests').select('id', { count: 'exact', head: true }).in('status', ['PENDING', 'PARTIAL']),
     admin.from('part_dispatch_items').select('id', { count: 'exact', head: true }).eq('return_status', 'PENDING'),
+    admin.from('part_dispatch_items').select('id', { count: 'exact', head: true }).eq('receipt_status', 'NOT_RECEIVED'),
     admin
       .from('part_dispatch_items')
       .select('catalog_id, qty, unit_cost, created_at, catalog:catalog_id(sku, name)')
@@ -1201,6 +1217,21 @@ export async function getPartsAnalytics(db?: SupabaseClient) {
     return !cat || Number(cat.qty_available) < Number(item.qty_requested);
   });
 
+  const { count: notReceivedCount } = await admin
+    .from('part_dispatch_items')
+    .select('id', { count: 'exact', head: true })
+    .eq('receipt_status', 'NOT_RECEIVED');
+  const { data: notReceivedRows } = await admin
+    .from('part_dispatch_items')
+    .select(
+      `id, qty, receipt_status, receipt_confirmed_at, receipt_confirmed_by_name,
+      catalog:catalog_id(sku, name),
+      dispatch:dispatch_id(dispatch_number, service_order_id, service_orders:service_order_id(os_label))`
+    )
+    .eq('receipt_status', 'NOT_RECEIVED')
+    .order('receipt_confirmed_at', { ascending: false })
+    .limit(50);
+
   return {
     alerts: {
       os_waiting: pendingReqs.count ?? 0,
@@ -1208,7 +1239,9 @@ export async function getPartsAnalytics(db?: SupabaseClient) {
       below_min: reorderAlerts.length,
       requests_without_stock: withoutStock.length,
       reserved_skus: catalog.filter((c: any) => Number(c.qty_reserved) > 0).length,
+      parts_not_received: notReceivedCount ?? 0,
     },
+    notReceived: notReceivedRows ?? [],
     consumption: [...consumptionMap.values()].sort((a, b) => b.cost - a.cost),
     purchases: [...purchaseMap.values()].sort((a, b) => b.cost - a.cost),
     reorderAlerts,
@@ -1225,7 +1258,7 @@ export async function getOsPartStatus(serviceOrderId: string, db?: SupabaseClien
       items:part_request_items(*, catalog:catalog_id(sku, name)),
       dispatches:part_dispatches(
         id, dispatch_number, created_at,
-        items:part_dispatch_items(id, return_required, return_status, catalog:catalog_id(sku, name), qty)
+        items:part_dispatch_items(id, return_required, return_status, receipt_status, unused_return_status, qty, catalog:catalog_id(sku, name))
       )`
     )
     .eq('service_order_id', serviceOrderId)
@@ -1249,6 +1282,268 @@ export async function getOsPartStatus(serviceOrderId: string, db?: SupabaseClien
     // el bloqueo para evitar perder trazabilidad de la pieza reemplazada.
     canAdvance: pendingReturns.length === 0,
   };
+}
+
+async function notifyBodegaUsers(
+  admin: SupabaseClient,
+  notification: { title: string; body: string; kind: string; link: string; payload: Record<string, unknown> }
+) {
+  try {
+    const { data: roleRows } = await admin.from('user_roles').select('user_id, role');
+    const ids = [
+      ...new Set(
+        (roleRows || [])
+          .filter((row) => expandOperationalRoles([String(row.role || '')]).includes('bodega'))
+          .map((row) => String(row.user_id))
+          .filter(Boolean)
+      ),
+    ];
+    if (ids.length === 0) return;
+    await admin.from('erp_notifications').insert(
+      ids.map((userId) => ({
+        user_id: userId,
+        title: notification.title,
+        body: notification.body,
+        kind: notification.kind,
+        link: notification.link,
+        payload: notification.payload,
+      }))
+    );
+  } catch {
+    /* notificación opcional */
+  }
+}
+
+export async function confirmDispatchItemReceipt(
+  opts: {
+    dispatchItemId: string;
+    received: boolean;
+    userId?: string | null;
+    userName?: string | null;
+  },
+  db?: SupabaseClient
+) {
+  const admin = adminClient(db);
+  const { data: item } = await admin
+    .from('part_dispatch_items')
+    .select(
+      `id, qty, catalog_id, catalog:catalog_id(sku, name),
+      dispatch:dispatch_id(id, dispatch_number, service_order_id, service_orders:service_order_id(os_label))`
+    )
+    .eq('id', opts.dispatchItemId)
+    .maybeSingle();
+  if (!item) throw new BusinessException('Ítem de despacho no encontrado');
+
+  const receiptStatus = opts.received ? 'RECEIVED' : 'NOT_RECEIVED';
+  const { error } = await admin
+    .from('part_dispatch_items')
+    .update({
+      receipt_status: receiptStatus,
+      receipt_confirmed_at: new Date().toISOString(),
+      receipt_confirmed_by: opts.userId || null,
+      receipt_confirmed_by_name: opts.userName || null,
+    })
+    .eq('id', item.id);
+  if (error) throw new BusinessException(error.message);
+
+  const catalog = Array.isArray(item.catalog) ? item.catalog[0] : item.catalog;
+  const dispatch = Array.isArray(item.dispatch) ? item.dispatch[0] : item.dispatch;
+  const order = Array.isArray(dispatch?.service_orders)
+    ? dispatch.service_orders[0]
+    : dispatch?.service_orders;
+  const osLabel = String(order?.os_label || dispatch?.service_order_id || 'OS');
+  const sku = String(catalog?.sku || item.catalog_id);
+
+  if (!opts.received) {
+    await notifyBodegaUsers(admin, {
+      title: `Pieza no recibida · ${osLabel}`,
+      body: `${sku} · ${catalog?.name || ''} · despacho ${dispatch?.dispatch_number || item.id}. El taller marcó que no recibió la pieza.`,
+      kind: 'part_not_received',
+      link: '/bodega/partes?tab=alertas',
+      payload: {
+        dispatch_item_id: item.id,
+        service_order_id: dispatch?.service_order_id,
+        sku,
+      },
+    });
+  }
+
+  return { id: item.id, receiptStatus };
+}
+
+export async function returnUnusedGoodPart(
+  opts: {
+    dispatchItemId: string;
+    userId?: string | null;
+    userName?: string | null;
+    notes?: string | null;
+  },
+  db?: SupabaseClient
+) {
+  const admin = adminClient(db);
+  const { data: item } = await admin
+    .from('part_dispatch_items')
+    .select(
+      `id, qty, catalog_id, source_type, unused_return_status, receipt_status, unit_cost,
+      catalog:catalog_id(sku, name),
+      dispatch:dispatch_id(id, dispatch_number, service_order_id, series_id, service_orders:service_order_id(os_label))`
+    )
+    .eq('id', opts.dispatchItemId)
+    .maybeSingle();
+  if (!item) throw new BusinessException('Ítem de despacho no encontrado');
+  if (String(item.unused_return_status) === 'RETURNED') {
+    throw new BusinessException('Esta pieza buena ya fue devuelta a bodega');
+  }
+  if (String(item.receipt_status) === 'NOT_RECEIVED') {
+    throw new BusinessException('No se puede devolver una pieza marcada como no recibida');
+  }
+
+  const qty = Number(item.qty || 0);
+  if (qty <= 0) throw new BusinessException('Cantidad inválida para devolver');
+  const source: StockSourceType = item.source_type === 'RECOVERED' ? 'RECOVERED' : 'NEW';
+  const inv = await ensureInventoryRow(admin, String(item.catalog_id));
+  const nextNewOnHand =
+    source === 'NEW'
+      ? Number(inv.qty_new_on_hand ?? inv.qty_on_hand ?? 0) + qty
+      : Number(inv.qty_new_on_hand ?? inv.qty_on_hand ?? 0);
+  const nextRecOnHand =
+    source === 'RECOVERED'
+      ? Number(inv.qty_recovered_on_hand ?? 0) + qty
+      : Number(inv.qty_recovered_on_hand ?? 0);
+  const reservedNew = Number(inv.qty_new_reserved ?? inv.qty_reserved ?? 0);
+  const reservedRec = Number(inv.qty_recovered_reserved ?? 0);
+
+  const { error: inventoryError } = await admin
+    .from('parts_inventory')
+    .update({
+      qty_on_hand: nextNewOnHand + nextRecOnHand,
+      qty_new_on_hand: nextNewOnHand,
+      qty_recovered_on_hand: nextRecOnHand,
+      qty_reserved: reservedNew + reservedRec,
+      qty_new_reserved: reservedNew,
+      qty_recovered_reserved: reservedRec,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', inv.id);
+  if (inventoryError) throw new BusinessException(inventoryError.message);
+
+  const { error: itemError } = await admin
+    .from('part_dispatch_items')
+    .update({
+      unused_return_status: 'RETURNED',
+      unused_return_at: new Date().toISOString(),
+      unused_return_by: opts.userId || null,
+      unused_return_by_name: opts.userName || null,
+      receipt_status: 'RECEIVED',
+      receipt_confirmed_at: new Date().toISOString(),
+      receipt_confirmed_by: opts.userId || null,
+      receipt_confirmed_by_name: opts.userName || null,
+    })
+    .eq('id', item.id)
+    .eq('unused_return_status', 'NONE');
+  if (itemError) throw new BusinessException(itemError.message);
+
+  const dispatch = Array.isArray(item.dispatch) ? item.dispatch[0] : item.dispatch;
+  const catalog = Array.isArray(item.catalog) ? item.catalog[0] : item.catalog;
+  const order = Array.isArray(dispatch?.service_orders)
+    ? dispatch.service_orders[0]
+    : dispatch?.service_orders;
+
+  await writeMovement(admin, {
+    catalog_id: String(item.catalog_id),
+    movement_type: 'IN_RETURN_GOOD',
+    qty,
+    source_type: source,
+    unit_cost: Number(item.unit_cost ?? 0),
+    service_order_id: dispatch?.service_order_id || null,
+    series_id: dispatch?.series_id || null,
+    ref_type: 'part_dispatch_item',
+    ref_id: item.id,
+    created_by: opts.userId,
+    notes:
+      opts.notes ||
+      `Devolución pieza buena sin usar · ${dispatch?.dispatch_number || item.id}`,
+  });
+
+  const osLabel = String(order?.os_label || dispatch?.service_order_id || 'OS');
+  const sku = String(catalog?.sku || item.catalog_id);
+  await notifyBodegaUsers(admin, {
+    title: `Devolución pieza buena · ${osLabel}`,
+    body: `${sku} · ${catalog?.name || ''} ×${qty} (${source === 'NEW' ? 'nuevo' : 'recuperado'}) reingresa a stock. Despacho ${dispatch?.dispatch_number || ''}.`,
+    kind: 'part_return_good',
+    link: '/bodega/partes?tab=historial',
+    payload: {
+      dispatch_item_id: item.id,
+      service_order_id: dispatch?.service_order_id,
+      sku,
+      qty,
+      source_type: source,
+    },
+  });
+
+  return { id: item.id, qty, sourceType: source, qtyOnHand: nextNewOnHand + nextRecOnHand };
+}
+
+export type DispatchedSkuByOs = {
+  serviceOrderId: string;
+  label: string;
+  items: Array<{ sku: string; name: string; qty: number }>;
+};
+
+export function formatDispatchedSkuLabel(
+  items: Array<{ sku: string; qty: number }>
+): string {
+  return items
+    .filter((item) => item.sku)
+    .map((item) => (item.qty > 1 ? `${item.sku}×${item.qty}` : item.sku))
+    .join(' · ');
+}
+
+/** SKUs despachados a un lote de OS (cola de Reparación). */
+export async function listDispatchedSkusByServiceOrders(
+  serviceOrderIds: string[],
+  db?: SupabaseClient
+): Promise<DispatchedSkuByOs[]> {
+  const ids = [...new Set(serviceOrderIds.filter(Boolean))].slice(0, 100);
+  if (ids.length === 0) return [];
+  const admin = adminClient(db);
+  const { data, error } = await admin
+    .from('part_dispatches')
+    .select(
+      `service_order_id,
+      items:part_dispatch_items(qty, catalog:catalog_id(sku, name))`
+    )
+    .in('service_order_id', ids);
+  if (error) throw new BusinessException(error.message);
+
+  const byOs = new Map<string, Map<string, { sku: string; name: string; qty: number }>>();
+  for (const dispatch of data || []) {
+    const osId = String(dispatch.service_order_id || '');
+    if (!osId) continue;
+    const bucket = byOs.get(osId) ?? new Map();
+    for (const item of dispatch.items || []) {
+      const catalog = Array.isArray(item.catalog) ? item.catalog[0] : item.catalog;
+      const sku = String(catalog?.sku || '').trim();
+      if (!sku) continue;
+      const prev = bucket.get(sku);
+      const qty = Number(item.qty || 0);
+      bucket.set(sku, {
+        sku,
+        name: String(catalog?.name || prev?.name || ''),
+        qty: (prev?.qty || 0) + qty,
+      });
+    }
+    byOs.set(osId, bucket);
+  }
+
+  return ids.map((serviceOrderId) => {
+    const items = [...(byOs.get(serviceOrderId)?.values() || [])];
+    return {
+      serviceOrderId,
+      items,
+      label: formatDispatchedSkuLabel(items),
+    };
+  });
 }
 
 export async function updatePartsLocation(opts: {

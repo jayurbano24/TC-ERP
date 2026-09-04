@@ -22,7 +22,7 @@ export const PxReceptionTab = (props: any) => {
     boxScannedSeries, scannedSerialUpperSet, boxSeriesPagination,
     activeBoxCodes, boxLimitReached, finalizeCheck, canFinalize,
     openBoxCount, closedBoxCount, targetBox, boxItems, boxMeta,
-    totalExpected, received, isBoxClosed, progressPct, hasBoxLock,
+    totalExpected, received, isBoxComplete, isBoxClosed, progressPct, hasBoxLock,
     boxEditDisabled, canClose,
     checkHeaderFields, openHeaderEdit, saveHeaderEdit, cancelHeaderEdit,
     handleAbandonReception, handleStartReception, handleCreateNewBox,
@@ -75,7 +75,7 @@ export const PxReceptionTab = (props: any) => {
               {useIncrementalCapture && (pxInProgressList?.length > 0 || isLoadingIncrementalResume) && (
                 <div className="rounded-2xl border border-[var(--accent)]/30 bg-[var(--accent)]/5 px-5 py-4 space-y-3">
                   <p className="text-[11px] font-black uppercase tracking-widest text-[var(--heading)]">
-                    Recepciones en servidor (EN_PROCESO)
+                    Recepciones pendientes en servidor
                   </p>
                   {isLoadingIncrementalResume && (
                     <p className="text-xs font-bold text-slate-500">Recuperando sesión...</p>
@@ -88,15 +88,23 @@ export const PxReceptionTab = (props: any) => {
                       <div>
                         <p className="text-xs font-black text-[var(--heading)]">{rec.guide_number}</p>
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                          SAP {rec.sap_document || '—'} · {rec.captured_count} equipos capturados
+                          SAP {rec.sap_document || '—'} ·{' '}
+                          {rec.status === 'FINALIZANDO'
+                            ? `${rec.promoted_count} ingresados · ${rec.captured_count} pendientes`
+                            : `${rec.captured_count} equipos capturados`}
                         </p>
+                        {rec.status === 'FINALIZANDO' && (
+                          <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-amber-700">
+                            Finalización interrumpida — progreso guardado
+                          </p>
+                        )}
                       </div>
                       <Button
                         type="button"
                         onClick={() => onResumePxReception?.(rec.id)}
                         className="h-9 px-4 text-[9px] font-black uppercase tracking-widest bg-[var(--accent)] hover:bg-[#25aed4] text-white rounded-xl"
                       >
-                        Continuar
+                        {rec.status === 'FINALIZANDO' ? 'Reanudar finalización' : 'Continuar'}
                       </Button>
                     </div>
                   ))}
@@ -252,6 +260,7 @@ export const PxReceptionTab = (props: any) => {
       handleReopenBox={handleReopenBox}
       hasBoxLock={hasBoxLock}
       incrementalReceptionId={incrementalReceptionId}
+      isBoxComplete={isBoxComplete}
       isBoxClosed={isBoxClosed}
       lastSavedAt={lastSavedAt}
       progressPct={progressPct}

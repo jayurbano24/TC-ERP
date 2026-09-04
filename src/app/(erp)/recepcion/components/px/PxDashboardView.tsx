@@ -15,6 +15,7 @@ import {
   canCreateNewPxBox,
 } from '../../utils/pxBoxUtils';
 import type { PxFinalizeProgress } from '../../services/pxIncrementalApi';
+import type { PxBoxSnapshot } from '@/lib/database/pxReceptionCapture.shared';
 
 export const PxDashboardView = (props: any) => {
   const {
@@ -26,6 +27,17 @@ export const PxDashboardView = (props: any) => {
     lastSavedAt, manifestItems, openBoxCount, openHeaderEdit,
     scannedSeries, useIncrementalCapture,
   } = props;
+  const serverBoxes = Object.values(
+    (boxMetaByCode || {}) as Record<string, PxBoxSnapshot>,
+  );
+  const totalAccepted = serverBoxes.reduce(
+    (acc, box) => acc + (box.captured_count ?? 0),
+    0,
+  );
+  const totalRejected = serverBoxes.reduce(
+    (acc, box) => acc + (box.rejected_count ?? 0),
+    0,
+  );
 
   const prepPct =
     finalizeProgress && finalizeProgress.prepTotal > 0
@@ -68,11 +80,10 @@ export const PxDashboardView = (props: any) => {
             {useIncrementalCapture && incrementalReceptionId ? (
               <span className="hidden lg:inline text-[10px] font-bold text-emerald-600 uppercase tracking-widest">
                 Servidor ·{' '}
-                {Object.values(boxMetaByCode || {}).reduce(
-                  (acc, b) => acc + (b.captured_count ?? 0),
-                  0
-                ) || scannedSeries.length}{' '}
-                equipos · REC {guideData.guia}
+                {totalAccepted || scannedSeries.length}{' '}
+                aceptadas ·{' '}
+                {totalRejected}{' '}
+                rechazadas · REC {guideData.guia}
               </span>
             ) : lastSavedAt ? (
               <span className="hidden lg:inline text-[10px] font-bold text-emerald-600 uppercase tracking-widest">
@@ -138,7 +149,8 @@ export const PxDashboardView = (props: any) => {
               </span>
             </div>
             <p className="text-[10px] text-emerald-600">
-              No cierre esta pestaña. Si se interrumpe, puede reintentar Finalizar — el servidor retoma desde donde quedó.
+              El progreso se guarda por lote en el servidor. Si se interrumpe,
+              la recepción seguirá visible para reanudarla desde el último lote.
             </p>
           </div>
         )}
@@ -209,6 +221,8 @@ export const PxDashboardView = (props: any) => {
               const meta = useIncrementalCapture ? boxMetaByCode?.[boxCode] : null;
               const totalExpected = meta?.declared_quantity ?? stats.totalExpected;
               const received = meta?.captured_count ?? stats.received;
+              const rejected = meta?.rejected_count ?? 0;
+              const isEmpty = received === 0;
               const isComplete = totalExpected > 0 && received >= totalExpected;
               const isClosed = useIncrementalCapture && meta
                 ? meta.status === 'cerrada' || meta.status === 'closed'
@@ -227,6 +241,11 @@ export const PxDashboardView = (props: any) => {
                             <Lock className="w-2.5 h-2.5 mr-0.5 inline" /> Cerrada
                           </Badge>
                         )}
+                        {isEmpty && !isClosed && (
+                          <Badge className="border-none bg-slate-200 px-1.5 py-0 text-[8px] font-black uppercase text-slate-600">
+                            Programada · vacía
+                          </Badge>
+                        )}
                       </div>
                       <div className="mt-1.5 space-y-0.5">
                         {uniqueModels.map((m: string, idx: number) => (
@@ -242,8 +261,12 @@ export const PxDashboardView = (props: any) => {
                     )}
                   </div>
                   <div className="bg-slate-50/50 p-3">
-                    <div className="flex justify-between items-center mb-3">
-                      <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Items: {received} / {totalExpected}</span>
+                    <div className="mb-3 flex items-center justify-between">
+                      <div className="flex gap-2 text-[9px] font-black uppercase tracking-widest">
+                        <span className="text-slate-500">Decl. {totalExpected}</span>
+                        <span className="text-emerald-600">Acept. {received}</span>
+                        <span className="text-rose-600">Rech. {rejected}</span>
+                      </div>
                       {isClosed ? <Lock className="w-3.5 h-3.5 text-emerald-500" /> : isComplete && <CheckCircle2 className="w-3.5 h-3.5 text-[var(--heading)]" />}
                     </div>
                     <Button 
@@ -256,7 +279,14 @@ export const PxDashboardView = (props: any) => {
                             : 'bg-[var(--accent)] hover:opacity-90 text-white shadow-sm shadow-[var(--accent)]/20'
                       }`}
                     >
-                      {isClosed ? 'Ver caja cerrada' : isComplete ? 'Revisar y cerrar' : 'Continuar armado'} <ArrowRight className="w-3 h-3 ml-1" />
+                      {isClosed
+                        ? 'Ver caja cerrada'
+                        : isComplete
+                          ? 'Revisar y cerrar'
+                          : isEmpty
+                            ? 'Iniciar captura'
+                            : 'Continuar armado'}{' '}
+                      <ArrowRight className="w-3 h-3 ml-1" />
                     </Button>
                   </div>
                 </Card>

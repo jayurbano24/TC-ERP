@@ -22,6 +22,7 @@ import {
   serialLengthCounterLabel,
   validateSerialLength,
 } from '@/shared/validation/serialDigitRules';
+import type { PxRejectedSerialScan } from '@/lib/database/pxReceptionCapture.shared';
 
 export const PxBoxDetailView = (props: any) => {
   const {
@@ -30,11 +31,13 @@ export const PxBoxDetailView = (props: any) => {
     filteredBrands, filteredModels, handleAddLotToActiveBox, handleAddSN_PX,
     handleAdjustQuantityClick, handleBackToDashboard, handleCloseBox, handleDeleteEquipment,
     handleReopenBox, hasBoxLock, incrementalReceptionId, isBoxClosed,
+    isBoxComplete,
     lastSavedAt, progressPct, received, scannedSerialUpperSet,
     scannedSeries, setCurrentEntry, setCurrentScans, systemModels,
     systemTechnologies, targetBox, totalExpected,
     useIncrementalCapture,
   } = props;
+  const rejected = boxMeta?.rejected_count ?? 0;
 
   return (
     <div className="space-y-6 animate-rise-in">
@@ -120,6 +123,43 @@ export const PxBoxDetailView = (props: any) => {
               </p>
             ) : null}
           </div>
+        </div>
+      )}
+
+      {useIncrementalCapture && received === 0 && rejected > 0 && (
+        <div role="alert" className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-3">
+          <p className="text-[11px] font-black uppercase tracking-widest text-rose-800">
+            No es posible finalizar esta caja
+          </p>
+          <p className="mt-1 text-xs font-bold text-rose-700">
+            No se registró ninguna unidad. {rejected} intento(s) fueron rechazados por existir en
+            otras Órdenes de Servicio abiertas.
+          </p>
+        </div>
+      )}
+
+      {isBoxComplete && !isBoxClosed && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="rounded-2xl border border-emerald-300 bg-emerald-50 px-5 py-4 flex items-center gap-3"
+        >
+          <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
+          <div className="min-w-0">
+            <p className="text-[11px] font-black uppercase tracking-widest text-emerald-800">
+              Caja llena — {received}/{totalExpected} equipos
+            </p>
+            <p className="mt-1 text-xs font-bold text-emerald-700">
+              No se permiten más lecturas en esta caja. Ciérrela y continúe en la siguiente.
+            </p>
+          </div>
+          <Button
+            type="button"
+            onClick={() => handleCloseBox(targetBox)}
+            className="ml-auto h-10 shrink-0 bg-emerald-600 px-4 text-[10px] font-black uppercase tracking-widest text-white hover:bg-emerald-700"
+          >
+            <Lock className="mr-2 h-4 w-4" /> Cerrar caja
+          </Button>
         </div>
       )}
 
@@ -278,6 +318,13 @@ export const PxBoxDetailView = (props: any) => {
                     notify.warning('Esta caja está cerrada. Reábrala para escanear más equipos.');
                     return;
                   }
+                  if (isBoxComplete) {
+                    e.preventDefault();
+                    notify.warning(`Caja ${targetBox} llena: ${received}/${totalExpected}.`, {
+                      description: 'Cierre esta caja y continúe en la siguiente.',
+                    });
+                    return;
+                  }
                   if (boxEditDisabled) {
                     e.preventDefault();
                     notify.warning('No tiene control de esta caja. Espere a que el otro operador libere el lock.');
@@ -380,8 +427,8 @@ export const PxBoxDetailView = (props: any) => {
                                     ? 'border-rose-500 text-rose-600 focus:border-rose-500 bg-rose-50'
                                     : 'border-slate-200 focus:border-[var(--accent)]'
                                 }`}
-                                autoFocus={idx === 0 && !isBoxClosed && !boxEditDisabled}
-                                disabled={boxItems.length === 0 || boxEditDisabled}
+                                autoFocus={idx === 0 && !isBoxComplete && !isBoxClosed && !boxEditDisabled}
+                                disabled={boxItems.length === 0 || isBoxComplete || boxEditDisabled}
                               />
                               <div className="flex justify-between items-center min-h-[1rem]">
                                 {isDuplicate ? (
@@ -413,10 +460,16 @@ export const PxBoxDetailView = (props: any) => {
                   })()}
                   <Button 
                     type="submit" 
-                    disabled={boxItems.length === 0 || boxEditDisabled}
+                    disabled={boxItems.length === 0 || isBoxComplete || boxEditDisabled}
                     className="w-full h-12 bg-[var(--heading)] hover:brightness-110 text-white text-[11px] uppercase tracking-widest font-black rounded-lg mt-2 shadow-lg shadow-[var(--heading)]/20 disabled:opacity-50"
                   >
-                    {isBoxClosed ? 'Caja cerrada' : boxEditDisabled ? 'Sin control de caja' : 'Registrar Equipo (Enter)'}
+                    {isBoxClosed
+                      ? 'Caja cerrada'
+                      : isBoxComplete
+                        ? `Caja llena · ${received}/${totalExpected}`
+                        : boxEditDisabled
+                          ? 'Sin control de caja'
+                          : 'Registrar Equipo (Enter)'}
                   </Button>
                 </form>
               </Card>
@@ -426,9 +479,19 @@ export const PxBoxDetailView = (props: any) => {
                 <div className="mb-4">
                   <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Progreso: {targetBox}</h3>
                 </div>
-                <div className="flex items-end gap-2 mb-4">
-                  <span className="text-4xl font-black text-[var(--heading)] leading-none">{received}</span>
-                  <span className="text-sm font-bold text-slate-400 mb-1">/ {totalExpected} equipos</span>
+                <div className="mb-4 grid grid-cols-3 gap-2">
+                  <div>
+                    <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Declaradas</span>
+                    <span className="text-2xl font-black tabular-nums text-[var(--heading)]">{totalExpected}</span>
+                  </div>
+                  <div>
+                    <span className="block text-[9px] font-black uppercase tracking-widest text-emerald-600">Aceptadas</span>
+                    <span className="text-2xl font-black tabular-nums text-emerald-700">{received}</span>
+                  </div>
+                  <div>
+                    <span className="block text-[9px] font-black uppercase tracking-widest text-rose-600">Rechazadas</span>
+                    <span className="text-2xl font-black tabular-nums text-rose-700">{rejected}</span>
+                  </div>
                 </div>
                 <div className="h-3 w-full bg-slate-100 rounded-full overflow-hidden">
                   <div 
@@ -436,6 +499,18 @@ export const PxBoxDetailView = (props: any) => {
                     style={{ width: `${progressPct}%` }}
                   />
                 </div>
+                {boxMeta?.rejections?.length > 0 && (
+                  <div className="mt-4 max-h-28 space-y-1 overflow-y-auto border-t border-slate-100 pt-3">
+                    {boxMeta.rejections.slice(0, 5).map((item: PxRejectedSerialScan) => (
+                      <div key={item.id} className="flex items-center justify-between gap-2 text-[9px]">
+                        <span className="truncate font-mono font-black text-rose-700">{item.serial_number}</span>
+                        <span className="shrink-0 font-bold text-slate-500">
+                          {item.error_code} · {item.existing_os_number || 'S/OS'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </Card>
             </div>
 

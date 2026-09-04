@@ -801,6 +801,17 @@ export async function createPxReceptionWithBoxes(
   boxes: { id: string; box_code: string; expected_units: number; brand_id: string; model_id: string; material?: string; }[],
   seriesByBox: Record<string, string[]>
 ) {
+  // Fail closed: este escritor legado hacía INSERT directo de recepción/OS/series
+  // y podía dejar una recepción CLASIFICADA con 0 unidades si fallaba a mitad.
+  // El único flujo PX permitido es captura incremental → RPC transaccional.
+  const directLegacyPxWritesDisabled: boolean = true;
+  if (directLegacyPxWritesDisabled) {
+    return {
+      error:
+        'Flujo PX legado deshabilitado. Use la recepción incremental para validar cada serie en servidor.',
+    };
+  }
+
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: "Supabase not configured" };
 

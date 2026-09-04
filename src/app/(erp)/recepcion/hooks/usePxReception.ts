@@ -478,7 +478,7 @@ export function usePxReception(props: any) {
     activeBoxCodes, boxLimitReached, finalizeCheck,
     canFinalize, openBoxCount, closedBoxCount,
     targetBox, boxItems, boxMeta,
-    totalExpected, received, isBoxClosed,
+    totalExpected, received, isBoxComplete, isBoxClosed,
     progressPct, hasBoxLock, boxEditDisabled,
     canClose, checkHeaderFields, openHeaderEdit,
     saveHeaderEdit, cancelHeaderEdit, handleAbandonReception,

@@ -20,7 +20,8 @@ import {
   fetchPxInProgressList,
   fetchPxReceptionSnapshot,
   fetchPxBoxMeta,
-  finalizePxReceptionStepwise,
+  finalizePxReceptionApi,
+  isPxReceptionResumable,
   type PxFinalizeProgress,
   joinOrStartPxReceptionApi,
   reopenPxBoxApi,
@@ -28,6 +29,7 @@ import {
   voidPxEquipmentApi,
   deletePxCaptureBoxApi,
   scanPxEquipmentApi,
+  DuplicateOpenOsError,
   type ScanPxEquipmentResult,
   setIncrementalReceptionIdInSession,
   getIncrementalReceptionIdFromSession,
@@ -291,6 +293,16 @@ export function useReceptionPXIncremental({
     };
   }, []);
 
+  useEffect(() => {
+    if (!finalizeProgress) return;
+    const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnBeforeLeaving);
+    return () => window.removeEventListener('beforeunload', warnBeforeLeaving);
+  }, [finalizeProgress]);
+
   const loadInProgressList = useCallback(async () => {
     try {
       const list = await fetchPxInProgressList();
@@ -332,7 +344,7 @@ export function useReceptionPXIncremental({
       try {
         const snap = await fetchPxReceptionSnapshot(sessionId, { includeEquipment: true });
         if (cancelled || !snap) return;
-        if (snap.reception.status !== 'EN_PROCESO') {
+        if (!isPxReceptionResumable(snap.reception.status)) {
           setIncrementalReceptionIdInSession(null);
           return;
         }
@@ -440,6 +452,9 @@ export function useReceptionPXIncremental({
 
       try {
         let boxId = existingBoxId;
+        // El servidor puede reasignar el correlativo si el propuesto ya fue usado
+        // por una caja eliminada; manda el código que quedó persistido.
+        let effectiveBoxCode = boxCode;
         if (!boxId) {
           const limitCheck = canCreateNewPxBox(
             boxMetaRef.current,
@@ -451,12 +466,13 @@ export function useReceptionPXIncremental({
           }
           const created = await createPxBoxApi(incrementalReceptionId, boxCode, [lot]);
           boxId = created.id;
+          effectiveBoxCode = created.box_code || boxCode;
         } else {
           await appendPxCaptureLotsApi(existingBoxId, [lot]);
         }
         await refreshSnapshot();
-        pxState.setSelectedBoxForScan(boxCode);
-        await onAcquireBoxLock(boxCode, boxId);
+        pxState.setSelectedBoxForScan(effectiveBoxCode);
+        await onAcquireBoxLock(effectiveBoxCode, boxId);
         return true;
       } catch (err: unknown) {
         notify.error(err instanceof Error ? err.message : 'Error al registrar lote en servidor');
@@ -525,7 +541,10 @@ export function useReceptionPXIncremental({
       const declared = meta?.declared_quantity ?? 0;
       const captured = meta?.captured_count ?? 0;
       if (declared > 0 && captured >= declared) {
-        notify.warning(`La caja ${selectedBoxForScan} ya alcanzó su capacidad (${declared}).`);
+        notify.warning(`Caja ${selectedBoxForScan} llena: ${captured}/${declared} equipos.`, {
+          description: 'No se permiten más equipos. Cierre esta caja y continúe en la siguiente.',
+          duration: 8000,
+        });
         return;
       }
 
@@ -708,6 +727,15 @@ export function useReceptionPXIncremental({
           const result = await scanPxEquipmentApi(scanPayload);
           reconcileOptimisticScan(result);
           void attachReentryPreview(result.equipmentId);
+          if (
+            result.declaredQuantity > 0 &&
+            result.capturedCount >= result.declaredQuantity
+          ) {
+            notify.success(`Caja ${selectedBoxForScan} completada`, {
+              description: `${result.capturedCount}/${result.declaredQuantity} equipos. El escáner quedó bloqueado; cierre la caja para continuar.`,
+              duration: 10000,
+            });
+          }
           return true;
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : 'Error al guardar escaneo en servidor';
@@ -716,7 +744,27 @@ export function useReceptionPXIncremental({
             if (ok) return submitScan(true);
           }
           rollbackOptimisticScan();
-          notify.error(message);
+          if (err instanceof DuplicateOpenOsError) {
+            const duplicate = err.details;
+            await refreshSnapshot();
+            notify.error('SERIE DUPLICADA – ORDEN DE SERVICIO ABIERTA', {
+              description:
+                `La serie ${duplicate.serial} ya está registrada en otra OS abierta. ` +
+                `OS: ${duplicate.existing_os_number || 'sin número'} · ` +
+                `Estado: ${duplicate.existing_os_status || 'sin estado'}. ` +
+                'Esta unidad NO fue ingresada ni contabilizada. Resuelva la OS existente antes de reintentar.',
+              duration: 15000,
+            });
+          } else if (message.includes('caja alcanzó su capacidad') || message.includes('BOX_FULL')) {
+            await refreshSnapshot();
+            notify.warning(`Caja ${selectedBoxForScan} llena`, {
+              description:
+                'El equipo no fue registrado. Cierre esta caja y seleccione o cree la siguiente.',
+              duration: 10000,
+            });
+          } else {
+            notify.error(message);
+          }
           return false;
         }
       };
@@ -732,6 +780,7 @@ export function useReceptionPXIncremental({
       systemBrands,
       systemModels,
       currentUserFullName,
+      refreshSnapshot,
       scheduleSoftRefresh,
       onAcquireBoxLock,
       ensureOperatorId,
@@ -1121,18 +1170,22 @@ export function useReceptionPXIncremental({
         label: 'Iniciando…',
       });
 
-      const result = await finalizePxReceptionStepwise(
-        {
-          receptionId: incrementalReceptionId,
-          expectedVersion: receptionVersion,
-          varianceReason,
-          operatorId,
-          operatorName: currentUserFullName,
-          prepTotal: readiness.boxCodes.length,
-          promoteTotal: totalCaptured,
-        },
-        setFinalizeProgress,
-      );
+      setFinalizeProgress({
+        phase: 'promote',
+        prepDone: readiness.boxCodes.length,
+        prepTotal: readiness.boxCodes.length,
+        promoteDone: 0,
+        promoteTotal: totalCaptured,
+        label: 'Servidor procesando cajas y equipos de forma persistente…',
+      });
+
+      const result = await finalizePxReceptionApi({
+        receptionId: incrementalReceptionId,
+        expectedVersion: receptionVersion,
+        varianceReason,
+        operatorId,
+        operatorName: currentUserFullName,
+      });
 
       const batchDesc =
         result.batches && (result.batches.prep > 0 || result.batches.promote > 0)

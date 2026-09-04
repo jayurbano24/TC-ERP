@@ -1,4 +1,5 @@
 import { getPxBoxesDefault } from '@/shared/constants/batchLimits';
+import type { GuideData } from '@/app/(erp)/recepcion/types/reception.types';
 
 export type PxLotInput = {
   technologyName?: string;
@@ -10,6 +11,34 @@ export type PxLotInput = {
   material?: string;
 };
 
+/**
+ * Las cajas eliminadas conservan su código (baja lógica) y el cliente propone el
+ * correlativo contando solo cajas visibles, así que puede repetir uno dado de baja.
+ * UNIQUE (reception_id, box_code) lo rechazaría y el operador quedaría bloqueado,
+ * por eso el servidor corre el correlativo al primer hueco realmente libre.
+ */
+export function nextFreePxBoxCode(takenCodes: readonly string[], requestedCode: string): string {
+  const taken = new Set(takenCodes.map((code) => String(code ?? '').toUpperCase()));
+  const requested = requestedCode.toUpperCase();
+  if (!taken.has(requested)) return requestedCode;
+
+  const match = requested.match(/^(.*?)(\d+)$/);
+  const prefix = match ? match[1] : `${requested}-`;
+
+  let next = 0;
+  for (const code of taken) {
+    if (!code.startsWith(prefix)) continue;
+    const suffix = Number.parseInt(code.slice(prefix.length), 10);
+    if (Number.isFinite(suffix) && suffix > next) next = suffix;
+  }
+
+  do {
+    next += 1;
+  } while (taken.has(`${prefix}${next}`));
+
+  return `${prefix}${next}`;
+}
+
 export type PxEquipmentRow = {
   id: string;
   main_serial: string;
@@ -20,6 +49,17 @@ export type PxEquipmentRow = {
   captured_at: string;
 };
 
+export type PxRejectedSerialScan = {
+  id: string;
+  serial_number: string;
+  error_code: 'DUPLICATE_OPEN_OS';
+  existing_os_id: string | null;
+  existing_os_number: string | null;
+  existing_os_status: string | null;
+  existing_source: string | null;
+  created_at: string;
+};
+
 export type PxBoxSnapshot = {
   id: string;
   box_code: string;
@@ -27,6 +67,7 @@ export type PxBoxSnapshot = {
   declared_quantity: number;
   declared_quantity_original?: number | null;
   captured_count: number;
+  rejected_count: number;
   brand_id: string | null;
   model_id: string | null;
   version: number;
@@ -46,6 +87,7 @@ export type PxBoxSnapshot = {
     model_id: string | null;
   }>;
   equipment: PxEquipmentRow[];
+  rejections: PxRejectedSerialScan[];
 };
 
 export type PxReceptionSnapshot = {

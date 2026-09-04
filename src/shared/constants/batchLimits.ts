@@ -19,7 +19,7 @@ export const BATCH_LIMITS = {
   /** Equipos por operación PX (finalize lote RPC — no limita captura scan a scan). */
   PX_EQUIPMENT_PER_OP: 150,
   /** Equipos promovidos por llamada a finalize_px_reception_batch_tx. */
-  PX_FINALIZE_PROMOTE_BATCH: 10,
+  PX_FINALIZE_PROMOTE_BATCH: 50,
   /** Tope de iteraciones prep (1 caja por RPC). */
   PX_FINALIZE_PREP_MAX_ITERATIONS: 200,
   /** Tope de iteraciones promote (equipos por lote). */

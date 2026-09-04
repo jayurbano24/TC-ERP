@@ -5,9 +5,14 @@ import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
 
 const INCREMENTAL_SESSION_KEY = 'tc_erp_px_incremental_reception_id';
 export const PX_INCREMENTAL_ACTIVE_STATUS = 'EN_PROCESO';
+export const PX_INCREMENTAL_FINALIZING_STATUS = 'FINALIZANDO';
 
 export function isPxReceptionResumable(status: string | null | undefined): boolean {
-  return (status || '').trim().toUpperCase() === PX_INCREMENTAL_ACTIVE_STATUS;
+  const normalized = (status || '').trim().toUpperCase();
+  return (
+    normalized === PX_INCREMENTAL_ACTIVE_STATUS ||
+    normalized === PX_INCREMENTAL_FINALIZING_STATUS
+  );
 }
 
 export function getIncrementalReceptionIdFromSession(): string | null {
@@ -38,8 +43,46 @@ export async function fetchPxInProgressList() {
     guide_number: string;
     sap_document: string | null;
     created_at: string;
+    status: typeof PX_INCREMENTAL_ACTIVE_STATUS | typeof PX_INCREMENTAL_FINALIZING_STATUS;
     captured_count: number;
+    promoted_count: number;
   }>;
+}
+
+const PX_FINALIZE_RETRY_DELAYS_MS = [1_000, 2_000] as const;
+
+async function finalizeRequestWithRetry(
+  request: () => Promise<Response>,
+  fallbackMessage: string,
+): Promise<Record<string, unknown>> {
+  for (let attempt = 0; attempt <= PX_FINALIZE_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      const response = await request();
+      const payload = (await response.json()) as Record<string, unknown>;
+      if (response.ok && payload.success !== false) return payload;
+
+      const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
+      if (!retryable || attempt === PX_FINALIZE_RETRY_DELAYS_MS.length) {
+        throw new Error(
+          typeof payload.error === 'string' ? payload.error : fallbackMessage,
+        );
+      }
+    } catch (error: unknown) {
+      if (
+        error instanceof Error &&
+        attempt === PX_FINALIZE_RETRY_DELAYS_MS.length
+      ) {
+        throw error;
+      }
+      if (!(error instanceof TypeError) && error instanceof Error) throw error;
+    }
+
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, PX_FINALIZE_RETRY_DELAYS_MS[attempt]);
+    });
+  }
+
+  throw new Error(fallbackMessage);
 }
 
 export async function joinOrStartPxReceptionApi(input: {
@@ -90,6 +133,7 @@ export async function fetchPxBoxMeta(boxId: string) {
     status: string;
     declared_quantity: number;
     captured_count: number;
+    rejected_count: number;
     version: number;
     locked_by: string | null;
     lock_expires_at: string | null;
@@ -247,6 +291,29 @@ export type ScanPxEquipmentResult = {
   boxStatus: string;
 };
 
+export type DuplicateOpenOsPayload = {
+  success: false;
+  error: string;
+  errorCode: 'DUPLICATE_OPEN_OS';
+  error_code: 'DUPLICATE_OPEN_OS';
+  serial: string;
+  existing_os_id: string | null;
+  existing_os_number: string | null;
+  existing_os_status: string | null;
+  existing_source: string | null;
+  rejected_count: number;
+};
+
+export class DuplicateOpenOsError extends Error {
+  readonly details: DuplicateOpenOsPayload;
+
+  constructor(details: DuplicateOpenOsPayload) {
+    super(details.error);
+    this.name = 'DuplicateOpenOsError';
+    this.details = details;
+  }
+}
+
 export async function scanPxEquipmentApi(input: {
   receptionId: string;
   boxId: string;
@@ -278,8 +345,20 @@ export async function scanPxEquipmentApi(input: {
       workstationLabel: input.workstationLabel,
     }),
   });
-  const json = await res.json();
-  if (!json.success) throw new Error(json.error || 'Error al capturar equipo');
+  const json = (await res.json()) as ScanPxEquipmentResult | DuplicateOpenOsPayload | {
+    success: false;
+    error?: string;
+  };
+  if (!json.success) {
+    if (
+      'errorCode' in json &&
+      json.errorCode === 'DUPLICATE_OPEN_OS' &&
+      'serial' in json
+    ) {
+      throw new DuplicateOpenOsError(json as DuplicateOpenOsPayload);
+    }
+    throw new Error(json.error || 'Error al capturar equipo');
+  }
   return json as ScanPxEquipmentResult;
 }
 
@@ -351,13 +430,15 @@ export async function finalizePxPrepNextApi(input: {
   receptionId: string;
   expectedVersion: number;
 }) {
-  const res = await apiFetch(`/api/recepcion/px/${input.receptionId}/finalize/prep-next`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ expectedVersion: input.expectedVersion }),
-  });
-  const json = await res.json();
-  if (!json.success) throw new Error(json.error || 'Error al preparar caja');
+  const json = await finalizeRequestWithRetry(
+    () =>
+      apiFetch(`/api/recepcion/px/${input.receptionId}/finalize/prep-next`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedVersion: input.expectedVersion }),
+      }),
+    'Error al preparar caja',
+  );
   return json.data as {
     phase: 'preparing' | 'prepared' | 'done';
     box_code?: string | null;
@@ -376,13 +457,15 @@ export async function finalizePxPromoteNextApi(input: {
   operatorName?: string;
   stampVariance?: boolean;
 }) {
-  const res = await apiFetch(`/api/recepcion/px/${input.receptionId}/finalize/promote-next`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  });
-  const json = await res.json();
-  if (!json.success) throw new Error(json.error || 'Error al promover equipos');
+  const json = await finalizeRequestWithRetry(
+    () =>
+      apiFetch(`/api/recepcion/px/${input.receptionId}/finalize/promote-next`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      }),
+    'Error al promover equipos',
+  );
   return json.data as {
     phase: 'promoting' | 'done';
     promoted_this_batch: number;
@@ -508,13 +591,15 @@ export async function finalizePxReceptionApi(input: {
   operatorId?: string | null;
   operatorName?: string;
 }) {
-  const res = await apiFetch(`/api/recepcion/px/${input.receptionId}/finalize`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  });
-  const json = await res.json();
-  if (!json.success) throw new Error(json.error || 'No se pudo finalizar la recepción');
+  const json = await finalizeRequestWithRetry(
+    () =>
+      apiFetch(`/api/recepcion/px/${input.receptionId}/finalize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      }),
+    'No se pudo finalizar la recepción',
+  );
   return json.data as {
     reception_id: string;
     guide_number: string;

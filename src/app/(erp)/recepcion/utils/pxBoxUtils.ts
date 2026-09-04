@@ -94,7 +94,10 @@ export function validatePxFinalizeReadiness(
 
 /** Finalizar captura incremental: cajas con equipos deben estar cerradas (parcial OK). */
 export function validatePxIncrementalFinalizeReadiness(
-  boxMetaByCode: Record<string, { captured_count: number; status: string }>,
+  boxMetaByCode: Record<
+    string,
+    { captured_count: number; rejected_count?: number; status: string }
+  >,
   closedBoxes: string[],
   scannedSeries: Array<{ boxCode: string }> = []
 ): { ok: true; boxCodes: string[]; totalCaptured: number } | { ok: false; reason: string } {
@@ -102,6 +105,19 @@ export function validatePxIncrementalFinalizeReadiness(
     const uiCount = scannedSeries.filter((s) => s.boxCode === code).length;
     return Math.max(metaCount, uiCount);
   };
+
+  const zeroAcceptedRejectedBox = Object.entries(boxMetaByCode).find(
+    ([, meta]) => meta.captured_count === 0 && (meta.rejected_count ?? 0) > 0,
+  );
+  if (zeroAcceptedRejectedBox) {
+    const [code, meta] = zeroAcceptedRejectedBox;
+    return {
+      ok: false,
+      reason:
+        `No es posible finalizar: ${code} tiene 0 unidades aceptadas y ` +
+        `${meta.rejected_count} rechazadas por otra Orden de Servicio abierta.`,
+    };
+  }
 
   const boxCodes = Object.entries(boxMetaByCode)
     .filter(([code, meta]) => capturedByBox(code, meta.captured_count) > 0)

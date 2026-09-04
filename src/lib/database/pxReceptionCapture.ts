@@ -4,7 +4,9 @@ import {
   type PxBoxSnapshot,
   type PxEquipmentRow,
   type PxLotInput,
+  type PxRejectedSerialScan,
   type PxReceptionSnapshot,
+  nextFreePxBoxCode,
   pxFingerprintFromSnapshot,
   snapshotToGuideData,
   snapshotToPxUiState,
@@ -24,6 +26,7 @@ import type { GuideData } from '@/app/(erp)/recepcion/types/reception.types';
 
 const PX_REC_MIN = 800000;
 const PX_IN_PROGRESS = 'EN_PROCESO';
+const PX_FINALIZING = 'FINALIZANDO';
 
 export type {
   PxLotInput,
@@ -119,7 +122,13 @@ async function validatePxHeaderForStart(guideData: GuideData): Promise<{ ok: tru
       .select('id, guide_number, created_at, status')
       .eq('source', 'px')
       .eq('sap_document', sap)
-      .in('status', ['CLASIFICADA', 'RECEPCIONADA', 'PENDIENTE_BACKOFFICE', PX_IN_PROGRESS])
+      .in('status', [
+        'CLASIFICADA',
+        'RECEPCIONADA',
+        'PENDIENTE_BACKOFFICE',
+        PX_IN_PROGRESS,
+        PX_FINALIZING,
+      ])
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -138,7 +147,13 @@ async function validatePxHeaderForStart(guideData: GuideData): Promise<{ ok: tru
       .from('receptions')
       .select('id, guide_number, sap_document, created_at, notes, status')
       .eq('source', 'px')
-      .in('status', ['CLASIFICADA', 'RECEPCIONADA', 'PENDIENTE_BACKOFFICE', PX_IN_PROGRESS])
+      .in('status', [
+        'CLASIFICADA',
+        'RECEPCIONADA',
+        'PENDIENTE_BACKOFFICE',
+        PX_IN_PROGRESS,
+        PX_FINALIZING,
+      ])
       .ilike('notes', '%DOC Ref:%');
 
     const docLower = doc.toLowerCase();
@@ -297,14 +312,22 @@ export async function startPxReception(input: PxStartInput): Promise<
 }
 
 export async function listPxInProgressReceptions(): Promise<
-  Array<{ id: string; guide_number: string; sap_document: string | null; created_at: string; captured_count: number }>
+  Array<{
+    id: string;
+    guide_number: string;
+    sap_document: string | null;
+    created_at: string;
+    status: string;
+    captured_count: number;
+    promoted_count: number;
+  }>
 > {
   const supabase = getSupabaseServerClient();
   const { data: receptions, error } = await supabase
     .from('receptions')
-    .select('id, guide_number, sap_document, created_at')
+    .select('id, guide_number, sap_document, created_at, status')
     .eq('source', 'px')
-    .eq('status', PX_IN_PROGRESS)
+    .in('status', [PX_IN_PROGRESS, PX_FINALIZING])
     .order('created_at', { ascending: false });
 
   if (error || !receptions?.length) return [];
@@ -312,19 +335,47 @@ export async function listPxInProgressReceptions(): Promise<
   const ids = receptions.map((r) => r.id);
   const { data: counts } = await supabase
     .from('px_reception_equipment')
-    .select('reception_id')
+    .select('reception_id, capture_status')
     .in('reception_id', ids)
-    .eq('capture_status', 'active');
+    .in('capture_status', ['active', 'promoted']);
 
-  const countByRec = new Map<string, number>();
+  const activeByRec = new Map<string, number>();
+  const promotedByRec = new Map<string, number>();
   for (const row of counts || []) {
-    countByRec.set(row.reception_id, (countByRec.get(row.reception_id) || 0) + 1);
+    const target = row.capture_status === 'promoted' ? promotedByRec : activeByRec;
+    target.set(row.reception_id, (target.get(row.reception_id) || 0) + 1);
   }
 
   return receptions.map((r) => ({
     ...r,
-    captured_count: countByRec.get(r.id) || 0,
+    captured_count: activeByRec.get(r.id) || 0,
+    promoted_count: promotedByRec.get(r.id) || 0,
   }));
+}
+
+type PxCreatedBoxRow = {
+  id: string;
+  box_code: string;
+  status: string;
+  declared_quantity: number | null;
+  brand_id: string | null;
+  model_id: string | null;
+};
+
+const PX_BOX_CODE_MAX_ATTEMPTS = 5;
+
+function isPxBoxCodeConflict(message: string): boolean {
+  return message.includes('boxes_reception_id_box_code_key') || message.includes('box_code');
+}
+
+/** Incluye cajas eliminadas: su código sigue ocupando el UNIQUE de la recepción. */
+async function resolveFreePxBoxCode(receptionId: string, requestedCode: string): Promise<string> {
+  const supabase = getSupabaseServerClient();
+  const { data } = await supabase.from('boxes').select('box_code').eq('reception_id', receptionId);
+  return nextFreePxBoxCode(
+    (data ?? []).map((row) => String(row.box_code ?? '')),
+    requestedCode
+  );
 }
 
 export async function createPxCaptureBox(
@@ -363,27 +414,41 @@ export async function createPxCaptureBox(
   }
 
   const firstLot = lots[0];
-  const { data: box, error: boxError } = await supabase
-    .from('boxes')
-    .insert({
-      reception_id: receptionId,
-      box_code: boxCode,
-      brand_id: firstLot.brandId || null,
-      model_id: firstLot.modelId || null,
-      capacity: declaredQuantity,
-      declared_quantity: declaredQuantity,
-      declared_quantity_original: declaredQuantity,
-      status: 'en_captura',
-      rack_location: 'PX_CAPTURA',
-    })
-    .select('id, box_code, status, declared_quantity, brand_id, model_id')
-    .single();
+  let attemptCode = await resolveFreePxBoxCode(receptionId, boxCode);
+  let box: PxCreatedBoxRow | null = null;
 
-  if (boxError) {
-    if (boxError.message.includes('boxes_reception_id_box_code_key')) {
-      return { success: false, error: `La caja ${boxCode} ya existe en esta recepción.` };
+  for (let attempt = 0; attempt < PX_BOX_CODE_MAX_ATTEMPTS; attempt += 1) {
+    const { data, error: boxError } = await supabase
+      .from('boxes')
+      .insert({
+        reception_id: receptionId,
+        box_code: attemptCode,
+        brand_id: firstLot.brandId || null,
+        model_id: firstLot.modelId || null,
+        capacity: declaredQuantity,
+        declared_quantity: declaredQuantity,
+        declared_quantity_original: declaredQuantity,
+        status: 'en_captura',
+        rack_location: 'PX_CAPTURA',
+      })
+      .select('id, box_code, status, declared_quantity, brand_id, model_id')
+      .single();
+
+    if (!boxError) {
+      box = data as PxCreatedBoxRow;
+      break;
     }
-    return { success: false, error: boxError.message };
+    if (!isPxBoxCodeConflict(boxError.message)) {
+      return { success: false, error: boxError.message };
+    }
+    attemptCode = await resolveFreePxBoxCode(receptionId, attemptCode);
+  }
+
+  if (!box) {
+    return {
+      success: false,
+      error: 'No se pudo asignar un código de caja libre. Refresque la recepción e intente de nuevo.',
+    };
   }
 
   const lotRows = lots.map((lot) => ({
@@ -410,6 +475,7 @@ export async function createPxCaptureBox(
     status: box.status,
     declared_quantity: box.declared_quantity ?? declaredQuantity,
     captured_count: 0,
+    rejected_count: 0,
     brand_id: box.brand_id,
     model_id: box.model_id,
     version: 1,
@@ -423,6 +489,7 @@ export async function createPxCaptureBox(
       model_id: l.model_id,
     })),
     equipment: [],
+    rejections: [],
   };
 
   return { success: true, box: snapshot };
@@ -507,7 +574,7 @@ export async function getPxReceptionSnapshot(
         .eq('reception_id', receptionId)
         .eq('capture_status', 'active');
 
-  const [{ data: boxes }, { data: lots }, { data: equipment }] = await Promise.all([
+  const [{ data: boxes }, { data: lots }, { data: equipment }, { data: rejections }] = await Promise.all([
     supabase
       .from('boxes')
       .select('id, box_code, status, declared_quantity, declared_quantity_original, capacity, brand_id, model_id, version, locked_by, lock_expires_at, assigned_operator_id, is_partial_box, partial_box_reason, quantity_adjustment_reason')
@@ -519,6 +586,11 @@ export async function getPxReceptionSnapshot(
       .select('id, box_id, technology_name, brand_name, model_name, expected_units, brand_id, model_id')
       .eq('reception_id', receptionId),
     equipmentQuery,
+    supabase
+      .from('px_rejected_serial_scans')
+      .select('id, box_id, serial_number, error_code, existing_os_id, existing_os_number, existing_os_status, existing_source, created_at')
+      .eq('reception_id', receptionId)
+      .order('created_at', { ascending: false }),
   ]);
 
   const lotsByBox = new Map<string, typeof lots>();
@@ -529,27 +601,45 @@ export async function getPxReceptionSnapshot(
 
   const equipByBox = new Map<string, PxEquipmentRow[]>();
   const countByBox = new Map<string, number>();
+  const rejectionsByBox = new Map<string, PxRejectedSerialScan[]>();
+
+  for (const rejected of rejections || []) {
+    const boxId = String(rejected.box_id);
+    if (!rejectionsByBox.has(boxId)) rejectionsByBox.set(boxId, []);
+    rejectionsByBox.get(boxId)!.push({
+      id: rejected.id,
+      serial_number: rejected.serial_number,
+      error_code: 'DUPLICATE_OPEN_OS',
+      existing_os_id: rejected.existing_os_id,
+      existing_os_number: rejected.existing_os_number,
+      existing_os_status: rejected.existing_os_status,
+      existing_source: rejected.existing_source,
+      created_at: rejected.created_at,
+    });
+  }
 
   for (const eq of equipment || []) {
-    const boxId = String((eq as { box_id: string }).box_id);
+    const equipmentRow = eq as unknown as PxEquipmentRow & { box_id: string };
+    const boxId = String(equipmentRow.box_id);
     countByBox.set(boxId, (countByBox.get(boxId) || 0) + 1);
 
-    if (includeEquipment && 'main_serial' in eq) {
+    if (includeEquipment && 'main_serial' in equipmentRow) {
       if (!equipByBox.has(boxId)) equipByBox.set(boxId, []);
       equipByBox.get(boxId)!.push({
-        id: eq.id,
-        main_serial: eq.main_serial,
-        serial_s2: eq.serial_s2,
-        serial_s3: eq.serial_s3,
-        serial_s4: eq.serial_s4,
-        material: eq.material,
-        captured_at: eq.captured_at,
+        id: equipmentRow.id,
+        main_serial: equipmentRow.main_serial,
+        serial_s2: equipmentRow.serial_s2,
+        serial_s3: equipmentRow.serial_s3,
+        serial_s4: equipmentRow.serial_s4,
+        material: equipmentRow.material,
+        captured_at: equipmentRow.captured_at,
       });
     }
   }
 
   const boxSnapshots: PxBoxSnapshot[] = (boxes || []).map((b) => {
     const eq = equipByBox.get(b.id) || [];
+    const boxRejections = rejectionsByBox.get(b.id) || [];
     const capturedCount = includeEquipment ? eq.length : countByBox.get(b.id) || 0;
     return {
       id: b.id,
@@ -558,6 +648,7 @@ export async function getPxReceptionSnapshot(
       declared_quantity: b.declared_quantity ?? b.capacity ?? 0,
       declared_quantity_original: b.declared_quantity_original,
       captured_count: capturedCount,
+      rejected_count: boxRejections.length,
       brand_id: b.brand_id,
       model_id: b.model_id,
       version: b.version ?? 1,
@@ -577,6 +668,7 @@ export async function getPxReceptionSnapshot(
         model_id: l.model_id,
       })),
       equipment: eq,
+      rejections: boxRejections,
     };
   });
 
@@ -596,6 +688,7 @@ export async function getPxBoxMeta(boxId: string): Promise<{
   status: string;
   declared_quantity: number;
   captured_count: number;
+  rejected_count: number;
   version: number;
   locked_by: string | null;
   lock_expires_at: string | null;
@@ -613,6 +706,11 @@ export async function getPxBoxMeta(boxId: string): Promise<{
     .select('id', { count: 'exact', head: true })
     .eq('box_id', boxId)
     .eq('capture_status', 'active');
+  const { count: rejectedCount } = await supabase
+    .from('px_rejected_serial_scans')
+    .select('id', { count: 'exact', head: true })
+    .eq('box_id', boxId)
+    .eq('error_code', 'DUPLICATE_OPEN_OS');
 
   return {
     id: box.id,
@@ -620,14 +718,40 @@ export async function getPxBoxMeta(boxId: string): Promise<{
     status: box.status,
     declared_quantity: box.declared_quantity ?? 0,
     captured_count: count ?? 0,
+    rejected_count: rejectedCount ?? 0,
     version: box.version ?? 1,
     locked_by: box.locked_by ?? null,
     lock_expires_at: box.lock_expires_at ?? null,
   };
 }
 
+export type PxDuplicateOpenOsDetails = {
+  serial: string;
+  errorCode: 'DUPLICATE_OPEN_OS';
+  error_code: 'DUPLICATE_OPEN_OS';
+  existing_os_id: string | null;
+  existing_os_number: string | null;
+  existing_os_status: string | null;
+  existing_source: string | null;
+  rejected_count: number;
+};
+
+export function formatDuplicateOpenOsMessage(
+  details: Pick<
+    PxDuplicateOpenOsDetails,
+    'serial' | 'existing_os_number' | 'existing_os_status'
+  >,
+): string {
+  const os = details.existing_os_number || 'sin número disponible';
+  const status = details.existing_os_status || 'sin estado disponible';
+  return `SERIE DUPLICADA – ORDEN DE SERVICIO ABIERTA\n\nLa serie ${details.serial} ya se encuentra registrada en otra Orden de Servicio abierta.\n\nOS: ${os}\nEstado: ${status}\n\nEsta unidad NO puede ser ingresada nuevamente a PX. Debe resolverse la Orden de Servicio existente antes de realizar la recepción.`;
+}
+
 export function mapRpcCaptureError(message: string): string {
   const msg = message || '';
+  if (msg.includes('DUPLICATE_OPEN_OS')) {
+    return 'SERIE DUPLICADA – ORDEN DE SERVICIO ABIERTA. Esta unidad no puede ser ingresada nuevamente a PX.';
+  }
   if (msg.includes('DUPLICATE_IN_OTHER_GUIDE')) {
     return msg.replace(
       /^.*DUPLICATE_IN_OTHER_GUIDE:\s*/i,
@@ -652,6 +776,15 @@ export function mapRpcCaptureError(message: string): string {
   }
   if (msg.includes('BOX_FULL')) {
     return 'La caja alcanzó su capacidad declarada.';
+  }
+  if (msg.includes('BOX_EMPTY_DUPLICATE_OPEN_OS')) {
+    return 'No es posible finalizar esta caja. No se registró ninguna unidad porque las series fueron rechazadas por existir en otras Órdenes de Servicio abiertas.';
+  }
+  if (msg.includes('ZERO_ACCEPTED_BOX')) {
+    return msg.replace(/^.*ZERO_ACCEPTED_BOX:\s*/i, '');
+  }
+  if (msg.includes('BOX_EMPTY')) {
+    return 'No es posible finalizar esta caja porque no tiene unidades aceptadas.';
   }
   if (msg.includes('BOX_LOCKED') || msg.includes('BOX_NOT_LOCKED')) {
     if (msg.includes('BOX_NOT_LOCKED')) return 'Debe tomar control de la caja antes de escanear.';
@@ -769,6 +902,7 @@ export async function capturePxEquipment(input: {
 }): Promise<
   | { success: true; equipmentId: string; capturedCount: number; declaredQuantity: number; boxStatus: string }
   | { success: false; error: string; errorCode?: string }
+  | ({ success: false; error: string } & PxDuplicateOpenOsDetails)
 > {
   const started = Date.now();
   const supabase = getSupabaseServerClient();
@@ -802,12 +936,53 @@ export async function capturePxEquipment(input: {
     return { success: false, error: mapRpcCaptureError(error.message), errorCode };
   }
 
-  const payload = data as {
-    equipment_id: string;
-    captured_count: number;
-    declared_quantity: number;
-    box_status: string;
-  };
+  const payload = data as
+    | {
+        ok: true;
+        equipment_id: string;
+        captured_count: number;
+        declared_quantity: number;
+        box_status: string;
+      }
+    | {
+        ok: false;
+        code: 'DUPLICATE_OPEN_OS';
+        error_code: 'DUPLICATE_OPEN_OS';
+        serial: string;
+        existing_os_id: string | null;
+        existing_os_number: string | null;
+        existing_os_status: string | null;
+        existing_source: string | null;
+        rejected_count: number;
+        message: string;
+      };
+
+  if (payload.ok === false) {
+    const details: PxDuplicateOpenOsDetails = {
+      serial: payload.serial,
+      errorCode: 'DUPLICATE_OPEN_OS',
+      error_code: 'DUPLICATE_OPEN_OS',
+      existing_os_id: payload.existing_os_id,
+      existing_os_number: payload.existing_os_number,
+      existing_os_status: payload.existing_os_status,
+      existing_source: payload.existing_source,
+      rejected_count: payload.rejected_count,
+    };
+    await emitPxCaptureMetric({
+      receptionId: input.receptionId,
+      boxId: input.boxId,
+      action: 'capture_px_equipment',
+      outcome: 'error',
+      errorCode: details.errorCode,
+      durationMs: Date.now() - started,
+      metadata: details,
+    });
+    return {
+      success: false,
+      error: formatDuplicateOpenOsMessage(details),
+      ...details,
+    };
+  }
 
   scheduleCapturePxEquipmentSideEffects(input, payload, started);
 
@@ -1337,11 +1512,11 @@ export async function finalizePxReceptionPromoteStep(input: {
     return {
       success: true,
       data: {
+        ...summary,
         phase: 'done',
         promoted_this_batch: promoted,
         remaining_active: 0,
         received_units: (data?.received_units as number | undefined) ?? summary.received_units,
-        ...summary,
       },
     };
   }
@@ -1517,5 +1692,21 @@ export async function finalizePxReception(input: {
     }
   | { success: false; error: string }
 > {
+  const snapshot = await getPxReceptionSnapshot(input.receptionId);
+  const zeroAcceptedRejectedBox = snapshot?.boxes.find(
+    (box) =>
+      box.declared_quantity > 0 &&
+      box.captured_count === 0 &&
+      box.rejected_count > 0,
+  );
+  if (zeroAcceptedRejectedBox) {
+    return {
+      success: false,
+      error:
+        `No es posible finalizar la recepción. La caja ${zeroAcceptedRejectedBox.box_code} ` +
+        `tiene 0 unidades aceptadas y ${zeroAcceptedRejectedBox.rejected_count} rechazadas ` +
+        'por existir en otras Órdenes de Servicio abiertas.',
+    };
+  }
   return finalizePxReceptionInBatches(input);
 }

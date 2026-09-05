@@ -411,7 +411,7 @@ function IntegracionSapPage() {
   const handleExportUnmatched = async () => {
     setExportingUnmatched(true);
     try {
-      const res = await apiFetch('/api/sap/unmatched?format=csv');
+      const res = await apiFetch('/api/sap/unmatched?format=xlsx');
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(
@@ -422,11 +422,11 @@ function IntegracionSapPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `sap-sin-coincidencia-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.download = `sap-sin-coincidencia-${new Date().toISOString().slice(0, 10)}.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
       notify.success('Exportación lista', {
-        description: 'CSV de equipos Sin Coincidencia (todas sus series S1–S4), caja y rack.',
+        description: 'Excel de OS activas Sin Coincidencia (series S1–S4, caja y ubicación).',
       });
 
     } catch (err) {
@@ -595,6 +595,7 @@ function IntegracionSapPage() {
     const activas =
       Number(mods?.activas ?? 0) ||
       Number(mods?.bodega_con_caja ?? 0) +
+        Number(mods?.bodega_despacho ?? 0) +
         Number(mods?.pistoleo_en_curso ?? 0) +
         Number(mods?.backoffice ?? 0) +
         Number(mods?.taller_diagnostico ?? 0) +
@@ -705,9 +706,10 @@ function IntegracionSapPage() {
               </div>
             </div>
             <p className="text-[10px] font-bold text-[var(--muted)]">
-              En TC con serie, pero no están en el SAP validado ·{' '}
+              OS activas en TC con serie, pero no están en el SAP validado ·{' '}
               {(kpis?.seriesSinMatch ?? 0).toLocaleString()} series ·{' '}
-              {equiposBase ? Math.round(((kpis?.sinCoincidencia ?? 0) / equiposBase) * 100) : 0}% equipos
+              {activas ? Math.round(((kpis?.sinCoincidencia ?? 0) / activas) * 100) : 0}
+              {'% de OS activas'}
             </p>
             <Button
               type="button"
@@ -722,7 +724,7 @@ function IntegracionSapPage() {
               ) : (
                 <Download className="w-3.5 h-3.5" />
               )}
-              Exportar series + ubicación
+              Exportar Excel
             </Button>
           </Card>
         </div>

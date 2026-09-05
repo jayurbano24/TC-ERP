@@ -40,6 +40,33 @@ type AuthRow = {
   meta?: string;
 };
 
+type BoxDeletionRequestRow = {
+  id: string;
+  box_id: string;
+  box_code?: string | null;
+  status: string;
+  reason: string;
+  observations?: string | null;
+  requested_at?: string | null;
+  reviewed_at?: string | null;
+  review_notes?: string | null;
+  equipos_count?: number | null;
+  rack?: string | null;
+};
+
+type PartDeletionRequestRow = {
+  id: string;
+  sku?: string | null;
+  part_name?: string | null;
+  status: string;
+  reason: string;
+  observations?: string | null;
+  requested_at?: string | null;
+  reviewed_at?: string | null;
+  review_notes?: string | null;
+  qty_on_hand?: number | null;
+};
+
 const TABS: { id: Tab; label: string }[] = [
   { id: 'pending', label: 'Pendientes' },
   { id: 'approved', label: 'Aprobadas' },
@@ -57,11 +84,11 @@ function statusBadge(status: string) {
 async function loadAuthRows(statusParam: string): Promise<AuthRow[]> {
   const [boxes, parts] = await Promise.all([
     listBoxDeletionRequests(statusParam, 100),
-    fetchPartDeletionRequests(statusParam).catch(() => [] as any[]),
+    fetchPartDeletionRequests(statusParam).catch(() => [] as PartDeletionRequestRow[]),
   ]);
   if (boxes.error) throw new Error(boxes.error);
 
-  const boxRows: AuthRow[] = (boxes.data || []).map((r: any) => ({
+  const boxRows: AuthRow[] = ((boxes.data || []) as BoxDeletionRequestRow[]).map((r) => ({
     id: r.id,
     kind: 'box' as const,
     status: r.status,
@@ -74,7 +101,7 @@ async function loadAuthRows(statusParam: string): Promise<AuthRow[]> {
     meta: `${r.equipos_count ?? 0} equipos · rack ${r.rack || '—'}`,
   }));
 
-  const partRows: AuthRow[] = (parts || []).map((r: any) => ({
+  const partRows: AuthRow[] = ((parts || []) as PartDeletionRequestRow[]).map((r) => ({
     id: r.id,
     kind: 'part' as const,
     status: r.status,
@@ -95,26 +122,28 @@ async function loadAuthRows(statusParam: string): Promise<AuthRow[]> {
 }
 
 export default function AutorizacionesPage() {
-  const { isAdmin, isLoading: authzLoading } = useAuthz();
+  const { email, isLoading: authzLoading } = useAuthz();
   const router = useRouter();
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<Tab>('pending');
   const [busyId, setBusyId] = useState<string | null>(null);
+  const isDeletionManager =
+    email?.trim().toLowerCase() === 'gurbano@techcommwireless.com';
 
   const statusParam = tab === 'all' ? 'all' : tab;
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['authorization-requests', statusParam],
     queryFn: () => loadAuthRows(statusParam),
-    enabled: isAdmin,
-    refetchInterval: isAdmin && tab === 'pending' ? 20_000 : false,
+    enabled: isDeletionManager,
+    refetchInterval: isDeletionManager && tab === 'pending' ? 20_000 : false,
   });
 
   const { data: pendingCountData } = useQuery({
     queryKey: ['authorization-requests', 'pending', 'count'],
     queryFn: async () => (await loadAuthRows('pending')).length,
-    enabled: isAdmin,
-    refetchInterval: isAdmin ? 20_000 : false,
+    enabled: isDeletionManager,
+    refetchInterval: isDeletionManager ? 20_000 : false,
   });
 
   const rows = data || [];
@@ -190,12 +219,14 @@ export default function AutorizacionesPage() {
     );
   }
 
-  if (!isAdmin) {
+  if (!isDeletionManager) {
     return (
       <ModulePage title="Autorizaciones" subtitle="Acceso restringido" category="Gestión">
         <Card className="p-8 text-center space-y-3">
           <ShieldCheck className="w-10 h-10 text-[var(--muted)] mx-auto" />
-          <h3 className="text-lg font-black text-[var(--heading)]">Solo Gerente General</h3>
+          <h3 className="text-lg font-black text-[var(--heading)]">
+            Solo gurbano@techcommwireless.com
+          </h3>
           <p className="text-sm text-[var(--muted)] max-w-md mx-auto">
             Este módulo concentra las solicitudes que requieren autorización previa (cajas y
             piezas con stock).

@@ -34,10 +34,11 @@ export function DeleteBoxAuthorizationModal({ boxLabel, submitting, onSubmit, on
           <div className="flex gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
             <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
             <div className="text-sm text-amber-900 space-y-1">
-              <p className="font-bold">Esta acción requiere autorización del Gerente General.</p>
+              <p className="font-bold">Esta acción requiere autorización gerencial.</p>
               <p className="text-[13px] text-amber-800/90">
                 La caja será marcada como <strong>Pendiente de Aprobación</strong> hasta que el
-                Gerente General la autorice en el módulo <strong>Autorizaciones</strong>.
+                usuario <strong>gurbano@techcommwireless.com</strong> la autorice en el módulo{' '}
+                <strong>Autorizaciones</strong>.
               </p>
             </div>
           </div>

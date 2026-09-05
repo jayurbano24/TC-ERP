@@ -53,6 +53,9 @@ import { NewBoxModal } from './components/NewBoxModal';
 import { DetalleCajaModal } from './components/DetalleCajaModal';
 import { DeleteBoxAuthorizationModal } from './components/DeleteBoxAuthorizationModal';
 import { BoxDeletionApprovalsPanel } from './components/BoxDeletionApprovalsPanel';
+import { BoxSearchTraceNotice } from './components/BoxSearchTraceNotice';
+import type { ExternalBoxTrace } from '@/modules/inventario/domain/boxLocationTrace';
+import { resolveWarehouseBoxOperationalStatus } from '@/modules/inventario/domain/warehouseBoxStatus';
 import { fetchBoxSeriesUi } from '@/modules/inventario/client/warehouseBoxSeries';
 import { formatWarehouseBoxId } from '@/modules/inventario/client/warehouseBoxDisplay';
 import { RECEPTION_TIMELINE_SELECT } from '@/shared/constants/dbProjections';
@@ -312,10 +315,13 @@ export default function BodegaGestionV2({
          seriesRows: Number(b.series_count || 0),
          status: (() => {
            if (String(b.deletion_status || '') === 'pending_approval') return 'Pendiente Aprobación';
-           // Stock en BODEGA_CENTRAL / P-01 = cerrado → Full; Parcial solo TMP/EN_PROCESO.
-           if (inProgress) return resolveBoxDisplayStatus(equipos, displayCap);
-           if (equipos > 0) return 'Full';
-           return resolveBoxDisplayStatus(equipos, displayCap);
+           return resolveWarehouseBoxOperationalStatus({
+             units: equipos,
+             capacity: displayCap,
+             boxStatus: b.box_status,
+             isPartialBox: b.is_partial_box,
+             partialReason: b.partial_box_reason,
+           }).status;
          })(),
          deletionStatus: b.deletion_status || null,
          usuarioIngreso: b.ingreso_user_name || 'Sin registro',
@@ -341,6 +347,13 @@ export default function BodegaGestionV2({
       return String(b.realDbId || '').localeCompare(String(a.realDbId || ''));
     });
   }, [boxesData, techIdByModelId, techNameForModel, brandName, modelName]);
+  const externalBoxTrace = useMemo(
+    () =>
+      (boxesData?.pages || []).find(
+        (page: { externalMatch?: ExternalBoxTrace }) => Boolean(page.externalMatch),
+      )?.externalMatch as ExternalBoxTrace | undefined,
+    [boxesData],
+  );
   const [showTimeline, setShowTimeline] = useState<any>(null);
   const [timelineGuideDetails, setTimelineGuideDetails] = useState<any>(null);
   const [boxHistoryData, setBoxHistoryData] = useState<any[]>([]);
@@ -1596,6 +1609,11 @@ export default function BodegaGestionV2({
       header: (
         <input
           type="checkbox"
+          aria-label={
+            allPageSelected
+              ? 'Quitar selección de todas las cajas visibles'
+              : 'Seleccionar todas las cajas visibles'
+          }
           className="w-4 h-4 accent-[#2ec4f1] cursor-pointer"
           checked={allPageSelected}
           onClick={(e) => e.stopPropagation()}
@@ -1613,6 +1631,7 @@ export default function BodegaGestionV2({
       cell: (item) => (
         <input
           type="checkbox"
+          aria-label={`Seleccionar caja ${item.box_code || item.id}`}
           className="w-4 h-4 accent-[#2ec4f1] cursor-pointer"
           checked={selectedBoxIds.includes(item.id)}
           onClick={(e) => e.stopPropagation()}
@@ -1789,7 +1808,9 @@ export default function BodegaGestionV2({
           variant={
             item.status === 'Full'
               ? 'green'
-              : item.status === 'Parcial'
+              : item.status === 'En proceso' ||
+                  item.status === 'Cerrada parcial' ||
+                  item.status === 'Cerrada con diferencia'
                 ? 'yellow'
                 : item.status === 'Pendiente Aprobación'
                   ? 'default'
@@ -2155,7 +2176,7 @@ export default function BodegaGestionV2({
                   >
                     <option value="">Todos los Estatus</option>
                     <option value="Full">Cajas Completas</option>
-                    <option value="Partial">Cajas en Proceso</option>
+                    <option value="Partial">Parciales / con diferencia</option>
                   </select>
                   {(filterTech || filterModel || filterStatus) && (
                     <button
@@ -2174,6 +2195,8 @@ export default function BodegaGestionV2({
               )
             }
           />
+
+          {externalBoxTrace ? <BoxSearchTraceNotice trace={externalBoxTrace} /> : null}
 
           {selectedBoxIds.length > 0 && (
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-[var(--surface-hover)] border border-[var(--border)] text-[var(--foreground)] p-4 rounded-2xl shadow-xl animate-in fade-in slide-in-from-top-2 duration-200">
@@ -2217,7 +2240,11 @@ export default function BodegaGestionV2({
               minWidth={1100}
               headerClassName="border-b border-[var(--sidebar)] bg-[var(--sidebar)]"
               headerTextClassName="text-[var(--sidebar-foreground)]/80"
-              emptyMessage="No hay cajas en inventario"
+              emptyMessage={
+                externalBoxTrace
+                  ? 'La caja está fuera de Bodega; consulte la trazabilidad mostrada arriba.'
+                  : 'No hay cajas en inventario'
+              }
             />
             <TablePagination
               totalCount={inventoryTotalCount}
@@ -2339,9 +2366,17 @@ export default function BodegaGestionV2({
                 };
 
                 if (updatedSeries.length === 0) {
-                  if (supabase && selectedBox.realDbId) {
-                    await supabase.from('boxes').update({ rack_location: 'ELIMINADO' }).eq('id', selectedBox.realDbId);
+                  if (selectedBox.realDbId) {
                     boxSeriesCache.current.delete(selectedBox.realDbId);
+                    setDeleteAuthTarget({
+                      boxId: selectedBox.id,
+                      realDbId: selectedBox.realDbId,
+                      label: String(selectedBox.box_code || selectedBox.id),
+                    });
+                    notify.info('La caja quedó vacía', {
+                      description:
+                        'Para eliminarla debe enviar una solicitud a gurbano@techcommwireless.com.',
+                    });
                   }
                   setSelectedBox(null);
                   await refreshWarehouseLists();

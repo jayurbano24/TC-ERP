@@ -46,6 +46,7 @@ const STATUS_LABELS: Record<string, string> = {
   scrapped: 'Scrap',
   irreparable: 'Irreparable',
   in_central_warehouse: 'Equipo listo / Bodega',
+  in_dispatch_warehouse: 'Bodega Despacho / Outbound',
   RECEPCIONADO_BODEGA_GENERAL: 'Backoffice',
 };
 

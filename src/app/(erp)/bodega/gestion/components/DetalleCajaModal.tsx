@@ -89,6 +89,8 @@ export const DetalleCajaModal = memo(function DetalleCajaModal({
               ? 'CONTROL CALIDAD'
               : raw === 'ready_to_dispatch' || raw.includes('ready')
                 ? 'LISTO'
+                : raw === 'in_dispatch_warehouse'
+                  ? 'BODEGA DESPACHO'
                 : raw === 'in_control_warehouse'
                   ? 'BODEGA CONTROL'
                   : 'BODEGA PRINCIPAL';

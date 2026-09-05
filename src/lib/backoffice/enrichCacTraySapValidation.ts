@@ -27,6 +27,8 @@ export function formatCacTrayStatusLabel(status: string | null | undefined): str
     case 'recepcionado_bodega_general':
     case 'pendiente_ingreso_bodega':
       return 'Ingresado a Backoffice';
+    case 'in_dispatch_warehouse':
+      return 'Ingresado a Bodega Despacho';
     case 'in_central_warehouse':
     case 'ingresado_bodega':
       return 'Ingresado a Bodega General';
@@ -59,6 +61,9 @@ function resolveLiveUnitStatus(
     lower.every((s) => s === 'returned' || s === 'devuelto_bloque' || s === 'devuelto')
   ) {
     return 'returned';
+  }
+  if (lower.some((s) => s === 'in_dispatch_warehouse')) {
+    return 'in_dispatch_warehouse';
   }
   if (lower.some((s) => s === 'in_central_warehouse' || s === 'ingresado_bodega')) {
     return 'in_central_warehouse';

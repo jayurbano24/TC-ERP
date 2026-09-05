@@ -70,6 +70,7 @@ import {
   type DespachoHistoryGroup,
 } from '@/lib/api/groupDespachoHistory';
 import { fetchReferenceCatalogsViaApi } from '@/lib/api/referenceCatalogs';
+import { requestBoxDeletion } from '@/modules/inventario/client/warehouseBoxes';
 import { DespachoSalidaModal } from './DespachoSalidaModal';
 import { EquipoListoPanel } from './EquipoListoPanel';
 import { printOutboundLabel, printOutboundLabels } from './printOutboundLabel';
@@ -82,7 +83,7 @@ import {
 const SERIES_BOX_SELECT =
   'id, serial_number, service_order_id, current_status, current_box_id, brand_id, model_id, material, valuation, sap_status, updated_at, created_at';
 const SERIES_SIBLING_SELECT =
-  'id, serial_number, service_order_id, material, valuation, sap_status, created_at';
+  'id, serial_number, service_order_id, current_status, current_box_id, material, valuation, sap_status, created_at';
 
 const BOX_DESPACHO_SELECT =
   'id, box_code, brand_id, model_id, capacity, status, material, valuation, created_at';
@@ -935,8 +936,28 @@ export default function DespachoPage() {
       notify.warning('Serie no encontrada.'); return;
     }
     
-    if (sData.current_status !== 'in_central_warehouse') {
-      notify.warning('El equipo no está en estado EQUIPO LISTO.'); return;
+    const isCentralStock = sData.current_status === 'in_central_warehouse';
+    const isDispatchStock = sData.current_status === 'in_dispatch_warehouse';
+    if (!isCentralStock && !isDispatchStock) {
+      notify.warning('El equipo no está disponible en Bodega Central ni Bodega Despacho.');
+      return;
+    }
+    if (isDispatchStock && sData.current_box_id === selectedBox.dbId) {
+      notify.info('El equipo ya está asignado a esta caja Outbound.');
+      return;
+    }
+    if (isDispatchStock && sData.current_box_id && sData.current_box_id !== selectedBox.dbId) {
+      const { data: occupiedBox } = await supabase
+        .from('boxes')
+        .select('box_code')
+        .eq('id', sData.current_box_id)
+        .maybeSingle();
+      notify.warning('El equipo ya pertenece a otra caja de Bodega Despacho.', {
+        description: occupiedBox?.box_code
+          ? `Caja actual: ${occupiedBox.box_code}. Retírelo de esa caja antes de reasignarlo.`
+          : 'Retírelo de su caja actual antes de reasignarlo.',
+      });
+      return;
     }
 
     if (sData.brand_id !== selectedBox.brand_id || sData.model_id !== selectedBox.model_id) {
@@ -953,6 +974,18 @@ export default function DespachoPage() {
         .eq('service_order_id', sData.service_order_id);
       if (sibRows && sibRows.length > 0) {
         siblings = sibRows;
+        const occupiedSibling = sibRows.find(
+          (s) =>
+            s.current_status === 'in_dispatch_warehouse' &&
+            s.current_box_id &&
+            s.current_box_id !== selectedBox.dbId,
+        );
+        if (occupiedSibling) {
+          notify.warning('Una serie hermana del equipo pertenece a otro Outbound.', {
+            description: 'Retire primero el equipo completo de su caja actual.',
+          });
+          return;
+        }
         idsToUpdate = sibRows.map((s) => s.id);
       }
     }
@@ -1193,18 +1226,27 @@ export default function DespachoPage() {
 
   const handleDeleteBox = async (disp: DispatchItem) => {
     if (!disp.dbId) return;
-    if (!(await confirmDialog({ title: 'Eliminar Outbound', message: `¿Eliminar ${disp.id}? Los equipos dentro quedarán libres.`, tone: 'error', confirmText: 'Eliminar' }))) return;
-    
-    const supabase = getSupabaseBrowserClient();
-    if (!supabase) return;
+    if (!(await confirmDialog({
+      title: 'Solicitar eliminación de Outbound',
+      message: `¿Solicitar autorización para eliminar ${disp.id}? La caja seguirá activa hasta que gurbano@techcommwireless.com la autorice.`,
+      tone: 'error',
+      confirmText: 'Solicitar autorización',
+    }))) return;
 
     try {
-      const { error } = await supabase.from('boxes').update({ rack_location: 'ELIMINADO' }).eq('id', disp.dbId);
-      if (error) {
-        console.error(error);
-        notify.error('Error al eliminar la caja', { description: error.message });
+      const result = await requestBoxDeletion({
+        boxId: disp.dbId,
+        reason: `Eliminar caja Outbound ${disp.id}`,
+        observations: 'Solicitud generada desde el módulo Despacho.',
+      });
+      if (result.error) {
+        notify.error('No se pudo solicitar la autorización', { description: result.error });
       } else {
-        notify.success('Caja eliminada con éxito.');
+        notify.success('Solicitud enviada', {
+          description:
+            result.data?.message ||
+            'La caja queda pendiente de autorización gerencial.',
+        });
         await refreshDispatches();
       }
     } catch (e) {

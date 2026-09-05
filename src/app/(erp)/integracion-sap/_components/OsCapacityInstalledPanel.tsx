@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   Warehouse,
   Send,
+  Truck,
 } from 'lucide-react';
 
 type Props = {
@@ -59,6 +60,7 @@ export function OsCapacityInstalledPanel({ mods, needsMigration }: Props) {
   const total = Number(mods?.total ?? 0);
   const despachadas = Number(mods?.despachado ?? 0);
   const bodega = Number(mods?.bodega_con_caja ?? 0);
+  const bodegaDespacho = Number(mods?.bodega_despacho ?? 0);
   const pistoleo = Number(mods?.pistoleo_en_curso ?? 0);
   const pendienteBodega = Number(mods?.backoffice ?? 0);
   const diag = Number(mods?.taller_diagnostico ?? 0);
@@ -76,7 +78,16 @@ export function OsCapacityInstalledPanel({ mods, needsMigration }: Props) {
 
   const activas =
     Number(mods?.activas ?? 0) ||
-    bodega + pistoleo + pendienteBodega + diag + rep + cq + l3 + scrapsPiso + scrapsCaja;
+    bodega +
+      bodegaDespacho +
+      pistoleo +
+      pendienteBodega +
+      diag +
+      rep +
+      cq +
+      l3 +
+      scrapsPiso +
+      scrapsCaja;
 
   const activasLedger = Math.max(
     Number(mods?.activas_ledger ?? 0) || total - despachadas,
@@ -139,6 +150,15 @@ export function OsCapacityInstalledPanel({ mods, needsMigration }: Props) {
       tone: 'text-cyan-800',
       ring: 'border-cyan-200 bg-cyan-50',
     },
+    {
+      key: 'despacho',
+      label: 'Bodega Despacho',
+      sub: 'En caja Outbound',
+      value: bodegaDespacho,
+      icon: Truck,
+      tone: 'text-indigo-800',
+      ring: 'border-indigo-200 bg-indigo-50',
+    },
   ];
 
   const tallerStages: StageChip[] = [
@@ -153,6 +173,7 @@ export function OsCapacityInstalledPanel({ mods, needsMigration }: Props) {
   const composition = [
     { key: 'bodega', label: 'Bodega', value: bodega, color: 'bg-emerald-500' },
     { key: 'taller', label: 'Taller', value: tallerPiso, color: 'bg-blue-500' },
+    { key: 'despacho', label: 'Bodega Despacho', value: bodegaDespacho, color: 'bg-indigo-500' },
     { key: 'bo', label: 'Pend. Bodega', value: pendienteBodega, color: 'bg-amber-500' },
     { key: 'scraps', label: 'SCRAPS caja', value: scrapsCaja, color: 'bg-rose-500' },
     { key: 'tmp', label: 'TMP', value: pistoleo, color: 'bg-teal-500' },
@@ -245,7 +266,8 @@ export function OsCapacityInstalledPanel({ mods, needsMigration }: Props) {
             </p>
             <p className="text-[10px] font-bold text-[var(--muted)]">
               {pct(bodega, activas)}% bodega · {pct(tallerPiso, activas)}% taller ·{' '}
-              {pct(pendienteBodega, activas)}% pendiente ingreso
+              {pct(bodegaDespacho, activas)}% despacho · {pct(pendienteBodega, activas)}% pendiente
+              ingreso
             </p>
           </div>
           <div className="flex h-3 w-full overflow-hidden rounded-full bg-[var(--surface-hover)] ring-1 ring-[var(--border)]">
@@ -308,7 +330,7 @@ export function OsCapacityInstalledPanel({ mods, needsMigration }: Props) {
         </div>
 
         {/* Compact ledger footer — no SQL dump */}
-        <div className="grid grid-cols-2 gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] p-3 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] p-3 sm:grid-cols-5">
           <div>
             <p className="text-[8px] font-black uppercase tracking-widest text-[var(--muted)]">Ledger activas</p>
             <p className="text-sm font-black tabular-nums text-[var(--heading)]">
@@ -331,6 +353,14 @@ export function OsCapacityInstalledPanel({ mods, needsMigration }: Props) {
             <p className="text-[8px] font-black uppercase tracking-widest text-[var(--muted)]">Equipo Listo</p>
             <p className="text-sm font-black tabular-nums text-cyan-700">
               {equipoListo.toLocaleString()}
+            </p>
+          </div>
+          <div>
+            <p className="text-[8px] font-black uppercase tracking-widest text-[var(--muted)]">
+              En Bodega Despacho
+            </p>
+            <p className="text-sm font-black tabular-nums text-indigo-700">
+              {bodegaDespacho.toLocaleString()}
             </p>
           </div>
         </div>

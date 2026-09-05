@@ -1,10 +1,73 @@
 import { NextResponse } from 'next/server';
+import * as XLSX from 'xlsx';
 import { requireApiUser } from '@/shared/infrastructure/http/requireApiUser';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
 import { logOnlyRoleCheck, ROLES_RETURNS_SAP } from '@/shared/authz/roleGuard';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
+
+type ExportRow = {
+  serie: string;
+  os: string;
+  sap_serie: string;
+  sap_equipo: string;
+  ubicacion: string;
+  caja: string;
+  rack: string;
+  material: string;
+  valoracion: string;
+};
+
+function toExcelRow(row: ExportRow) {
+  return {
+    Serie: row.serie,
+    OS: row.os,
+    'SAP Serie': row.sap_serie,
+    'SAP Equipo': row.sap_equipo,
+    Ubicación: row.ubicacion,
+    Caja: row.caja,
+    Rack: row.rack,
+    Material: row.material,
+    Valoración: row.valoracion,
+  };
+}
+
+function excelResponse(rows: ExportRow[], equipos: number) {
+  const stamp = new Date().toISOString().slice(0, 10);
+  const ws = XLSX.utils.json_to_sheet(rows.map(toExcelRow));
+  ws['!cols'] = [
+    { wch: 22 },
+    { wch: 16 },
+    { wch: 18 },
+    { wch: 20 },
+    { wch: 18 },
+    { wch: 16 },
+    { wch: 22 },
+    { wch: 16 },
+    { wch: 16 },
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Sin coincidencia');
+  const summary = XLSX.utils.json_to_sheet([
+    {
+      Equipos: equipos,
+      Series: rows.length,
+      Criterio: 'OS activas en TC con serie, sin match en SAP validado. Excluye despachadas.',
+    },
+  ]);
+  summary['!cols'] = [{ wch: 12 }, { wch: 12 }, { wch: 72 }];
+  XLSX.utils.book_append_sheet(wb, summary, 'Resumen');
+  const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  return new NextResponse(buffer, {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="sap-sin-coincidencia-${stamp}.xlsx"`,
+      'Cache-Control': 'no-store',
+    },
+  });
+}
 
 type SeriesRow = {
   id: string;
@@ -17,20 +80,15 @@ type SeriesRow = {
   valuation: string | null;
 };
 
-function csvEscape(v: unknown): string {
-  const s = String(v ?? '');
-  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-  return s;
-}
-
 function statusLabel(raw: string | null | undefined): string {
   const s = String(raw || '').toLowerCase();
   if (s === 'in_central_warehouse' || s.includes('bodega_genera') || s.includes('recepcionado')) {
     return 'Bodega Central';
   }
   if (s === 'in_control_warehouse') return 'Bodega Control';
+  if (s === 'in_dispatch_warehouse') return 'Bodega Despacho';
   if (s === 'in_workshop' || s.includes('diagn')) return 'Taller';
-  if (s === 'in_repair') return 'Reparacion';
+  if (s === 'in_repair') return 'Reparación';
   if (s === 'in_qc') return 'Control Calidad';
   if (s === 'ready_to_dispatch') return 'Listo despacho';
   if (s === 'dispatched') return 'Despachado';
@@ -39,8 +97,9 @@ function statusLabel(raw: string | null | undefined): string {
 }
 
 /**
- * Exporta series de equipos (OS) con sap_integration_status = Sin Coincidencia.
- * Incluye todas las series del OS (S1–S4) para ver si el G985 debió cruzar alguna.
+ * Exporta series de OS activas con sap_integration_status = Sin Coincidencia.
+ * Una OS que ya tiene una serie despachada queda fuera: después del despacho es
+ * correcto que desaparezca del inventario SAP.
  */
 export async function GET(request: Request) {
   const auth = await requireApiUser(request);
@@ -53,7 +112,7 @@ export async function GET(request: Request) {
   if (denied) return denied;
 
   const { searchParams } = new URL(request.url);
-  const format = (searchParams.get('format') || 'csv').toLowerCase();
+  const format = (searchParams.get('format') || 'xlsx').toLowerCase();
   const db = getSupabaseServerClient();
 
   // 1) OS realmente sin match (no hermanas de OS ya validados)
@@ -85,14 +144,7 @@ export async function GET(request: Request) {
     if (format === 'json') {
       return NextResponse.json({ success: true, count: 0, equipos: 0, data: [] });
     }
-    const bom = '\uFEFF';
-    return new NextResponse(bom + 'Serie,OS,SAP Serie,SAP Equipo,Ubicacion,Caja,Rack,Material,Valoracion\n', {
-      status: 200,
-      headers: {
-        'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': 'attachment; filename="sap-sin-coincidencia.csv"',
-      },
-    });
+    return excelResponse([], 0);
   }
 
   // 2) Todas las series de esos OS
@@ -119,7 +171,21 @@ export async function GET(request: Request) {
     }
   }
 
-  const boxIds = [...new Set(series.map((s) => s.current_box_id).filter(Boolean))] as string[];
+  // Defensa adicional para datos previos a la migración: aunque una OS conserve
+  // temporalmente "Sin Coincidencia", nunca se exporta si ya fue despachada.
+  const dispatchedOsIds = new Set(
+    series
+      .filter((s) => s.current_status === 'dispatched' && s.service_order_id)
+      .map((s) => s.service_order_id as string)
+  );
+  const activeSeries = series.filter(
+    (s) => !s.service_order_id || !dispatchedOsIds.has(s.service_order_id)
+  );
+  const activeUnmatchedOsIds = unmatchedOsIds.filter((id) => !dispatchedOsIds.has(id));
+
+  const boxIds = [
+    ...new Set(activeSeries.map((s) => s.current_box_id).filter(Boolean)),
+  ] as string[];
   const boxById = new Map<string, { box_code: string | null; rack_location: string | null }>();
   for (let i = 0; i < boxIds.length; i += 200) {
     const chunk = boxIds.slice(i, i + 200);
@@ -132,7 +198,7 @@ export async function GET(request: Request) {
     }
   }
 
-  const rows = series.map((s) => {
+  const rows: ExportRow[] = activeSeries.map((s) => {
     const os = s.service_order_id ? osMeta.get(s.service_order_id) : undefined;
     const box = s.current_box_id ? boxById.get(s.current_box_id) : undefined;
     return {
@@ -152,40 +218,10 @@ export async function GET(request: Request) {
     return NextResponse.json({
       success: true,
       count: rows.length,
-      equipos: unmatchedOsIds.length,
+      equipos: activeUnmatchedOsIds.length,
       data: rows,
     });
   }
 
-  const header = [
-    'Serie',
-    'OS',
-    'SAP Serie',
-    'SAP Equipo',
-    'Ubicacion',
-    'Caja',
-    'Rack',
-    'Material',
-    'Valoracion',
-  ];
-  const lines = [
-    header.join(','),
-    ...rows.map((r) =>
-      [r.serie, r.os, r.sap_serie, r.sap_equipo, r.ubicacion, r.caja, r.rack, r.material, r.valoracion]
-        .map(csvEscape)
-        .join(',')
-    ),
-  ];
-
-  const stamp = new Date().toISOString().slice(0, 10);
-  // BOM para que Excel abra acentos correctamente
-  const body = `\uFEFF${lines.join('\n')}`;
-  return new NextResponse(body, {
-    status: 200,
-    headers: {
-      'Content-Type': 'text/csv; charset=utf-8',
-      'Content-Disposition': `attachment; filename="sap-sin-coincidencia-${stamp}.csv"`,
-      'Cache-Control': 'no-store',
-    },
-  });
+  return excelResponse(rows, activeUnmatchedOsIds.length);
 }

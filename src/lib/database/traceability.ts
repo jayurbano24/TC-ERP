@@ -350,6 +350,8 @@ export function resolveTraceabilityStatusLabel(status: string): string {
       return 'Clasificada';
     case 'in_central_warehouse':
       return 'Ingresado a Bodega General';
+    case 'in_dispatch_warehouse':
+      return 'Ingresado a Bodega Despacho';
     case 'RECEPCIONADO_BODEGA_GENERAL':
       return 'Ingresado a Backoffice';
     case 'in_workshop':

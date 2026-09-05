@@ -155,6 +155,8 @@ export function formatUnitStatusLabel(status: string): string {
     case 'in_central_warehouse':
     case 'INGRESADO_BODEGA':
       return 'Ingresado a Bodega General';
+    case 'in_dispatch_warehouse':
+      return 'Ingresado a Bodega Despacho';
     case 'returned':
     case 'DEVUELTO_BLOQUE':
       return 'Devuelto';

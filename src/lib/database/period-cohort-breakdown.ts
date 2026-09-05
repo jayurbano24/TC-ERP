@@ -67,6 +67,7 @@ export function buildPeriodCohortBreakdown(
 export const STATUS_LABELS: Record<string, string> = {
   RECEPCIONADO_BODEGA_GENERAL: 'Pendiente INGRESO BODEGA',
   in_central_warehouse: 'Bodega central',
+  in_dispatch_warehouse: 'Bodega despacho / Outbound',
   in_control_warehouse: 'Sub-bodega / control',
   in_workshop: 'Taller · diagnóstico',
   in_qc: 'Taller · reparación',

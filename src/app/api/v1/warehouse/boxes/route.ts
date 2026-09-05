@@ -10,6 +10,7 @@ import {
   expandBoxCodeSearchVariants,
   isStandardWarehouseBoxCode,
 } from '@/modules/inventario/client/warehouseBoxDisplay';
+import { findExternalBoxTrace } from '@/modules/inventario/server/findExternalBoxTrace';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 const ListBoxesQuery = z.object({
@@ -249,7 +250,7 @@ export async function GET(req: NextRequest) {
       try {
         const { data: hitBoxes, error: hitError } = await db
           .from('boxes')
-          .select('id, box_code')
+          .select('id, box_code, rack_location')
           .in('box_code', bdCodes)
           .limit(10);
         if (hitError) {
@@ -278,6 +279,18 @@ export async function GET(req: NextRequest) {
           }
           const accurate = await finalizeWarehouseBoxList(db, enriched.slice(0, limit));
           return NextResponse.json({ items: accurate, nextCursor: null });
+        }
+
+        const externalBox = (hitBoxes ?? []).find(
+          (box) => !isBodegaOperationalRack(box.rack_location as string | null),
+        );
+        if (externalBox) {
+          const externalMatch = await findExternalBoxTrace(db, {
+            id: String(externalBox.id),
+            box_code: externalBox.box_code as string | null,
+            rack_location: externalBox.rack_location as string | null,
+          });
+          return NextResponse.json({ items: [], nextCursor: null, externalMatch });
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : 'QUERY_FAILED';

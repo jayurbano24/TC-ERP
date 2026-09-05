@@ -106,6 +106,8 @@ export function resolveWarehouseStatusLabel(status: string | null | undefined): 
       return 'BODEGA CENTRAL';
     case 'in_control_warehouse':
       return 'BODEGA L3';
+    case 'in_dispatch_warehouse':
+      return 'BODEGA DESPACHO';
     case 'RECEPCIONADO_BODEGA_GENERAL':
       return 'PENDIENTE INGRESO';
     case 'in_workshop':

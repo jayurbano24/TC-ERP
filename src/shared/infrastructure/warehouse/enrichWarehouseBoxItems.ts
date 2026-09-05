@@ -11,6 +11,7 @@ export type WarehouseBoxListRow = {
   /** Estado físico de boxes.status (open|closed|…). SCRAPS: Full solo si closed. */
   box_status?: string | null;
   is_partial_box?: boolean | null;
+  partial_box_reason?: string | null;
   sample_status?: string | null;
   sample_brand_id?: string | null;
   sample_model_id?: string | null;
@@ -22,6 +23,7 @@ export type EnrichedWarehouseBoxRow = WarehouseBoxListRow & {
   capacity?: number | null;
   equipos_count?: number | null;
   deletion_status?: string | null;
+  partial_box_reason?: string | null;
   assigned_operator_id?: string | null;
   ingreso_user_name?: string | null;
   created_at?: string | null;
@@ -347,7 +349,7 @@ export async function enrichWarehouseBoxItems(
         supabase,
         'boxes',
         boxIds,
-        'id, capacity, created_at, deletion_status, assigned_operator_id, reception_id, rack_location'
+        'id, capacity, created_at, deletion_status, assigned_operator_id, reception_id, rack_location, is_partial_box, partial_box_reason, status'
       ),
       fetchMapById(supabase, 'brands', brandIds, BRAND_SELECT),
       fetchMapById(supabase, 'models', modelIds, MODEL_SELECT),
@@ -472,6 +474,11 @@ export async function enrichWarehouseBoxItems(
       capacity: (boxMeta?.capacity as number | undefined) ?? item.capacity ?? null,
       equipos_count: item.equipos_count ?? null,
       deletion_status: (boxMeta?.deletion_status as string | undefined) ?? null,
+      box_status: (boxMeta?.status as string | undefined) ?? item.box_status ?? null,
+      is_partial_box:
+        (boxMeta?.is_partial_box as boolean | undefined) ?? item.is_partial_box ?? null,
+      partial_box_reason:
+        (boxMeta?.partial_box_reason as string | undefined) ?? item.partial_box_reason ?? null,
       assigned_operator_id: assignedId,
       ingreso_user_name: ingresoUserName,
       created_at: (boxMeta?.created_at as string | undefined) ?? null,

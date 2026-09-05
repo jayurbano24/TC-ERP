@@ -6,6 +6,8 @@ export type OsInventoryModules = {
   con_serie: number;
   sin_series: number;
   bodega_con_caja: number;
+  /** Bodega Despacho / Outbound: fuera de Bodega Central, todavía en planta. */
+  bodega_despacho: number;
   /** @deprecated */
   bodega_sin_caja: number;
   pistoleo_en_curso: number;
@@ -43,6 +45,7 @@ const EMPTY: OsInventoryModules = {
   con_serie: 0,
   sin_series: 0,
   bodega_con_caja: 0,
+  bodega_despacho: 0,
   bodega_sin_caja: 0,
   pistoleo_en_curso: 0,
   backoffice: 0,
@@ -142,6 +145,12 @@ export function buildOsRealityTableRows(m: OsInventoryModules): OsRealityRow[] {
       definicion: 'Series en caja TMP / rack EN_PROCESO',
     },
     {
+      key: 'bodega_despacho',
+      modulo: '05c · Bodega Despacho (Outbound)',
+      os: m.bodega_despacho,
+      definicion: 'in_dispatch_warehouse: en caja de salida, aún no despachada',
+    },
+    {
       key: 'diag',
       modulo: '06 · Taller · Diagnóstico',
       os: m.taller_diagnostico,
@@ -219,6 +228,7 @@ export async function fetchOsInventoryModules(
     const total = num(d.total);
     const despachado = num(d.despachado);
     const bodega = num(d.bodega_con_caja);
+    const bodegaDespacho = num(d.bodega_despacho);
     const pistoleo = num(d.pistoleo_en_curso);
     const backoffice = num(d.backoffice);
     const diag = num(d.taller_diagnostico);
@@ -236,6 +246,7 @@ export async function fetchOsInventoryModules(
     const activasSum =
       num(d.activas) ||
       bodega +
+        bodegaDespacho +
         pistoleo +
         backoffice +
         diag +
@@ -250,6 +261,7 @@ export async function fetchOsInventoryModules(
       con_serie: num(d.con_serie),
       sin_series: 0,
       bodega_con_caja: bodega,
+      bodega_despacho: bodegaDespacho,
       bodega_sin_caja: 0,
       pistoleo_en_curso: pistoleo,
       backoffice,

@@ -10,6 +10,7 @@ import {
 } from '@/shared/infrastructure/warehouse/enrichWarehouseBoxItems';
 import { isBodegaOperationalRack } from '@/lib/database/warehouse';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
+import { resolveWarehouseBoxOperationalStatus } from '@/modules/inventario/domain/warehouseBoxStatus';
 
 export const maxDuration = 60;
 
@@ -44,7 +45,13 @@ function toExcelRow(box: EnrichedWarehouseBoxRow) {
   const { ubicacion, rack, nivel, posicion } = parseRackParts(box.rack);
   const units = Number(box.equipos_count ?? box.series_count ?? 0);
   const capacity = Number(box.capacity || 0);
-  const isFull = units >= Math.max(capacity, 1);
+  const operationalStatus = resolveWarehouseBoxOperationalStatus({
+    units,
+    capacity,
+    boxStatus: box.box_status,
+    isPartialBox: box.is_partial_box,
+    partialReason: box.partial_box_reason,
+  });
   const createdAt = box.created_at ? new Date(box.created_at).toLocaleString('es-GT') : '';
 
   return {
@@ -61,7 +68,9 @@ function toExcelRow(box: EnrichedWarehouseBoxRow) {
     Área: 'Bodega Central',
     Unidades: units,
     Capacidad: capacity,
-    Estatus: isFull ? 'Full' : 'Parcial',
+    Diferencia: operationalStatus.difference,
+    Estatus: operationalStatus.status,
+    'Motivo / trazabilidad': operationalStatus.reason,
     'Usuario Ingreso': box.ingreso_user_name || 'SISTEMA',
   };
 }
@@ -150,6 +159,8 @@ export async function GET(req: NextRequest) {
       { wch: 10 },
       { wch: 10 },
       { wch: 10 },
+      { wch: 16 },
+      { wch: 52 },
       { wch: 20 },
     ];
     

@@ -3,7 +3,12 @@
 import { useCallback, useEffect, useRef, useState, startTransition, type Dispatch, type SetStateAction } from 'react';
 import type { CurrentEntry, GuideData } from '../types/reception.types';
 import type { PxBoxSnapshot, PxLotInput } from '@/modules/recepcion/client/pxCapture';
-import { snapshotToGuideData, snapshotToPxUiState } from '@/modules/recepcion/client/pxCapture';
+import {
+  pxFingerprintFromSnapshot,
+  snapshotToGuideData,
+  snapshotToPxUiState,
+} from '@/modules/recepcion/client/pxCapture';
+import { usePxReceptionSession } from './usePxReceptionSession';
 import { getWorkstationLabel } from '../utils/pxWorkstation';
 import { getPxBoxesDefault } from '@/shared/constants/batchLimits';
 import { canCreateNewPxBox, validatePxIncrementalFinalizeReadiness } from '../utils/pxBoxUtils';
@@ -18,10 +23,8 @@ import {
   closePxBoxApi,
   createPxBoxApi,
   fetchPxInProgressList,
-  fetchPxReceptionSnapshot,
   fetchPxBoxMeta,
   finalizePxReceptionStepwise,
-  isPxReceptionResumable,
   type PxFinalizeProgress,
   joinOrStartPxReceptionApi,
   reopenPxBoxApi,
@@ -31,8 +34,6 @@ import {
   scanPxEquipmentApi,
   DuplicateOpenOsError,
   type ScanPxEquipmentResult,
-  setIncrementalReceptionIdInSession,
-  getIncrementalReceptionIdFromSession,
   updatePxReceptionHeaderApi,
 } from '../services/pxIncrementalApi';
 import { getCurrentReceptionActor } from '@/modules/recepcion/client/receptionActor';
@@ -41,9 +42,6 @@ import {
   prepareScannedSerial,
   validateScanSlotsAgainstDigitRules,
 } from '@/shared/validation/serialDigitRules';
-
-// Soft-refresh tras ráfaga de pistoleos: 1 snapshot máximo cada 45s (antes: 1 por scan).
-const SOFT_REFRESH_IDLE_MS = 45_000;
 
 const LEGACY_STORAGE_KEY = 'tc_erp_px_reception_state';
 
@@ -117,7 +115,7 @@ function buildScanEntry(
 }
 
 function applyLocalScanPatch(
-  pxState: PxStateSlice,
+  setScannedSeries: PxStateSlice['setScannedSeries'],
   setBoxMetaByCode: Dispatch<SetStateAction<Record<string, PxBoxSnapshot>>>,
   setBoxVersionByCode: Dispatch<SetStateAction<Record<string, number>>>,
   boxCode: string,
@@ -131,7 +129,7 @@ function applyLocalScanPatch(
     ...scannedSeries,
     buildScanEntry(boxCode, currentScans, validScans, material, result.equipmentId),
   ];
-  pxState.setScannedSeries(nextSeries);
+  setScannedSeries(nextSeries);
   setBoxMetaByCode((prev) => {
     const meta = prev[boxCode];
     if (!meta) return prev;
@@ -175,13 +173,30 @@ export function useReceptionPXIncremental({
   systemModels,
   onHistoryRefresh,
 }: UseReceptionPXIncrementalArgs) {
-  const [incrementalReceptionId, setIncrementalReceptionId] = useState<string | null>(null);
+  const {
+    guideData,
+    manifestItems,
+    scannedSeries,
+    closedBoxes,
+    selectedBoxForScan,
+    setManifestItems,
+    setScannedSeries,
+    setClosedBoxes,
+    setGuideData,
+    setIsReceptionStarted,
+    setSelectedBoxForScan,
+    currentScans,
+    setCurrentScans,
+  } = pxState;
+
+  const session = usePxReceptionSession();
+  const incrementalReceptionId = session.receptionId;
+
   const [receptionVersion, setReceptionVersion] = useState(1);
   const [boxMetaByCode, setBoxMetaByCode] = useState<Record<string, PxBoxSnapshot>>({});
   const [boxIdByCode, setBoxIdByCode] = useState<Record<string, string>>({});
   const [boxVersionByCode, setBoxVersionByCode] = useState<Record<string, number>>({});
   const [pxInProgressList, setPxInProgressList] = useState<any[]>([]);
-  const [isLoadingIncrementalResume, setIsLoadingIncrementalResume] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [operatorId, setOperatorId] = useState<string | null>(null);
   const operatorIdRef = useRef<string | null>(null);
@@ -189,9 +204,9 @@ export function useReceptionPXIncremental({
   const [finalizeProgress, setFinalizeProgress] = useState<PxFinalizeProgress | null>(null);
   const scannedSeriesRef = useRef<any[]>([]);
   const boxMetaRef = useRef<Record<string, PxBoxSnapshot>>({});
-  const softRefreshTimerRef = useRef<number | null>(null);
   const boxIdByCodeRef = useRef<Record<string, string>>({});
   const boxVersionByCodeRef = useRef<Record<string, number>>({});
+  const lastHydratedFingerprintRef = useRef<string | null>(null);
 
   operatorIdRef.current = operatorId;
   boxIdByCodeRef.current = boxIdByCode;
@@ -207,35 +222,45 @@ export function useReceptionPXIncremental({
     return actor.userId;
   }, []);
 
-  const applySnapshot = useCallback(
-    (
-      snapshot: Awaited<ReturnType<typeof fetchPxReceptionSnapshot>>,
-      options?: { hydrateScannedSeries?: boolean }
-    ) => {
-      if (!snapshot) return;
-      const hydrateScannedSeries =
-        options?.hydrateScannedSeries ??
-        snapshot.boxes.some((b) => (b.equipment?.length ?? 0) > 0);
-      const ui = snapshotToPxUiState(snapshot, { hydrateScannedSeries });
-      pxState.setManifestItems(ui.manifestItems);
-      if (hydrateScannedSeries) {
-        pxState.setScannedSeries(ui.scannedSeries);
-        scannedSeriesRef.current = ui.scannedSeries;
-      }
-      pxState.setClosedBoxes(ui.closedBoxes);
-      setBoxMetaByCode(ui.boxMetaByCode);
-      boxMetaRef.current = ui.boxMetaByCode;
-      setBoxIdByCode(ui.boxIdByCode);
-      setBoxVersionByCode(ui.boxVersionByCode);
-      setReceptionVersion(snapshot.reception.version ?? 1);
-      pxState.setGuideData((prev) => ({
-        ...prev,
-        ...snapshotToGuideData(snapshot),
-      }));
-      setLastSyncedAt(new Date().toISOString());
-    },
-    [pxState]
-  );
+  useEffect(() => {
+    const entry = session.snapshotEntry;
+    if (!entry) return;
+
+    const fingerprint = pxFingerprintFromSnapshot(entry.snapshot);
+    if (fingerprint === lastHydratedFingerprintRef.current) return;
+    lastHydratedFingerprintRef.current = fingerprint;
+
+    const ui = snapshotToPxUiState(entry.snapshot, {
+      hydrateScannedSeries: entry.includeEquipment,
+    });
+    setManifestItems(ui.manifestItems);
+    if (entry.includeEquipment) {
+      setScannedSeries(ui.scannedSeries);
+      scannedSeriesRef.current = ui.scannedSeries;
+    }
+    setClosedBoxes(ui.closedBoxes);
+    setBoxMetaByCode(ui.boxMetaByCode);
+    boxMetaRef.current = ui.boxMetaByCode;
+    setBoxIdByCode(ui.boxIdByCode);
+    setBoxVersionByCode(ui.boxVersionByCode);
+    setReceptionVersion(entry.snapshot.reception.version ?? 1);
+    setGuideData((prev) => ({
+      ...prev,
+      ...snapshotToGuideData(entry.snapshot),
+    }));
+    setLastSyncedAt(new Date().toISOString());
+
+    if (entry.reason === 'RESUME' || entry.reason === 'START') {
+      setIsReceptionStarted(true);
+    }
+  }, [
+    session.snapshotEntry,
+    setManifestItems,
+    setScannedSeries,
+    setClosedBoxes,
+    setGuideData,
+    setIsReceptionStarted,
+  ]);
 
   const getFreshBoxVersion = useCallback(async (boxCode: string): Promise<number> => {
     const boxId = boxIdByCodeRef.current[boxCode];
@@ -270,28 +295,6 @@ export function useReceptionPXIncremental({
 
   const isVersionConflict = (err: unknown) =>
     err instanceof Error && err.message.includes('Conflicto de versión');
-
-  const refreshSnapshot = useCallback(async () => {
-    if (!incrementalReceptionId) return;
-    const snap = await fetchPxReceptionSnapshot(incrementalReceptionId, { includeEquipment: false });
-    applySnapshot(snap, { hydrateScannedSeries: false });
-  }, [incrementalReceptionId, applySnapshot]);
-
-  /** Coalesce: muchos pistoleos → un solo GET snapshot tras idle. */
-  const scheduleSoftRefresh = useCallback(() => {
-    if (typeof window === 'undefined') return;
-    if (softRefreshTimerRef.current) window.clearTimeout(softRefreshTimerRef.current);
-    softRefreshTimerRef.current = window.setTimeout(() => {
-      softRefreshTimerRef.current = null;
-      refreshSnapshot().catch(() => undefined);
-    }, SOFT_REFRESH_IDLE_MS);
-  }, [refreshSnapshot]);
-
-  useEffect(() => {
-    return () => {
-      if (softRefreshTimerRef.current) window.clearTimeout(softRefreshTimerRef.current);
-    };
-  }, []);
 
   useEffect(() => {
     if (!finalizeProgress) return;
@@ -334,66 +337,27 @@ export function useReceptionPXIncremental({
     }
   }, [loadInProgressList]);
 
-  useEffect(() => {
-    const sessionId = getIncrementalReceptionIdFromSession();
-    if (!sessionId) return;
-
-    let cancelled = false;
-    (async () => {
-      setIsLoadingIncrementalResume(true);
-      try {
-        const snap = await fetchPxReceptionSnapshot(sessionId, { includeEquipment: true });
-        if (cancelled || !snap) return;
-        if (!isPxReceptionResumable(snap.reception.status)) {
-          setIncrementalReceptionIdInSession(null);
-          return;
-        }
-        setIncrementalReceptionId(sessionId);
-        applySnapshot(snap, { hydrateScannedSeries: true });
-        pxState.setIsReceptionStarted(true);
-      } catch {
-        setIncrementalReceptionIdInSession(null);
-      } finally {
-        if (!cancelled) setIsLoadingIncrementalResume(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [applySnapshot, pxState]);
-
   const onStartReceptionIncremental = useCallback(async () => {
     const result = await joinOrStartPxReceptionApi({
-      guideData: pxState.guideData,
+      guideData,
       operatorName: currentUserFullName,
       operatorId,
-      preferredGuideNumber: pxState.guideData.guia?.trim() || undefined,
+      preferredGuideNumber: guideData.guia?.trim() || undefined,
     });
-    setIncrementalReceptionId(result.receptionId);
-    setIncrementalReceptionIdInSession(result.receptionId);
-    pxState.setGuideData((prev) => ({ ...prev, guia: result.guideNumber }));
-    pxState.setIsReceptionStarted(true);
-    await refreshSnapshot();
+    setGuideData((prev) => ({ ...prev, guia: result.guideNumber }));
+    setIsReceptionStarted(true);
+    await session.start(result.receptionId);
     await loadInProgressList();
     return true;
-  }, [pxState, currentUserFullName, operatorId, refreshSnapshot, loadInProgressList]);
+  }, [guideData, currentUserFullName, operatorId, session, loadInProgressList, setGuideData, setIsReceptionStarted]);
 
   const onResumePxReception = useCallback(
     async (receptionId: string) => {
-      setIsLoadingIncrementalResume(true);
-      try {
-        const snap = await fetchPxReceptionSnapshot(receptionId, { includeEquipment: true });
-        if (!snap) throw new Error('Recepción no encontrada');
-        setIncrementalReceptionId(receptionId);
-        setIncrementalReceptionIdInSession(receptionId);
-        applySnapshot(snap, { hydrateScannedSeries: true });
-        pxState.setIsReceptionStarted(true);
-      } finally {
-        setIsLoadingIncrementalResume(false);
-      }
+      const ok = await session.switchReception(receptionId);
+      if (!ok) throw new Error('Recepción no encontrada o no reanudable');
+      setIsReceptionStarted(true);
     },
-    [applySnapshot, pxState]
+    [session, setIsReceptionStarted]
   );
 
   const onAcquireBoxLock = useCallback(
@@ -458,7 +422,7 @@ export function useReceptionPXIncremental({
         if (!boxId) {
           const limitCheck = canCreateNewPxBox(
             boxMetaRef.current,
-            pxState.guideData.totalCajasEsperadas ?? getPxBoxesDefault()
+            guideData.totalCajasEsperadas ?? getPxBoxesDefault()
           );
           if (!limitCheck.ok) {
             notify.warning(limitCheck.reason);
@@ -470,8 +434,8 @@ export function useReceptionPXIncremental({
         } else {
           await appendPxCaptureLotsApi(existingBoxId, [lot]);
         }
-        await refreshSnapshot();
-        pxState.setSelectedBoxForScan(effectiveBoxCode);
+        await session.reconcile('MUTATION_RECONCILIATION');
+        setSelectedBoxForScan(effectiveBoxCode);
         await onAcquireBoxLock(effectiveBoxCode, boxId);
         return true;
       } catch (err: unknown) {
@@ -484,8 +448,9 @@ export function useReceptionPXIncremental({
       boxIdByCode,
       systemBrands,
       systemModels,
-      refreshSnapshot,
-      pxState,
+      session,
+      guideData.totalCajasEsperadas,
+      setSelectedBoxForScan,
       onAcquireBoxLock,
     ]
   );
@@ -494,7 +459,6 @@ export function useReceptionPXIncremental({
     async (e: React.FormEvent) => {
       e.preventDefault();
 
-      const { selectedBoxForScan, currentScans, manifestItems, scannedSeries, setCurrentScans } = pxState;
       const liveSeries =
         scannedSeriesRef.current.length > 0 ? scannedSeriesRef.current : scannedSeries;
       if (scannedSeriesRef.current !== liveSeries) {
@@ -622,7 +586,7 @@ export function useReceptionPXIncremental({
       }
 
       startTransition(() => {
-        pxState.setScannedSeries(nextSeries);
+        setScannedSeries(nextSeries);
         setBoxMetaByCode((prev) => {
           const current = prev[selectedBoxForScan];
           if (!current) return prev;
@@ -651,7 +615,7 @@ export function useReceptionPXIncremental({
           boxMetaRef.current = { ...boxMetaRef.current, [selectedBoxForScan]: rollbackMeta };
         }
         startTransition(() => {
-          pxState.setScannedSeries(seriesBeforePending);
+          setScannedSeries(seriesBeforePending);
           setCurrentScans(rollbackScans);
           if (rollbackMeta) {
             setBoxMetaByCode((prev) => ({ ...prev, [selectedBoxForScan]: rollbackMeta }));
@@ -679,7 +643,7 @@ export function useReceptionPXIncremental({
           };
         }
         startTransition(() => {
-          pxState.setScannedSeries(reconciled);
+          setScannedSeries(reconciled);
           setBoxMetaByCode((prev) => {
             const current = prev[selectedBoxForScan];
             if (!current) return prev;
@@ -694,7 +658,7 @@ export function useReceptionPXIncremental({
             };
           });
         });
-        scheduleSoftRefresh();
+        session.scheduleSoftReconciliation();
       };
 
       const attachReentryPreview = async (equipmentId: string) => {
@@ -713,7 +677,7 @@ export function useReceptionPXIncremental({
               : s
           );
           scannedSeriesRef.current = patched;
-          startTransition(() => pxState.setScannedSeries(patched));
+          startTransition(() => setScannedSeries(patched));
           notify.info(`${formatIngresoLabel(count)} detectado (PX)`, {
             description: `La serie ${serials[0]} ya estuvo en el sistema y vuelve a ingresar.`,
           });
@@ -746,7 +710,7 @@ export function useReceptionPXIncremental({
           rollbackOptimisticScan();
           if (err instanceof DuplicateOpenOsError) {
             const duplicate = err.details;
-            await refreshSnapshot();
+            await session.reconcile('ERROR_RECONCILIATION');
             notify.error('SERIE DUPLICADA – ORDEN DE SERVICIO ABIERTA', {
               description:
                 `La serie ${duplicate.serial} ya está registrada en otra OS abierta. ` +
@@ -756,7 +720,7 @@ export function useReceptionPXIncremental({
               duration: 15000,
             });
           } else if (message.includes('caja alcanzó su capacidad') || message.includes('BOX_FULL')) {
-            await refreshSnapshot();
+            await session.reconcile('ERROR_RECONCILIATION');
             notify.warning(`Caja ${selectedBoxForScan} llena`, {
               description:
                 'El equipo no fue registrado. Cierre esta caja y seleccione o cree la siguiente.',
@@ -772,7 +736,12 @@ export function useReceptionPXIncremental({
       void submitScan();
     },
     [
-      pxState,
+      selectedBoxForScan,
+      currentScans,
+      manifestItems,
+      scannedSeries,
+      setCurrentScans,
+      setScannedSeries,
       incrementalReceptionId,
       boxIdByCode,
       boxMetaByCode,
@@ -780,8 +749,7 @@ export function useReceptionPXIncremental({
       systemBrands,
       systemModels,
       currentUserFullName,
-      refreshSnapshot,
-      scheduleSoftRefresh,
+      session,
       onAcquireBoxLock,
       ensureOperatorId,
     ]
@@ -826,8 +794,8 @@ export function useReceptionPXIncremental({
         return !(s.boxCode === boxCode && s.sn === item.sn);
       });
       scannedSeriesRef.current = nextSeries;
-      startTransition(() => {
-        pxState.setScannedSeries(nextSeries);
+        startTransition(() => {
+        setScannedSeries(nextSeries);
       });
 
       try {
@@ -858,7 +826,7 @@ export function useReceptionPXIncremental({
       } catch (err: unknown) {
         scannedSeriesRef.current = prevSeries;
         startTransition(() => {
-          pxState.setScannedSeries(prevSeries);
+          setScannedSeries(prevSeries);
         });
         notify.error(err instanceof Error ? err.message : 'No se pudo eliminar el equipo');
         return false;
@@ -871,7 +839,7 @@ export function useReceptionPXIncremental({
       currentUserFullName,
       onAcquireBoxLock,
       ensureOperatorId,
-      pxState,
+      setScannedSeries,
     ]
   );
 
@@ -884,13 +852,13 @@ export function useReceptionPXIncremental({
 
       const meta = boxMetaRef.current[boxCode] ?? boxMetaByCode[boxCode];
       const isClosed =
-        meta?.status === 'cerrada' || meta?.status === 'closed' || pxState.closedBoxes.includes(boxCode);
+        meta?.status === 'cerrada' || meta?.status === 'closed' || closedBoxes.includes(boxCode);
       if (isClosed) {
         notify.warning('No puede eliminar una caja cerrada. Reábrala primero si necesita modificarla.');
         return false;
       }
 
-      const lotsInBox = pxState.manifestItems.filter((i: any) => i.boxCode === boxCode).length;
+      const lotsInBox = manifestItems.filter((i: any) => i.boxCode === boxCode).length;
       const seriesInBox = scannedSeriesRef.current.filter((s) => s.boxCode === boxCode).length;
       const message =
         lotsInBox > 0 || seriesInBox > 0
@@ -933,14 +901,14 @@ export function useReceptionPXIncremental({
 
         const nextSeries = scannedSeriesRef.current.filter((s) => s.boxCode !== boxCode);
         scannedSeriesRef.current = nextSeries;
-        const nextManifest = pxState.manifestItems.filter((i: any) => i.boxCode !== boxCode);
+        const nextManifest = manifestItems.filter((i: any) => i.boxCode !== boxCode);
         const { [boxCode]: _removedMeta, ...restMeta } = boxMetaRef.current;
         boxMetaRef.current = restMeta;
 
         startTransition(() => {
-          pxState.setManifestItems(nextManifest);
-          pxState.setScannedSeries(nextSeries);
-          pxState.setClosedBoxes(pxState.closedBoxes.filter((b) => b !== boxCode));
+          setManifestItems(nextManifest);
+          setScannedSeries(nextSeries);
+          setClosedBoxes(closedBoxes.filter((b) => b !== boxCode));
           setBoxMetaByCode((prev) => {
             const { [boxCode]: _b, ...rest } = prev;
             return rest;
@@ -953,14 +921,14 @@ export function useReceptionPXIncremental({
             const { [boxCode]: _b, ...rest } = prev;
             return rest;
           });
-          if (pxState.selectedBoxForScan === boxCode) {
-            pxState.setSelectedBoxForScan(null);
+          if (selectedBoxForScan === boxCode) {
+            setSelectedBoxForScan(null);
           }
         });
         return true;
       } catch (err: unknown) {
         notify.error(err instanceof Error ? err.message : 'No se pudo eliminar la caja');
-        await refreshSnapshot();
+        await session.reconcile('ERROR_RECONCILIATION');
         return false;
       }
     },
@@ -969,11 +937,17 @@ export function useReceptionPXIncremental({
       boxMetaByCode,
       boxIdByCode,
       boxVersionByCode,
-      pxState,
+      manifestItems,
+      closedBoxes,
+      selectedBoxForScan,
+      setManifestItems,
+      setScannedSeries,
+      setClosedBoxes,
+      setSelectedBoxForScan,
       currentUserFullName,
       onAcquireBoxLock,
       ensureOperatorId,
-      refreshSnapshot,
+      session,
     ]
   );
 
@@ -1024,14 +998,14 @@ export function useReceptionPXIncremental({
         } catch {
           /* lock may already be cleared by RPC */
         }
-        await refreshSnapshot();
+        await session.reconcile('MUTATION_RECONCILIATION');
         return true;
       } catch (err: unknown) {
         notify.error(err instanceof Error ? err.message : 'No se pudo cerrar la caja');
         return false;
       }
     },
-    [boxMetaByCode, boxIdByCode, boxVersionByCode, operatorId, currentUserFullName, refreshSnapshot, ensureOperatorId, getFreshBoxVersion]
+    [boxMetaByCode, boxIdByCode, boxVersionByCode, operatorId, currentUserFullName, session, ensureOperatorId, getFreshBoxVersion]
   );
 
   const onReopenBoxIncremental = useCallback(
@@ -1061,12 +1035,12 @@ export function useReceptionPXIncremental({
           });
         }
         await onAcquireBoxLock(boxCode, boxId);
-        await refreshSnapshot();
+        await session.reconcile('MUTATION_RECONCILIATION');
       } catch (err: unknown) {
         notify.error(err instanceof Error ? err.message : 'No se pudo reabrir la caja');
       }
     },
-    [boxMetaByCode, boxIdByCode, boxVersionByCode, currentUserFullName, refreshSnapshot, onAcquireBoxLock, ensureOperatorId, getFreshBoxVersion]
+    [boxMetaByCode, boxIdByCode, boxVersionByCode, currentUserFullName, session, onAcquireBoxLock, ensureOperatorId, getFreshBoxVersion]
   );
 
   const onAdjustBoxQuantity = useCallback(
@@ -1097,9 +1071,9 @@ export function useReceptionPXIncremental({
           operatorName: currentUserFullName,
         });
       }
-      await refreshSnapshot();
+      await session.reconcile('MUTATION_RECONCILIATION');
     },
-    [boxIdByCode, boxMetaByCode, boxVersionByCode, currentUserFullName, refreshSnapshot, ensureOperatorId, getFreshBoxVersion]
+    [boxIdByCode, boxMetaByCode, boxVersionByCode, currentUserFullName, session, ensureOperatorId, getFreshBoxVersion]
   );
 
   const onSaveHeaderIncremental = useCallback(async () => {
@@ -1107,17 +1081,17 @@ export function useReceptionPXIncremental({
     try {
       const data = await updatePxReceptionHeaderApi({
         receptionId: incrementalReceptionId,
-        guideData: pxState.guideData,
+        guideData,
         operatorName: currentUserFullName,
         expectedVersion: receptionVersion,
       });
-      applySnapshot(data);
+      session.ingestSnapshot(data, 'MUTATION_RECONCILIATION', false);
       return true;
     } catch (err: unknown) {
       notify.error(err instanceof Error ? err.message : 'No se pudo guardar cabecera');
       return false;
     }
-  }, [incrementalReceptionId, pxState.guideData, currentUserFullName, receptionVersion, applySnapshot]);
+  }, [incrementalReceptionId, guideData, currentUserFullName, receptionVersion, session]);
 
   const handleFinalizePXIncremental = useCallback(async () => {
     if (!incrementalReceptionId) {
@@ -1127,8 +1101,8 @@ export function useReceptionPXIncremental({
 
     const readiness = validatePxIncrementalFinalizeReadiness(
       boxMetaByCode,
-      pxState.closedBoxes,
-      pxState.scannedSeries
+      closedBoxes,
+      scannedSeries
     );
     if (!readiness.ok) {
       notify.warning(readiness.reason);
@@ -1184,14 +1158,14 @@ export function useReceptionPXIncremental({
         { description: `Equipos en Bodega Central${batchDesc}.` },
       );
 
-      setIncrementalReceptionId(null);
-      setIncrementalReceptionIdInSession(null);
+      session.clearSession();
+      lastHydratedFingerprintRef.current = null;
       setBoxMetaByCode({});
       setBoxIdByCode({});
-      pxState.setManifestItems([]);
-      pxState.setScannedSeries([]);
-      pxState.setClosedBoxes([]);
-      pxState.setGuideData({
+      setManifestItems([]);
+      setScannedSeries([]);
+      setClosedBoxes([]);
+      setGuideData({
         sap: '',
         docReferencia: '',
         agencia: 'Monte Verdes',
@@ -1201,7 +1175,7 @@ export function useReceptionPXIncremental({
         courier: '',
         totalCajasEsperadas: getPxBoxesDefault(),
       });
-      pxState.setIsReceptionStarted(false);
+      setIsReceptionStarted(false);
 
       try {
         localStorage.removeItem(LEGACY_STORAGE_KEY);
@@ -1219,12 +1193,19 @@ export function useReceptionPXIncremental({
   }, [
     incrementalReceptionId,
     boxMetaByCode,
-    pxState,
+    closedBoxes,
+    scannedSeries,
     receptionVersion,
     operatorId,
     currentUserFullName,
     loadInProgressList,
     onHistoryRefresh,
+    session,
+    setManifestItems,
+    setScannedSeries,
+    setClosedBoxes,
+    setGuideData,
+    setIsReceptionStarted,
   ]);
 
   return {
@@ -1233,7 +1214,7 @@ export function useReceptionPXIncremental({
     boxMetaByCode,
     boxIdByCode,
     pxInProgressList,
-    isLoadingIncrementalResume,
+    isLoadingIncrementalResume: session.isLoadingResume,
     lastSyncedAt,
     currentOperatorId: operatorId,
     isScanning,
@@ -1250,6 +1231,6 @@ export function useReceptionPXIncremental({
     onDeleteBoxIncremental,
     handleFinalizePXIncremental,
     finalizeProgress,
-    refreshSnapshot,
+    refreshSnapshot: () => session.refresh('EXPLICIT_REFRESH'),
   };
 }

@@ -46,4 +46,10 @@ describe('PX finalize UX after timeout', () => {
     expect(hookTs).toContain('finalizePxReceptionStepwise');
     expect(hookTs).not.toContain('finalizePxReceptionApi({');
   });
+
+  it('delega sesión PX al session controller (sin resume reactivo a pxState)', () => {
+    expect(hookTs).toContain('usePxReceptionSession');
+    expect(hookTs).not.toContain('[applySnapshot, pxState]');
+    expect(hookTs).not.toContain('resumeStartedRef');
+  });
 });

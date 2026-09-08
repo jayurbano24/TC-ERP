@@ -113,10 +113,12 @@ export const startPxReceptionApi = joinOrStartPxReceptionApi;
 
 export async function fetchPxReceptionSnapshot(
   receptionId: string,
-  options?: { includeEquipment?: boolean }
+  options?: { includeEquipment?: boolean; signal?: AbortSignal }
 ) {
   const params = options?.includeEquipment ? '?includeEquipment=1' : '';
-  const res = await apiFetch(`/api/recepcion/px/${receptionId}${params}`);
+  const res = await apiFetch(`/api/recepcion/px/${receptionId}${params}`, {
+    signal: options?.signal,
+  });
   const json = await res.json();
   if (!json.success) throw new Error(json.error || 'Recepción no encontrada');
   return json.data as PxReceptionSnapshot;

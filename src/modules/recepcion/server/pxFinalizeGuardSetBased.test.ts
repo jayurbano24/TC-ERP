@@ -19,6 +19,10 @@ const hookTs = readFileSync(
   join(process.cwd(), 'src', 'app', '(erp)', 'recepcion', 'hooks', 'useReceptionPXIncremental.ts'),
   'utf8',
 );
+const receptionCommandsTs = readFileSync(
+  join(process.cwd(), 'src', 'modules', 'recepcion', 'application', 'px', 'pxReceptionCommands.ts'),
+  'utf8',
+);
 
 describe('PX finalize guard set-based', () => {
   it('no revalida serie a serie con advisory lock en el trigger', () => {
@@ -43,7 +47,8 @@ describe('PX finalize UX after timeout', () => {
   });
 
   it('orquesta prep y promote desde el cliente', () => {
-    expect(hookTs).toContain('finalizePxReceptionStepwise');
+    expect(receptionCommandsTs).toContain('finalizePxReceptionStepwise');
+    expect(hookTs).toContain('executeFinalizeReception');
     expect(hookTs).not.toContain('finalizePxReceptionApi({');
   });
 

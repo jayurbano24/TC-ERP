@@ -50,6 +50,21 @@ describe('autorización gerencial para eliminar cajas', () => {
     expect(migration).toContain('r.box_id = OLD.id');
   });
 
+  it('no exige autorización gerencial para transferencias operativas a taller', () => {
+    const operational = readFileSync(
+      join(
+        process.cwd(),
+        'supabase',
+        'migrations',
+        '20260905181246_allow_operational_box_eliminado.sql',
+      ),
+      'utf8',
+    );
+    expect(operational).toContain('app.box_operational_eliminado');
+    expect(operational).toContain("set_config('app.box_operational_eliminado', 'dispersion', true)");
+    expect(operational).toContain('warehouse_dispersion_tx');
+  });
+
   it('audita solicitud, aprobación y rechazo con identidad', () => {
     expect(migration).toContain('ELIMINACION_CAJA_SOLICITADA');
     expect(migration).toContain('ELIMINACION_CAJA_AUTORIZADA');

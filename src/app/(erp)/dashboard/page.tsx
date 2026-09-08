@@ -209,7 +209,7 @@ export default function GeneralDashboardPage() {
     enabled: allowedGerencial,
   });
   const storageQuery = useQuery({
-    queryKey: ['dashboard-storage'],
+    queryKey: ['dashboard-storage', 'os'],
     queryFn: () => getStorageData(),
     enabled: allowedGerencial,
   });
@@ -918,18 +918,18 @@ export default function GeneralDashboardPage() {
                 <div className="mx-auto w-12 h-12 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mb-4">
                   <Warehouse className="w-6 h-6" />
                 </div>
-                <p className="text-sm font-bold text-[var(--muted)] uppercase tracking-widest">Equipos Ingresados</p>
+                <p className="text-sm font-bold text-[var(--muted)] uppercase tracking-widest">Equipos ingresados</p>
                 <p className="text-4xl font-black text-[var(--heading)] my-2">{storageData.ingresados.toLocaleString()}</p>
-                <p className="text-xs text-[var(--muted)]">Histórico total en almacén</p>
+                <p className="text-xs text-[var(--muted)]">Histórico total de OS</p>
               </Card>
 
               <Card className="p-6 text-center border-t-4 border-emerald-500 shadow-sm">
                 <div className="mx-auto w-12 h-12 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mb-4">
                   <Truck className="w-6 h-6" />
                 </div>
-                <p className="text-sm font-bold text-[var(--muted)] uppercase tracking-widest">Equipos Despachados</p>
+                <p className="text-sm font-bold text-[var(--muted)] uppercase tracking-widest">Equipos despachados</p>
                 <p className="text-4xl font-black text-[var(--heading)] my-2">{storageData.despachados.toLocaleString()}</p>
-                <p className="text-xs text-[var(--muted)]">Histórico de salidas</p>
+                <p className="text-xs text-[var(--muted)]">OS con salida registrada</p>
               </Card>
 
               <Card className="p-6 text-center border-t-4 border-amber-500 shadow-sm">
@@ -938,7 +938,7 @@ export default function GeneralDashboardPage() {
                 </div>
                 <p className="text-sm font-bold text-[var(--muted)] uppercase tracking-widest">Sin Movimiento &gt; 60 Días</p>
                 <p className="text-4xl font-black text-[var(--heading)] my-2">{storageData.sinMovimiento60.toLocaleString()}</p>
-                <p className="text-xs text-amber-600 font-semibold">Alerta de antigüedad</p>
+                <p className="text-xs text-amber-600 font-semibold">Alerta de antigüedad (OS)</p>
               </Card>
 
               <Card className="p-6 text-center border-t-4 border-red-500 shadow-sm">
@@ -947,7 +947,7 @@ export default function GeneralDashboardPage() {
                 </div>
                 <p className="text-sm font-bold text-[var(--muted)] uppercase tracking-widest">Sin Movimiento &gt; 90 Días</p>
                 <p className="text-4xl font-black text-[var(--heading)] my-2">{storageData.sinMovimiento90.toLocaleString()}</p>
-                <p className="text-xs text-red-600 font-bold">Crítico - obsolescencia</p>
+                <p className="text-xs text-red-600 font-bold">Crítico · obsolescencia (OS)</p>
               </Card>
             </div>
           </div>

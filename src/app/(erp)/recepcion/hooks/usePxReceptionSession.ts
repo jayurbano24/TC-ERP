@@ -6,6 +6,7 @@ import {
   fetchPxSnapshotForSession,
   pxReceptionQueryKey,
 } from '@/modules/recepcion/client/pxReceptionSnapshotQuery';
+import { ingestPxSnapshotToCache } from '@/modules/recepcion/client/pxMutationCache';
 import {
   createPxReceptionSessionStore,
   type PxReceptionSessionStore,
@@ -19,47 +20,40 @@ import {
 
 const SOFT_REFRESH_IDLE_MS = 45_000;
 
-function syncSnapshotToQueryCache(
-  queryClient: ReturnType<typeof useQueryClient>,
-  receptionId: string,
-  entry: ReturnType<PxReceptionSessionStore['getState']>['snapshotEntry']
-) {
-  if (!entry) {
-    queryClient.removeQueries({ queryKey: pxReceptionQueryKey(receptionId) });
-    return;
-  }
-  queryClient.setQueryData(pxReceptionQueryKey(receptionId), entry);
-}
+/** Idempotencia module-level — sobrevive StrictMode remounts. */
+const moduleResumeAttemptedFor = new Set<string>();
 
 /**
- * Application controller — único owner de sesión PX y sincronización snapshot.
+ * Application controller — owner de sesión PX y comandos snapshot explícitos.
  *
  * Reglas:
  * - RENDER ≠ COMMAND
  * - STATE CHANGE ≠ AUTOMATIC SERVER FETCH
- * - Todo GET snapshot lleva reason explícito (ver pxReceptionSession.types)
+ * - TanStack Query cache = SSOT de server snapshot (via onSnapshotApplied)
  */
 export function usePxReceptionSession() {
   const queryClient = useQueryClient();
   const storeRef = useRef<PxReceptionSessionStore | null>(null);
-  const mountResumeDoneRef = useRef(false);
 
   if (!storeRef.current) {
     storeRef.current = createPxReceptionSessionStore({
       softRefreshIdleMs: SOFT_REFRESH_IDLE_MS,
       fetchSnapshot: fetchPxSnapshotForSession,
+      onSnapshotApplied: (receptionId, entry) => {
+        ingestPxSnapshotToCache(
+          queryClient,
+          receptionId,
+          entry.snapshot,
+          entry.reason,
+          entry.includeEquipment
+        );
+      },
     });
   }
 
   const store = storeRef.current;
 
   const state = useSyncExternalStore(store.subscribe, store.getState, store.getState);
-
-  useEffect(() => {
-    if (state.snapshotEntry && state.receptionId) {
-      syncSnapshotToQueryCache(queryClient, state.receptionId, state.snapshotEntry);
-    }
-  }, [queryClient, state.receptionId, state.snapshotEntry]);
 
   const resume = useCallback(
     async (receptionId?: string) => {
@@ -106,8 +100,12 @@ export function usePxReceptionSession() {
       includeEquipment: boolean
     ) => {
       store.ingestSnapshot(snapshot, reason, includeEquipment);
+      const receptionId = snapshot.reception.id;
+      if (receptionId) {
+        ingestPxSnapshotToCache(queryClient, receptionId, snapshot, reason, includeEquipment);
+      }
     },
-    [store]
+    [queryClient, store]
   );
 
   const scheduleSoftReconciliation = useCallback(() => {
@@ -131,24 +129,18 @@ export function usePxReceptionSession() {
     [store]
   );
 
-  const resumeCommandRef = useRef(resume);
-  resumeCommandRef.current = resume;
-
   useEffect(() => {
-    if (mountResumeDoneRef.current) return;
     const sessionId = getIncrementalReceptionIdFromSession();
-    if (!sessionId) return;
-    mountResumeDoneRef.current = true;
-    void resumeCommandRef.current(sessionId);
-  }, []);
+    if (!sessionId || moduleResumeAttemptedFor.has(sessionId)) return;
+    moduleResumeAttemptedFor.add(sessionId);
+    void resume(sessionId);
+  }, [resume]);
 
   useEffect(() => () => store.dispose(), [store]);
 
   return {
     receptionId: state.receptionId,
-    snapshot: state.snapshotEntry?.snapshot ?? null,
     snapshotEntry: state.snapshotEntry,
-    receptionVersion: state.snapshotEntry?.snapshot.reception.version ?? 1,
     isLoadingResume: state.isLoadingResume,
     resume,
     start,
@@ -162,3 +154,8 @@ export function usePxReceptionSession() {
 }
 
 export type PxReceptionSession = ReturnType<typeof usePxReceptionSession>;
+
+/** Solo tests — reset idempotencia module-level. */
+export function resetPxModuleResumeGuardForTests(): void {
+  moduleResumeAttemptedFor.clear();
+}

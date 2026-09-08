@@ -162,7 +162,7 @@ export default function ReceptionsPage() {
   const [filteredModels, setFilteredModels] = useState<any[]>([]);
 
   const pxIncremental = useReceptionPXIncremental({
-    pxState,
+    ui: pxState,
     currentUserFullName,
     systemBrands,
     systemModels,
@@ -390,6 +390,14 @@ export default function ReceptionsPage() {
       {moduleMode === 'px' && activeTab === 'scan' && (
         <PxReceptionTab
           {...pxState}
+          guideData={pxIncremental.guideData}
+          setGuideData={pxIncremental.setGuideData}
+          manifestItems={pxIncremental.manifestItems}
+          scannedSeries={pxIncremental.scannedSeries}
+          closedBoxes={pxIncremental.closedBoxes}
+          setManifestItems={pxIncremental.setManifestItems}
+          setScannedSeries={pxIncremental.setScannedSeries}
+          setClosedBoxes={pxIncremental.setClosedBoxes}
           {...scannerState}
           {...validationState}
           printBoxLabel={printingService.printBoxLabel}

@@ -2,6 +2,7 @@ import {
   buildSnapshotDedupeKey,
   shouldApplySnapshotEntry,
 } from './pxReceptionSnapshotQuery';
+import { recordPxSnapshotAborted, recordPxSnapshotDeduped } from './pxReceptionSessionMetrics';
 import type {
   PxReceptionSessionState,
   PxSnapshotCacheEntry,
@@ -14,9 +15,16 @@ export type PxSnapshotFetcher = (
   params: PxSnapshotFetchParams
 ) => Promise<PxSnapshotCacheEntry>;
 
+export type PxSnapshotAppliedListener = (
+  receptionId: string,
+  entry: PxSnapshotCacheEntry
+) => void;
+
 export type PxReceptionSessionStoreOptions = {
   fetchSnapshot: PxSnapshotFetcher;
   softRefreshIdleMs: number;
+  /** SSOT: notifica cuando un snapshot se aplica (→ TanStack Query cache). */
+  onSnapshotApplied?: PxSnapshotAppliedListener;
 };
 
 export type PxReceptionSessionCommands = {
@@ -69,8 +77,12 @@ export function createPxReceptionSessionStore(
   const applyEntry = (entry: PxSnapshotCacheEntry): boolean => {
     if (!shouldApplySnapshotEntry(entry, state.appliedVersion)) return false;
     const version = entry.snapshot.reception.version ?? 1;
+    const receptionId = entry.snapshot.reception.id;
     state.appliedVersion = version;
     state.snapshotEntry = entry;
+    if (receptionId) {
+      options.onSnapshotApplied?.(receptionId, entry);
+    }
     notify();
     return true;
   };
@@ -79,6 +91,7 @@ export function createPxReceptionSessionStore(
     for (const [key, controller] of abortByKey.entries()) {
       if (key.startsWith(`${receptionId}:`)) {
         controller.abort();
+        recordPxSnapshotAborted();
         abortByKey.delete(key);
         inFlight.delete(key);
       }
@@ -95,7 +108,10 @@ export function createPxReceptionSessionStore(
     const dedupeKey = buildSnapshotDedupeKey(receptionId, reason, resolvedInclude);
 
     const existing = inFlight.get(dedupeKey);
-    if (existing) return existing;
+    if (existing) {
+      recordPxSnapshotDeduped();
+      return existing;
+    }
 
     const controller = new AbortController();
     abortByKey.set(dedupeKey, controller);

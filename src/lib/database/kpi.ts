@@ -853,42 +853,45 @@ export async function getBIData(timeRange: string = 'Este Mes'): Promise<BICostR
   return pricingTable;
 }
 
+function numOs(v: unknown): number {
+  const n = Number(v ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Almacenamientos: 1 OS = 1 equipo (no filas de series). */
 export async function getStorageData() {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { ingresados: 0, despachados: 0, sinMovimiento60: 0, sinMovimiento90: 0 };
 
+  const { data, error } = await supabase.rpc('count_os_storage_kpis');
+  if (!error && data && typeof data === 'object') {
+    const d = data as Record<string, unknown>;
+    return {
+      ingresados: numOs(d.ingresados),
+      despachados: numOs(d.despachados),
+      sinMovimiento60: numOs(d.sin_movimiento_60),
+      sinMovimiento90: numOs(d.sin_movimiento_90),
+    };
+  }
+  if (error) {
+    console.warn('[getStorageData] RPC unavailable, fallback OS counts:', error.message);
+  }
+
   const { count: ingresados } = await supabase
-    .from('series')
+    .from('service_orders')
     .select(COUNT_HEAD, { count: 'exact', head: true });
 
-  const { count: despachados } = await supabase
-    .from('series')
-    .select(COUNT_HEAD, { count: 'exact', head: true })
-    .eq('current_status', 'dispatched');
-
-  const date60 = new Date();
-  date60.setDate(date60.getDate() - 60);
-
-  const date90 = new Date();
-  date90.setDate(date90.getDate() - 90);
-
-  const { count: sinMovimiento60 } = await supabase
-    .from('series')
-    .select(COUNT_HEAD, { count: 'exact', head: true })
-    .neq('current_status', 'dispatched')
-    .lt('updated_at', date60.toISOString())
-    .gte('updated_at', date90.toISOString()); // only those between 60 and 90
-
-  const { count: sinMovimiento90 } = await supabase
-    .from('series')
-    .select(COUNT_HEAD, { count: 'exact', head: true })
-    .neq('current_status', 'dispatched')
-    .lt('updated_at', date90.toISOString()); // older than 90 days
+  const { data: despachadoOs, error: despachoErr } = await supabase.rpc('count_os_by_status', {
+    p_status: 'dispatched',
+  });
+  if (despachoErr) {
+    console.warn('[getStorageData] count_os_by_status failed:', despachoErr.message);
+  }
 
   return {
     ingresados: ingresados || 0,
-    despachados: despachados || 0,
-    sinMovimiento60: sinMovimiento60 || 0, // between 60 and 90
-    sinMovimiento90: sinMovimiento90 || 0  // > 90
+    despachados: numOs(despachadoOs),
+    sinMovimiento60: 0,
+    sinMovimiento90: 0,
   };
 }

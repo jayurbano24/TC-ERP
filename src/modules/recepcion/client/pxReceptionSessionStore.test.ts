@@ -206,8 +206,25 @@ describe('pxReceptionSession architecture guards', () => {
       'utf8'
     );
     expect(hook).toContain('usePxReceptionSession');
+    expect(hook).toContain('usePxReceptionSnapshotQuery');
     expect(hook).not.toContain('[applySnapshot, pxState]');
     expect(hook).not.toContain('resumeStartedRef');
     expect(hook).not.toMatch(/useEffect\([\s\S]*fetchPxReceptionSnapshot[\s\S]*\[applySnapshot/);
+    expect(hook).not.toMatch(/useEffect\([\s\S]*setManifestItems[\s\S]*session\.snapshotEntry/);
+    expect(hook).not.toContain('snapshotToPxUiState');
+    expect(hook).toContain('usePxOperationalState');
+    expect(hook).toContain('executePxScanSubmit');
+    expect(hook).toContain('executeCloseBox');
+  });
+
+  it('usePxReceptionSession usa guard module-level para resume', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const hook = readFileSync(
+      join(process.cwd(), 'src/app/(erp)/recepcion/hooks/usePxReceptionSession.ts'),
+      'utf8'
+    );
+    expect(hook).toContain('moduleResumeAttemptedFor');
+    expect(hook).not.toContain('mountResumeDoneRef');
   });
 });

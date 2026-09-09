@@ -25,6 +25,21 @@ import {
   buildScannedSerialSet,
   reconcileScanSeriesWithResult,
 } from './pxScanCommands';
+import {
+  enqueuePxBoxCapture,
+  isPxBoxBusyMessage,
+  isPxBoxQueueEnabled,
+  isPxCaptureTimeoutMessage,
+  isPxNetworkCaptureError,
+  PX_BOX_BUSY_MAX_RETRIES,
+  PX_BOX_BUSY_RETRY_DELAY_MS,
+  sleepMs,
+} from './pxBoxCaptureQueue';
+
+type PxScanCaptureOutcome =
+  | { kind: 'success' }
+  | { kind: 'box_busy' }
+  | { kind: 'error'; message: string; err: unknown };
 
 export type PxScanSubmitContext = {
   receptionId: string | null;
@@ -270,7 +285,57 @@ export async function executePxScanSubmit(ctx: PxScanSubmitContext): Promise<voi
     }
   };
 
-  const submitScan = async (retryOnLock = false): Promise<boolean> => {
+  const notifyScanFailure = async (outcome: PxScanCaptureOutcome) => {
+    rollback();
+    const message =
+      outcome.kind === 'error'
+        ? outcome.message
+        : 'Hay otra captura en proceso en esta caja. Espere unos segundos e intente nuevamente.';
+
+    if (outcome.kind === 'error' && outcome.err instanceof DuplicateOpenOsError) {
+      const duplicate = outcome.err.details;
+      await ctx.session.reconcile('ERROR_RECONCILIATION');
+      notify.error('SERIE DUPLICADA – ORDEN DE SERVICIO ABIERTA', {
+        description:
+          `La serie ${duplicate.serial} ya está registrada en otra OS abierta. ` +
+          `OS: ${duplicate.existing_os_number || 'sin número'} · ` +
+          `Estado: ${duplicate.existing_os_status || 'sin estado'}. ` +
+          'Esta unidad NO fue ingresada ni contabilizada. Resuelva la OS existente antes de reintentar.',
+        duration: 15000,
+      });
+      return;
+    }
+
+    if (message.includes('caja alcanzó su capacidad') || message.includes('BOX_FULL')) {
+      await ctx.session.reconcile('ERROR_RECONCILIATION');
+      notify.warning(`Caja ${boxCode} llena`, {
+        description:
+          'El equipo no fue registrado. Cierre esta caja y seleccione o cree la siguiente.',
+        duration: 10000,
+      });
+      return;
+    }
+
+    if (outcome.kind === 'box_busy' || isPxBoxBusyMessage(message)) {
+      notify.warning('Caja ocupada', {
+        description: message,
+        duration: 6000,
+      });
+      return;
+    }
+
+    if (isPxCaptureTimeoutMessage(message)) {
+      notify.error(message, {
+        description: 'El equipo no fue registrado. Espere unos segundos e intente de nuevo.',
+        duration: 10000,
+      });
+      return;
+    }
+
+    notify.error(message);
+  };
+
+  const submitScanOnce = async (retryOnLock = false, networkRetried = false): Promise<PxScanCaptureOutcome> => {
     try {
       recordPxScan();
       const result = await scanPxEquipmentApi(scanPayload);
@@ -282,51 +347,51 @@ export async function executePxScanSubmit(ctx: PxScanSubmitContext): Promise<voi
           duration: 10000,
         });
       }
-      return true;
+      return { kind: 'success' };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Error al guardar escaneo en servidor';
+
       if (!retryOnLock && message.includes('tomar control')) {
         const ok = await ctx.onAcquireBoxLock(boxCode, boxId);
-        if (ok) return submitScan(true);
+        if (ok) return submitScanOnce(true, networkRetried);
       }
-      rollback();
-      if (err instanceof DuplicateOpenOsError) {
-        const duplicate = err.details;
-        await ctx.session.reconcile('ERROR_RECONCILIATION');
-        notify.error('SERIE DUPLICADA – ORDEN DE SERVICIO ABIERTA', {
-          description:
-            `La serie ${duplicate.serial} ya está registrada en otra OS abierta. ` +
-            `OS: ${duplicate.existing_os_number || 'sin número'} · ` +
-            `Estado: ${duplicate.existing_os_status || 'sin estado'}. ` +
-            'Esta unidad NO fue ingresada ni contabilizada. Resuelva la OS existente antes de reintentar.',
-          duration: 15000,
-        });
-      } else if (message.includes('caja alcanzó su capacidad') || message.includes('BOX_FULL')) {
-        await ctx.session.reconcile('ERROR_RECONCILIATION');
-        notify.warning(`Caja ${boxCode} llena`, {
-          description:
-            'El equipo no fue registrado. Cierre esta caja y seleccione o cree la siguiente.',
-          duration: 10000,
-        });
-      } else if (
-        message.includes('otra captura en proceso') ||
-        message.includes('BOX_BUSY')
-      ) {
-        notify.warning('Caja ocupada', {
-          description: message,
-          duration: 6000,
-        });
-      } else if (message.includes('captura tardó demasiado')) {
-        notify.error(message, {
-          description: 'El equipo no fue registrado. Espere unos segundos e intente de nuevo.',
-          duration: 10000,
-        });
-      } else {
-        notify.error(message);
+
+      if (!networkRetried && isPxNetworkCaptureError(err)) {
+        await sleepMs(600);
+        return submitScanOnce(retryOnLock, true);
       }
-      return false;
+
+      if (isPxBoxBusyMessage(message)) {
+        return { kind: 'box_busy' };
+      }
+
+      if (isPxCaptureTimeoutMessage(message)) {
+        return { kind: 'error', message, err };
+      }
+
+      return { kind: 'error', message, err };
     }
   };
 
-  await submitScan();
+  const runQueuedCapture = async (): Promise<void> => {
+    for (let busyAttempt = 0; busyAttempt <= PX_BOX_BUSY_MAX_RETRIES; busyAttempt += 1) {
+      const outcome = await submitScanOnce();
+      if (outcome.kind === 'success') return;
+
+      if (outcome.kind === 'box_busy' && busyAttempt < PX_BOX_BUSY_MAX_RETRIES) {
+        await sleepMs(PX_BOX_BUSY_RETRY_DELAY_MS);
+        continue;
+      }
+
+      await notifyScanFailure(outcome);
+      return;
+    }
+  };
+
+  if (isPxBoxQueueEnabled()) {
+    void enqueuePxBoxCapture(boxId, runQueuedCapture);
+    return;
+  }
+
+  await runQueuedCapture();
 }

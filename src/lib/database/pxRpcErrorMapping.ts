@@ -15,6 +15,9 @@ export function parsePxRpcError(message: string): ParsedPxRpcError {
     return { code: prefix };
   }
 
+  if (/SERIAL_BUSY/i.test(msg)) {
+    return { code: 'SERIAL_BUSY' };
+  }
   if (/BOX_BUSY|lock_not_available|could not obtain lock/i.test(msg)) {
     return { code: 'BOX_BUSY', sqlstate: '55P03' };
   }
@@ -38,6 +41,10 @@ export function mapRpcCaptureError(
 ): string {
   const msg = message || '';
   const parsed = parsePxRpcError(msg);
+
+  if (parsed.code === 'SERIAL_BUSY' || /SERIAL_BUSY/i.test(msg)) {
+    return 'Hay otra captura en proceso para esta serie. Espere e intente nuevamente.';
+  }
 
   if (parsed.code === 'BOX_BUSY' || /BOX_BUSY/i.test(msg)) {
     return 'Hay otra captura en proceso en esta caja. Espere unos segundos e intente nuevamente.';

@@ -3,6 +3,7 @@ import {
   enqueuePxBoxCapture,
   getPxBoxQueueSnapshot,
   isPxBoxBusyMessage,
+  isPxSerialBusyMessage,
   isPxCaptureTimeoutMessage,
   isPxNetworkCaptureError,
   resetPxBoxCaptureQueuesForTests,
@@ -17,12 +18,12 @@ describe('pxBoxCaptureQueue', () => {
   it('serializa tareas de la misma caja', async () => {
     const order: number[] = [];
 
-    const p1 = enqueuePxBoxCapture('box-a', async () => {
+    const p1 = enqueuePxBoxCapture('box-a', 'req-1', async () => {
       order.push(1);
       await sleepMs(30);
       order.push(2);
     });
-    const p2 = enqueuePxBoxCapture('box-a', async () => {
+    const p2 = enqueuePxBoxCapture('box-a', 'req-2', async () => {
       order.push(3);
     });
 
@@ -35,13 +36,13 @@ describe('pxBoxCaptureQueue', () => {
     let bRunning = false;
     let overlap = false;
 
-    const pa = enqueuePxBoxCapture('box-a', async () => {
+    const pa = enqueuePxBoxCapture('box-a', 'req-a', async () => {
       aRunning = true;
       await sleepMs(40);
       if (bRunning) overlap = true;
       aRunning = false;
     });
-    const pb = enqueuePxBoxCapture('box-b', async () => {
+    const pb = enqueuePxBoxCapture('box-b', 'req-b', async () => {
       bRunning = true;
       await sleepMs(40);
       if (aRunning) overlap = true;
@@ -58,14 +59,14 @@ describe('pxBoxCaptureQueue', () => {
       release = resolve;
     });
 
-    const first = enqueuePxBoxCapture('box-c', async () => {
+    const first = enqueuePxBoxCapture('box-c', 'req-c1', async () => {
       await gate;
     });
     await sleepMs(5);
     const snap = getPxBoxQueueSnapshot('box-c');
     expect(snap.processing).toBe(true);
 
-    void enqueuePxBoxCapture('box-c', async () => undefined);
+    void enqueuePxBoxCapture('box-c', 'req-c2', async () => undefined);
     await sleepMs(5);
     expect(getPxBoxQueueSnapshot('box-c').pending).toBeGreaterThanOrEqual(1);
 
@@ -73,7 +74,9 @@ describe('pxBoxCaptureQueue', () => {
     await first;
   });
 
-  it('detecta mensajes BOX_BUSY y timeout', () => {
+  it('distingue SERIAL_BUSY de BOX_BUSY y detecta timeout', () => {
+    expect(isPxSerialBusyMessage('SERIAL_BUSY: test')).toBe(true);
+    expect(isPxBoxBusyMessage('SERIAL_BUSY: test')).toBe(false);
     expect(isPxBoxBusyMessage('BOX_BUSY: test')).toBe(true);
     expect(isPxCaptureTimeoutMessage('La captura tardó demasiado')).toBe(true);
     expect(isPxNetworkCaptureError(new TypeError('Failed to fetch'))).toBe(true);

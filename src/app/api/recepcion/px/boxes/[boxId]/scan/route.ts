@@ -26,6 +26,8 @@ export const POST = withErrorHandler(async (req: Request, context: RouteContext)
     operatorId: body.operatorId || null,
     operatorName: body.operatorName || 'OPERADOR',
     workstationLabel: body.workstationLabel || body.workstation || null,
+    requestId: body.requestId || null,
+    clientEnqueuedAt: body.clientEnqueuedAt ?? null,
   });
 
   if (!result.success) {

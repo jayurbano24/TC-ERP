@@ -91,6 +91,8 @@ export const scanSchema = z
     material: z.string().max(160).nullish(),
     workstationLabel: z.string().max(160).nullish(),
     workstation: z.string().max(160).nullish(),
+    requestId: z.string().uuid().optional(),
+    clientEnqueuedAt: z.coerce.number().int().positive().optional(),
     ...operatorFields,
   })
   .refine((d) => Boolean(d.mainSerial || d.sn), {

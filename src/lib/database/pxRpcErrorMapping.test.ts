@@ -6,6 +6,12 @@ import {
 } from './pxRpcErrorMapping';
 
 describe('parsePxRpcError', () => {
+  it('detects SERIAL_BUSY from prefix', () => {
+    expect(parsePxRpcError('SERIAL_BUSY: Hay otra captura para la serie X')).toEqual({
+      code: 'SERIAL_BUSY',
+    });
+  });
+
   it('detects BOX_BUSY from prefix', () => {
     expect(parsePxRpcError('BOX_BUSY: Hay otra captura')).toEqual({ code: 'BOX_BUSY' });
   });
@@ -35,9 +41,14 @@ describe('mapRpcCaptureError', () => {
     expect(msg.toLowerCase()).toContain('finaliz');
   });
 
+  it('maps SERIAL_BUSY to controlled message', () => {
+    const msg = mapRpcCaptureError('SERIAL_BUSY: test', 'capture');
+    expect(msg).toContain('esta serie');
+  });
+
   it('maps BOX_BUSY to controlled message', () => {
     const msg = mapRpcCaptureError('BOX_BUSY: test', 'capture');
-    expect(msg).toContain('otra captura en proceso');
+    expect(msg).toContain('esta caja');
   });
 
   it('maps DUPLICATE_IN_RECEPTION with detail when present', () => {

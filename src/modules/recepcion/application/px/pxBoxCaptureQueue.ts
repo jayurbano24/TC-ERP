@@ -24,8 +24,13 @@ export function isPxBoxQueueEnabled(): boolean {
   return process.env.NEXT_PUBLIC_PX_BOX_QUEUE !== 'false';
 }
 
+export function isPxSerialBusyMessage(message: string): boolean {
+  return /SERIAL_BUSY|captura en proceso para esta serie/i.test(message);
+}
+
 export function isPxBoxBusyMessage(message: string): boolean {
-  return /BOX_BUSY|otra captura en proceso/i.test(message);
+  if (isPxSerialBusyMessage(message)) return false;
+  return /BOX_BUSY|otra captura en proceso en esta caja/i.test(message);
 }
 
 export function isPxCaptureTimeoutMessage(message: string): boolean {
@@ -82,10 +87,14 @@ async function drainBoxQueue(boxId: string): Promise<void> {
  * Encola captura para una caja. Diferentes box_id procesan en paralelo.
  * Misma caja: FIFO, 1 task activo.
  */
-export function enqueuePxBoxCapture<T>(boxId: string, task: () => Promise<T>): Promise<T> {
+export function enqueuePxBoxCapture<T>(
+  boxId: string,
+  requestId: string,
+  task: () => Promise<T>,
+): Promise<T> {
   return new Promise((resolve, reject) => {
     const entry: PxBoxCaptureQueueEntry<T> = {
-      requestId: crypto.randomUUID(),
+      requestId,
       task,
       resolve,
       reject,

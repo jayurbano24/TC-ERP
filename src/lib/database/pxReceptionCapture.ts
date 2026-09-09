@@ -28,6 +28,10 @@ import {
   mapRpcFinalizeError,
   parsePxRpcError,
 } from '@/lib/database/pxRpcErrorMapping';
+import {
+  buildPxCaptureMetricTimings,
+  extractPxCaptureTimings,
+} from '@/lib/database/pxCaptureMetricTimings';
 
 export { mapRpcCaptureError, mapRpcFinalizeError } from '@/lib/database/pxRpcErrorMapping';
 export type { PxRpcErrorContext } from '@/lib/database/pxRpcErrorMapping';
@@ -180,11 +184,44 @@ async function validatePxHeaderForStart(guideData: GuideData): Promise<{ ok: tru
   return { ok: true };
 }
 
+function computePxClientDurationMs(
+  clientEnqueuedAt: number | null | undefined,
+  finishedAt: number = Date.now(),
+): number | null {
+  if (clientEnqueuedAt == null || !Number.isFinite(clientEnqueuedAt)) return null;
+  const delta = finishedAt - clientEnqueuedAt;
+  return delta >= 0 ? delta : null;
+}
+
+function buildPxRpcMetricSpans(
+  rpcPayload: Record<string, unknown> | null | undefined,
+  started: number,
+  clientEnqueuedAt?: number | null,
+) {
+  const finishedAt = Date.now();
+  const spanTimings = buildPxCaptureMetricTimings(extractPxCaptureTimings(rpcPayload));
+  return {
+    durationMs: finishedAt - started,
+    clientDurationMs: computePxClientDurationMs(clientEnqueuedAt, finishedAt),
+    preflightMs: spanTimings.preflightMs,
+    validationMs: spanTimings.validationMs,
+    lockWaitMs: spanTimings.lockWaitMs,
+    lockSectionMs: spanTimings.lockSectionMs,
+    rpcTimings: extractPxCaptureTimings(rpcPayload),
+  };
+}
+
 export async function emitPxCaptureMetric(payload: {
   receptionId?: string;
   boxId?: string;
   mainSerial?: string | null;
   operatorId?: string | null;
+  requestId?: string | null;
+  clientDurationMs?: number | null;
+  preflightMs?: number | null;
+  validationMs?: number | null;
+  lockWaitMs?: number | null;
+  lockSectionMs?: number | null;
   action: string;
   outcome: 'success' | 'error';
   durationMs?: number;
@@ -200,6 +237,12 @@ export async function emitPxCaptureMetric(payload: {
       box_id: payload.boxId ?? null,
       main_serial: normalizedSerial,
       operator_id: asUuidOrNull(payload.operatorId),
+      request_id: payload.requestId ?? null,
+      client_duration_ms: payload.clientDurationMs ?? null,
+      preflight_ms: payload.preflightMs ?? null,
+      validation_ms: payload.validationMs ?? null,
+      lock_wait_ms: payload.lockWaitMs ?? null,
+      lock_section_ms: payload.lockSectionMs ?? null,
       action: payload.action,
       outcome: payload.outcome,
       duration_ms: payload.durationMs ?? null,
@@ -208,6 +251,12 @@ export async function emitPxCaptureMetric(payload: {
       metadata: {
         ...(payload.metadata ?? {}),
         ...(normalizedSerial ? { main_serial: normalizedSerial } : {}),
+        ...(payload.requestId ? { request_id: payload.requestId } : {}),
+        ...(payload.preflightMs != null ? { preflight_ms: payload.preflightMs } : {}),
+        ...(payload.validationMs != null ? { validation_ms: payload.validationMs } : {}),
+        ...(payload.lockWaitMs != null ? { lock_wait_ms: payload.lockWaitMs } : {}),
+        ...(payload.lockSectionMs != null ? { lock_section_ms: payload.lockSectionMs } : {}),
+        ...(payload.durationMs != null ? { rpc_duration_ms: payload.durationMs } : {}),
       },
     });
   } catch (e) {
@@ -790,6 +839,9 @@ function scheduleCapturePxEquipmentSideEffects(
     receptionId: string;
     boxId: string;
     mainSerial: string;
+    operatorId?: string | null;
+    requestId?: string | null;
+    clientEnqueuedAt?: number | null;
   },
   payload: {
     equipment_id: string;
@@ -797,7 +849,15 @@ function scheduleCapturePxEquipmentSideEffects(
     declared_quantity: number;
     box_status: string;
   },
-  started: number
+  metricSpans: {
+    durationMs: number;
+    clientDurationMs: number | null;
+    preflightMs: number | null;
+    validationMs: number | null;
+    lockWaitMs: number | null;
+    lockSectionMs: number | null;
+    rpcTimings: ReturnType<typeof extractPxCaptureTimings>;
+  },
 ) {
   void (async () => {
     try {
@@ -823,9 +883,16 @@ function scheduleCapturePxEquipmentSideEffects(
         boxId: input.boxId,
         mainSerial: input.mainSerial,
         operatorId: input.operatorId,
+        requestId: input.requestId,
+        clientDurationMs: metricSpans.clientDurationMs,
+        preflightMs: metricSpans.preflightMs,
+        validationMs: metricSpans.validationMs,
+        lockWaitMs: metricSpans.lockWaitMs,
+        lockSectionMs: metricSpans.lockSectionMs,
         action: 'capture_px_equipment',
         outcome: 'success',
-        durationMs: Date.now() - started,
+        durationMs: metricSpans.durationMs,
+        metadata: metricSpans.rpcTimings ? { timings: metricSpans.rpcTimings } : undefined,
       });
     } catch (e) {
       console.error('capturePxEquipment side effects:', e);
@@ -846,6 +913,8 @@ export async function capturePxEquipment(input: {
   operatorId?: string | null;
   operatorName?: string;
   workstationLabel?: string | null;
+  requestId?: string | null;
+  clientEnqueuedAt?: number | null;
 }): Promise<
   | { success: true; equipmentId: string; capturedCount: number; declaredQuantity: number; boxStatus: string }
   | { success: false; error: string; errorCode?: string }
@@ -871,16 +940,19 @@ export async function capturePxEquipment(input: {
 
   if (error) {
     const parsed = parsePxRpcError(error.message);
+    const metricSpans = buildPxRpcMetricSpans(null, started, input.clientEnqueuedAt);
     await emitPxCaptureMetric({
       receptionId: input.receptionId,
       boxId: input.boxId,
       mainSerial: input.mainSerial,
       operatorId: input.operatorId,
+      requestId: input.requestId,
+      clientDurationMs: metricSpans.clientDurationMs,
       action: 'capture_px_equipment',
       outcome: 'error',
       errorCode: parsed.code,
       sqlstate: parsed.sqlstate ?? null,
-      durationMs: Date.now() - started,
+      durationMs: metricSpans.durationMs,
       metadata: { message: error.message },
     });
     return {
@@ -890,26 +962,28 @@ export async function capturePxEquipment(input: {
     };
   }
 
-  const payload = data as
-    | {
-        ok: true;
-        equipment_id: string;
-        captured_count: number;
-        declared_quantity: number;
-        box_status: string;
-      }
-    | {
-        ok: false;
-        code: 'DUPLICATE_OPEN_OS';
-        error_code: 'DUPLICATE_OPEN_OS';
-        serial: string;
-        existing_os_id: string | null;
-        existing_os_number: string | null;
-        existing_os_status: string | null;
-        existing_source: string | null;
-        rejected_count: number;
-        message: string;
-      };
+  const payload = data as Record<string, unknown> &
+    (
+      | {
+          ok: true;
+          equipment_id: string;
+          captured_count: number;
+          declared_quantity: number;
+          box_status: string;
+        }
+      | {
+          ok: false;
+          code: 'DUPLICATE_OPEN_OS';
+          error_code: 'DUPLICATE_OPEN_OS';
+          serial: string;
+          existing_os_id: string | null;
+          existing_os_number: string | null;
+          existing_os_status: string | null;
+          existing_source: string | null;
+          rejected_count: number;
+          message: string;
+        }
+    );
 
   if (payload.ok === false) {
     const details: PxDuplicateOpenOsDetails = {
@@ -922,16 +996,26 @@ export async function capturePxEquipment(input: {
       existing_source: payload.existing_source,
       rejected_count: payload.rejected_count,
     };
+    const metricSpans = buildPxRpcMetricSpans(payload, started, input.clientEnqueuedAt);
     await emitPxCaptureMetric({
       receptionId: input.receptionId,
       boxId: input.boxId,
       mainSerial: payload.serial ?? input.mainSerial,
       operatorId: input.operatorId,
+      requestId: input.requestId,
+      clientDurationMs: metricSpans.clientDurationMs,
+      preflightMs: metricSpans.preflightMs,
+      validationMs: metricSpans.validationMs,
+      lockWaitMs: metricSpans.lockWaitMs,
+      lockSectionMs: metricSpans.lockSectionMs,
       action: 'capture_px_equipment',
       outcome: 'error',
       errorCode: details.errorCode,
-      durationMs: Date.now() - started,
-      metadata: details,
+      durationMs: metricSpans.durationMs,
+      metadata: {
+        ...details,
+        ...(metricSpans.rpcTimings ? { timings: metricSpans.rpcTimings } : {}),
+      },
     });
     return {
       success: false,
@@ -940,7 +1024,8 @@ export async function capturePxEquipment(input: {
     };
   }
 
-  scheduleCapturePxEquipmentSideEffects(input, payload, started);
+  const metricSpans = buildPxRpcMetricSpans(payload, started, input.clientEnqueuedAt);
+  scheduleCapturePxEquipmentSideEffects(input, payload, metricSpans);
 
   return {
     success: true,

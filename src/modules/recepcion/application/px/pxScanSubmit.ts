@@ -31,14 +31,17 @@ import {
   isPxBoxQueueEnabled,
   isPxCaptureTimeoutMessage,
   isPxNetworkCaptureError,
+  isPxSerialBusyMessage,
   PX_BOX_BUSY_MAX_RETRIES,
   PX_BOX_BUSY_RETRY_DELAY_MS,
   sleepMs,
 } from './pxBoxCaptureQueue';
+import { createPxCaptureRequestContext } from './pxCaptureTracing';
 
 type PxScanCaptureOutcome =
   | { kind: 'success' }
   | { kind: 'box_busy' }
+  | { kind: 'serial_busy' }
   | { kind: 'error'; message: string; err: unknown };
 
 export type PxScanSubmitContext = {
@@ -143,6 +146,8 @@ export async function executePxScanSubmit(ctx: PxScanSubmitContext): Promise<voi
     if (!ok) return;
   }
 
+  const captureTracing = createPxCaptureRequestContext();
+
   const scanPayload = {
     receptionId: ctx.receptionId,
     boxId,
@@ -156,6 +161,8 @@ export async function executePxScanSubmit(ctx: PxScanSubmitContext): Promise<voi
     operatorId: opId,
     operatorName: ctx.operatorName,
     workstationLabel: getWorkstationLabel(),
+    requestId: captureTracing.requestId,
+    clientEnqueuedAt: captureTracing.clientEnqueuedAt,
   };
 
   const patch = buildOptimisticScanPatch({
@@ -316,6 +323,14 @@ export async function executePxScanSubmit(ctx: PxScanSubmitContext): Promise<voi
       return;
     }
 
+    if (outcome.kind === 'serial_busy' || isPxSerialBusyMessage(message)) {
+      notify.warning('Serie en captura', {
+        description: message,
+        duration: 5000,
+      });
+      return;
+    }
+
     if (outcome.kind === 'box_busy' || isPxBoxBusyMessage(message)) {
       notify.warning('Caja ocupada', {
         description: message,
@@ -361,6 +376,10 @@ export async function executePxScanSubmit(ctx: PxScanSubmitContext): Promise<voi
         return submitScanOnce(retryOnLock, true);
       }
 
+      if (isPxSerialBusyMessage(message)) {
+        return { kind: 'serial_busy' };
+      }
+
       if (isPxBoxBusyMessage(message)) {
         return { kind: 'box_busy' };
       }
@@ -378,7 +397,10 @@ export async function executePxScanSubmit(ctx: PxScanSubmitContext): Promise<voi
       const outcome = await submitScanOnce();
       if (outcome.kind === 'success') return;
 
-      if (outcome.kind === 'box_busy' && busyAttempt < PX_BOX_BUSY_MAX_RETRIES) {
+      if (
+        (outcome.kind === 'box_busy' || outcome.kind === 'serial_busy') &&
+        busyAttempt < PX_BOX_BUSY_MAX_RETRIES
+      ) {
         await sleepMs(PX_BOX_BUSY_RETRY_DELAY_MS);
         continue;
       }
@@ -389,7 +411,7 @@ export async function executePxScanSubmit(ctx: PxScanSubmitContext): Promise<voi
   };
 
   if (isPxBoxQueueEnabled()) {
-    void enqueuePxBoxCapture(boxId, runQueuedCapture);
+    void enqueuePxBoxCapture(boxId, captureTracing.requestId, runQueuedCapture);
     return;
   }
 

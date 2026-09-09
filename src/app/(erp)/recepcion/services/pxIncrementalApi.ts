@@ -329,6 +329,8 @@ export async function scanPxEquipmentApi(input: {
   operatorId?: string | null;
   operatorName?: string;
   workstationLabel?: string | null;
+  requestId?: string;
+  clientEnqueuedAt?: number;
 }): Promise<ScanPxEquipmentResult> {
   const res = await apiFetch(`/api/recepcion/px/boxes/${input.boxId}/scan`, {
     method: 'POST',
@@ -345,6 +347,8 @@ export async function scanPxEquipmentApi(input: {
       operatorId: input.operatorId,
       operatorName: input.operatorName,
       workstationLabel: input.workstationLabel,
+      requestId: input.requestId,
+      clientEnqueuedAt: input.clientEnqueuedAt,
     }),
   });
   const json = (await res.json()) as ScanPxEquipmentResult | DuplicateOpenOsPayload | {

@@ -15,6 +15,10 @@ const captureTs = readFileSync(
   join(process.cwd(), 'src', 'lib', 'database', 'pxReceptionCapture.ts'),
   'utf8',
 );
+const errorMappingTs = readFileSync(
+  join(process.cwd(), 'src', 'lib', 'database', 'pxRpcErrorMapping.ts'),
+  'utf8',
+);
 const hookTs = readFileSync(
   join(process.cwd(), 'src', 'app', '(erp)', 'recepcion', 'hooks', 'useReceptionPXIncremental.ts'),
   'utf8',
@@ -42,8 +46,9 @@ describe('PX finalize guard set-based', () => {
 
 describe('PX finalize UX after timeout', () => {
   it('pide reintentar sin exigir cerrar cajas de nuevo', () => {
-    expect(captureTs).toContain('Pulse Finalizar de nuevo');
-    expect(captureTs).not.toContain('Cierre todas las cajas e intente de nuevo');
+    expect(errorMappingTs).toContain('Pulse Finalizar de nuevo');
+    expect(errorMappingTs).not.toContain('Cierre todas las cajas e intente de nuevo');
+    expect(captureTs).toContain('mapRpcFinalizeError');
   });
 
   it('orquesta prep y promote desde el cliente', () => {

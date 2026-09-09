@@ -26,6 +26,11 @@ import {
 } from '@/shared/catalogs/normalizeCatalogName';
 import { InventoryTableToolbar } from './InventoryTableToolbar';
 import { InventoryTableSkeleton } from './InventoryTableSkeleton';
+import {
+  isScrapInventoryAnchorRow,
+  isSapValidatedSeriesStatus,
+  orderSeriesForSapDisplay,
+} from './inventorySeriesOrder';
 
 const EMPTY_ITEMS: any[] = [];
 const PAGE_SIZE = 25;
@@ -271,33 +276,6 @@ export default function InventoryDetailView({
     const groups: { [key: string]: any } = {};
     const ungrouped: any[] = [];
 
-    const isSapValidated = (status?: string | null) => {
-      const key = String(status || '').trim().toLowerCase();
-      return key === 'validado' || key === 'validado sap';
-    };
-
-    /** S1 = serie Validada SAP (si hay); luego main_serial; luego fecha. */
-    const orderSeriesForDisplay = (rows: any[]) => {
-      const mainSerial = String(rows.find((r) => r?.service_orders)?.service_orders?.main_serial || '')
-        .trim()
-        .toUpperCase();
-      return [...rows].sort((a, b) => {
-        const aOk = isSapValidated(a.sap_status) ? 0 : 1;
-        const bOk = isSapValidated(b.sap_status) ? 0 : 1;
-        if (aOk !== bOk) return aOk - bOk;
-        if (mainSerial) {
-          const aSn = String(a.serial_number || '').toUpperCase();
-          const bSn = String(b.serial_number || '').toUpperCase();
-          if (aSn === mainSerial && bSn !== mainSerial) return -1;
-          if (bSn === mainSerial && aSn !== mainSerial) return 1;
-        }
-        const ta = new Date(a.created_at || 0).getTime();
-        const tb = new Date(b.created_at || 0).getTime();
-        if (ta !== tb) return ta - tb;
-        return String(a.serial_number || '').localeCompare(String(b.serial_number || ''));
-      });
-    };
-
     items.forEach((i) => {
       const soId = i.service_order_id;
       if (!soId) {
@@ -334,9 +312,12 @@ export default function InventoryDetailView({
     });
 
     const mergedGroups = Object.values(groups).map((g) => {
-      const ordered = orderSeriesForDisplay(g.series_rows as any[]);
-      // Preferir material/valuation de la serie Validada (S1)
-      const primary = ordered.find((r) => isSapValidated(r.sap_status)) || ordered[0];
+      const rows = g.series_rows as any[];
+      const mainSerial = g.service_orders?.main_serial;
+      const ordered = orderSeriesForSapDisplay(rows, mainSerial);
+      const primary = ordered.find((r) => isSapValidatedSeriesStatus(r.sap_status)) || ordered[0];
+      const metaRow =
+        (isScraps ? ordered.find((r) => isScrapInventoryAnchorRow(r)) : null) || primary || ordered[0];
       const seriesSapStatuses = ordered.map((r) => r.sap_status || 'Pendiente');
       const diagLabels = new Set<string>();
       for (const r of ordered) {
@@ -349,15 +330,16 @@ export default function InventoryDetailView({
       }
       const scrapReason =
         [...diagLabels].join(' · ') ||
+        metaRow?.scrap_reason ||
         primary?.scrap_reason ||
         (isScraps ? 'Sin diagnóstico registrado' : '');
       return {
         ...g,
-        ...(primary || {}),
+        ...(metaRow || {}),
         service_orders: g.service_orders,
-        material: primary?.material || g.material || null,
-        valuation: primary?.valuation || g.valuation || null,
-        s1: ordered[0]?.serial_number || g.serial_number,
+        material: primary?.material || metaRow?.material || g.material || null,
+        valuation: primary?.valuation || metaRow?.valuation || g.valuation || null,
+        s1: ordered[0]?.serial_number || '---',
         s2: ordered[1]?.serial_number || '---',
         s3: ordered[2]?.serial_number || '---',
         s4: ordered[3]?.serial_number || '---',

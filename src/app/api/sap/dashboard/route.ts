@@ -4,6 +4,7 @@ import { requireApiUser } from '@/shared/infrastructure/http/requireApiUser';
 import { resolveReadClient } from '@/shared/infrastructure/http/resolveReadClient';
 import { logOnlyRoleCheck, ROLES_RETURNS_SAP } from '@/shared/authz/roleGuard';
 import { fetchOsInventoryModules } from '@/lib/sap/osInventoryModules';
+import { fetchSapIntegrationKpis } from '@/lib/sap/sapDashboardKpis';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -19,18 +20,14 @@ export async function GET(request: Request) {
   const { client: supabase } = resolveReadClient(auth.supabase);
 
   try {
-    // Conteos en paralelo — evita spinner eterno por cadena secuencial.
     const [
       totalSeriesRes,
       seriesValidadasRes,
       seriesSinMatchRes,
       totalTCRes,
-      validadosRes,
-      pendientesRes,
-      sinCoincidenciaRes,
-      inconsistentesRes,
       lastUploadRes,
       osModules,
+      sapKpis,
     ] = await Promise.all([
       supabase
         .from('series')
@@ -48,46 +45,23 @@ export async function GET(request: Request) {
         .eq('sap_status', 'Sin Coincidencia'),
       supabase.from('service_orders').select(COUNT_HEAD, { count: 'exact', head: true }),
       supabase
-        .from('service_orders')
-        .select(COUNT_HEAD, { count: 'exact', head: true })
-        .eq('sap_integration_status', 'Validado SAP'),
-      supabase
-        .from('service_orders')
-        .select(COUNT_HEAD, { count: 'exact', head: true })
-        .eq('sap_integration_status', 'Pendiente Validación'),
-      supabase
-        .from('service_orders')
-        .select(COUNT_HEAD, { count: 'exact', head: true })
-        .eq('sap_integration_status', 'Sin Coincidencia'),
-      supabase
-        .from('service_orders')
-        .select(COUNT_HEAD, { count: 'exact', head: true })
-        .eq('sap_integration_status', 'Pendiente Revisión'),
-      supabase
         .from('sap_uploads')
         .select(SAP_UPLOAD_SELECT)
         .order('fecha', { ascending: false })
         .limit(1)
         .maybeSingle(),
       fetchOsInventoryModules(supabase),
+      fetchSapIntegrationKpis(supabase),
     ]);
 
     const firstError =
-      totalSeriesRes.error ||
-      seriesValidadasRes.error ||
-      seriesSinMatchRes.error ||
-      totalTCRes.error ||
-      validadosRes.error ||
-      pendientesRes.error ||
-      sinCoincidenciaRes.error ||
-      inconsistentesRes.error;
+      totalSeriesRes.error || seriesValidadasRes.error || seriesSinMatchRes.error || totalTCRes.error;
     if (firstError) throw firstError;
 
     if (lastUploadRes.error) {
       console.warn('lastUpload skipped:', lastUploadRes.error.message);
     }
 
-    // Opcional / puede fallar por schema cache — no tumba el dashboard.
     let equiposConSerie = 0;
     const eqSerieRes = await supabase
       .from('service_orders')
@@ -98,19 +72,53 @@ export async function GET(request: Request) {
       equiposConSerie = eqSerieRes.count || 0;
     }
 
+    const historico = sapKpis?.historico ?? totalTCRes.count ?? 0;
+    const despachadas = sapKpis?.despachadas ?? Number(osModules?.despachado ?? 0);
+    const devueltas = sapKpis?.devueltas ?? Number(osModules?.devuelto ?? 0);
+    const enPlanta =
+      sapKpis?.enPlanta ?? Math.max(0, historico - despachadas - devueltas);
+
+    const kpisEnPlanta = sapKpis
+      ? {
+          validados: sapKpis.validados,
+          pendientes: sapKpis.pendientes,
+          sinCoincidencia: sapKpis.sinCoincidencia,
+          inconsistentes: sapKpis.inconsistentes,
+          obsoletos: sapKpis.obsoletos,
+        }
+      : null;
+
+    const kpisHistorico = sapKpis
+      ? {
+          validados: sapKpis.historicoValidados,
+          pendientes: sapKpis.historicoPendientes,
+          sinCoincidencia: sapKpis.historicoSinCoincidencia,
+          inconsistentes: sapKpis.historicoInconsistentes,
+          obsoletos: sapKpis.historicoObsoletos,
+        }
+      : null;
+
     return NextResponse.json({
       success: true,
       kpis: {
-        totalTC: totalTCRes.count || 0,
+        totalTC: historico,
         equiposConSerie,
-        validados: validadosRes.count || 0,
-        pendientes: pendientesRes.count || 0,
-        sinCoincidencia: sinCoincidenciaRes.count || 0,
-        inconsistentes: inconsistentesRes.count || 0,
+        validados: kpisEnPlanta?.validados ?? 0,
+        pendientes: kpisEnPlanta?.pendientes ?? 0,
+        sinCoincidencia: kpisEnPlanta?.sinCoincidencia ?? 0,
+        inconsistentes: kpisEnPlanta?.inconsistentes ?? 0,
+        obsoletos: kpisEnPlanta?.obsoletos ?? 0,
         totalSeries: totalSeriesRes.count || 0,
         seriesValidadas: seriesValidadasRes.count || 0,
         seriesSinMatch: seriesSinMatchRes.count || 0,
       },
+      kpisHistorico,
+      despachadas,
+      devueltas,
+      enPlanta,
+      pctDenominator: enPlanta,
+      pctDenominatorLabel:
+        'OS en planta (histórico − despachadas − devueltas) — base tarjetas SAP y %',
       osModules,
       lastUpload: lastUploadRes.data || null,
     });

@@ -1,7 +1,8 @@
-import type { ExportFormat, ReportRow, ReportXlsxLayout } from '../types/report.types';
+import type { ExportFormat, ReportDetailSheet, ReportRow, ReportXlsxLayout } from '../types/report.types';
 
 export type ReportExportOptions = {
   xlsxLayout?: ReportXlsxLayout;
+  detailSheets?: ReportDetailSheet[];
 };
 
 export interface IReportExporter {

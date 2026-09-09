@@ -71,6 +71,61 @@ type IngresadoHit = {
   source: Source;
 };
 
+type DetailCategory =
+  | 'ingresado'
+  | 'taller'
+  | 'obsoleto'
+  | 'reparado'
+  | 'reacondicionado';
+
+type DetailHit = {
+  osId: string;
+  seriesIds: string[];
+  year: number;
+  month: number;
+  tech: string;
+  source: Source;
+  category: DetailCategory;
+};
+
+type SeriesDetailRow = {
+  id: string;
+  service_order_id: string | null;
+  serial_number: string | null;
+  model_id: string | null;
+  brand_id: string | null;
+  material: string | null;
+  valuation: string | null;
+  entry_source: string | null;
+  current_diagnostics: string[] | null;
+};
+
+function treatmentCode(category: DetailCategory): string {
+  switch (category) {
+    case 'ingresado':
+      return 'IG';
+    case 'taller':
+      return 'TL';
+    case 'obsoleto':
+      return 'OB';
+    case 'reparado':
+      return 'RP';
+    case 'reacondicionado':
+      return 'RC';
+  }
+}
+
+function detailHitKey(hit: DetailHit): string {
+  return `${hit.category}|${hit.year}|${hit.month}|${hit.tech}|${hit.osId}`;
+}
+
+function pushDetailHit(hits: DetailHit[], seen: Set<string>, hit: DetailHit) {
+  const key = detailHitKey(hit);
+  if (seen.has(key)) return;
+  seen.add(key);
+  hits.push(hit);
+}
+
 /** Origen del equipo (OS): mayoría de series.entry_source, con fallback. */
 function sourceFromSeriesList(seriesList: SeriesRow[], fallback: Source): Source {
   let cac = 0;
@@ -439,6 +494,292 @@ async function loadWorkshopEntryOsByPeriod(
   return osFirst;
 }
 
+async function loadBrandModelMaps(supabase: SupabaseClient): Promise<{
+  brandById: Map<string, string>;
+  modelById: Map<string, { name: string; brandId: string | null }>;
+}> {
+  const brands = await fetchPaged<{ id: string; name: string }>((from, to) =>
+    supabase.from('brands').select('id, name').range(from, to)
+  );
+  const models = await fetchPaged<{ id: string; name: string; brand_id: string | null }>(
+    (from, to) => supabase.from('models').select('id, name, brand_id').range(from, to)
+  );
+  const brandById = new Map(brands.map((b) => [String(b.id), String(b.name || '').trim().toUpperCase()]));
+  const modelById = new Map(
+    models.map((m) => [
+      String(m.id),
+      { name: String(m.name || '').trim().toUpperCase(), brandId: m.brand_id ? String(m.brand_id) : null },
+    ]),
+  );
+  return { brandById, modelById };
+}
+
+async function loadCatalogNameMaps(supabase: SupabaseClient): Promise<{
+  diagnostics: Map<string, string>;
+  repairs: Map<string, string>;
+}> {
+  const diags = await fetchPaged<{ id: string; name: string }>((from, to) =>
+    supabase.from('cat_diagnostics').select('id, name').range(from, to)
+  );
+  const reps = await fetchPaged<{ id: string; name: string }>((from, to) =>
+    supabase.from('cat_repairs').select('id, name').range(from, to)
+  );
+  return {
+    diagnostics: new Map(diags.map((d) => [String(d.id), String(d.name || '').trim().toUpperCase()])),
+    repairs: new Map(reps.map((r) => [String(r.id), String(r.name || '').trim().toUpperCase()])),
+  };
+}
+
+async function loadSeriesDetailByIds(
+  supabase: SupabaseClient,
+  seriesIds: string[],
+): Promise<Map<string, SeriesDetailRow>> {
+  const map = new Map<string, SeriesDetailRow>();
+  const unique = [...new Set(seriesIds.filter(Boolean))];
+  for (let i = 0; i < unique.length; i += CHUNK) {
+    const chunk = unique.slice(i, i + CHUNK);
+    const rows = await fetchPaged<{
+      id: string;
+      service_order_id: string | null;
+      serial_number: string | null;
+      model_id: string | null;
+      brand_id: string | null;
+      material: string | null;
+      valuation: string | null;
+      entry_source: string | null;
+      current_diagnostics: string[] | null;
+    }>((from, to) =>
+      supabase
+        .from('series')
+        .select(
+          'id, service_order_id, serial_number, model_id, brand_id, material, valuation, entry_source, current_diagnostics',
+        )
+        .in('id', chunk)
+        .range(from, to)
+    );
+    for (const r of rows) {
+      map.set(String(r.id), {
+        id: String(r.id),
+        service_order_id: r.service_order_id ? String(r.service_order_id) : null,
+        serial_number: r.serial_number ? String(r.serial_number) : null,
+        model_id: r.model_id ? String(r.model_id) : null,
+        brand_id: r.brand_id ? String(r.brand_id) : null,
+        material: r.material ? String(r.material) : null,
+        valuation: r.valuation ? String(r.valuation) : null,
+        entry_source: r.entry_source ? String(r.entry_source).toLowerCase() : null,
+        current_diagnostics: Array.isArray(r.current_diagnostics)
+          ? r.current_diagnostics.map(String)
+          : null,
+      });
+    }
+  }
+  return map;
+}
+
+async function loadPoNumberByOs(
+  supabase: SupabaseClient,
+  osIds: string[],
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  const unique = [...new Set(osIds.filter(Boolean))];
+  for (let i = 0; i < unique.length; i += CHUNK) {
+    const chunk = unique.slice(i, i + CHUNK);
+    const rows = await fetchPaged<{
+      id: string;
+      production_order_id: string | null;
+      production_orders: { po_number: string | null } | { po_number: string | null }[] | null;
+    }>((from, to) =>
+      supabase
+        .from('service_orders')
+        .select('id, production_order_id, production_orders(po_number)')
+        .in('id', chunk)
+        .range(from, to)
+    );
+    for (const r of rows) {
+      const po = Array.isArray(r.production_orders)
+        ? r.production_orders[0]
+        : r.production_orders;
+      const num = String(po?.po_number || '').trim();
+      if (num) map.set(String(r.id), num);
+    }
+  }
+  return map;
+}
+
+async function loadWorkshopLabelsFromAudit(
+  supabase: SupabaseClient,
+  seriesIds: string[],
+): Promise<Map<string, { diagnostico: string; accion: string }>> {
+  const out = new Map<string, { diagnostico: string; accion: string }>();
+  const unique = [...new Set(seriesIds.filter(Boolean))];
+  for (let i = 0; i < unique.length; i += CHUNK) {
+    const chunk = unique.slice(i, i + CHUNK);
+    const logs = await fetchPaged<{
+      record_id: string | null;
+      action: string;
+      new_values: Record<string, unknown> | null;
+      created_at: string;
+    }>((from, to) =>
+      supabase
+        .from('erp_audit_logs')
+        .select('record_id, action, new_values, created_at')
+        .in('record_id', chunk)
+        .in('action', [
+          'DIAGNÓSTICO INICIAL COMPLETADO',
+          'REPARACIÓN COMPLETADA',
+          'REPARACIÓN L3 COMPLETADA',
+          'REACONDICIONADO COMPLETADO',
+        ])
+        .order('created_at', { ascending: false })
+        .range(from, to)
+    );
+
+    for (const log of logs) {
+      const sid = String(log.record_id || '');
+      if (!sid) continue;
+      const current = out.get(sid) || { diagnostico: '', accion: '' };
+      const payload = (log.new_values || {}) as {
+        diagnostics?: string[];
+        items?: string[];
+        repairs?: string[];
+      };
+
+      if (
+        !current.diagnostico &&
+        (log.action === 'DIAGNÓSTICO INICIAL COMPLETADO' || log.action === 'OPERACIÓN COMPLETADA')
+      ) {
+        const items = Array.isArray(payload.diagnostics)
+          ? payload.diagnostics
+          : Array.isArray(payload.items)
+            ? payload.items
+            : [];
+        if (items.length > 0) {
+          current.diagnostico = items.map(String).join(', ').toUpperCase();
+        }
+      }
+
+      if (
+        !current.accion &&
+        (log.action === 'REPARACIÓN COMPLETADA' ||
+          log.action === 'REPARACIÓN L3 COMPLETADA' ||
+          log.action === 'REACONDICIONADO COMPLETADO')
+      ) {
+        const repairs = Array.isArray(payload.repairs)
+          ? payload.repairs
+          : Array.isArray(payload.items)
+            ? payload.items
+            : [];
+        if (repairs.length > 0) {
+          current.accion = repairs.map(String).join(', ').toUpperCase();
+        }
+      }
+
+      out.set(sid, current);
+    }
+  }
+  return out;
+}
+
+function resolveCatalogLabels(
+  ids: string[] | null | undefined,
+  catalog: Map<string, string>,
+): string {
+  if (!ids?.length) return '';
+  const names = ids.map((id) => catalog.get(String(id)) || String(id)).filter(Boolean);
+  return [...new Set(names)].join(', ');
+}
+
+async function buildEntregadoDetailRows(
+  supabase: SupabaseClient,
+  hits: DetailHit[],
+  country: string,
+  defaultYear: number,
+): Promise<ReportRow[]> {
+  if (hits.length === 0) return [];
+
+  const allSeriesIds = [...new Set(hits.flatMap((h) => h.seriesIds))];
+  const allOsIds = [...new Set(hits.map((h) => h.osId))];
+
+  const [seriesMap, brandModel, catalogs, poByOs, auditLabels] = await Promise.all([
+    loadSeriesDetailByIds(supabase, allSeriesIds),
+    loadBrandModelMaps(supabase),
+    loadCatalogNameMaps(supabase),
+    loadPoNumberByOs(supabase, allOsIds),
+    loadWorkshopLabelsFromAudit(supabase, allSeriesIds),
+  ]);
+
+  const rows: ReportRow[] = [];
+  const seriesSeen = new Set<string>();
+
+  for (const hit of hits) {
+    const ids = hit.seriesIds.length > 0 ? hit.seriesIds : [];
+    for (const seriesId of ids) {
+      const dedupeKey = `${seriesId}|${hit.category}|${hit.month}|${hit.tech}`;
+      if (seriesSeen.has(dedupeKey)) continue;
+      seriesSeen.add(dedupeKey);
+
+      const s = seriesMap.get(seriesId);
+      if (!s?.serial_number?.trim()) continue;
+
+      const model = s.model_id ? brandModel.modelById.get(s.model_id) : null;
+      const brandId = s.brand_id || model?.brandId || null;
+      const marca = (brandId && brandModel.brandById.get(brandId)) || '';
+      const modelo = model?.name || '';
+      const tech = hit.tech;
+
+      const sapDesc =
+        String(s.valuation || '').trim().toUpperCase() ||
+        `${tech} ${marca} ${modelo}`.trim().toUpperCase();
+
+      const audit = auditLabels.get(seriesId);
+      const diagFromSeries = resolveCatalogLabels(s.current_diagnostics, catalogs.diagnostics);
+      const diagnostico = (diagFromSeries || audit?.diagnostico || '').toUpperCase();
+      let accion = (audit?.accion || '').toUpperCase();
+      if (accion && /^[0-9a-f-]{36}$/i.test(accion.split(',')[0]?.trim() || '')) {
+        accion = resolveCatalogLabels(
+          accion.split(',').map((part) => part.trim()),
+          catalogs.repairs,
+        ).toUpperCase();
+      }
+
+      const po = poByOs.get(hit.osId);
+      const produccion = po || `PS - ${hit.year || defaultYear}`;
+
+      rows.push({
+        'NO. DE SERIE': s.serial_number.trim().toUpperCase(),
+        'DESCRIPCIÓN SAP': sapDesc,
+        MARCA: marca,
+        MODELO: modelo || sapDesc,
+        TECNOLOGÍA: tech,
+        TRATAMIENTO: treatmentCode(hit.category),
+        'CANAL DE RECUPERACIÓN': hit.source.toUpperCase(),
+        PRODUCCIÓN: produccion,
+        DIAGNÓSTICO: diagnostico,
+        ACCIÓN: accion,
+        'Material SAP': s.material?.trim() || '',
+        _sortMes: hit.month,
+        _sortTech: tech,
+        _sortCat: hit.category,
+      });
+    }
+  }
+
+  rows.sort((a, b) => {
+    const ma = Number(a._sortMes) || 0;
+    const mb = Number(b._sortMes) || 0;
+    if (ma !== mb) return ma - mb;
+    const ta = String(a._sortTech || '');
+    const tb = String(b._sortTech || '');
+    if (ta !== tb) return ta.localeCompare(tb, 'es');
+    const ca = String(a._sortCat || '');
+    const cb = String(b._sortCat || '');
+    if (ca !== cb) return ca.localeCompare(cb, 'es');
+    return String(a['NO. DE SERIE'] || '').localeCompare(String(b['NO. DE SERIE'] || ''), 'es');
+  });
+
+  return rows.map(({ _sortMes, _sortTech, _sortCat, ...rest }) => rest);
+}
+
 /**
  * Matriz = foto de referencia:
  * Ingresado | Taller | Obsoleto | Reparado | Reacondicionado  (cada uno CACs / PX)
@@ -494,6 +835,8 @@ export class OpsMonthlyTechReportProvider implements IReportDataProvider {
       (modelId && modelTech.get(modelId)) || 'SIN TECNOLOGÍA';
 
     const buckets = new Map<BucketKey, Bucket>();
+    const detailHits: DetailHit[] = [];
+    const detailHitSeen = new Set<string>();
     const ensure = (y: number, m: number, tech: string) => {
       const key = bucketKey(y, m, tech);
       let b = buckets.get(key);
@@ -634,13 +977,18 @@ export class OpsMonthlyTechReportProvider implements IReportDataProvider {
       else b.ingresadoCac += 1;
     }
 
+    for (const hit of ingresadoHits) {
+      pushDetailHit(detailHits, detailHitSeen, { ...hit, category: 'ingresado' });
+    }
+
     // --- Taller: 1 OS = 1 (cola actual + entradas del periodo), no depende de Ingresado ---
     const tallerOsSeen = new Set<string>();
     const countTallerOs = (
       osId: string,
       month: number,
       tech: string,
-      source: Source
+      source: Source,
+      seriesIds: string[],
     ) => {
       const key = `${month}|${osId}`;
       if (tallerOsSeen.has(key)) return;
@@ -648,6 +996,15 @@ export class OpsMonthlyTechReportProvider implements IReportDataProvider {
       const b = ensure(year, month, tech);
       if (source === 'px') b.tallerPx += 1;
       else b.tallerCac += 1;
+      pushDetailHit(detailHits, detailHitSeen, {
+        osId,
+        seriesIds,
+        year,
+        month,
+        tech,
+        source,
+        category: 'taller',
+      });
     };
 
     const queueSeries = await loadCurrentWorkshopQueueSeries(supabase);
@@ -690,7 +1047,13 @@ export class OpsMonthlyTechReportProvider implements IReportDataProvider {
       const tech = resolveTech(seriesList[0]?.model_id);
       if (techFilterRaw && !techNames.includes(tech)) continue;
       const source = sourceFromSeriesList(seriesList, 'cac');
-      countTallerOs(osId, m, tech, source);
+      countTallerOs(
+        osId,
+        m,
+        tech,
+        source,
+        seriesList.map((s) => s.id),
+      );
     }
 
     // Entradas a taller en el periodo (aunque ya no estén en cola)
@@ -709,7 +1072,13 @@ export class OpsMonthlyTechReportProvider implements IReportDataProvider {
       const tech = resolveTech(seriesList[0]?.model_id || meta?.modelId);
       if (techFilterRaw && !techNames.includes(tech)) continue;
       const source = sourceFromSeriesList(seriesList, 'cac');
-      countTallerOs(osId, m, tech, source);
+      countTallerOs(
+        osId,
+        m,
+        tech,
+        source,
+        seriesList.map((s) => s.id),
+      );
     }
 
     // --- Obsoleto: 1 OS = 1 equipo ---
@@ -742,6 +1111,7 @@ export class OpsMonthlyTechReportProvider implements IReportDataProvider {
     ];
     const obsoleteSources = await loadReceptionSources(supabase, obsoleteReceptionIds);
     const obsoleteOsSeen = new Set<string>();
+    const obsoleteSeriesByOs = await loadSeriesByOsIds(supabase, obsoleteOsIds);
 
     for (const s of obsoleteSeries) {
       const osId = String(s.service_order_id || '');
@@ -768,6 +1138,17 @@ export class OpsMonthlyTechReportProvider implements IReportDataProvider {
       const b = ensure(year, m, tech);
       if (source === 'px') b.obsoletoPx += 1;
       else b.obsoletoCac += 1;
+
+      const obsSeries = obsoleteSeriesByOs.get(osId) || [];
+      pushDetailHit(detailHits, detailHitSeen, {
+        osId,
+        seriesIds: obsSeries.map((row) => row.id),
+        year,
+        month: m,
+        tech,
+        source,
+        category: 'obsoleto',
+      });
     }
 
     // --- Reparado: solo quien YA avanzó de Reparación (QC + Equipo Listo). ---
@@ -805,11 +1186,29 @@ export class OpsMonthlyTechReportProvider implements IReportDataProvider {
         reparadoOsSeen.add(osId);
         if (source === 'px') b.reparadoPx += 1;
         else b.reparadoCac += 1;
+        pushDetailHit(detailHits, detailHitSeen, {
+          osId,
+          seriesIds: seriesList.map((row) => row.id),
+          year,
+          month: m,
+          tech,
+          source,
+          category: 'reparado',
+        });
       }
       if (isReacond && !reacondOsSeen.has(osId)) {
         reacondOsSeen.add(osId);
         if (source === 'px') b.reacondicionadoPx += 1;
         else b.reacondicionadoCac += 1;
+        pushDetailHit(detailHits, detailHitSeen, {
+          osId,
+          seriesIds: seriesList.map((row) => row.id),
+          year,
+          month: m,
+          tech,
+          source,
+          category: 'reacondicionado',
+        });
       }
     }
 
@@ -849,9 +1248,23 @@ export class OpsMonthlyTechReportProvider implements IReportDataProvider {
       metricKeys.some((k) => typeof r[k] === 'number' && (r[k] as number) > 0)
     );
 
+    const entregadoRows = hasData
+      ? await buildEntregadoDetailRows(supabase, detailHits, country, year)
+      : [];
+
     return {
       rows: hasData ? rows : [],
       xlsxLayout: 'ops_monthly_tech_matrix',
+      detailSheets:
+        entregadoRows.length > 0
+          ? [
+              {
+                name: 'Entregado',
+                rows: entregadoRows,
+                layout: 'ops_monthly_entregado',
+              },
+            ]
+          : undefined,
     };
   }
 }

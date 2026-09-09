@@ -19,11 +19,12 @@ export async function fetchWorkshopTasksViaApi(tab: WorkshopTabId): Promise<any[
 export async function fetchWorkshopTasksPageViaApi(
   tab: WorkshopTabId,
   cursor?: string | null,
-  search?: string
+  search?: string,
+  limit = BATCH_LIMITS.WORKSHOP_QUEUE_PAGE_OS,
 ): Promise<WorkshopTasksPage> {
   const params = new URLSearchParams({
     tab,
-    limit: String(BATCH_LIMITS.WORKSHOP_QUEUE_PAGE_OS),
+    limit: String(limit),
   });
   if (cursor) params.set('cursor', cursor);
 
@@ -74,6 +75,31 @@ export async function fetchWorkshopTasksPageViaApi(
     searchTruncated,
     searchTotal,
   };
+}
+
+/** Carga la cola completa de una pestaña (paginación API) para filtros Excel en cliente. */
+export async function fetchWorkshopTabDatasetViaApi(
+  tab: WorkshopTabId,
+  maxItems = 5000,
+): Promise<{ items: any[]; totalOs: number | null }> {
+  const items: any[] = [];
+  let cursor: string | null = null;
+  let totalOs: number | null = null;
+
+  for (let page = 0; page < 80 && items.length < maxItems; page++) {
+    const batch = await fetchWorkshopTasksPageViaApi(
+      tab,
+      cursor,
+      undefined,
+      BATCH_LIMITS.API_PAGE_MAX,
+    );
+    if (totalOs == null && batch.totalOs != null) totalOs = batch.totalOs;
+    items.push(...batch.items);
+    if (!batch.nextCursor || batch.items.length === 0) break;
+    cursor = batch.nextCursor;
+  }
+
+  return { items: items.slice(0, maxItems), totalOs };
 }
 
 export type WorkshopLocateResult = {

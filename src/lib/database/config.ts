@@ -7,6 +7,12 @@ import {
 } from '@/shared/catalogs/referenceCatalogCache';
 import { normalizeCatalogLabel } from '@/shared/catalogs/normalizeCatalogName';
 import {
+  findDuplicateCatalogName,
+  findDuplicateModelName,
+  canonicalCatalogName,
+  normalizeCatalogName,
+} from '@/shared/catalogs/catalogNameDedup';
+import {
   AGENCY_SELECT,
   BRAND_SELECT,
   CARRIER_SELECT,
@@ -243,15 +249,15 @@ export async function saveModel(model: any) {
 
   const rawName = payload.nombre || payload.name;
   const name = normalizeCatalogLabel(rawName);
-  
-  // Mapping UI fields to DB fields
+  const brandId = payload.brand_id || payload.marcaId;
+
   const dbModel = {
-    brand_id: payload.brand_id || payload.marcaId,
-    code: name.replace(/\s+/g, '-').toUpperCase(),
+    brand_id: brandId,
+    code: normalizeCatalogName(name).replace(/\s+/g, '-'),
     name,
     technology_id: payload.tecnologiaId,
     series_count: payload.seriesCount,
-    digits_per_series: payload.digitsPerSeries
+    digits_per_series: payload.digitsPerSeries,
   };
 
   if (!dbModel.brand_id) {
@@ -261,36 +267,30 @@ export async function saveModel(model: any) {
     return { error: 'El nombre del modelo es obligatorio.' };
   }
 
-  if (id && id.length > 10) {
-    const { data, error } = await supabase.from('models').update(dbModel).eq('id', id).select().single();
-    if (error) {
-      if (error.code === '23505') {
-        return { error: `Ya existe un modelo con el código "${dbModel.code}" para esa marca.` };
-      }
-      return { data, error: error.message };
-    }
-    invalidateReferenceCatalogCache();
-    return { data, error: null };
+  const { data: brandModels, error: fetchError } = await supabase
+    .from('models')
+    .select('id, name, brand_id')
+    .eq('brand_id', dbModel.brand_id);
+  if (fetchError) return { error: fetchError.message || 'No se pudo validar duplicados.' };
+
+  const excludeId = id && id.length > 10 ? id : undefined;
+  const duplicate = findDuplicateModelName(
+    (brandModels || []).map((m) => ({ id: m.id, nombre: m.name, marcaId: m.brand_id })),
+    dbModel.name,
+    dbModel.brand_id,
+    excludeId,
+  );
+  if (duplicate) {
+    return {
+      error: `Ya existe un modelo con el mismo nombre para esta marca: "${duplicate.nombre}".`,
+    };
   }
 
-  // Evitar choque con unique (brand_id, code): si ya existe, actualizar ese registro
-  const { data: existing } = await supabase
-    .from('models')
-    .select('id')
-    .eq('brand_id', dbModel.brand_id)
-    .eq('code', dbModel.code)
-    .maybeSingle();
-
-  if (existing?.id) {
-    const { data, error } = await supabase
-      .from('models')
-      .update(dbModel)
-      .eq('id', existing.id)
-      .select()
-      .single();
+  if (excludeId) {
+    const { data, error } = await supabase.from('models').update(dbModel).eq('id', excludeId).select().single();
     if (error) {
       if (error.code === '23505') {
-        return { error: `Ya existe un modelo con el código "${dbModel.code}" para esa marca.` };
+        return { error: `Ya existe un modelo con el mismo nombre o código para esta marca.` };
       }
       return { data, error: error.message };
     }
@@ -301,7 +301,7 @@ export async function saveModel(model: any) {
   const { data, error } = await supabase.from('models').insert([dbModel]).select().single();
   if (error) {
     if (error.code === '23505') {
-      return { error: `Ya existe un modelo con el código "${dbModel.code}" para esa marca.` };
+      return { error: `Ya existe un modelo con el mismo nombre o código para esta marca.` };
     }
     return { data, error: error.message };
   }
@@ -556,15 +556,44 @@ export async function saveRepair(repair: any) {
   if (!supabase) return { error: "Supabase not configured" };
   
   const { id, nombre } = repair;
-  const dbRepair = { name: nombre };
+  const trimmed = String(nombre || '').trim();
+  if (!trimmed) {
+    return { error: { message: 'El nombre de la reparación es obligatorio.' } };
+  }
 
-  if (id && id.length > 10 && id.includes('-')) {
-    const { data, error } = await supabase.from('cat_repairs').update(dbRepair).eq('id', id).select().single();
-    return { data, error };
-  } else {
-    const { data, error } = await supabase.from('cat_repairs').insert([dbRepair]).select().single();
+  const { data: existingRows, error: fetchError } = await supabase
+    .from('cat_repairs')
+    .select('id, name');
+  if (fetchError) return { error: fetchError };
+
+  const excludeId = id && id.length > 10 && id.includes('-') ? id : undefined;
+  const duplicate = findDuplicateCatalogName(
+    (existingRows || []).map((r) => ({ id: r.id, nombre: r.name })),
+    trimmed,
+    excludeId,
+  );
+  if (duplicate) {
+    return {
+      error: {
+        message: `Ya existe una reparación con el mismo nombre: "${duplicate.nombre}".`,
+      },
+    };
+  }
+
+  const dbRepair = { name: canonicalCatalogName(trimmed) };
+
+  if (excludeId) {
+    const { data, error } = await supabase.from('cat_repairs').update(dbRepair).eq('id', excludeId).select().single();
+    if (error?.code === '23505') {
+      return { error: { message: `Ya existe una reparación con el mismo nombre.` } };
+    }
     return { data, error };
   }
+  const { data, error } = await supabase.from('cat_repairs').insert([dbRepair]).select().single();
+  if (error?.code === '23505') {
+    return { error: { message: `Ya existe una reparación con el mismo nombre.` } };
+  }
+  return { data, error };
 }
 
 export async function deleteRepair(id: string) {
@@ -609,13 +638,45 @@ export async function saveDiagnosticConfig(diagnostic: any) {
   if (!supabase) return { error: "Supabase not configured" };
   
   const { id, nombre, reparacionesIds } = diagnostic;
-  let diagnosticId = id;
+  const trimmed = String(nombre || '').trim();
+  if (!trimmed) {
+    return { error: { message: 'El nombre del diagnóstico es obligatorio.' } };
+  }
 
-  if (id && id.length > 10 && id.includes('-')) {
-    const { error } = await supabase.from('cat_diagnostics').update({ name: nombre }).eq('id', id);
+  const { data: existingRows, error: fetchError } = await supabase
+    .from('cat_diagnostics')
+    .select('id, name');
+  if (fetchError) return { error: fetchError };
+
+  const excludeId = id && id.length > 10 && id.includes('-') ? id : undefined;
+  const duplicate = findDuplicateCatalogName(
+    (existingRows || []).map((d) => ({ id: d.id, nombre: d.name })),
+    trimmed,
+    excludeId,
+  );
+  if (duplicate) {
+    return {
+      error: {
+        message: `Ya existe un diagnóstico con el mismo nombre: "${duplicate.nombre}".`,
+      },
+    };
+  }
+
+  let diagnosticId = id;
+  const dbName = canonicalCatalogName(trimmed);
+
+  if (excludeId) {
+    const { error } = await supabase.from('cat_diagnostics').update({ name: dbName }).eq('id', excludeId);
+    if (error?.code === '23505') {
+      return { error: { message: 'Ya existe un diagnóstico con el mismo nombre.' } };
+    }
     if (error) return { error };
+    diagnosticId = excludeId;
   } else {
-    const { data, error } = await supabase.from('cat_diagnostics').insert([{ name: nombre }]).select().single();
+    const { data, error } = await supabase.from('cat_diagnostics').insert([{ name: dbName }]).select().single();
+    if (error?.code === '23505') {
+      return { error: { message: 'Ya existe un diagnóstico con el mismo nombre.' } };
+    }
     if (error) return { error };
     diagnosticId = data.id;
   }

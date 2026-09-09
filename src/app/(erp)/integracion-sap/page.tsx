@@ -3,7 +3,7 @@
 import React, { useState, useRef } from 'react';
 import { 
   Database, UploadCloud, Activity, LayoutDashboard, History, Settings, FileSpreadsheet, 
-  Search, ArrowRightLeft, FileWarning, CheckCircle2, AlertTriangle, Loader2, Download
+  Search, ArrowRightLeft, FileWarning, CheckCircle2, AlertTriangle, Loader2
 } from 'lucide-react';
 import { Card, Button, Badge, DataTable, TablePagination, type DataTableColumn, notify } from '@/components/ui';
 import { erpTab, erpSoftStat, erpInputClass } from '@/lib/design/tokens';
@@ -15,6 +15,12 @@ import {
   type OsInventoryModules,
 } from '@/lib/sap/osInventoryModules';
 import { OsCapacityInstalledPanel } from './_components/OsCapacityInstalledPanel';
+import { SapStatusDetailPanel } from './_components/SapStatusDetailPanel';
+import {
+  pctOfActivas,
+  SAP_DASHBOARD_STATES,
+} from '@/lib/sap/sapDashboardStates';
+import type { SapValidationState } from '@/modules/sap-integration/domain/sap-validation-status';
 import { DEFAULT_PAGE_SIZE, useClientPagination } from '@/hooks/useClientPagination';
 
 // Referencia estable para la query mientras no hay datos.
@@ -331,8 +337,11 @@ export default function IntegracionSapPageRoot() {
   );
 }
 
+type SapTab = 'dashboard' | 'cargar' | 'historial' | 'consulta' | 'detalle' | 'config';
+
 function IntegracionSapPage() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'cargar' | 'historial' | 'consulta' | 'diferencias' | 'config'>('dashboard');
+  const [activeTab, setActiveTab] = useState<SapTab>('dashboard');
+  const [detailSapStatus, setDetailSapStatus] = useState<SapValidationState | null>(null);
 
   const [uploadStatus, setUploadStatus] = useState<'idle' | 'parsing' | 'hashing' | 'fetching' | 'matching' | 'syncing' | 'done' | 'error'>('idle');
   const [progressLog, setProgressLog] = useState<string[]>([]);
@@ -341,48 +350,23 @@ function IntegracionSapPage() {
   // C6: dashboard e historial SAP vía TanStack Query (cachea y deja de
   // re-consultar en cada cambio de pestaña dentro de la ventana de staleTime).
   const dashboardQuery = useQuery({
-    queryKey: ['sap-dashboard', 'v8-inconsistentes-card'],
+    queryKey: ['sap-dashboard', 'v10-en-planta-kpis'],
     queryFn: async () => {
       const data = await apiFetchJsonWithTimeout('/api/sap/dashboard', {}, 45_000);
       if (!data.success) throw new Error(String(data.error || 'Error al cargar dashboard SAP'));
       return data;
     },
-    enabled: activeTab === 'dashboard' || activeTab === 'diferencias',
+    enabled: activeTab === 'dashboard' || activeTab === 'detalle',
     retry: 1,
     staleTime: 60_000,
   });
   const dashboardData = dashboardQuery.data ?? null;
   const isLoadingDashboard = dashboardQuery.isLoading;
 
-  const inconsistentQuery = useQuery({
-    queryKey: ['sap-inconsistent'],
-    queryFn: async () => {
-      const data = await apiFetchJsonWithTimeout('/api/sap/inconsistent', {}, 60_000);
-      if (!data.success) throw new Error(String(data.error || 'Error al cargar inconsistencias'));
-      return data as {
-        success: boolean;
-        count: number;
-        data: Array<{
-          id: string;
-          os_label: string | null;
-          main_serial: string | null;
-          materials: string[];
-          material_count: number;
-          series: Array<{
-            serial_number: string;
-            material: string | null;
-            valuation: string | null;
-            sap_status: string | null;
-            current_status: string | null;
-            box_code: string | null;
-          }>;
-        }>;
-      };
-    },
-    enabled: activeTab === 'diferencias',
-    retry: 1,
-    staleTime: 30_000,
-  });
+  const openStatusDetail = (status: SapValidationState) => {
+    setDetailSapStatus(status);
+    setActiveTab('detalle');
+  };
 
   const historyQuery = useQuery({
     queryKey: ['sap-history'],
@@ -406,38 +390,6 @@ function IntegracionSapPage() {
   const [queryResult, setQueryResult] = useState<any>(null);
   const [isQuerying, setIsQuerying] = useState(false);
   const [queryError, setQueryError] = useState<string | null>(null);
-  const [exportingUnmatched, setExportingUnmatched] = useState(false);
-
-  const handleExportUnmatched = async () => {
-    setExportingUnmatched(true);
-    try {
-      const res = await apiFetch('/api/sap/unmatched?format=xlsx');
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(
-          (err as { error?: string }).error || `Error HTTP ${res.status}`
-        );
-      }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `sap-sin-coincidencia-${new Date().toISOString().slice(0, 10)}.xlsx`;
-      a.click();
-      URL.revokeObjectURL(url);
-      notify.success('Exportación lista', {
-        description: 'Excel de OS activas Sin Coincidencia (series S1–S4, caja y ubicación).',
-      });
-
-    } catch (err) {
-      notify.error('No se pudo exportar', {
-        description: err instanceof Error ? err.message : 'Error desconocido',
-      });
-    } finally {
-      setExportingUnmatched(false);
-    }
-  };
-
   const handleQuery = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!queryInput.trim()) return;
@@ -577,33 +529,27 @@ function IntegracionSapPage() {
       );
     }
 
-    const { kpis, lastUpload, osModules } = dashboardData || {
+    const { kpis, lastUpload, osModules, pctDenominator, enPlanta } =
+      dashboardData || {
       kpis: {},
       lastUpload: null,
       osModules: null,
+      pctDenominator: 0,
+      enPlanta: 0,
     };
-    const equiposBase = kpis?.totalTC || 0;
-    const seriesBase = kpis?.totalSeries || 0;
-    const validadosPct = equiposBase ? Math.round((kpis.validados / equiposBase) * 100) : 0;
-    const seriesValPct = seriesBase ? Math.round(((kpis?.seriesValidadas || 0) / seriesBase) * 100) : 0;
-    const parcialPct = equiposBase ? Math.round(((kpis?.inconsistentes || 0) / equiposBase) * 100) : 0;
 
     const mods = (osModules as OsInventoryModules | null) ?? null;
 
-    const totalOs = Number(mods?.total ?? equiposBase ?? 0);
-    const despachadas = Number(mods?.despachado ?? 0);
-    const activas =
-      Number(mods?.activas ?? 0) ||
-      Number(mods?.bodega_con_caja ?? 0) +
-        Number(mods?.bodega_despacho ?? 0) +
-        Number(mods?.pistoleo_en_curso ?? 0) +
-        Number(mods?.backoffice ?? 0) +
-        Number(mods?.taller_diagnostico ?? 0) +
-        Number(mods?.taller_reparacion ?? 0) +
-        Number(mods?.taller_qc ?? mods?.qc ?? 0) +
-        Number(mods?.taller_l3 ?? 0) +
-        Number(mods?.taller_scraps_piso ?? 0) +
-        Number(mods?.bodega_scraps ?? 0);
+    const enPlantaSap = Number(enPlanta ?? pctDenominator ?? 0);
+
+    const kpiRecord = kpis as Record<string, number | undefined>;
+
+    const stateAccentText: Record<string, string> = {
+      success: 'text-[var(--success)]',
+      warning: 'text-[var(--warning)]',
+      danger: 'text-[var(--danger)]',
+      muted: 'text-[var(--muted)]',
+    };
 
     const needsOsMigration =
       Boolean(mods) &&
@@ -615,118 +561,70 @@ function IntegracionSapPage() {
 
     return (
       <div className="space-y-6">
+        <Card className="p-5 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)]">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-[10px] font-black text-[var(--muted)] uppercase tracking-widest mb-1">
+                Universo TC (histórico)
+              </p>
+              <h3 className="text-3xl font-black text-[var(--heading)]">{(kpis?.totalTC ?? 0).toLocaleString()}</h3>
+            </div>
+            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${erpSoftStat.accent}`}>
+              <Database className="w-6 h-6" />
+            </div>
+          </div>
+        </Card>
+
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
-          <Card className="p-5 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)] flex flex-col justify-between h-32">
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-[10px] font-black text-[var(--muted)] uppercase tracking-widest mb-1">
-                  Equipos TC (histórico)
+          {SAP_DASHBOARD_STATES.map((cfg) => {
+            const count = Number(kpiRecord[cfg.kpiKey] ?? 0);
+            const soft =
+              cfg.accent === 'success'
+                ? erpSoftStat.success
+                : cfg.accent === 'danger'
+                  ? erpSoftStat.danger
+                  : cfg.accent === 'muted'
+                    ? erpSoftStat.accent
+                    : erpSoftStat.warning;
+            return (
+              <button
+                key={cfg.status}
+                type="button"
+                onClick={() => openStatusDetail(cfg.status)}
+                className="text-left p-5 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)] flex flex-col justify-between min-h-[9.5rem] gap-2 hover:border-[var(--accent)]/50 hover:shadow-md transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                title={`Ver detalle: ${cfg.title}`}
+              >
+                <div className="flex justify-between items-start w-full">
+                  <div>
+                    <p className="text-[10px] font-black text-[var(--muted)] uppercase tracking-widest mb-1">
+                      {cfg.title}
+                    </p>
+                    <h3 className={`text-2xl font-black ${stateAccentText[cfg.accent]}`}>
+                      {count.toLocaleString()}
+                    </h3>
+                  </div>
+                  <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${soft}`}>
+                    {cfg.status === 'Validado SAP' ? (
+                      <CheckCircle2 className="w-5 h-5" />
+                    ) : cfg.status === 'Sin Coincidencia' ? (
+                      <AlertTriangle className="w-5 h-5" />
+                    ) : cfg.status === 'Pendiente Revisión' ? (
+                      <FileWarning className="w-5 h-5" />
+                    ) : (
+                      <Activity className="w-5 h-5" />
+                    )}
+                  </div>
+                </div>
+                <p className="text-[10px] font-bold text-[var(--muted)] leading-snug">{cfg.description}</p>
+                <p className="text-[10px] font-black text-[var(--heading)]">
+                  {pctOfActivas(count, enPlantaSap)}%
                 </p>
-                <h3 className="text-2xl font-black text-[var(--heading)]">{(kpis?.totalTC ?? 0).toLocaleString()}</h3>
-              </div>
-              <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${erpSoftStat.accent}`}>
-                <Database className="w-5 h-5" />
-              </div>
-            </div>
-            <p className="text-[10px] font-bold text-[var(--muted)]">
-              Activas {(activas || 0).toLocaleString()} · Despachadas {despachadas.toLocaleString()}
-            </p>
-          </Card>
-
-          <Card className="p-5 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)] flex flex-col justify-between h-32">
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-[10px] font-black text-[var(--muted)] uppercase tracking-widest mb-1">Equipos validados SAP</p>
-                <h3 className="text-2xl font-black text-[var(--success)]">{(kpis?.validados ?? 0).toLocaleString()}</h3>
-              </div>
-              <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${erpSoftStat.success}`}>
-                <CheckCircle2 className="w-5 h-5" />
-              </div>
-            </div>
-            <div className="w-full bg-[var(--surface-hover)] rounded-full h-1.5 mt-2">
-              <div className="bg-[var(--success)] h-1.5 rounded-full" style={{ width: `${validadosPct}%` }} />
-            </div>
-            <p className="text-[10px] font-bold text-[var(--muted)] mt-1">
-              {(kpis?.seriesValidadas ?? 0).toLocaleString()} series OK ({seriesValPct}% series)
-            </p>
-          </Card>
-
-          <Card className="p-5 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)] flex flex-col justify-between h-32">
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-[10px] font-black text-[var(--muted)] uppercase tracking-widest mb-1">Equipos pendientes</p>
-                <h3 className="text-2xl font-black text-[var(--warning)]">{(kpis?.pendientes ?? 0).toLocaleString()}</h3>
-              </div>
-              <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${erpSoftStat.warning}`}>
-                <Activity className="w-5 h-5" />
-              </div>
-            </div>
-            <p className="text-[10px] font-bold text-[var(--muted)]">
-              {lastUpload?.fecha
-                ? `Ingresados después del último G985 (${new Date(lastUpload.fecha).toLocaleDateString()}) — aún sin cruzar`
-                : 'Sin G985 completado reciente — equipos aún sin cruzar contra SAP'}
-            </p>
-          </Card>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('diferencias')}
-            className="text-left p-5 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)] flex flex-col justify-between min-h-32 gap-2 hover:border-[var(--warning)]/60 hover:shadow-md transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--warning)]"
-            title="Ver series con 2+ materiales SAP"
-          >
-            <div className="flex justify-between items-start w-full">
-              <div>
-                <p className="text-[10px] font-black text-[var(--muted)] uppercase tracking-widest mb-1">
-                  2 materiales
-                </p>
-                <h3 className="text-2xl font-black text-[var(--warning)]">
-                  {(kpis?.inconsistentes ?? 0).toLocaleString()}
-                </h3>
-              </div>
-              <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${erpSoftStat.warning}`}>
-                <FileWarning className="w-5 h-5" />
-              </div>
-            </div>
-            <p className="text-[10px] font-bold text-[var(--muted)]">
-              Mismo equipo (OS) con 2+ materiales en el G985 · clic para ver series
-            </p>
-            <span className="text-[9px] font-black uppercase tracking-widest text-[var(--warning)]">
-              Revisar detalle →
-            </span>
-          </button>
-
-          <Card className="p-5 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)] flex flex-col justify-between min-h-32 gap-2">
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-[10px] font-black text-[var(--muted)] uppercase tracking-widest mb-1">Sin coincidencia</p>
-                <h3 className="text-2xl font-black text-[var(--danger)]">{(kpis?.sinCoincidencia ?? 0).toLocaleString()}</h3>
-              </div>
-              <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${erpSoftStat.danger}`}>
-                <AlertTriangle className="w-5 h-5" />
-              </div>
-            </div>
-            <p className="text-[10px] font-bold text-[var(--muted)]">
-              OS activas en TC con serie, pero no están en el SAP validado ·{' '}
-              {(kpis?.seriesSinMatch ?? 0).toLocaleString()} series ·{' '}
-              {activas ? Math.round(((kpis?.sinCoincidencia ?? 0) / activas) * 100) : 0}
-              {'% de OS activas'}
-            </p>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={exportingUnmatched || !(kpis?.seriesSinMatch || kpis?.sinCoincidencia)}
-              onClick={() => void handleExportUnmatched()}
-              className="w-full mt-1 text-[10px] font-black uppercase tracking-widest gap-2"
-            >
-              {exportingUnmatched ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Download className="w-3.5 h-3.5" />
-              )}
-              Exportar Excel
-            </Button>
-          </Card>
+                <span className="text-[9px] font-black uppercase tracking-widest text-[var(--accent)]">
+                  Ver detalle →
+                </span>
+              </button>
+            );
+          })}
         </div>
 
         <OsCapacityInstalledPanel mods={mods} needsMigration={needsOsMigration} />
@@ -773,24 +671,29 @@ function IntegracionSapPage() {
           <Card className="p-6 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)]">
             <h3 className="text-xs font-black uppercase tracking-widest text-[var(--muted)] mb-6">Calidad de Coincidencia (KPI)</h3>
             <div className="space-y-4">
-              <div>
-                <div className="flex justify-between text-xs font-bold mb-1">
-                  <span className="text-[var(--heading)]">Coincidencia Completa / SAP Validado</span>
-                  <span className="text-[var(--success)]">{validadosPct}%</span>
-                </div>
-                <div className="w-full bg-[var(--surface-hover)] rounded-full h-2">
-                  <div className="bg-[var(--success)] h-2 rounded-full" style={{ width: `${validadosPct}%` }}></div>
-                </div>
-              </div>
-              <div>
-                <div className="flex justify-between text-xs font-bold mb-1">
-                  <span className="text-[var(--heading)]">Material Diferente (Inconsistencia)</span>
-                  <span className="text-[var(--warning)]">{parcialPct}%</span>
-                </div>
-                <div className="w-full bg-[var(--surface-hover)] rounded-full h-2">
-                  <div className="bg-[var(--warning)] h-2 rounded-full" style={{ width: `${parcialPct}%` }}></div>
-                </div>
-              </div>
+              {SAP_DASHBOARD_STATES.map((cfg) => {
+                const count = Number(kpiRecord[cfg.kpiKey] ?? 0);
+                const pct = pctOfActivas(count, enPlantaSap);
+                const barColor =
+                  cfg.accent === 'success'
+                    ? 'bg-[var(--success)]'
+                    : cfg.accent === 'danger'
+                      ? 'bg-[var(--danger)]'
+                      : cfg.accent === 'muted'
+                        ? 'bg-[var(--muted)]'
+                        : 'bg-[var(--warning)]';
+                return (
+                  <div key={cfg.status}>
+                    <div className="flex justify-between text-xs font-bold mb-1">
+                      <span className="text-[var(--heading)]">{cfg.title}</span>
+                      <span className={stateAccentText[cfg.accent]}>{pct}%</span>
+                    </div>
+                    <div className="w-full bg-[var(--surface-hover)] rounded-full h-2">
+                      <div className={`${barColor} h-2 rounded-full`} style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </Card>
         </div>
@@ -798,126 +701,34 @@ function IntegracionSapPage() {
     );
   };
 
-  const renderInconsistencias = () => {
-    const rows = inconsistentQuery.data?.data ?? [];
-    return (
-      <Card className="p-6 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)]">
-        <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-          <div>
-            <h3 className="text-xl font-black text-[var(--heading)] uppercase tracking-tight">
-              Mismo equipo · 2+ materiales SAP
-            </h3>
-            <p className="text-[11px] font-bold text-[var(--muted)] mt-1 max-w-2xl leading-relaxed">
-              OS en estado <span className="text-[var(--warning)]">Pendiente Revisión</span>: al cruzar el G985,
-              distintas series del mismo equipo trajeron materiales distintos. Revisá cuál material es el correcto.
-            </p>
-          </div>
-          <Badge className="bg-[var(--warning)]/15 text-[var(--warning)] border-none uppercase text-[10px] font-black tracking-widest">
-            {(inconsistentQuery.data?.count ?? rows.length).toLocaleString()} equipo(s)
-          </Badge>
-        </div>
-
-        {inconsistentQuery.isLoading ? (
-          <div className="flex justify-center items-center py-12">
-            <Loader2 className="w-8 h-8 animate-spin text-[var(--accent)]" />
-          </div>
-        ) : inconsistentQuery.isError ? (
-          <div className={`${erpSoftStat.danger} p-4 rounded-xl flex items-start gap-3`}>
-            <AlertTriangle className="w-5 h-5 shrink-0" />
-            <div>
-              <p className="text-sm font-bold mb-2">
-                {inconsistentQuery.error instanceof Error
-                  ? inconsistentQuery.error.message
-                  : 'No se pudo cargar el detalle'}
-              </p>
-              <Button type="button" variant="outline" onClick={() => void inconsistentQuery.refetch()}>
-                Reintentar
-              </Button>
-            </div>
-          </div>
-        ) : rows.length === 0 ? (
-          <p className="text-sm font-bold text-[var(--muted)] py-10 text-center">
-            No hay equipos con 2 materiales en este momento.
+  const renderDetalleEstado = () => {
+    if (!detailSapStatus) {
+      return (
+        <Card className="p-8 text-center border border-[var(--border)] rounded-3xl">
+          <p className="text-sm font-bold text-[var(--muted)]">
+            Seleccione un estado SAP en el Dashboard para ver el detalle de equipos.
           </p>
-        ) : (
-          <div className="space-y-4">
-            {rows.map((eq) => (
-              <div
-                key={eq.id}
-                className="rounded-2xl border border-[var(--border)] overflow-hidden bg-[var(--surface-hover)]/40"
-              >
-                <div className="px-4 py-3 flex flex-wrap items-center gap-3 border-b border-[var(--border)] bg-[var(--surface)]">
-                  <span className="font-black text-[var(--heading)] font-mono text-sm">{eq.os_label || '—'}</span>
-                  <span className="text-[10px] font-bold text-[var(--muted)] uppercase tracking-widest">
-                    Main {eq.main_serial || '—'}
-                  </span>
-                  <div className="flex flex-wrap gap-1.5 ml-auto">
-                    {eq.materials.map((m) => (
-                      <Badge
-                        key={m}
-                        className="bg-[var(--warning)]/15 text-[var(--warning)] border-none font-mono text-[10px] font-black"
-                      >
-                        Mat {m}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="text-[9px] font-black uppercase tracking-widest text-[var(--muted)] border-b border-[var(--border)]">
-                        <th className="px-4 py-2">Serie</th>
-                        <th className="px-4 py-2">Material</th>
-                        <th className="px-4 py-2">Valoración</th>
-                        <th className="px-4 py-2">SAP status</th>
-                        <th className="px-4 py-2">Caja</th>
-                        <th className="px-4 py-2">Estado TC</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {eq.series.map((s) => (
-                        <tr key={s.serial_number} className="border-b border-[var(--border)]/60 last:border-0">
-                          <td className="px-4 py-2 font-mono font-bold text-[var(--heading)]">{s.serial_number}</td>
-                          <td className="px-4 py-2 font-mono font-black text-[var(--warning)]">
-                            {s.material || '—'}
-                          </td>
-                          <td className="px-4 py-2 font-mono">{s.valuation || '—'}</td>
-                          <td className="px-4 py-2">{s.sap_status || '—'}</td>
-                          <td className="px-4 py-2 font-mono">{s.box_code || '—'}</td>
-                          <td className="px-4 py-2">{s.current_status || '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="px-4 py-2 border-t border-[var(--border)] flex justify-end">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="text-[10px] font-black uppercase tracking-widest"
-                    onClick={() => {
-                      setQueryInput(eq.main_serial || eq.series[0]?.serial_number || '');
-                      setActiveTab('consulta');
-                    }}
-                  >
-                    Consultar serie principal
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
+        </Card>
+      );
+    }
+    return (
+      <SapStatusDetailPanel
+        status={detailSapStatus}
+        onConsultSerial={(serial) => {
+          if (!serial) return;
+          setQueryInput(serial);
+          setActiveTab('consulta');
+        }}
+      />
     );
   };
 
   const renderTabs = () => {
     const tabs = [
       { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={14} /> },
+      { id: 'detalle', label: 'Detalle por estado', icon: <FileWarning size={14} /> },
       { id: 'cargar', label: 'Cargar Archivo', icon: <UploadCloud size={14} /> },
       { id: 'historial', label: 'Historial', icon: <History size={14} /> },
-      { id: 'diferencias', label: '2 Materiales', icon: <FileWarning size={14} /> },
       { id: 'consulta', label: 'Consultar Serie', icon: <Search size={14} /> },
     ];
 
@@ -1167,7 +978,7 @@ function IntegracionSapPage() {
         )}
 
         {activeTab === 'historial' && renderHistory()}
-        {activeTab === 'diferencias' && renderInconsistencias()}
+        {activeTab === 'detalle' && renderDetalleEstado()}
         {activeTab === 'consulta' && renderQuery()}
       </div>
     </div>

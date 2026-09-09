@@ -63,6 +63,7 @@ export class GenerateReportHandler {
 
       const exported = await exporter.export(data.rows, definition.name, {
         xlsxLayout: data.xlsxLayout,
+        detailSheets: data.detailSheets,
       });
       const dateSuffix = params.filters.allData
         ? '_todos'

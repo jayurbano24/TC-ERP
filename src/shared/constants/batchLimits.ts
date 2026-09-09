@@ -11,7 +11,7 @@ export const BATCH_LIMITS = {
   /** Equipos procesados por llamada POST /api/v1/workshop/operate-batch. */
   WORKSHOP_OPERATE_SERIES_BATCH: 40,
   /** Equipos por página al listar cola Taller (1 equipo = 1 OS en cola). */
-  WORKSHOP_QUEUE_PAGE_OS: 50,
+  WORKSHOP_QUEUE_PAGE_OS: 25,
   /** Series máximas al pegar en el buscador de cola Taller. */
   WORKSHOP_SEARCH_MAX_SERIALS: 25,
   /** IDs en cláusula PostgREST in.() */

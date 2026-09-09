@@ -38,12 +38,19 @@ export type ReportDefinitionSummary = {
 };
 
 /** Layout Excel con cabeceras agrupadas (Año/País/Mes/Tech + Ingresado/…). */
-export type ReportXlsxLayout = 'default' | 'ops_monthly_tech_matrix';
+export type ReportXlsxLayout = 'default' | 'ops_monthly_tech_matrix' | 'ops_monthly_entregado';
+
+export type ReportDetailSheet = {
+  name: string;
+  rows: ReportRow[];
+  layout?: ReportXlsxLayout;
+};
 
 export type ReportDataResult = {
   rows: ReportRow[];
   truncated?: boolean;
   xlsxLayout?: ReportXlsxLayout;
+  detailSheets?: ReportDetailSheet[];
 };
 
 export type GenerateReportParams = {

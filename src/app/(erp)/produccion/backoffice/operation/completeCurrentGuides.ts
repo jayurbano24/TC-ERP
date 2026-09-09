@@ -264,8 +264,12 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
             (brandVal ? `\nBackoffice_Brand: ${brandVal}` : '') +
             (modelVal ? `\nBackoffice_Model: ${modelVal}` : '') +
             `\nBackoffice_SAP: ${sapGroup.sapDocument}` +
-            `\nMotivo Devolución: ${ctx.returnReason || 'N/A'}` +
-            `\nGuía de Envío: ${ctx.returnTracking || 'N/A'} (Logística: ${ctx.returnCourier || 'N/A'})`;
+            (ctx.returnReason?.trim() ? `\nMotivo Devolución: ${ctx.returnReason.trim()}` : '') +
+            (ctx.returnTracking?.trim()
+              ? `\nGuía de Envío: ${ctx.returnTracking.trim()}${
+                  ctx.returnCourier?.trim() ? ` (Logística: ${ctx.returnCourier.trim()})` : ''
+                }`
+              : '');
         }
 
         if (sapGroupsInManifest.length === 0) {
@@ -277,8 +281,12 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
             (brandVal ? `\nBackoffice_Brand: ${brandVal}` : '') +
             (modelVal ? `\nBackoffice_Model: ${modelVal}` : '') +
             (ctx.sapTransferNumber ? `\nBackoffice_SAP: ${ctx.sapTransferNumber}` : '') +
-            `\nMotivo Devolución: ${ctx.returnReason || 'N/A'}` +
-            `\nGuía de Envío: ${ctx.returnTracking || 'N/A'} (Logística: ${ctx.returnCourier || 'N/A'})`;
+            (ctx.returnReason?.trim() ? `\nMotivo Devolución: ${ctx.returnReason.trim()}` : '') +
+            (ctx.returnTracking?.trim()
+              ? `\nGuía de Envío: ${ctx.returnTracking.trim()}${
+                  ctx.returnCourier?.trim() ? ` (Logística: ${ctx.returnCourier.trim()})` : ''
+                }`
+              : '');
         }
 
         const allProcessed =

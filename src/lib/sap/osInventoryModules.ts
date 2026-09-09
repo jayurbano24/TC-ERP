@@ -11,13 +11,25 @@ export type OsInventoryModules = {
   /** @deprecated */
   bodega_sin_caja: number;
   pistoleo_en_curso: number;
-  /** Pendiente ingresar Bodega Central (cac_tray activa = Historial CAC). */
+  /** Filas activas en bandeja CAC (referencia; puede ≠ OS). */
   backoffice: number;
-  /** Referencia ledger series RECEPCIONADO_BODEGA_GENERAL (no usar como cola). */
+  /** OS distintas en bandeja CAC activa (referencia). */
+  backoffice_os: number;
+  /** SSOT tile: OS únicas pendientes ingreso (CAC ∪ RECEPCIONADO_BODEGA_GENERAL). */
+  pendiente_bodega_os: number;
+  /** Referencia ledger series RECEPCIONADO_BODEGA_GENERAL. */
   series_recepcionado_bo: number;
+  /** ready_to_dispatch sin caja (exclusivo vs bodega_con_caja). */
+  reac_suelto: number;
+  /** OS en planta sin ninguna serie (no despachadas). */
+  sin_series_en_planta: number;
   historial_backoffice: number;
   equipo_listo: number;
   despachado: number;
+  /** OS con status devuelto (fuera de planta, no despachadas). */
+  devuelto: number;
+  /** Despachadas ∪ devueltas (deduplicado). */
+  fuera_planta?: number;
   taller_diagnostico: number;
   taller_reparacion: number;
   taller_reacondicionado: number;
@@ -36,8 +48,10 @@ export type OsInventoryModules = {
   control: number;
   otro: number;
   activas_ledger: number;
-  /** Suma módulos físicos sin doble conteo (excluye equipo_listo y reacondicionado). */
+  /** Suma módulos físicos sin doble conteo (bodega stock + equipo listo exclusivos). */
   activas: number;
+  /** false cuando el RPC falló y se usó fallback parcial (no confiar en tiles). */
+  rpcComplete?: boolean;
 };
 
 const EMPTY: OsInventoryModules = {
@@ -49,10 +63,15 @@ const EMPTY: OsInventoryModules = {
   bodega_sin_caja: 0,
   pistoleo_en_curso: 0,
   backoffice: 0,
+  backoffice_os: 0,
+  pendiente_bodega_os: 0,
   series_recepcionado_bo: 0,
+  reac_suelto: 0,
+  sin_series_en_planta: 0,
   historial_backoffice: 0,
   equipo_listo: 0,
   despachado: 0,
+  devuelto: 0,
   taller_diagnostico: 0,
   taller_reparacion: 0,
   taller_reacondicionado: 0,
@@ -108,14 +127,21 @@ export function buildOsRealityTableRows(m: OsInventoryModules): OsRealityRow[] {
       key: 'despachado',
       modulo: '02 · Despachadas (históricas)',
       os: m.despachado,
-      definicion: 'OS con ≥1 serie status=dispatched',
+      definicion: 'OS despachadas/cerradas o serie dispatched — excluye devueltas',
+      muted: true,
+    },
+    {
+      key: 'devuelto',
+      modulo: '02b · Devueltas (fuera de planta)',
+      os: m.devuelto,
+      definicion: 'OS status DEVUELTO / DEVUELTO_A_AGENCIA / DEVUELTO_BLOQUE',
       muted: true,
     },
     {
       key: 'activas_ledger',
-      modulo: '03 · Activas (físico estimado)',
+      modulo: '03 · En planta (ledger)',
       os: m.activas_ledger,
-      definicion: 'Histórico − Despachadas (incluye residual sin módulo)',
+      definicion: 'Histórico − Despachadas − Devueltas',
       muted: true,
     },
     {
@@ -134,9 +160,9 @@ export function buildOsRealityTableRows(m: OsInventoryModules): OsRealityRow[] {
     },
     {
       key: 'bodega',
-      modulo: '05 · Bodega Central (con caja, no TMP)',
+      modulo: '05 · Bodega Central · stock (con caja, no TMP)',
       os: m.bodega_con_caja,
-      definicion: 'in_central_warehouse/ready_to_dispatch + caja real',
+      definicion: 'in_central_warehouse/ready_to_dispatch + caja real; excluye equipo listo y despacho',
     },
     {
       key: 'pistoleo',
@@ -203,7 +229,7 @@ export function buildOsRealityTableRows(m: OsInventoryModules): OsRealityRow[] {
       key: 'listo',
       modulo: '13 · Equipo Listo (post-taller → outbound)',
       os: m.equipo_listo,
-      definicion: 'in_central_warehouse + auditoría de taller/QC (subset Bodega)',
+      definicion: 'in_central_warehouse + auditoría taller/QC · bucket exclusivo (no duplica stock bodega)',
     },
     {
       key: 'taller_piso',
@@ -227,10 +253,19 @@ export async function fetchOsInventoryModules(
     const d = data as Record<string, unknown>;
     const total = num(d.total);
     const despachado = num(d.despachado);
+    const devuelto = num(d.devuelto);
     const bodega = num(d.bodega_con_caja);
     const bodegaDespacho = num(d.bodega_despacho);
     const pistoleo = num(d.pistoleo_en_curso);
     const backoffice = num(d.backoffice);
+    const backofficeOs = num(d.backoffice_os);
+    const pendienteBodegaOs =
+      num(d.pendiente_bodega_os) ||
+      Math.max(backofficeOs, num(d.series_recepcionado_bo)) ||
+      backoffice;
+    const seriesRecepcionadoBo = num(d.series_recepcionado_bo);
+    const reacSuelto = num(d.reac_suelto);
+    const sinSeriesEnPlanta = num(d.sin_series_en_planta);
     const diag = num(d.taller_diagnostico);
     const rep = num(d.taller_reparacion);
     const reac = num(d.taller_reacondicionado);
@@ -246,9 +281,11 @@ export async function fetchOsInventoryModules(
     const activasSum =
       num(d.activas) ||
       bodega +
+        equipoListo +
         bodegaDespacho +
         pistoleo +
-        backoffice +
+        pendienteBodegaOs +
+        reacSuelto +
         diag +
         rep +
         qc +
@@ -259,16 +296,22 @@ export async function fetchOsInventoryModules(
     return {
       total,
       con_serie: num(d.con_serie),
-      sin_series: 0,
+      sin_series: num(d.sin_series),
       bodega_con_caja: bodega,
       bodega_despacho: bodegaDespacho,
       bodega_sin_caja: 0,
       pistoleo_en_curso: pistoleo,
       backoffice,
-      series_recepcionado_bo: num(d.series_recepcionado_bo),
+      backoffice_os: backofficeOs,
+      pendiente_bodega_os: pendienteBodegaOs,
+      series_recepcionado_bo: seriesRecepcionadoBo,
+      reac_suelto: reacSuelto,
+      sin_series_en_planta: sinSeriesEnPlanta,
       historial_backoffice: 0,
       equipo_listo: equipoListo,
       despachado,
+      devuelto,
+      fuera_planta: num(d.fuera_planta) || despachado + devuelto,
       taller_diagnostico: diag,
       taller_reparacion: rep,
       taller_reacondicionado: reac,
@@ -283,13 +326,17 @@ export async function fetchOsInventoryModules(
       scrap: scrapLedger,
       control: 0,
       otro: 0,
-      activas_ledger: num(d.activas_ledger) || Math.max(total - despachado, 0),
+      activas_ledger:
+        num(d.activas_ledger) || Math.max(total - despachado - devuelto, 0),
       activas: activasSum,
+      rpcComplete: true,
     };
   }
 
   if (error) {
     console.warn('[osInventoryModules] RPC unavailable, fallback:', error.message);
+  } else if (!data) {
+    console.warn('[osInventoryModules] RPC returned empty payload');
   }
 
   const countStatus = async (status: string) => {
@@ -320,5 +367,6 @@ export async function fetchOsInventoryModules(
     taller: diag + l3,
     qc,
     activas_ledger: Math.max(total - despachado, 0),
+    rpcComplete: false,
   };
 }

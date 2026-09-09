@@ -18,6 +18,7 @@ export type WorkshopOperationCatalogs = {
   diagnostics: Array<{ id: string; nombre: string; reparacionesIds?: string[] }>;
   repairs: Array<{ id: string; nombre: string }>;
   reacondicionadoTests: unknown[];
+  catalogNamesById?: Record<string, string>;
 };
 
 export async function fetchWorkshopOperationCatalogsViaApi(): Promise<WorkshopOperationCatalogs> {

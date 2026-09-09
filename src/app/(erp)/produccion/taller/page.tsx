@@ -1,13 +1,14 @@
 "use client";
 
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useCallback, startTransition } from 'react';
 import { ModulePage } from "@/components/module-page";
-import { Card, Button, Badge, notify, confirmDialog, DataTable, type DataTableColumn } from "@/components/ui";
+import { Card, Button, Badge, notify, confirmDialog, DataTable, HorizontalScrollArea, TablePagination } from "@/components/ui";
 import { Wrench, Stethoscope, Search, Filter, Box, Plus, Activity, AlertCircle, ArrowRight, XCircle, Clock, ChevronLeft, ChevronRight, ChevronDown, User, CheckSquare, ServerCrash, RefreshCw, Zap, Trash2, Loader2, RotateCcw, History, ClipboardList, Package, Send, ScanLine, X, BarChart3, Layers, Edit2, Eye, Printer, Download, MessageSquare, PackagePlus, Hourglass } from 'lucide-react';
 import { type WorkshopTabId } from '@/modules/workshop/client/workshop';
-import { fetchWorkshopTasksPageViaApi, locateWorkshopEquipmentViaApi, addWorkshopCommentViaApi, type WorkshopLocateResult } from '@/lib/api/workshopTasks';
+import { locateWorkshopEquipmentViaApi, addWorkshopCommentViaApi, fetchWorkshopTabDatasetViaApi, type WorkshopLocateResult } from '@/lib/api/workshopTasks';
 import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
 import { parseWorkshopSearchTokens } from '@/modules/workshop/shared/workshopSearch';
+import { formatWorkshopStageHistoryLabel } from '@/modules/workshop/shared/workshopSeriesDisplay';
 import {
   entrySourceLabel,
   normalizeEntrySource,
@@ -42,6 +43,7 @@ import {
   normalizeCatalogLabel,
 } from '@/shared/catalogs/normalizeCatalogName';
 import { ItemDetailModal } from './components/ItemDetailModal';
+import { WorkshopHistoryRecordBody } from './components/WorkshopHistoryRecordBody';
 import { ReturnStageModal } from './components/ReturnStageModal';
 import { ScrapDispatchModal } from './components/ScrapDispatchModal';
 import { ScrapCommentModal } from './components/ScrapCommentModal';
@@ -50,25 +52,35 @@ import { OperationDrawer } from './components/OperationDrawer';
 import { RequestPartModal } from './components/RequestPartModal';
 import { fetchDispatchedSkusByOsApi } from '@/lib/api/parts';
 import { fetchOsPartStatus } from '@/lib/api/parts';
+import { buildWorkshopQueueColumns } from './components/workshopQueueTableColumns';
+import type { ExcelFilterSelection } from '@/components/molecules/ExcelColumnFilter';
+import { enrichWorkshopTaskDisplayLabels } from '@/modules/workshop/shared/workshopTaskLabels';
+import {
+  workshopQueueTableMinWidth,
+  workshopQueueUsesTopScroll,
+  WORKSHOP_QUEUE_PAGE_SIZE,
+  type WorkshopQueueTabId,
+} from '@/modules/workshop/shared/workshopQueueTablePolicy';
+import {
+  createEmptyWorkshopQueueExcelFilters,
+  hasActiveWorkshopQueueExcelFilters,
+  matchesWorkshopQueueExcelFilters,
+  workshopQueueCellValue,
+  workshopQueueFilterColumnsForTab,
+  workshopQueueUniqueValues,
+  type WorkshopQueueExcelFilters,
+  type WorkshopQueueFilterCol,
+  type WorkshopQueueRow,
+} from '@/modules/workshop/shared/workshopQueueColumnFilters';
+import {
+  useWorkshopTabDataset,
+  workshopTabDatasetQueryKey,
+} from '@/modules/workshop/client/useWorkshopTabDataset';
 
 type TabType = 'diagnostico' | 'reparacion' | 'esperando_partes' | 'reacondicionado' | 'qc' | 'l3' | 'scraps' | 'listo' | 'despacho' | 'po';
 
 const TALLER_TABLE_HEADER = 'bg-[var(--primary)]';
 const TALLER_TABLE_HEADER_TEXT = 'text-[var(--primary-foreground)]';
-
-/** Celda plana ERP: sin chips/cards; colores vía tokens de tema. */
-function plainCell(value: string, muted = false) {
-  return (
-    <span
-      className={`block truncate whitespace-nowrap text-xs font-medium ${
-        muted ? 'text-[var(--muted)]' : 'text-[var(--foreground)]'
-      }`}
-      title={value}
-    >
-      {value}
-    </span>
-  );
-}
 
 export default function TallerPage() {
   const queryClient = useQueryClient();
@@ -232,14 +244,17 @@ export default function TallerPage() {
   // Reacondicionado specific state
   const [reacondTests, setReacondTests] = useState<string[]>([]);
 
-  const [tasks, setTasks] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [tasksCursor, setTasksCursor] = useState<string | null>(null);
-  const [tasksHasMore, setTasksHasMore] = useState(false);
-  const [tasksTotalOs, setTasksTotalOs] = useState<number | null>(null);
-  /** Evita que una respuesta lenta de otra pestaña pise la cola actual. */
-  const tasksFetchSeqRef = useRef(0);
+  const [tasksPage, setTasksPage] = useState(1);
+  const [excelFilters, setExcelFilters] = useState<WorkshopQueueExcelFilters>(() =>
+    createEmptyWorkshopQueueExcelFilters('diagnostico'),
+  );
+  const [sortCol, setSortCol] = useState<WorkshopQueueFilterCol | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc' | null>(null);
+  const [skuLabelsByOs, setSkuLabelsByOs] = useState<Record<string, string>>({});
+  const [despachoTasks, setDespachoTasks] = useState<any[]>([]);
+  const [despachoTasksLoading, setDespachoTasksLoading] = useState(false);
+  /** Evita que una respuesta lenta de locate pise un hint más reciente. */
+  const locateSeqRef = useRef(0);
   const [locateHint, setLocateHint] = useState<WorkshopLocateResult | null>(null);
   const [operateProgress, setOperateProgress] = useState<{
     processedSeries: number;
@@ -249,6 +264,7 @@ export default function TallerPage() {
   const [exportingReport, setExportingReport] = useState(false);
   const [showItemDetail, setShowItemDetail] = useState<any | null>(null);
   const [hideTechCol, setHideTechCol] = useState(false);
+  const [responsableOverrides, setResponsableOverrides] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 1400px)');
@@ -271,6 +287,7 @@ export default function TallerPage() {
   } = useReferenceCatalogs();
   const [catDiagnosticos, setCatDiagnosticos] = useState<any[]>([]);
   const [catReparaciones, setCatReparaciones] = useState<any[]>([]);
+  const [catalogNamesById, setCatalogNamesById] = useState<Record<string, string>>({});
   const [catReacondicionadoTests, setCatReacondicionadoTests] = useState<any[]>([]);
 
   const workshopCatalogsQuery = useQuery({
@@ -284,26 +301,57 @@ export default function TallerPage() {
     if (!workshopCatalogsQuery.data) return;
     setCatDiagnosticos(workshopCatalogsQuery.data.diagnostics);
     setCatReparaciones(workshopCatalogsQuery.data.repairs);
+    setCatalogNamesById(workshopCatalogsQuery.data.catalogNamesById ?? {});
     setCatReacondicionadoTests(workshopCatalogsQuery.data.reacondicionadoTests);
   }, [workshopCatalogsQuery.data]);
+
+  const workshopTab = activeTab as WorkshopTabId;
+  const queueTabEnabled = activeTab !== 'po' && activeTab !== 'despacho';
+  const workshopDatasetQuery = useWorkshopTabDataset(workshopTab, queueTabEnabled);
+  const loading = workshopDatasetQuery.isLoading;
+  const isRefreshing =
+    workshopDatasetQuery.isFetching && !workshopDatasetQuery.isLoading;
 
   useEffect(() => {
     if (activeTab === 'po' || activeTab === 'despacho') {
       setSelectedRows([]);
       return;
     }
-    // Reset inmediato al cambiar pestaña (evita mostrar cola vieja filtrada a vacío).
-    setTasks([]);
-    setTasksCursor(null);
-    setTasksHasMore(false);
-    setTasksTotalOs(null);
-    setLocateHint(null);
+    setTasksPage(1);
+    setExcelFilters(createEmptyWorkshopQueueExcelFilters(activeTab as WorkshopQueueTabId));
+    setSortCol(null);
+    setSortDir(null);
+    setSkuLabelsByOs({});
     setTechFilter('');
     setModelFilter('');
     setSelectedRows([]);
-    void fetchTasks(false, debouncedSearchTerm);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchTasks captura activeTab al invocar
-  }, [activeTab, debouncedSearchTerm]);
+    setLocateHint(null);
+    setResponsableOverrides({});
+  }, [activeTab]);
+
+  useEffect(() => {
+    startTransition(() => setTasksPage(1));
+    setLocateHint(null);
+  }, [debouncedSearchTerm]);
+
+  useEffect(() => {
+    if (activeTab !== 'reparacion' || !workshopDatasetQuery.data?.items.length) return;
+    let cancelled = false;
+    const osIds = workshopDatasetQuery.data.items
+      .map((row) => String(row.service_order_id || row.id || ''))
+      .filter(Boolean);
+    void fetchDispatchedSkusByOsApi(osIds).then((rows) => {
+      if (cancelled) return;
+      const map: Record<string, string> = {};
+      for (const row of rows) map[row.serviceOrderId] = row.label;
+      setSkuLabelsByOs(map);
+    }).catch(() => {
+      if (!cancelled) setSkuLabelsByOs({});
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, workshopDatasetQuery.data?.items]);
 
   const WORKSHOP_SERIES_SLOTS = 4;
 
@@ -418,25 +466,12 @@ export default function TallerPage() {
     }
 
     const displayAt = t.stage_entered_at || t.updated_at;
-    const diagIds = Array.isArray(t.current_diagnostics)
-      ? t.current_diagnostics.map(String).filter(Boolean)
-      : [];
-    const diagnosticoLabel = (() => {
-      if (diagIds.length > 0) {
-        const names = diagIds
-          .map((id) => {
-            const hit = catDiagnosticos.find(
-              (d: { id?: string; nombre?: string; name?: string }) => String(d.id) === id
-            );
-            return String(hit?.nombre || hit?.name || '').trim() || null;
-          })
-          .filter(Boolean);
-        if (names.length > 0) return names.join(' · ');
-      }
-      const reason = String(t.l3_reason_text || '').trim();
-      if (reason) return reason;
-      return 'Sin diagnóstico registrado';
-    })();
+    const catalogLabels = enrichWorkshopTaskDisplayLabels(t, {
+      diagnostics: catDiagnosticos,
+      repairs: catReparaciones,
+      reacondicionadoTests: catReacondicionadoTests,
+      catalogNamesById,
+    });
 
     return {
       id: t.service_orders?.os_label || `S/OS`,
@@ -467,13 +502,93 @@ export default function TallerPage() {
       agencia: agenciaStr,
       guide: reception?.guide_number || 'S/G',
       ingress_count: t.ingress_count || 1,
-      current_diagnostics: diagIds,
-      diagnosticoLabel,
+      passed_repair: Boolean(t.passed_repair),
+      passed_reacond: Boolean(t.passed_reacond),
+      series_sap_by_sn: (t.series_sap_by_sn as Record<string, string | null> | undefined) ?? {},
+      current_diagnostics: Array.isArray(t.current_diagnostics)
+        ? t.current_diagnostics.map(String).filter(Boolean)
+        : [],
+      current_repairs: Array.isArray(t.current_repairs)
+        ? t.current_repairs.map(String).filter(Boolean)
+        : [],
+      current_reacondicionado: Array.isArray(t.current_reacondicionado)
+        ? t.current_reacondicionado.map(String).filter(Boolean)
+        : [],
+      ...catalogLabels,
       brandId: t.brand_id || brandId || null,
       modelId: t.model_id || modelId || null,
       seriesId: t.all_dbIds?.[0] || t.id || null,
+      dispatchedSkuLabel:
+        skuLabelsByOs[String(t.service_order_id || t.id || '')] || '',
     };
   };
+
+  const filterHelpers = useMemo(
+    () => ({ seriesAt, ingressLabel }),
+    [seriesAt, ingressLabel],
+  );
+
+  const allTabRows = useMemo(() => {
+    const raw = workshopDatasetQuery.data?.items ?? [];
+    return raw.map(adaptWorkshopRow).map((row) =>
+      responsableOverrides[row.dbId]
+        ? { ...row, responsable: responsableOverrides[row.dbId] }
+        : row,
+    );
+  }, [workshopDatasetQuery.data?.items, catModelos, catDiagnosticos, catReparaciones, catReacondicionadoTests, catalogNamesById, skuLabelsByOs, responsableOverrides]);
+
+  const setColFilter = useCallback((col: WorkshopQueueFilterCol, next: ExcelFilterSelection) => {
+    setExcelFilters((prev) => ({ ...prev, [col]: next }));
+    startTransition(() => setTasksPage(1));
+  }, []);
+
+  const setColSort = useCallback((col: WorkshopQueueFilterCol, dir: 'asc' | 'desc' | null) => {
+    if (dir == null) {
+      setSortCol(null);
+      setSortDir(null);
+      return;
+    }
+    setSortCol(col);
+    setSortDir(dir);
+    startTransition(() => setTasksPage(1));
+  }, []);
+
+  const refetchWorkshopQueue = useCallback(async () => {
+    setTasksPage(1);
+    await queryClient.invalidateQueries({ queryKey: workshopTabDatasetQueryKey(workshopTab) });
+    void tabCountsQuery.refetch();
+  }, [queryClient, workshopTab, tabCountsQuery]);
+
+  const fetchTasks = refetchWorkshopQueue;
+
+  const refetchDespachoTasks = async () => {
+    setDespachoTasksLoading(true);
+    try {
+      const tabs: WorkshopTabId[] = [
+        'diagnostico',
+        'reparacion',
+        'esperando_partes',
+        'reacondicionado',
+        'qc',
+        'l3',
+        'scraps',
+      ];
+      const results = await Promise.all(tabs.map((tab) => fetchWorkshopTabDatasetViaApi(tab, 500)));
+      setDespachoTasks(results.flatMap((r) => r.items).map(adaptWorkshopRow));
+    } catch (err) {
+      console.error('Error loading despacho pool:', err);
+      notify.error('No se pudo cargar equipos para despacho');
+      setDespachoTasks([]);
+    } finally {
+      setDespachoTasksLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab !== 'despacho') return;
+    void refetchDespachoTasks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
 
   const collectSeriesIdsFromSelection = (selection: any | any[]): string[] => {
     const items = Array.isArray(selection) ? selection : [selection];
@@ -525,14 +640,11 @@ export default function TallerPage() {
     setSelectedForOperation(selection);
   };
 
-  const openMassOperation = () => {
-    const selectedItems = tasks.filter((t) => selectedRows.includes(t.dbId));
-    void openOperationForSelection(selectedItems);
-  };
-
   const seriesIdsForHistory = (item: any): string[] => {
-    if (item.all_dbIds?.length) return [...new Set(item.all_dbIds)];
-    if (item.dbId) return [item.dbId];
+    if (item.all_dbIds?.length) {
+      return [...new Set(item.all_dbIds.map((id: string) => String(id)))];
+    }
+    if (item.dbId) return [String(item.dbId)];
     return [];
   };
 
@@ -604,103 +716,28 @@ export default function TallerPage() {
     }
   }, [selectedForOperation, activeTab]);
 
-  const fetchTasks = async (append = false, searchOverride?: string) => {
-    if (activeTab === 'po' || activeTab === 'despacho') return;
-
-    const search = (searchOverride ?? debouncedSearchTerm).trim();
-    if (append && search) return;
-
-    const workshopTab = activeTab as WorkshopTabId;
-    const seq = append ? tasksFetchSeqRef.current : ++tasksFetchSeqRef.current;
-
-    if (append) setLoadingMore(true);
-    else setLoading(true);
-
-    try {
-      const cursor = append ? tasksCursor : null;
-      const rawSearch = append ? '' : search;
-      const parsedSearch = rawSearch ? parseWorkshopSearchTokens(rawSearch) : null;
-
-      if (!append && parsedSearch?.truncated) {
-        notify.warning(
-          `Solo se buscan las primeras ${BATCH_LIMITS.WORKSHOP_SEARCH_MAX_SERIALS} series`,
-          { description: `Pegaste ${parsedSearch.total}; el resto se omite.` }
-        );
-      }
-
-      const page = await fetchWorkshopTasksPageViaApi(
-        workshopTab,
-        cursor,
-        append ? undefined : search || undefined
-      );
-
-      // Respuesta obsoleta (el usuario ya cambió de pestaña / relanzó búsqueda).
-      if (seq !== tasksFetchSeqRef.current) return;
-
-      const adapted = page.items.map(adaptWorkshopRow);
-      if (seq !== tasksFetchSeqRef.current) return;
-      let withParts = adapted;
-      if (workshopTab === 'reparacion') {
-        try {
-          const osIds = adapted.map((row) => String(row.dbId || '')).filter(Boolean);
-          const skuRows = await fetchDispatchedSkusByOsApi(osIds);
-          if (seq !== tasksFetchSeqRef.current) return;
-          const labelByOs = new Map(skuRows.map((row) => [row.serviceOrderId, row.label]));
-          withParts = adapted.map((row) => ({
-            ...row,
-            dispatchedSkuLabel: labelByOs.get(String(row.dbId)) || '',
-          }));
-        } catch {
-          if (seq !== tasksFetchSeqRef.current) return;
-          withParts = adapted.map((row) => ({ ...row, dispatchedSkuLabel: '' }));
-        }
-      }
-
-      setTasks((prev) => (append ? [...prev, ...withParts] : withParts));
-      setTasksCursor(page.nextCursor);
-      setTasksHasMore(Boolean(page.nextCursor) && !search);
-      setTasksTotalOs(page.totalOs);
-
-      // Hint de otra pestaña solo con 1 serie (pegado masivo no aplica)
-      const singleToken =
-        parsedSearch && parsedSearch.tokens.length === 1 ? parsedSearch.tokens[0] : null;
-      if (!append && singleToken && adapted.length === 0) {
-        try {
-          const loc = await locateWorkshopEquipmentViaApi(singleToken);
-          if (seq !== tasksFetchSeqRef.current) return;
-          setLocateHint(
-            loc.found &&
-              (loc.outsideWorkshop || (Boolean(loc.tab) && loc.tab !== workshopTab))
-              ? loc
-              : null
-          );
-        } catch {
-          if (seq === tasksFetchSeqRef.current) setLocateHint(null);
-        }
-      } else if (!append) {
-        setLocateHint(null);
-      }
-    } catch (err) {
-      if (seq !== tasksFetchSeqRef.current) return;
-      const message =
-        err instanceof Error && /failed to fetch/i.test(err.message)
-          ? 'Servidor no disponible (reinicio o compilación). Recarga en unos segundos.'
-          : err instanceof Error
-            ? err.message
-            : undefined;
-      console.error('Error loading workshop tasks:', err);
-      notify.error('No se pudo cargar la cola de taller', { description: message });
-      if (!append) {
-        setTasks([]);
-        setLocateHint(null);
-      }
-    } finally {
-      if (seq === tasksFetchSeqRef.current) {
-        setLoading(false);
-        setLoadingMore(false);
-      }
-    }
-  };
+  const rowMatchesSearch = useCallback((row: WorkshopQueueRow, rawSearch: string): boolean => {
+    const parsed = rawSearch.trim() ? parseWorkshopSearchTokens(rawSearch) : null;
+    if (!parsed || parsed.tokens.length === 0) return true;
+    const blob = [
+      row.id,
+      row.dbId,
+      row.sn,
+      ...(row.all_sns ?? []),
+      row.tecnologia,
+      row.marca,
+      row.modelo,
+      row.boxCode,
+      row.diagnosticoLabel,
+      row.reparacionLabel,
+      row.reacondicionadoLabel,
+      row.dispatchedSkuLabel,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toUpperCase();
+    return parsed.tokens.some((tok) => blob.includes(tok));
+  }, []);
 
   const handleExportTabReport = async () => {
     if (activeTab === 'po' || activeTab === 'despacho' || activeTab === 'listo') {
@@ -725,9 +762,12 @@ export default function TallerPage() {
           modelo: a.modelo,
           caja: a.boxCode,
           diagnostico: a.diagnosticoLabel || '',
+          reparacion: a.reparacionLabel || '',
+          reacondicionado: a.reacondicionadoLabel || '',
           fecha: a.fecha,
           hora: a.hora,
           ingresos: ingressLabel(a.ingress_count),
+          historial: formatWorkshopStageHistoryLabel(a),
           ingreso: a.updatedAt,
           etapa: a.etapa,
           responsable: a.responsable,
@@ -771,8 +811,6 @@ export default function TallerPage() {
       if (!confirmed) return;
     }
 
-    setLoading(true);
-    
     let finalNotes = `[Evaluación Taller - ${activeTab.toUpperCase()}]\n`;
     
     if (activeTab === 'diagnostico') {
@@ -893,12 +931,11 @@ ${funcNotes || 'Ninguno evaluado'}
       setQcLegible(null);
       setReacondTests([]);
       await queryClient.invalidateQueries({ queryKey: ['workshop-tab-counts'] });
-      await fetchTasks(false);
+      await fetchTasks();
     } catch (error: any) {
       notify.error('Error guardando operación', { description: error.message });
     } finally {
       setOperateProgress(null);
-      setLoading(false);
     }
   };
 
@@ -906,7 +943,6 @@ ${funcNotes || 'Ninguno evaluado'}
     const item = returnModalOpen.item;
     if (!item || !returnTargetStage) return;
 
-    setLoading(true);
     try {
       const seriesIds = item.all_dbIds?.length ? item.all_dbIds : [item.dbId];
       await returnWorkshopInBatches(seriesIds, {
@@ -929,14 +965,12 @@ ${funcNotes || 'Ninguno evaluado'}
       notify.success(`Equipo movido a ${label}`);
       setReturnModalOpen({ isOpen: false, item: null });
       await queryClient.invalidateQueries({ queryKey: ['workshop-tab-counts'] });
-      await fetchTasks(false);
+      await fetchTasks();
     } catch (error: unknown) {
       console.error(error);
       notify.error('Error moviendo equipo', {
         description: error instanceof Error ? error.message : undefined,
       });
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -979,9 +1013,21 @@ ${funcNotes || 'Ninguno evaluado'}
     { id: 'despacho', label: 'Retornar a Bodega', icon: Send, color: 'text-indigo-500', bg: 'bg-indigo-50' },
   ];
 
-  // La API ya filtra por pestaña; no re-filtrar por etapa (evita cola vacía si hay
-  // desfase de mapeo o una respuesta cruzada residual).
-  const tabTasks = tasks;
+  // La API entrega la cola por pestaña; filtrado Excel + búsqueda en cliente.
+  const tabTasks = allTabRows;
+
+  const filterOptionsByCol = useMemo(() => {
+    const cols = workshopQueueFilterColumnsForTab(activeTab as WorkshopQueueTabId);
+    const searchPool = tabTasks.filter((row) => rowMatchesSearch(row, debouncedSearchTerm));
+    const map = {} as Record<WorkshopQueueFilterCol, string[]>;
+    for (const col of cols) {
+      const pool = searchPool.filter((row) =>
+        matchesWorkshopQueueExcelFilters(row, excelFilters, filterHelpers, col),
+      );
+      map[col] = workshopQueueUniqueValues(pool, col, filterHelpers);
+    }
+    return map;
+  }, [tabTasks, debouncedSearchTerm, excelFilters, filterHelpers, activeTab]);
 
   const techFilterOptions = useMemo(() => {
     const byKey = new Map<string, string>();
@@ -1010,13 +1056,74 @@ ${funcNotes || 'Ninguno evaluado'}
   const filteredTasks = useMemo(() => {
     const techKey = catalogLabelKey(techFilter);
     const modelKey = catalogLabelKey(modelFilter);
-    return tabTasks.filter((t) => {
-      if (techKey && catalogLabelKey(t.tecnologia) !== techKey) return false;
-      if (modelKey && catalogLabelKey(t.modelo) !== modelKey) return false;
-      // Con término de búsqueda la API ya filtró por serie/OS en toda la cola.
-      return true;
+    let list = tabTasks.filter((row) => {
+      if (!rowMatchesSearch(row, debouncedSearchTerm)) return false;
+      if (techKey && catalogLabelKey(row.tecnologia) !== techKey) return false;
+      if (modelKey && catalogLabelKey(row.modelo) !== modelKey) return false;
+      return matchesWorkshopQueueExcelFilters(row, excelFilters, filterHelpers);
     });
-  }, [tabTasks, techFilter, modelFilter, debouncedSearchTerm]);
+
+    if (sortCol && sortDir) {
+      list = [...list].sort((a, b) => {
+        const av = workshopQueueCellValue(a, sortCol, filterHelpers);
+        const bv = workshopQueueCellValue(b, sortCol, filterHelpers);
+        const cmp = av.localeCompare(bv, 'es', { sensitivity: 'base', numeric: true });
+        return sortDir === 'asc' ? cmp : -cmp;
+      });
+    }
+
+    return list;
+  }, [
+    tabTasks,
+    debouncedSearchTerm,
+    techFilter,
+    modelFilter,
+    excelFilters,
+    filterHelpers,
+    sortCol,
+    sortDir,
+    rowMatchesSearch,
+  ]);
+
+  useEffect(() => {
+    const parsed = debouncedSearchTerm.trim()
+      ? parseWorkshopSearchTokens(debouncedSearchTerm)
+      : null;
+    if (parsed?.truncated) {
+      notify.warning(
+        `Solo se buscan las primeras ${BATCH_LIMITS.WORKSHOP_SEARCH_MAX_SERIALS} series`,
+        { description: `Pegaste ${parsed.total}; el resto se omite.` },
+      );
+    }
+  }, [debouncedSearchTerm]);
+
+  useEffect(() => {
+    const parsed = debouncedSearchTerm.trim()
+      ? parseWorkshopSearchTokens(debouncedSearchTerm)
+      : null;
+    const singleToken =
+      parsed && parsed.tokens.length === 1 ? parsed.tokens[0] : null;
+    if (!singleToken || filteredTasks.length > 0 || activeTab === 'po' || activeTab === 'despacho') {
+      if (!singleToken) setLocateHint(null);
+      return;
+    }
+
+    const seq = ++locateSeqRef.current;
+    void locateWorkshopEquipmentViaApi(singleToken)
+      .then((loc) => {
+        if (seq !== locateSeqRef.current) return;
+        setLocateHint(
+          loc.found &&
+            (loc.outsideWorkshop ||
+              (Boolean(loc.tab) && loc.tab !== (activeTab as WorkshopTabId)))
+            ? loc
+            : null,
+        );
+      })
+      .catch(() => {
+        if (seq === locateSeqRef.current) setLocateHint(null);
+      });
+  }, [debouncedSearchTerm, filteredTasks.length, activeTab]);
 
   // Cascada: limpiar filtros inválidos al cambiar pestaña / tech.
   useEffect(() => {
@@ -1030,6 +1137,47 @@ ${funcNotes || 'Ninguno evaluado'}
       setModelFilter('');
     }
   }, [modelFilter, modelFilterOptions]);
+
+  const queueTotalCount = filteredTasks.length;
+  const queueTotalPages = Math.max(1, Math.ceil(queueTotalCount / WORKSHOP_QUEUE_PAGE_SIZE));
+  const safeQueuePage = Math.min(Math.max(1, tasksPage), queueTotalPages);
+  const queueStartItem =
+    queueTotalCount === 0 ? 0 : (safeQueuePage - 1) * WORKSHOP_QUEUE_PAGE_SIZE + 1;
+  const queueEndItem =
+    queueTotalCount === 0
+      ? 0
+      : Math.min(safeQueuePage * WORKSHOP_QUEUE_PAGE_SIZE, queueTotalCount);
+
+  useEffect(() => {
+    if (tasksPage > queueTotalPages) {
+      startTransition(() => setTasksPage(queueTotalPages));
+    }
+  }, [tasksPage, queueTotalPages]);
+
+  const pageItems = useMemo(() => {
+    const start = (safeQueuePage - 1) * WORKSHOP_QUEUE_PAGE_SIZE;
+    return filteredTasks.slice(start, start + WORKSHOP_QUEUE_PAGE_SIZE);
+  }, [filteredTasks, safeQueuePage]);
+
+  const handleQueuePageChange: React.Dispatch<React.SetStateAction<number>> = (next) => {
+    const resolved = typeof next === 'function' ? next(safeQueuePage) : next;
+    const clamped = Math.min(Math.max(1, resolved), queueTotalPages);
+    startTransition(() => setTasksPage(clamped));
+  };
+
+  const openMassOperation = () => {
+    const selectedItems = filteredTasks.filter((t) => selectedRows.includes(t.dbId));
+    void openOperationForSelection(selectedItems);
+  };
+
+  const hasActiveExcelFilters = hasActiveWorkshopQueueExcelFilters(excelFilters);
+
+  const clearExcelFilters = useCallback(() => {
+    setExcelFilters(createEmptyWorkshopQueueExcelFilters(activeTab as WorkshopQueueTabId));
+    setSortCol(null);
+    setSortDir(null);
+    startTransition(() => setTasksPage(1));
+  }, [activeTab]);
 
   return (
     <ModulePage
@@ -1110,222 +1258,60 @@ ${funcNotes || 'Ninguno evaluado'}
             const currentTab = tabs.find(t => t.id === activeTab) || tabs[0];
             const TabIcon = currentTab.icon;
 
-            const tallerColumns: DataTableColumn<any>[] = [
-              {
-                id: 'select',
-                width: '28px',
-                align: 'center',
-                header: (
-                  <input
-                    type="checkbox"
-                    className="h-3.5 w-3.5 rounded border-[var(--border)] text-[var(--accent)] focus:ring-[var(--accent)]"
-                    checked={tasks.length > 0 && selectedRows.length === tasks.length}
-                    onChange={(e) => {
-                      if (e.target.checked) setSelectedRows(tasks.map((t: any) => t.dbId));
-                      else setSelectedRows([]);
-                    }}
-                  />
-                ),
-                cell: (item: any) => (
-                  <input
-                    type="checkbox"
-                    className="h-3.5 w-3.5 rounded border-[var(--border)] text-[var(--accent)] focus:ring-[var(--accent)]"
-                    checked={selectedRows.includes(item.dbId)}
-                    onChange={(e) => {
-                      if (e.target.checked) setSelectedRows([...selectedRows, item.dbId]);
-                      else setSelectedRows(selectedRows.filter((id: string) => id !== item.dbId));
-                    }}
-                  />
-                ),
+            const tallerColumns = buildWorkshopQueueColumns({
+              activeTab,
+              seriesSlots: WORKSHOP_SERIES_SLOTS,
+              hideTechCol,
+              tasks: pageItems,
+              selectedRows,
+              setSelectedRows,
+              seriesAt,
+              ingressLabel,
+              onShowItemDetail: setShowItemDetail,
+              onOpenOperation: (item) => void openOperationForSelection(item),
+              onRequestPart: (item) => {
+                setRequestPartTarget(item);
+                setShowRequestPart(true);
               },
-              {
-                id: 'orden',
-                header: 'OS',
-                width: 'minmax(0,0.7fr)',
-                cell: (item: any) => plainCell(String(item.id || '—')),
+              onReturnStage: (item) => {
+                setReturnModalOpen({ isOpen: true, item });
+                setReturnTargetStage('in_workshop');
               },
-              ...Array.from({ length: WORKSHOP_SERIES_SLOTS }, (_, i) => ({
-                id: `s${i + 1}`,
-                header: `S${i + 1}`,
-                width: 'minmax(90px, 0.85fr)',
-                cell: (item: any) => {
-                  const serial = seriesAt(item, i);
-                  if (!serial) return plainCell('—', true);
-                  return (
-                    <button
-                      type="button"
-                      onClick={() => setShowItemDetail(item)}
-                      title={serial}
-                      className="block w-full min-w-0 truncate text-left text-xs font-medium whitespace-nowrap text-[var(--foreground)] hover:text-[var(--heading)] hover:underline"
-                    >
-                      {serial}
-                    </button>
-                  );
-                },
-              } as DataTableColumn<any>)),
-              ...(!hideTechCol
-                ? [{
-                    id: 'tecnologia',
-                    header: 'Tec.',
-                    width: 'minmax(0,0.5fr)',
-                    cell: (item: any) => plainCell(String(item.tecnologia || '—').toUpperCase()),
-                  } as DataTableColumn<any>]
-                : []),
-              {
-                id: 'modelo',
-                header: 'Modelo',
-                width: 'minmax(0,0.8fr)',
-                cell: (item: any) =>
-                  plainCell(`${item.marca || ''} ${item.modelo || ''}`.trim().toUpperCase() || '—'),
-              },
-              ...(activeTab === 'reparacion'
-                ? [
-                    {
-                      id: 'sku',
-                      header: 'SKU',
-                      width: 'minmax(88px, 0.7fr)',
-                      cell: (item: any) => {
-                        const label = String(item.dispatchedSkuLabel || '').trim();
-                        return (
-                          <span
-                            title={label || 'Sin pieza despachada'}
-                            className={`block min-w-0 truncate font-mono text-[10px] font-bold ${
-                              label ? 'text-[var(--foreground)]' : 'text-[var(--muted)]'
-                            }`}
-                          >
-                            {label || '—'}
-                          </span>
-                        );
-                      },
-                    } as DataTableColumn<any>,
-                  ]
-                : []),
-              {
-                id: 'caja',
-                header: 'Caja',
-                width: 'minmax(0,0.45fr)',
-                cell: (item: any) => plainCell(String(item.boxCode || '—'), !item.boxCode),
-              },
-              ...(activeTab === 'l3'
-                ? [
-                    {
-                      id: 'diagnostico',
-                      header: 'Diagnóstico',
-                      width: 'minmax(140px, 1.2fr)',
-                      cell: (item: any) => {
-                        const label = String(item.diagnosticoLabel || 'Sin diagnóstico registrado');
-                        const empty = label === 'Sin diagnóstico registrado';
-                        return (
-                          <span
-                            title={label}
-                            className={`block min-w-0 truncate text-xs font-medium ${
-                              empty ? 'text-[var(--muted)] italic' : 'text-[var(--foreground)]'
-                            }`}
-                          >
-                            {label}
-                          </span>
-                        );
-                      },
-                    } as DataTableColumn<any>,
-                  ]
-                : []),
-              {
-                id: 'fecha',
-                header: 'Fecha',
-                width: 'minmax(0,0.85fr)',
-                cell: (item: any) => {
-                  const label = [item.fecha, item.hora].filter(Boolean).join(' ');
-                  return plainCell(label || '—', !label);
-                },
-              },
-              {
-                id: 'ingresos',
-                header: 'Ingresos',
-                width: 'minmax(0,0.7fr)',
-                cell: (item: any) =>
-                  plainCell(ingressLabel(item.ingress_count), item.ingress_count > 1),
-              },
-              {
-                id: 'accion',
-                header: 'Acc.',
-                width:
-                  activeTab === 'diagnostico'
-                    ? '40px'
-                    : activeTab === 'reparacion'
-                      ? '116px'
-                      : activeTab === 'scraps'
-                        ? '96px'
-                        : '84px',
-                sticky: 'end',
-                align: 'right',
-                headerClassName: `justify-end ${TALLER_TABLE_HEADER} ${TALLER_TABLE_HEADER_TEXT}`,
-                cell: (item: any) => (
-                  <div className="flex items-center justify-end gap-0.5">
-                    {activeTab === 'reparacion' && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setRequestPartTarget(item);
-                          setShowRequestPart(true);
-                        }}
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-sky-200 bg-sky-50 text-sky-700 transition-colors hover:border-sky-400 hover:bg-sky-100"
-                        title="Solicitar pieza a Bodega de Partes"
-                        aria-label={`Solicitar pieza para ${item.id || item.sn || 'la OS'}`}
-                      >
-                        <PackagePlus size={13} />
-                      </button>
-                    )}
-                    {activeTab !== 'diagnostico' && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setReturnModalOpen({ isOpen: true, item });
-                          setReturnTargetStage('in_workshop');
-                        }}
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[var(--border)] text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--heading)]"
-                        title="Regresar a otra etapa"
-                        aria-label="Regresar a otra etapa"
-                      >
-                        <RotateCcw size={12} />
-                      </button>
-                    )}
-                    {activeTab === 'scraps' && (
-                      <button
-                        type="button"
-                        onClick={() => setCommentModalOpen({ isOpen: true, item })}
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[var(--border)] text-[var(--muted)] transition-colors hover:bg-rose-50 hover:text-rose-700"
-                        title="Agregar comentario"
-                        aria-label="Agregar comentario"
-                      >
-                        <MessageSquare size={12} />
-                      </button>
-                    )}
-                    {activeTab !== 'diagnostico' && (
-                      <button
-                        type="button"
-                        onClick={() => setHistoryModalOpen({ isOpen: true, item })}
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[var(--border)] text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--heading)]"
-                        title="Ver historial"
-                        aria-label="Ver historial"
-                      >
-                        <History size={12} />
-                      </button>
-                    )}
-                    {activeTab !== 'scraps' && (
-                      <button
-                        type="button"
-                        title="Evaluar"
-                        aria-label="Evaluar"
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[var(--border)] bg-[var(--primary)] text-[var(--primary-foreground)] transition-colors hover:opacity-90"
-                        onClick={() => void openOperationForSelection(item)}
-                      >
-                        <ArrowRight size={12} />
-                      </button>
-                    )}
-                  </div>
-                ),
-              },
-            ];
+              onOpenHistory: (item) => setHistoryModalOpen({ isOpen: true, item }),
+              onOpenComment: (item) => setCommentModalOpen({ isOpen: true, item }),
+              headerClassName: TALLER_TABLE_HEADER,
+              headerTextClassName: TALLER_TABLE_HEADER_TEXT,
+              excelFilters,
+              filterOptionsByCol,
+              onColFilterChange: setColFilter,
+              sortCol,
+              sortDir,
+              onColSort: setColSort,
+            });
+
+            const tallerTable = (
+              <DataTable
+                columns={tallerColumns}
+                data={pageItems}
+                getRowId={(item: any) => item.groupId || item.dbId}
+                rowHeight={36}
+                maxBodyHeight={680}
+                minWidth={workshopQueueTableMinWidth(activeTab)}
+                compact
+                headerClassName={TALLER_TABLE_HEADER}
+                headerTextClassName={TALLER_TABLE_HEADER_TEXT}
+                emptyMessage="No hay equipos en cola"
+                rowClassName={(item: any) => {
+                  if (selectedRows.includes(item.dbId)) {
+                    return 'bg-[var(--accent)]/10';
+                  }
+                  if (Number(item.ingress_count) >= 2) {
+                    return 'bg-violet-50/80';
+                  }
+                  return undefined;
+                }}
+              />
+            );
 
             return (
               <div className="space-y-6">
@@ -1449,6 +1435,16 @@ ${funcNotes || 'Ninguno evaluado'}
 
                   {/* Acciones — envuelven en varias filas si no caben */}
                   <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-2 sm:gap-3 xl:w-auto xl:justify-end">
+                    {hasActiveExcelFilters ? (
+                      <Button
+                        variant="outline"
+                        className="border-[var(--border)] text-[10px] font-black tracking-widest text-[var(--foreground)] uppercase"
+                        leftIcon={<X className="w-4 h-4" />}
+                        onClick={clearExcelFilters}
+                      >
+                        Limpiar filtros columnas
+                      </Button>
+                    ) : null}
                     <Button
                       variant="outline"
                       className="border-[var(--border)] text-[10px] font-black tracking-widest text-[var(--foreground)] uppercase"
@@ -1537,7 +1533,11 @@ ${funcNotes || 'Ninguno evaluado'}
                               className="bg-[var(--primary)] text-[var(--primary-foreground)] shadow-lg hover:opacity-90" 
                               leftIcon={<Plus className="w-4 h-4" />}
                               onClick={() => {
-                                setTasks(tasks.map(t => selectedRows.includes(t.dbId) ? { ...t, responsable: 'ASIGNADO' } : t));
+                                setResponsableOverrides((prev) => {
+                                  const next = { ...prev };
+                                  for (const id of selectedRows) next[id] = 'ASIGNADO';
+                                  return next;
+                                });
                                 setSelectedRows([]);
                               }}
                             >
@@ -1551,7 +1551,7 @@ ${funcNotes || 'Ninguno evaluado'}
                             >
                               {activeTab === 'diagnostico' ? 'Diagnóstico Masivo' : 'Operar Selección'}
                               {' '}
-                              ({formatWorkshopSelectionLabel(tasks.filter((t) => selectedRows.includes(t.dbId)))})
+                              ({formatWorkshopSelectionLabel(filteredTasks.filter((t) => selectedRows.includes(t.dbId)))})
                             </Button>
                       </div>
                     ) : (
@@ -1571,7 +1571,7 @@ ${funcNotes || 'Ninguno evaluado'}
                   </div>
                 </div>
 
-                <Card padding="none" className="min-w-0 w-full overflow-hidden border border-[var(--border)] bg-[var(--surface)] p-0 shadow-sm">
+                <Card padding="none" className="min-w-0 w-full border border-[var(--border)] bg-[var(--surface)] p-0 shadow-sm">
                   {operateProgress ? (
                     <div className="space-y-4 px-8 py-16 text-center">
                       <Loader2 className="mx-auto h-8 w-8 animate-spin text-[var(--muted)]" />
@@ -1589,7 +1589,7 @@ ${funcNotes || 'Ninguno evaluado'}
                         />
                       </div>
                     </div>
-                  ) : loading ? (
+                  ) : loading && allTabRows.length === 0 ? (
                     <div className="py-20 text-center">
                       <Loader2 className="mx-auto h-8 w-8 animate-spin text-[var(--muted)]" />
                       <p className="mt-4 text-[10px] font-semibold tracking-widest text-[var(--muted)] uppercase">
@@ -1597,43 +1597,33 @@ ${funcNotes || 'Ninguno evaluado'}
                       </p>
                     </div>
                   ) : (
-                    <>
-                      <DataTable
-                        columns={tallerColumns}
-                        data={filteredTasks}
-                        getRowId={(item: any) => item.groupId || item.dbId}
-                        rowHeight={36}
-                        maxBodyHeight={680}
-                        compact
-                        headerClassName={TALLER_TABLE_HEADER}
-                        headerTextClassName={TALLER_TABLE_HEADER_TEXT}
-                        emptyMessage="No hay equipos en cola"
-                        rowClassName={(item: any) =>
-                          selectedRows.includes(item.dbId) ? 'bg-[var(--accent)]/10' : undefined
-                        }
+                    <div className="relative">
+                      {isRefreshing ? (
+                        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center bg-[var(--surface)]/70 py-2">
+                          <Loader2 className="h-5 w-5 animate-spin text-[var(--muted)]" />
+                        </div>
+                      ) : null}
+                      {workshopQueueUsesTopScroll(activeTab) ? (
+                        <HorizontalScrollArea
+                          className="border-b border-[var(--border)]"
+                          minContentWidth={workshopQueueTableMinWidth(activeTab)}
+                        >
+                          {tallerTable}
+                        </HorizontalScrollArea>
+                      ) : (
+                        tallerTable
+                      )}
+                      <TablePagination
+                        totalCount={queueTotalCount}
+                        page={safeQueuePage}
+                        totalPages={queueTotalPages}
+                        startItem={queueStartItem}
+                        endItem={queueEndItem}
+                        pageSize={WORKSHOP_QUEUE_PAGE_SIZE}
+                        onPageChange={handleQueuePageChange}
+                        itemLabel="equipos (OS)"
                       />
-                      <div className="flex items-center justify-between border-t border-[var(--border)] bg-[var(--surface-hover)] px-3 py-2">
-                        <span className="text-[10px] font-semibold tracking-widest text-[var(--muted)] uppercase">
-                          {tasksTotalOs != null
-                            ? `${filteredTasks.length} de ${tasksTotalOs} equipos en cola`
-                            : `${filteredTasks.length} equipos en cola`}
-                          {tabCounts[activeTab] != null && tasksTotalOs != null && tabCounts[activeTab] !== tasksTotalOs && (
-                            <span className="text-[var(--muted)]"> · badge {tabCounts[activeTab]}</span>
-                          )}
-                        </span>
-                        {tasksHasMore && !debouncedSearchTerm && (
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            disabled={loadingMore}
-                            leftIcon={loadingMore ? <Loader2 className="w-3 h-3 animate-spin" /> : <ChevronDown className="w-3 h-3" />}
-                            onClick={() => void fetchTasks(true)}
-                          >
-                            {loadingMore ? 'Cargando…' : 'Cargar más equipos'}
-                          </Button>
-                        )}
-                      </div>
-                    </>
+                    </div>
                   )}
                 </Card>
               </div>
@@ -1643,7 +1633,7 @@ ${funcNotes || 'Ninguno evaluado'}
           {/* ════════════ TAB: RETORNAR A BODEGA ════════════ */}
           {activeTab === 'despacho' && (
             <DespachoView
-              tasks={tasks}
+              tasks={despachoTasks}
               catMarcas={catMarcas}
               catModelos={catModelos}
               catTecnologias={catTecnologias}
@@ -1651,7 +1641,7 @@ ${funcNotes || 'Ninguno evaluado'}
               DESP_DESTINOS={DESP_DESTINOS}
               generateDespConduce={generateDespConduce}
               despResetPistolero={despResetPistolero}
-              fetchTasks={fetchTasks}
+              fetchTasks={refetchDespachoTasks}
               despFase={despFase}
               setDespFase={setDespFase}
               despActiveMovements={despActiveMovements}
@@ -1870,49 +1860,22 @@ ${funcNotes || 'Ninguno evaluado'}
                           )}
                         </div>
                         <div>
-                          <h4 className="text-[11px] leading-tight font-black text-[var(--heading)] uppercase">
+                          <h4 className="text-sm leading-tight font-black text-[var(--heading)] uppercase">
                             {record.action}
                           </h4>
-                          <p className="mt-0.5 text-[9px] font-bold text-[var(--muted)]">
+                          <p className="mt-1 text-xs font-bold text-[var(--muted)]">
                             {new Date(record.changed_at).toLocaleString()} •{' '}
                             {record.profiles?.full_name?.toUpperCase() || 'SISTEMA'}
                           </p>
-                          <div className="mt-2 rounded-lg border border-[var(--border)] bg-[var(--surface-hover)] p-2.5 text-[10px] leading-snug text-[var(--foreground)]">
+                          <div className="mt-3 rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] p-3.5">
                             {isWorkshopComplete ? (
-                              <>
-                                {payload.result && (
-                                  <p><strong>Resultado:</strong> {
-                                    payload.result === 'reparacion' ? 'Reparación (L1/L2)' :
-                                    payload.result === 'reacondicionado' ? 'Reacondicionado' :
-                                    payload.result === 'l3' ? 'Falla Mayor (L3)' :
-                                    payload.result === 'scraps' ? 'Scrap / Desecho' :
-                                    payload.result === 'control_calidad' ? 'Control de Calidad QC' :
-                                    payload.result === 'listo' ? 'Aceptado / Listo' :
-                                    payload.result === 'rechazado_qc' ? 'Rechazado en QC' :
-                                    payload.result
-                                  }</p>
-                                )}
-                                {payload.notes && <p className="mt-1 whitespace-pre-wrap"><strong>Notas:</strong> {payload.notes}</p>}
-                                {(payload.items?.length > 0 || payload.repairs?.length > 0) && (
-                                  <div className="mt-2">
-                                    <p><strong>{record.action.includes('REPARACIÓN') ? 'Reparaciones' : 'Fallas / Items'} reportadas:</strong></p>
-                                    <ul className="list-disc ml-5 mt-1">
-                                      {(payload.items || payload.repairs).map((id: string) => {
-                                        const c = catDiagnosticos.find(d => d.id === id) || catReparaciones.find(r => r.id === id);
-                                        return <li key={id}>{c ? c.nombre : id}</li>;
-                                      })}
-                                    </ul>
-                                  </div>
-                                )}
-                                {payload.nextStatus && (
-                                  <div className="mt-2">
-                                    <span className="inline-flex items-center gap-1.5 rounded-md bg-[var(--primary)] px-2 py-1 text-[9px] font-black tracking-wide text-[var(--primary-foreground)]">
-                                      <span className="text-white/60">DERIVADO A:</span>
-                                      {statusLabel(String(payload.nextStatus))}
-                                    </span>
-                                  </div>
-                                )}
-                              </>
+                              <WorkshopHistoryRecordBody
+                                action={String(record.action || '')}
+                                payload={payload as Record<string, unknown>}
+                                diagnosticsCatalog={catDiagnosticos}
+                                repairsCatalog={catReparaciones}
+                                catalogNamesById={catalogNamesById}
+                              />
                             ) : (
                               <div className="space-y-2">
                                 {payload.reason && (
@@ -1965,6 +1928,9 @@ ${funcNotes || 'Ninguno evaluado'}
           item={showItemDetail}
           activeTab={activeTab}
           onClose={() => setShowItemDetail(null)}
+          catDiagnosticos={catDiagnosticos}
+          catReparaciones={catReparaciones}
+          catalogNamesById={catalogNamesById}
         />
       )}
 

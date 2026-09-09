@@ -8,7 +8,7 @@ const migration = readFileSync(
     process.cwd(),
     'supabase',
     'migrations',
-    '20260905020000_os_modules_bodega_despacho.sql',
+    '20260908144500_os_modules_exclusive_bodega_listo.sql',
   ),
   'utf8',
 );
@@ -35,10 +35,13 @@ function mods(overrides: Partial<OsInventoryModules> = {}): OsInventoryModules {
     bodega_sin_caja: 0,
     pistoleo_en_curso: 0,
     backoffice: 0,
+    backoffice_os: 0,
+    pendiente_bodega_os: 0,
     series_recepcionado_bo: 0,
     historial_backoffice: 0,
     equipo_listo: 0,
     despachado: 0,
+    devuelto: 0,
     taller_diagnostico: 0,
     taller_reparacion: 0,
     taller_reacondicionado: 0,
@@ -85,6 +88,25 @@ describe('Inventario OS · módulo Bodega Despacho', () => {
       migration.indexOf(')::bigint AS activas'),
     );
     expect(activasBlock).toContain('a.bodega_despacho');
+    expect(activasBlock).toContain('a.equipo_listo');
+  });
+
+  it('no duplica OS entre bodega stock y equipo listo', () => {
+    const bodegaFilter = migration.slice(
+      migration.indexOf('WITH agg AS'),
+      migration.indexOf('AS bodega_con_caja'),
+    );
+    expect(bodegaFilter).toContain('bucket equipo_listo');
+    expect(bodegaFilter).toMatch(
+      /NOT EXISTS \([\s\S]*FROM public\.series sl[\s\S]*in_central_warehouse[\s\S]*erp_audit_logs/,
+    );
+  });
+
+  it('el panel cuadra histórico = en planta + despachadas + devueltas', () => {
+    expect(panel).toContain('En planta');
+    expect(panel).toContain('cuadreHistorico');
+    expect(panel).toContain('modulesRpcOk');
+    expect(panel).not.toContain('Módulos RPC');
   });
 
   it('expone la fila 05c en el detalle de realidad OS', () => {

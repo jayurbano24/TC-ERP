@@ -49,7 +49,7 @@ export const STATIC_REPORT_CATALOG = [
     name: 'Operaciones mensual por tecnología',
     category: 'Operaciones',
     description:
-      'Matriz Año/País/Mes/Tecnología: equipos (OS); Reparado = QC+Equipo Listo (sin cola Reparación); origen CAC/PX vía series.entry_source',
+      'Matriz Año/País/Mes/Tecnología (hoja resumen) + detalle de series «Entregado» que cuadra por TRATAMIENTO (IG/TL/OB/RP/RC) y canal CAC/PX',
     columns: [
       'Año',
       'País',

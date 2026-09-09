@@ -1456,7 +1456,7 @@ export async function getInventoryDetails() {
   const seriesSelect = `
     *,
     boxes (id, box_code, status, rack_location, created_at),
-    service_orders (os_label, sap_integration_status),
+    service_orders (os_label, sap_integration_status, main_serial, reentry_count),
     receptions (
         guide_number,
         notes,
@@ -1532,7 +1532,7 @@ export async function getScrapInventoryDetails() {
   const seriesSelect = `
     *,
     boxes (id, box_code, status, rack_location, created_at),
-    service_orders (os_label, sap_integration_status),
+    service_orders (os_label, sap_integration_status, main_serial, reentry_count),
     receptions (
         guide_number,
         notes,
@@ -1608,7 +1608,60 @@ export async function getScrapInventoryDetails() {
     };
   });
 
-  return { data: enriched };
+  /** Hidrata S2–S4: todas las series de la OS, no solo la irreparable en caja SCRAP. */
+  const osIds = [
+    ...new Set(
+      enriched
+        .map((row) => row.service_order_id as string | null | undefined)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+
+  const seriesById = new Map<string, (typeof enriched)[number]>();
+  for (const row of enriched) {
+    seriesById.set(String(row.id), row);
+  }
+
+  if (osIds.length > 0) {
+    for (const osChunk of chunkIds(osIds)) {
+      let offset = 0;
+      while (offset < WAREHOUSE_BOX_FETCH_LIMIT) {
+        const { data: siblingRows, error: siblingError } = await supabase
+          .from('series')
+          .select(seriesSelect)
+          .in('service_order_id', osChunk)
+          .order('created_at', { ascending: true })
+          .order('id', { ascending: true })
+          .range(offset, offset + pageSize - 1);
+
+        if (siblingError) {
+          console.error('Error fetching scrap OS sibling series:', siblingError);
+          break;
+        }
+        if (!siblingRows?.length) break;
+
+        for (const row of siblingRows) {
+          const id = String(row.id);
+          const existing = seriesById.get(id);
+          if (existing) {
+            seriesById.set(id, { ...row, ...existing });
+          } else {
+            seriesById.set(id, {
+              ...row,
+              diagnostic_ids: [],
+              diagnostic_labels: [],
+              scrap_reason: '',
+            });
+          }
+        }
+
+        if (siblingRows.length < pageSize) break;
+        offset += pageSize;
+      }
+    }
+  }
+
+  return { data: [...seriesById.values()] };
 }
 
 export async function getBoxHistory(boxId: string) {

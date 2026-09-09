@@ -6,6 +6,7 @@ import { Eye, Loader2, RotateCcw, Trash2 } from 'lucide-react';
 import { getAgenciaLabel } from '@/app/(erp)/produccion/backoffice/backofficeHelpers';
 import type { CatalogAgency } from '@/app/(erp)/produccion/backoffice/types';
 import type { BoxReturnRow } from '@/modules/returns/client/returnData';
+import { displayTransferNotes } from '@/modules/returns/client/returnData';
 
 const PAGE_SIZE = 20;
 
@@ -141,7 +142,7 @@ export function BodegaDevolucionTable({
       width: 'minmax(200px,1.5fr)',
       cell: (row) => (
         <p className="text-xs font-bold text-slate-400 italic max-w-md">
-          {row.transferNotes || 'Sin notas adicionales'}
+          {displayTransferNotes(row.transferNotes)}
         </p>
       ),
     },

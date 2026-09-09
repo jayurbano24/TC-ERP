@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { Card, Badge, Button, notify, confirmDialog } from '@/components/ui';
 import { ModulePage } from '@/components/module-page';
 import { 
@@ -47,6 +47,34 @@ import { ConfigModal } from './components/ConfigModal';
 import { AgenciasView } from './components/AgenciasView';
 import { CatalogTableView } from './components/CatalogTableView';
 import { PiezasCatalogView } from './components/PiezasCatalogView';
+import {
+  countCatalogDuplicates,
+  countModelDuplicates,
+  dedupeCatalogByName,
+  findDuplicateCatalogName,
+  annotateModelDuplicates,
+  normalizeCatalogName,
+} from '@/shared/catalogs/catalogNameDedup';
+import {
+  exportDiagnosticsCsv,
+  exportReacondicionadoCsv,
+  exportRepairsCsv,
+  findCatalogIdByName,
+  resolveCatalogIdsFromNames,
+  resolveRepairIdsFromNames,
+  WORKSHOP_CATALOG_PAGE_SIZE,
+} from './utils/workshopCatalogCsv';
+import { readCatalogSpreadsheet } from './utils/catalogExcel';
+import {
+  exportAgenciesCsv,
+  exportBrandsCsv,
+  exportCarriersCsv,
+  exportPxProvidersCsv,
+  exportReturnReasonsCsv,
+  exportTechnologiesCsv,
+  findCarrierDbIdByCode,
+  parseDigitsPerSeries,
+} from './utils/configCatalogCsv';
 
 type Marca = { id: string; nombre: string };
 type Modelo = { 
@@ -138,6 +166,13 @@ export default function ConfiguracionPage() {
   const [loading, setLoading] = useState(true);
   const [selectedAgencyIds, setSelectedAgencyIds] = useState<Set<string>>(new Set());
 
+  const reparacionesLista = useMemo(() => dedupeCatalogByName(reparaciones), [reparaciones]);
+  const diagnosticosLista = useMemo(() => dedupeCatalogByName(diagnosticos), [diagnosticos]);
+  const reparacionesDuplicadas = useMemo(() => countCatalogDuplicates(reparaciones), [reparaciones]);
+  const diagnosticosDuplicados = useMemo(() => countCatalogDuplicates(diagnosticos), [diagnosticos]);
+  const modelosTabla = useMemo(() => annotateModelDuplicates(modelos), [modelos]);
+  const modelosDuplicados = useMemo(() => countModelDuplicates(modelos), [modelos]);
+
   React.useEffect(() => {
     const loadData = async () => {
       setLoading(true);
@@ -180,9 +215,11 @@ export default function ConfiguracionPage() {
 
   // Paginación
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
-  const totalPages = Math.ceil(agencias.length / itemsPerPage);
+  const itemsPerPage = WORKSHOP_CATALOG_PAGE_SIZE;
+  const totalPages = Math.max(1, Math.ceil(agencias.length / itemsPerPage));
   const paginatedAgencias = agencias.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const agencyRangeStart = agencias.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
+  const agencyRangeEnd = Math.min(currentPage * itemsPerPage, agencias.length);
 
   // Form State
   const [formData, setFormData] = useState<any>({});
@@ -218,7 +255,9 @@ export default function ConfiguracionPage() {
           setModelos(m.map((x: any) => ({ ...x, nombre: x.name, marcaId: x.brand_id, tecnologiaId: x.technology_id, seriesCount: x.series_count, digitsPerSeries: x.digits_per_series })));
         } else {
           const errMsg = typeof error === 'string' ? error : (error as any)?.message;
-          notify.error('Error al guardar modelo', { description: errMsg || 'Conflicto de código o nombre' });
+          notify.error('Error al guardar modelo', { description: errMsg || 'Nombre duplicado para esta marca' });
+          setLoading(false);
+          return;
         }
       } else if (modalType === 'tecnologia') {
         const { error } = await saveTechnology({ 
@@ -284,6 +323,8 @@ export default function ConfiguracionPage() {
             setReparaciones(r.map((x: any) => ({ id: x.id, nombre: x.name })));
           } else {
             notify.error('Error al guardar reparación', { description: (error as any)?.message });
+            setLoading(false);
+            return;
           }
         } else {
           const { error } = await saveDiagnosticConfig({ ...editingItem, ...formData });
@@ -292,6 +333,8 @@ export default function ConfiguracionPage() {
             setDiagnosticos(d);
           } else {
             notify.error('Error al guardar diagnóstico', { description: (error as any)?.message });
+            setLoading(false);
+            return;
           }
         }
       } else if (modalType === 'reacondicionado') {
@@ -331,6 +374,128 @@ export default function ConfiguracionPage() {
     }
     setLoading(false);
     setShowModal(false);
+  };
+
+  const handleQuickSave = async (type: string, item: any) => {
+    setLoading(true);
+    try {
+      if (type === 'marca') {
+        const { error } = await saveBrand(item);
+        if (!error) {
+          const b = await getBrands();
+          setMarcas(b.map((x: any) => ({ ...x, nombre: x.name })));
+          notify.success('Marca guardada');
+        } else {
+          notify.error('Error al guardar marca', { description: typeof error === 'string' ? error : (error as any)?.message });
+        }
+      } else if (type === 'modelo') {
+        const { error } = await saveModel(item);
+        if (!error) {
+          const m = await getModels();
+          setModelos(m.map((x: any) => ({
+            ...x,
+            nombre: x.name,
+            marcaId: x.brand_id,
+            tecnologiaId: x.technology_id,
+            seriesCount: x.series_count,
+            digitsPerSeries: x.digits_per_series,
+          })));
+          notify.success('Modelo guardado');
+        } else {
+          notify.error('Error al guardar modelo', {
+            description: typeof error === 'string' ? error : (error as any)?.message,
+          });
+        }
+      } else if (type === 'tecnologia') {
+        const { error } = await saveTechnology({
+          id: item.id,
+          name: item.nombre,
+          series_count: item.seriesCount,
+          digits_per_series: item.digitsPerSeries,
+        });
+        if (!error) {
+          const t = await getTechnologies();
+          setTecnologias(t.map((x: any) => ({ ...x, nombre: x.name, seriesCount: x.series_count, digitsPerSeries: x.digits_per_series })));
+          notify.success('Tecnología guardada');
+        } else {
+          notify.error('Error al guardar tecnología', { description: typeof error === 'string' ? error : (error as any)?.message });
+        }
+      } else if (type === 'agencia') {
+        const { error } = await saveAgency(item);
+        if (!error) {
+          const a = await getAgencies();
+          setAgencias(a.map((x: any) => ({
+            dbId: x.id,
+            id: x.code,
+            nombre: x.name,
+            encargado: x.manager || '',
+            email: x.email || '',
+            telefono: x.phone || '',
+            direccion: x.address || '',
+          })));
+          notify.success('Agencia guardada');
+        } else {
+          notify.error('Error al guardar agencia', { description: typeof error === 'string' ? error : (error as any)?.message });
+        }
+      } else if (type === 'transporte') {
+        const { error } = await saveCarrier({ id: item.dbId, nombre: item.nombre, code: item.id });
+        if (!error) {
+          const c = await getCarriers();
+          setTransportes(c.map((x: any) => ({ dbId: x.id, id: x.code, nombre: x.name })));
+          notify.success('Transporte guardado');
+        } else {
+          notify.error('Error al guardar transporte', { description: typeof error === 'string' ? error : (error as any)?.message });
+        }
+      } else if (type === 'px_provider') {
+        const { error } = await savePxProvider(item);
+        if (!error) {
+          const px = await getPxProviders();
+          setPxProviders(px.map((x: any) => ({ ...x, nombre: x.name })));
+          notify.success('Proveedor guardado');
+        } else {
+          notify.error('Error al guardar proveedor PX', { description: typeof error === 'string' ? error : (error as any)?.message });
+        }
+      } else if (type === 'razon_devolucion') {
+        const { error } = await saveReturnReason(item);
+        if (!error) {
+          const rr = await getReturnReasons();
+          setRazonesDevolucion(rr.map((x: any) => ({ ...x, nombre: x.name })));
+          notify.success('Razón guardada');
+        } else {
+          notify.error('Error al guardar razón', { description: typeof error === 'string' ? error : (error as any)?.message });
+        }
+      } else if (type === 'reparacion') {
+        const { error } = await saveRepair(item);
+        if (!error) {
+          await reloadWorkshopCatalogs();
+          notify.success('Reparación guardada');
+        } else {
+          notify.error('Error al guardar reparación', { description: (error as any)?.message });
+        }
+      } else if (type === 'diagnostico') {
+        const { error } = await saveDiagnosticConfig(item);
+        if (!error) {
+          await reloadWorkshopCatalogs();
+          notify.success('Diagnóstico guardado');
+        } else {
+          notify.error('Error al guardar diagnóstico', { description: (error as any)?.message });
+        }
+      } else if (type === 'reacondicionado') {
+        const { error } = await saveReacondicionadoTest(item);
+        if (!error) {
+          const rt = await getReacondicionadoTests();
+          setReacondicionadoTests(rt.map((x: any) => ({ id: x.id, nombre: x.name, technologyIds: x.technology_ids || [], modelIds: x.model_ids || [] })));
+          notify.success('Prueba guardada');
+        } else {
+          notify.error('Error al guardar prueba', { description: (error as any)?.message });
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      notify.error('No se pudo guardar el registro');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleDelete = async (type: string, id: string) => {
@@ -422,129 +587,385 @@ export default function ConfiguracionPage() {
     setLoading(false);
   };
 
-  // Funciones para Gestión Masiva de Agencias
   const handleBulkExport = () => {
-    const headers = "ID,Nombre,Encargado,Email,Telefono,Direccion\n";
-    const rows = agencias.map(a => `${a.id},${a.nombre},${a.encargado},${a.email},${a.telefono},${a.direccion}`).join("\n");
-    const blob = new Blob(["\ufeff" + headers + rows], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `directorio_agencias_${new Date().getTime()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    exportAgenciesCsv(agencias);
+  };
+
+  const reloadWorkshopCatalogs = async () => {
+    const [d, r, rt] = await Promise.all([
+      getDiagnostics(),
+      getRepairs(),
+      getReacondicionadoTests(),
+    ]);
+    setDiagnosticos(d);
+    setReparaciones(r.map((x: { id: string; name: string }) => ({ id: x.id, nombre: x.name })));
+    setReacondicionadoTests(
+      rt.map((x: { id: string; name: string; technology_ids?: string[]; model_ids?: string[] }) => ({
+        id: x.id,
+        nombre: x.name,
+        technologyIds: x.technology_ids || [],
+        modelIds: x.model_ids || [],
+      })),
+    );
+  };
+
+  const handleExportReparaciones = () => {
+    exportRepairsCsv(reparaciones);
+  };
+
+  const handleExportDiagnosticos = () => {
+    exportDiagnosticsCsv(diagnosticos, reparaciones);
+  };
+
+  const handleExportReacondicionado = () => {
+    exportReacondicionadoCsv(reacondicionadoTests, tecnologias, modelos);
+  };
+
+  const handleExportMarcas = () => exportBrandsCsv(marcas);
+  const handleExportTecnologias = () => exportTechnologiesCsv(tecnologias);
+  const handleExportTransportes = () => exportCarriersCsv(transportes);
+  const handleExportPxProviders = () => exportPxProvidersCsv(pxProviders);
+  const handleExportRazonesDevolucion = () => exportReturnReasonsCsv(razonesDevolucion);
+
+  const handleImportMarcas = async (file: File) => {
+    setLoading(true);
+    try {
+      const rows = await readCatalogSpreadsheet(file);
+      let ok = 0;
+      let skipped = 0;
+      for (const row of rows) {
+        const nombre = String(row.nombre || row.name || '').trim();
+        if (!nombre) {
+          skipped += 1;
+          continue;
+        }
+        const existingId = findCatalogIdByName(nombre, marcas);
+        const { error } = await saveBrand({ id: existingId, nombre });
+        if (error) skipped += 1;
+        else ok += 1;
+      }
+      const b = await getBrands();
+      setMarcas(b.map((x: any) => ({ ...x, nombre: x.name })));
+      notify.success(`Importación marcas: ${ok} guardadas${skipped ? `, ${skipped} omitidas` : ''}.`);
+    } catch (err: unknown) {
+      notify.error('No se pudo importar marcas', { description: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleImportTecnologias = async (file: File) => {
+    setLoading(true);
+    try {
+      const rows = await readCatalogSpreadsheet(file);
+      let ok = 0;
+      let skipped = 0;
+      for (const row of rows) {
+        const nombre = String(row.nombre || row.name || row.tecnologia || '').trim();
+        if (!nombre) {
+          skipped += 1;
+          continue;
+        }
+        const seriesCount = Math.max(1, parseInt(String(row.cant_series || row.series_count || '1'), 10) || 1);
+        const digitsPerSeries = parseDigitsPerSeries(String(row.digitos || row.digits || '12'), seriesCount);
+        const existingId = findCatalogIdByName(nombre, tecnologias);
+        const { error } = await saveTechnology({
+          id: existingId,
+          name: nombre,
+          series_count: seriesCount,
+          digits_per_series: digitsPerSeries,
+        });
+        if (error) skipped += 1;
+        else ok += 1;
+      }
+      const t = await getTechnologies();
+      setTecnologias(t.map((x: any) => ({ ...x, nombre: x.name, seriesCount: x.series_count, digitsPerSeries: x.digits_per_series })));
+      notify.success(`Importación tecnologías: ${ok} guardadas${skipped ? `, ${skipped} omitidas` : ''}.`);
+    } catch (err: unknown) {
+      notify.error('No se pudo importar tecnologías', { description: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleImportTransportes = async (file: File) => {
+    setLoading(true);
+    try {
+      const rows = await readCatalogSpreadsheet(file);
+      let ok = 0;
+      let skipped = 0;
+      for (const row of rows) {
+        const codigo = String(row.codigo || row.code || row.id || '').trim();
+        const nombre = String(row.nombre || row.name || '').trim();
+        if (!nombre) {
+          skipped += 1;
+          continue;
+        }
+        const dbId = codigo ? findCarrierDbIdByCode(codigo, transportes) : undefined;
+        const { error } = await saveCarrier({
+          id: dbId,
+          nombre,
+          code: codigo || nombre.replace(/\s+/g, '_').toUpperCase(),
+        });
+        if (error) skipped += 1;
+        else ok += 1;
+      }
+      const c = await getCarriers();
+      setTransportes(c.map((x: any) => ({ dbId: x.id, id: x.code, nombre: x.name })));
+      notify.success(`Importación transportes: ${ok} guardados${skipped ? `, ${skipped} omitidos` : ''}.`);
+    } catch (err: unknown) {
+      notify.error('No se pudo importar transportes', { description: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleImportPxProviders = async (file: File) => {
+    setLoading(true);
+    try {
+      const rows = await readCatalogSpreadsheet(file);
+      let ok = 0;
+      let skipped = 0;
+      for (const row of rows) {
+        const nombre = String(row.nombre || row.name || '').trim();
+        if (!nombre) {
+          skipped += 1;
+          continue;
+        }
+        const existingId = findCatalogIdByName(nombre, pxProviders);
+        const { error } = await savePxProvider({ id: existingId, nombre });
+        if (error) skipped += 1;
+        else ok += 1;
+      }
+      const px = await getPxProviders();
+      setPxProviders(px.map((x: any) => ({ ...x, nombre: x.name })));
+      notify.success(`Importación proveedores PX: ${ok} guardados${skipped ? `, ${skipped} omitidos` : ''}.`);
+    } catch (err: unknown) {
+      notify.error('No se pudo importar proveedores PX', { description: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleImportRazonesDevolucion = async (file: File) => {
+    setLoading(true);
+    try {
+      const rows = await readCatalogSpreadsheet(file);
+      let ok = 0;
+      let skipped = 0;
+      for (const row of rows) {
+        const nombre = String(row.nombre || row.name || row.razon || '').trim();
+        if (!nombre) {
+          skipped += 1;
+          continue;
+        }
+        const existingId = findCatalogIdByName(nombre, razonesDevolucion);
+        const { error } = await saveReturnReason({ id: existingId, nombre });
+        if (error) skipped += 1;
+        else ok += 1;
+      }
+      const rr = await getReturnReasons();
+      setRazonesDevolucion(rr.map((x: any) => ({ ...x, nombre: x.name })));
+      notify.success(`Importación razones: ${ok} guardadas${skipped ? `, ${skipped} omitidas` : ''}.`);
+    } catch (err: unknown) {
+      notify.error('No se pudo importar razones', { description: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleImportReparaciones = async (file: File) => {
+    setLoading(true);
+    try {
+      const rows = await readCatalogSpreadsheet(file);
+      let ok = 0;
+      let skipped = 0;
+      const seenNames = new Set<string>();
+      for (const row of rows) {
+        const nombre = String(row.nombre || row.name || '').trim();
+        if (!nombre) {
+          skipped += 1;
+          continue;
+        }
+        const nameKey = normalizeCatalogName(nombre);
+        if (seenNames.has(nameKey)) {
+          skipped += 1;
+          continue;
+        }
+        seenNames.add(nameKey);
+        const existingId = findCatalogIdByName(nombre, reparaciones);
+        if (!existingId) {
+          const duplicate = findDuplicateCatalogName(reparaciones, nombre);
+          if (duplicate) {
+            skipped += 1;
+            continue;
+          }
+        }
+        const { error } = await saveRepair({
+          id: existingId,
+          nombre,
+        });
+        if (error) skipped += 1;
+        else ok += 1;
+      }
+      await reloadWorkshopCatalogs();
+      notify.success(`Importación reparaciones: ${ok} guardadas${skipped ? `, ${skipped} omitidas` : ''}.`);
+    } catch (err: unknown) {
+      notify.error('No se pudo importar reparaciones', {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleImportDiagnosticos = async (file: File) => {
+    setLoading(true);
+    try {
+      const rows = await readCatalogSpreadsheet(file);
+      let ok = 0;
+      let skipped = 0;
+      const seenNames = new Set<string>();
+      for (const row of rows) {
+        const nombre = String(row.nombre || row.name || row['falla / diagnóstico'] || '').trim();
+        if (!nombre) {
+          skipped += 1;
+          continue;
+        }
+        const nameKey = normalizeCatalogName(nombre);
+        if (seenNames.has(nameKey)) {
+          skipped += 1;
+          continue;
+        }
+        seenNames.add(nameKey);
+        const existingId = findCatalogIdByName(nombre, diagnosticos);
+        if (!existingId) {
+          const duplicate = findDuplicateCatalogName(diagnosticos, nombre);
+          if (duplicate) {
+            skipped += 1;
+            continue;
+          }
+        }
+        const repsRaw = String(row.reparaciones_sugeridas || row.reparaciones || '').trim();
+        const reparacionesIds = resolveRepairIdsFromNames(repsRaw, reparaciones);
+        const { error } = await saveDiagnosticConfig({
+          id: existingId,
+          nombre,
+          reparacionesIds,
+        });
+        if (error) skipped += 1;
+        else ok += 1;
+      }
+      await reloadWorkshopCatalogs();
+      notify.success(`Importación diagnósticos: ${ok} guardados${skipped ? `, ${skipped} omitidos` : ''}.`);
+    } catch (err: unknown) {
+      notify.error('No se pudo importar diagnósticos', {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleImportReacondicionado = async (file: File) => {
+    setLoading(true);
+    try {
+      const rows = await readCatalogSpreadsheet(file);
+      let ok = 0;
+      let skipped = 0;
+      const seenNames = new Set<string>();
+      for (const row of rows) {
+        const nombre = String(row.nombre || row.name || row.prueba || '').trim();
+        if (!nombre) {
+          skipped += 1;
+          continue;
+        }
+        const nameKey = normalizeCatalogName(nombre);
+        if (seenNames.has(nameKey)) {
+          skipped += 1;
+          continue;
+        }
+        seenNames.add(nameKey);
+        const existingId = findCatalogIdByName(nombre, reacondicionadoTests);
+        const technologyIds = resolveCatalogIdsFromNames(
+          String(row.tecnologias || row.technologies || '*'),
+          tecnologias,
+        );
+        const modelIds = resolveCatalogIdsFromNames(
+          String(row.modelos || row.models || '*'),
+          modelos,
+        );
+        const { error } = await saveReacondicionadoTest({
+          id: existingId,
+          nombre,
+          technologyIds,
+          modelIds,
+        });
+        if (error) skipped += 1;
+        else ok += 1;
+      }
+      await reloadWorkshopCatalogs();
+      notify.success(`Importación reacondicionado: ${ok} guardadas${skipped ? `, ${skipped} omitidas` : ''}.`);
+    } catch (err: unknown) {
+      notify.error('No se pudo importar reacondicionado', {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleBulkImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
 
-    const fileName = file.name.toLowerCase();
-    const isExcel = fileName.endsWith('.xlsx') || fileName.endsWith('.xls');
+    setLoading(true);
+    try {
+      const rows = await readCatalogSpreadsheet(file);
+      const newAgencias = rows
+        .map((row) => ({
+          id: String(row.codigo || row.code || row.id || '').trim(),
+          nombre: String(row.nombre || row.name || row.agencia || '').trim(),
+          encargado: String(row.encargado || row.manager || row.responsable || '').trim(),
+          email: String(row.email || row.correo || '').trim(),
+          telefono: String(row.telefono || row.phone || row.tel || '').trim(),
+          direccion: String(row.direccion || row.address || row.ubicacion || '').trim(),
+        }))
+        .filter((a) => a.id && a.nombre);
 
-    const clean = (s: any) => {
-      if (s === null || s === undefined) return '';
-      return String(s).trim()
-        .replace(/\0/g, '')
-        .replace(/[^\x20-\x7E\xA0-\xFF]/g, '')
-        .replace(/^"|"$/g, '')
-        .replace(/""/g, '"');
-    };
+      if (newAgencias.length === 0) {
+        notify.warning('No se encontraron filas válidas en el Excel.');
+        return;
+      }
 
-    const processData = async (rows: any[]) => {
-      if (rows.length < 2) return;
-
-      const headers = rows[0].map((h: any) => clean(h).toLowerCase());
-      const findIndex = (keywords: string[]) => 
-        headers.findIndex((h: string) => keywords.some(k => h.includes(k)));
-
-      const mapping = {
-        id: findIndex(['id', 'codigo', 'code']),
-        nombre: findIndex(['nombre', 'agencia', 'name']),
-        encargado: findIndex(['encargado', 'manager', 'responsable', 'person']),
-        email: findIndex(['email', 'correo', 'mail']),
-        telefono: findIndex(['telefono', 'phone', 'tel', 'celular']),
-        direccion: findIndex(['direccion', 'address', 'ubicacion', 'tienda'])
-      };
-
-      const useDefault = mapping.id === -1 && mapping.nombre === -1;
-      const newAgencias: any[] = [];
-
-      for (let i = 1; i < rows.length; i++) {
-        const row = rows[i];
-        if (!row || row.length < 1) continue;
-        
-        newAgencias.push({
-          id: clean(row[useDefault ? 0 : (mapping.id !== -1 ? mapping.id : 0)]),
-          nombre: clean(row[useDefault ? 1 : (mapping.nombre !== -1 ? mapping.nombre : 1)]),
-          encargado: clean(mapping.encargado !== -1 ? row[mapping.encargado] : (useDefault ? row[2] : '')),
-          email: clean(mapping.email !== -1 ? row[mapping.email] : (useDefault ? row[3] : '')),
-          telefono: clean(mapping.telefono !== -1 ? row[mapping.telefono] : (useDefault ? row[4] : '')),
-          direccion: clean(mapping.direccion !== -1 ? row[mapping.direccion] : (useDefault ? row[5] : ''))
+      const { error } = await saveAgenciesBulk(newAgencias);
+      if (!error) {
+        const a = await getAgencies();
+        setAgencias(
+          a.map((x: any) => ({
+            dbId: x.id,
+            id: x.code,
+            nombre: x.name,
+            encargado: x.manager || '',
+            email: x.email || '',
+            telefono: x.phone || '',
+            direccion: x.address || '',
+          })),
+        );
+        notify.success(`Se han importado ${newAgencias.length} agencias correctamente.`);
+      } else {
+        notify.error('Error al guardar', {
+          description: (error as any)?.message || JSON.stringify(error),
         });
       }
-
-      if (newAgencias.length > 0) {
-        setLoading(true);
-        const { error } = await saveAgenciesBulk(newAgencias);
-        if (!error) {
-          const a = await getAgencies();
-          setAgencias(a.map((x: any) => ({ 
-            dbId: x.id,
-            id: x.code, 
-            nombre: x.name, 
-            encargado: x.manager || '', 
-            email: x.email || '', 
-            telefono: x.phone || '', 
-            direccion: x.address || '' 
-          })));
-          notify.success(`Se han importado ${newAgencias.length} agencias correctamente.`);
-        } else {
-          notify.error('Error al guardar', { description: (error as any)?.message || JSON.stringify(error) });
-        }
-        setLoading(false);
-      }
-    };
-
-    if (isExcel) {
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        const data = new Uint8Array(event.target?.result as ArrayBuffer);
-        
-        // Cargar librería XLSX dinámicamente si no existe
-        if (!(window as any).XLSX) {
-          const script = document.createElement('script');
-          script.src = "https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js";
-          script.onload = () => {
-            const workbook = (window as any).XLSX.read(data, { type: 'array' });
-            const sheetName = workbook.SheetNames[0];
-            const worksheet = workbook.Sheets[sheetName];
-            const jsonRows = (window as any).XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-            processData(jsonRows);
-          };
-          document.head.appendChild(script);
-        } else {
-          const workbook = (window as any).XLSX.read(data, { type: 'array' });
-          const sheetName = workbook.SheetNames[0];
-          const worksheet = workbook.Sheets[sheetName];
-          const jsonRows = (window as any).XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-          processData(jsonRows);
-        }
-      };
-      reader.readAsArrayBuffer(file);
-    } else {
-      // Proceso normal para CSV
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        const text = event.target?.result as string;
-        const lines = text.split("\n");
-        const rows = lines.map(line => line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/));
-        processData(rows);
-      };
-      reader.readAsText(file);
+    } catch (err: unknown) {
+      notify.error('No se pudo importar agencias', {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setLoading(false);
     }
-    e.target.value = '';
   };
 
   // Actualizar array de dígitos cuando cambia la cantidad de series
@@ -558,8 +979,11 @@ export default function ConfiguracionPage() {
     setFormData({ ...formData, seriesCount: count, digitsPerSeries: newDigits });
   };
 
-  // Filtrar modelos por marca seleccionada en el modal
-  const modelsInSelectedBrand = modelos.filter(m => m.marcaId === formData.marcaId);
+  // Filtrar modelos por marca seleccionada en el modal (sin duplicados por nombre)
+  const modelsInSelectedBrand = useMemo(
+    () => dedupeCatalogByName(modelos.filter((m) => m.marcaId === formData.marcaId)),
+    [modelos, formData.marcaId],
+  );
 
   return (
     <ModulePage
@@ -682,22 +1106,26 @@ export default function ConfiguracionPage() {
             <CatalogTableView
               type="marca"
               theme="light"
+              compact
               title="Catálogo de Marcas"
               subtitle="Gestione los fabricantes autorizados en el sistema"
               addLabel="Agregar Marca"
-              icon={<Tag className="w-6 h-6 text-[#2ec4f1]" />}
-              iconWrapClassName="bg-blue-50 p-3 rounded-2xl shadow-lg shadow-blue-500/10"
+              icon={<Tag className="w-5 h-5 text-[#2ec4f1]" />}
+              iconWrapClassName="bg-blue-50 p-2 rounded-xl"
               data={marcas}
               loading={loading}
-              emptyIcon={<Tag size={64} className="mx-auto mb-4" />}
+              emptyIcon={<Tag size={48} className="mx-auto mb-3" />}
               emptyText="No hay marcas registradas"
+              paginationLabel="marcas"
               columns={[
-                { header: 'ID', cell: (m) => <span className="font-mono text-[10px] text-slate-400">#{m.id.substring(0,8)}</span> },
-                { header: 'Nombre de Fabricante', cell: (m) => <span className="font-black text-[#181c3a] uppercase text-sm tracking-tight">{m.nombre}</span> },
-                { header: 'Modelos Vinculados', cell: (m) => <Badge className="bg-blue-50 text-[#2ec4f1] border-none font-black text-[10px]">{modelos.filter(x => x.marcaId === m.id).length} MODELOS</Badge> },
+                { header: 'Nombre de Fabricante', cell: (m) => <span className="text-xs font-black uppercase text-[#181c3a]">{m.nombre}</span> },
+                { header: 'Modelos', cell: (m) => <Badge className="bg-blue-50 text-[#2ec4f1] border-none font-black text-[9px]">{modelos.filter(x => x.marcaId === m.id).length} MODELOS</Badge> },
               ]}
               onOpenModal={handleOpenModal}
+              onQuickSave={handleQuickSave}
               onDelete={handleDelete}
+              onExport={handleExportMarcas}
+              onImport={handleImportMarcas}
             />
           )}
 
@@ -705,21 +1133,25 @@ export default function ConfiguracionPage() {
             <CatalogTableView
               type="px_provider"
               theme="light"
+              compact
               title="Catálogo de Proveedores PX"
               subtitle="Gestione los proveedores para el módulo PX"
               addLabel="Agregar Proveedor"
-              icon={<ClipboardList className="w-6 h-6 text-indigo-500" />}
-              iconWrapClassName="bg-indigo-50 p-3 rounded-2xl shadow-lg shadow-indigo-500/10"
+              icon={<ClipboardList className="w-5 h-5 text-indigo-500" />}
+              iconWrapClassName="bg-indigo-50 p-2 rounded-xl"
               data={pxProviders}
               loading={loading}
-              emptyIcon={<ClipboardList size={64} className="mx-auto mb-4" />}
+              emptyIcon={<ClipboardList size={48} className="mx-auto mb-3" />}
               emptyText="No hay proveedores registrados"
+              paginationLabel="proveedores"
               columns={[
-                { header: 'ID', cell: (p) => <span className="font-mono text-[10px] text-slate-400">#{p.id.substring(0,8)}</span> },
-                { header: 'Nombre de Proveedor', cell: (p) => <span className="font-black text-[#181c3a] uppercase text-sm tracking-tight">{p.nombre}</span> },
+                { header: 'Nombre de Proveedor', cell: (p) => <span className="text-xs font-black uppercase text-[#181c3a]">{p.nombre}</span> },
               ]}
               onOpenModal={handleOpenModal}
+              onQuickSave={handleQuickSave}
               onDelete={handleDelete}
+              onExport={handleExportPxProviders}
+              onImport={handleImportPxProviders}
             />
           )}
 
@@ -729,21 +1161,25 @@ export default function ConfiguracionPage() {
             <CatalogTableView
               type="razon_devolucion"
               theme="light"
+              compact
               title="Razones de Devolución"
               subtitle="Motivos disponibles al enviar un equipo a devolución"
               addLabel="Agregar Razón"
-              icon={<AlertTriangle className="w-6 h-6 text-rose-500" />}
-              iconWrapClassName="bg-rose-50 p-3 rounded-2xl shadow-lg shadow-rose-500/10"
+              icon={<AlertTriangle className="w-5 h-5 text-rose-500" />}
+              iconWrapClassName="bg-rose-50 p-2 rounded-xl"
               data={razonesDevolucion}
               loading={loading}
-              emptyIcon={<AlertTriangle size={64} className="mx-auto mb-4" />}
+              emptyIcon={<AlertTriangle size={48} className="mx-auto mb-3" />}
               emptyText="No hay razones registradas"
+              paginationLabel="razones"
               columns={[
-                { header: 'ID', cell: (p) => <span className="font-mono text-[10px] text-slate-400">#{p.id.substring(0,8)}</span> },
-                { header: 'Razón', cell: (p) => <span className="font-black text-[#181c3a] uppercase text-sm tracking-tight">{p.nombre}</span> },
+                { header: 'Razón', cell: (p) => <span className="text-xs font-black uppercase text-[#181c3a]">{p.nombre}</span> },
               ]}
               onOpenModal={handleOpenModal}
+              onQuickSave={handleQuickSave}
               onDelete={handleDelete}
+              onExport={handleExportRazonesDevolucion}
+              onImport={handleImportRazonesDevolucion}
             />
           )}
 
@@ -756,6 +1192,8 @@ export default function ConfiguracionPage() {
               selectedAgencyIds={selectedAgencyIds}
               totalPages={totalPages}
               currentPage={currentPage}
+              rangeStart={agencyRangeStart}
+              rangeEnd={agencyRangeEnd}
               setCurrentPage={setCurrentPage}
               onToggleAll={handleToggleAllAgencies}
               onToggleOne={toggleAgencySelection}
@@ -763,330 +1201,328 @@ export default function ConfiguracionPage() {
               onBulkImport={handleBulkImport}
               onBulkExport={handleBulkExport}
               onOpenModal={handleOpenModal}
+              onQuickSave={handleQuickSave}
               onDelete={handleDelete}
             />
           )}
 
           {activeView === 'tecnologias' && (
-            <div className="animate-rise-in space-y-6">
-               <div className="flex justify-between items-center bg-[#181c3a] p-8 rounded-3xl shadow-xl">
-                <div className="flex items-center gap-4 text-white">
-                  <div className="bg-[#2ec4f1]/20 p-3 rounded-2xl border border-[#2ec4f1]/30">
-                    <Cpu className="w-6 h-6 text-[#2ec4f1]" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-black">Reglas por Tecnología</h3>
-                    <p className="text-xs font-bold text-white/40 uppercase tracking-widest">Validación de Series y Longitud</p>
-                  </div>
-                </div>
-                <Button variant="primary" size="sm" onClick={() => handleOpenModal('tecnologia')} className="bg-[#2ec4f1] text-[#181c3a] shadow-lg shadow-[#2ec4f1]/20" leftIcon={<Plus className="w-4 h-4" />}>Nueva Regla</Button>
-              </div>
-
-              <div className="bg-white rounded-3xl border-2 border-slate-100 overflow-hidden shadow-sm overflow-x-auto">
-                {loading ? (
-                  <div className="py-20 text-center">
-                    <Activity className="w-10 h-10 animate-spin mx-auto text-[#2ec4f1] mb-4" />
-                    <p className="text-[10px] font-black uppercase text-slate-400">Sincronizando con la nube...</p>
-                  </div>
-                ) : tecnologias.length === 0 ? (
-                  <div className="py-20 text-center opacity-20">
-                    <Cpu size={64} className="mx-auto mb-4" />
-                    <p className="text-[10px] font-black uppercase tracking-widest">No hay reglas registradas</p>
-                  </div>
-                ) : (
-                  <table className="w-full text-left">
-                    <thead>
-                      <tr className="bg-slate-50/50 border-b border-slate-100">
-                        <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">Tecnología</th>
-                        <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">Cant. Series</th>
-                        <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">Dígitos</th>
-                        <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-50">
-                      {tecnologias.map(tech => (
-                        <tr key={tech.id} className="hover:bg-slate-50 transition-colors">
-                          <td className="px-8 py-5">
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-lg bg-slate-50 flex items-center justify-center text-[#181c3a] border border-slate-100">
-                                <Layers size={14} />
-                              </div>
-                              <span className="font-black text-[#181c3a] uppercase text-sm tracking-tight">{tech.nombre}</span>
-                            </div>
-                          </td>
-                          <td className="px-8 py-5">
-                            <Badge className="bg-blue-50 text-[#2ec4f1] border-none font-black text-[10px]">{tech.seriesCount} CAMPOS</Badge>
-                          </td>
-                          <td className="px-8 py-5">
-                            <span className="text-[11px] font-mono font-black text-slate-400">{tech.digitsPerSeries?.join(' / ') || 'N/A'}</span>
-                          </td>
-                          <td className="px-8 py-5 text-right">
-                            <div className="flex justify-end gap-2">
-                              <button onClick={() => handleOpenModal('tecnologia', tech)} className="p-2 text-slate-300 hover:text-[#181c3a]"><Edit3 size={16} /></button>
-                              <button onClick={() => handleDelete('tecnologia', tech.id)} className="p-2 text-slate-300 hover:text-rose-500"><Trash2 size={16} /></button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            </div>
+            <CatalogTableView
+              type="tecnologia"
+              theme="dark"
+              compact
+              title="Reglas por Tecnología"
+              subtitle="Validación de series y longitud"
+              addLabel="Nueva Regla"
+              icon={<Cpu className="w-5 h-5 text-[#2ec4f1]" />}
+              iconWrapClassName="bg-[#2ec4f1]/20 p-2 rounded-xl border border-[#2ec4f1]/30"
+              data={tecnologias}
+              loading={loading}
+              emptyIcon={<Cpu size={48} className="mx-auto mb-3" />}
+              emptyText="No hay reglas registradas"
+              paginationLabel="reglas"
+              columns={[
+                {
+                  header: 'Tecnología',
+                  cell: (tech) => (
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-md bg-slate-50 flex items-center justify-center text-[#181c3a] border border-slate-100">
+                        <Layers size={12} />
+                      </div>
+                      <span className="text-xs font-black uppercase text-[#181c3a]">{tech.nombre}</span>
+                    </div>
+                  ),
+                },
+                {
+                  header: 'Cant. Series',
+                  cell: (tech) => (
+                    <Badge className="bg-blue-50 text-[#2ec4f1] border-none font-black text-[9px]">{tech.seriesCount} CAMPOS</Badge>
+                  ),
+                },
+                {
+                  header: 'Dígitos',
+                  cell: (tech) => (
+                    <span className="text-[10px] font-mono font-bold text-slate-500">{tech.digitsPerSeries?.join(' / ') || 'N/A'}</span>
+                  ),
+                },
+              ]}
+              onOpenModal={handleOpenModal}
+              onQuickSave={handleQuickSave}
+              onDelete={handleDelete}
+              onExport={handleExportTecnologias}
+              onImport={handleImportTecnologias}
+            />
           )}
 
 
           {activeView === 'modelos' && (
-            <div className="animate-rise-in space-y-6">
-              <div className="bg-white p-8 rounded-3xl border-2 border-slate-100 shadow-sm">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
-                  <div className="flex items-center gap-4">
-                    <div className="bg-emerald-50 p-3 rounded-2xl">
-                      <Layers className="w-6 h-6 text-emerald-500" />
+            <CatalogTableView
+              type="modelo"
+              theme="light"
+              compact
+              pageSize={16}
+              title="Gestión de Modelos"
+              subtitle="Vincule marcas con sus respectivos equipos"
+              addLabel="Agregar Modelo"
+              icon={<Layers className="w-5 h-5 text-emerald-500" />}
+              iconWrapClassName="bg-emerald-50 p-2 rounded-xl"
+              data={modelosTabla}
+              loading={loading}
+              metaHint={
+                modelosDuplicados > 0
+                  ? `${modelosDuplicados} modelo(s) duplicado(s) — elimine los extras (misma marca + nombre)`
+                  : undefined
+              }
+              emptyIcon={<Layers size={48} className="mx-auto mb-3" />}
+              emptyText="No hay modelos registrados"
+              paginationLabel="modelos"
+              columns={[
+                {
+                  header: 'Marca',
+                  cell: (mod) => {
+                    const marca = marcas.find((m) => m.id === mod.marcaId);
+                    return (
+                      <Badge className="border-neutral-200 bg-neutral-100 px-1.5 py-0 text-[9px] font-bold uppercase text-black !text-black">
+                        {marca?.nombre || '—'}
+                      </Badge>
+                    );
+                  },
+                },
+                {
+                  header: 'Nombre del modelo',
+                  cell: (mod) => {
+                    const tech = tecnologias.find((t) => t.id === mod.tecnologiaId);
+                    return (
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className={`text-xs font-bold truncate ${mod.esDuplicado ? 'text-rose-600' : 'text-black'}`}>
+                            {mod.nombre}
+                          </span>
+                          {mod.esDuplicado ? (
+                            <Badge className="border-none bg-rose-100 px-1 py-0 text-[8px] font-black uppercase text-rose-700">
+                              Duplicado
+                            </Badge>
+                          ) : null}
+                        </div>
+                        <span className="text-[9px] font-semibold uppercase tracking-wide text-neutral-600">
+                          {tech?.nombre || '—'}
+                        </span>
+                      </div>
+                    );
+                  },
+                },
+                {
+                  header: 'Reglas (S/D)',
+                  cell: (mod) => (
+                    <div className="flex flex-wrap gap-1">
+                      <Badge variant="blue" className="border-none bg-[#2ec4f1]/10 px-1.5 py-0 text-[9px] text-[#0e7490]">
+                        {mod.seriesCount} Series
+                      </Badge>
+                      <Badge className="border-neutral-200 bg-neutral-100 px-1.5 py-0 text-[9px] text-black !text-black">
+                        {mod.digitsPerSeries?.join('/')} Dig.
+                      </Badge>
                     </div>
-                    <div>
-                      <h3 className="text-xl font-black text-[#181c3a]">Gestión de Modelos</h3>
-                      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Vincule marcas con sus respectivos equipos</p>
-                    </div>
-                  </div>
-                  <Button variant="primary" size="sm" onClick={() => handleOpenModal('modelo')} leftIcon={<Plus className="w-4 h-4" />}>Agregar Modelo</Button>
-                </div>
-
-                <div className="overflow-x-auto rounded-2xl border border-slate-100">
-                  {loading ? (
-                    <div className="py-20 text-center">
-                      <Activity className="w-10 h-10 animate-spin mx-auto text-[#2ec4f1] mb-4" />
-                      <p className="text-[10px] font-black uppercase text-slate-400">Sincronizando con la nube...</p>
-                    </div>
-                  ) : modelos.length === 0 ? (
-                    <div className="py-20 text-center opacity-20">
-                      <Layers size={64} className="mx-auto mb-4" />
-                      <p className="text-[10px] font-black uppercase tracking-widest">No hay modelos registrados</p>
-                    </div>
-                  ) : (
-                    <table className="w-full text-left">
-                      <thead>
-                        <tr className="bg-slate-50 border-b border-slate-100">
-                          <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Marca</th>
-                          <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Nombre del Modelo</th>
-                          <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Reglas (S/D)</th>
-                          <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Acciones</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-50">
-                        {modelos.map(mod => {
-                          const marca = marcas.find(m => m.id === mod.marcaId);
-                          const tech = tecnologias.find(t => t.id === mod.tecnologiaId);
-                          return (
-                            <tr key={mod.id} className="hover:bg-slate-50/50 transition-colors">
-                              <td className="px-6 py-4">
-                                <Badge className="border-neutral-200 bg-neutral-100 text-black !text-black">
-                                  {marca?.nombre}
-                                </Badge>
-                              </td>
-                              <td className="px-6 py-4">
-                                <div className="flex flex-col">
-                                  <span className="text-sm font-bold text-black">{mod.nombre}</span>
-                                  <span className="text-[9px] font-semibold uppercase tracking-widest text-neutral-700">
-                                    {tech?.nombre}
-                                  </span>
-                                </div>
-                              </td>
-                              <td className="px-6 py-4">
-                                <div className="flex gap-2">
-                                  <Badge variant="blue" className="border-none bg-[#2ec4f1]/10 text-[9px] text-[#0e7490]">
-                                    {mod.seriesCount} Series
-                                  </Badge>
-                                  <Badge className="border-neutral-200 bg-neutral-100 text-[9px] text-black !text-black">
-                                    {mod.digitsPerSeries?.join('/')} Dig.
-                                  </Badge>
-                                </div>
-                              </td>
-                              <td className="px-6 py-4 text-right">
-                                <div className="flex justify-end gap-2">
-                                  <button onClick={() => handleOpenModal('modelo', mod)} className="p-2 text-neutral-600 hover:text-black"><Edit3 size={14} /></button>
-                                  <button onClick={() => handleDelete('modelo', mod.id)} className="p-2 text-neutral-600 hover:text-rose-500"><Trash2 size={14} /></button>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-              </div>
-            </div>
+                  ),
+                },
+              ]}
+              onOpenModal={handleOpenModal}
+              onQuickSave={handleQuickSave}
+              onDelete={handleDelete}
+            />
           )}
 
           {activeView === 'diagnosticos' && (
-            <div className="animate-rise-in space-y-6">
-              <div className="flex justify-between items-center bg-white p-8 rounded-3xl border-2 border-slate-100 shadow-sm">
-                <div className="flex items-center gap-4">
-                  <div className="bg-amber-50 p-3 rounded-2xl">
-                    <Activity className="w-6 h-6 text-amber-500" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-black text-[#181c3a]">Catálogo de Fallas</h3>
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Gestione diagnósticos y soluciones asociadas</p>
-                  </div>
-                </div>
-                <Button variant="primary" size="sm" onClick={() => handleOpenModal('diagnostico')} leftIcon={<Plus className="w-4 h-4" />}>Nueva Falla</Button>
-              </div>
-
-              <div className="bg-white rounded-3xl border-2 border-slate-100 overflow-hidden shadow-sm overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead>
-                    <tr className="bg-slate-50/50 border-b border-slate-100">
-                      <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">Falla / Diagnóstico</th>
-                      <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">Reparaciones Sugeridas</th>
-                      <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {diagnosticos.map(diag => (
-                      <tr key={diag.id} className="hover:bg-slate-50 transition-colors group">
-                        <td className="px-8 py-5">
-                          <span className="block text-sm font-black uppercase text-black">{diag.nombre}</span>
-                          <span className="mt-1 font-mono text-[9px] text-neutral-700">#{diag.id.substring(0, 8)}</span>
-                        </td>
-                        <td className="px-8 py-5">
-                          <div className="flex flex-wrap gap-1">
-                            {diag.reparacionesIds.length > 0 ? (
-                              diag.reparacionesIds.map(rid => {
-                                const rep = reparaciones.find(r => r.id === rid);
-                                return (
-                                  <Badge
-                                    key={rid}
-                                    className="border-neutral-200 bg-neutral-100 px-2 py-0.5 text-[9px] font-bold uppercase text-black !text-black"
-                                  >
-                                    {rep?.nombre || 'Desconocida'}
-                                  </Badge>
-                                );
-                              })
-                            ) : (
-                              <span className="text-[10px] font-medium italic text-neutral-600">Sin reparaciones</span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-8 py-5 text-right">
-                          <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button onClick={() => handleOpenModal('diagnostico', diag)} className="p-2 text-slate-400 hover:text-[#181c3a]"><Edit3 size={16} /></button>
-                            <button onClick={() => handleDelete('diagnostico', diag.id)} className="p-2 text-slate-400 hover:text-rose-500"><Trash2 size={16} /></button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <CatalogTableView
+              type="diagnostico"
+              theme="light"
+              compact
+              title="Catálogo de Fallas"
+              subtitle="Diagnósticos y reparaciones sugeridas"
+              addLabel="Nueva Falla"
+              icon={<Activity className="w-5 h-5 text-amber-500" />}
+              iconWrapClassName="bg-amber-50 p-2 rounded-xl"
+              data={diagnosticosLista}
+              loading={loading}
+              metaHint={
+                diagnosticosDuplicados > 0
+                  ? `${diagnosticosDuplicados} registro(s) duplicado(s) ocultos — edite o elimine duplicados en BD`
+                  : undefined
+              }
+              emptyIcon={<Activity size={48} className="mx-auto mb-3" />}
+              emptyText="No hay diagnósticos registrados"
+              columns={[
+                {
+                  header: 'Falla / Diagnóstico',
+                  cell: (diag) => (
+                    <span className="text-xs font-black uppercase text-[#181c3a]">{diag.nombre}</span>
+                  ),
+                },
+                {
+                  header: 'Reparaciones sugeridas',
+                  cell: (diag) => (
+                    <div className="flex flex-wrap gap-1">
+                      {diag.reparacionesIds.length > 0 ? (
+                        diag.reparacionesIds.map((rid: string) => {
+                          const rep = reparaciones.find((r) => r.id === rid);
+                          return (
+                            <Badge
+                              key={rid}
+                              className="border-neutral-200 bg-neutral-100 px-1.5 py-0 text-[9px] font-bold uppercase text-black !text-black"
+                            >
+                              {rep?.nombre || 'Desconocida'}
+                            </Badge>
+                          );
+                        })
+                      ) : (
+                        <span className="text-[10px] font-medium italic text-neutral-500">Sin reparaciones</span>
+                      )}
+                    </div>
+                  ),
+                },
+              ]}
+              onOpenModal={handleOpenModal}
+              onQuickSave={handleQuickSave}
+              onDelete={handleDelete}
+              onExport={handleExportDiagnosticos}
+              onImport={handleImportDiagnosticos}
+              paginationLabel="diagnósticos"
+            />
           )}
 
           {activeView === 'reparaciones' && (
             <CatalogTableView
               type="reparacion"
               theme="dark"
+              compact
               title="Maestro de Reparaciones"
               subtitle="Lista global de acciones técnicas"
               addLabel="Nueva Reparación"
-              icon={<Wrench className="w-6 h-6 text-[#2ec4f1]" />}
-              iconWrapClassName="bg-[#2ec4f1]/20 p-3 rounded-2xl border border-[#2ec4f1]/30"
-              data={reparaciones}
+              icon={<Wrench className="w-5 h-5 text-[#2ec4f1]" />}
+              iconWrapClassName="bg-[#2ec4f1]/20 p-2 rounded-xl border border-[#2ec4f1]/30"
+              data={reparacionesLista}
               loading={loading}
-              emptyIcon={<Wrench size={64} className="mx-auto mb-4" />}
+              metaHint={
+                reparacionesDuplicadas > 0
+                  ? `${reparacionesDuplicadas} registro(s) duplicado(s) ocultos — edite o elimine duplicados en BD`
+                  : undefined
+              }
+              emptyIcon={<Wrench size={48} className="mx-auto mb-3" />}
               emptyText="No hay reparaciones registradas"
               columns={[
-                { header: 'ID', cell: (r) => <span className="font-mono text-[10px] text-slate-400">#{r.id}</span> },
-                { header: 'Descripción Técnica', cell: (r) => <span className="font-black text-[#181c3a] text-sm uppercase">{r.nombre}</span> },
+                {
+                  header: 'Descripción técnica',
+                  cell: (r) => (
+                    <span className="text-xs font-black uppercase text-[#181c3a]">{r.nombre}</span>
+                  ),
+                },
               ]}
               onOpenModal={handleOpenModal}
+              onQuickSave={handleQuickSave}
               onDelete={handleDelete}
+              onExport={handleExportReparaciones}
+              onImport={handleImportReparaciones}
+              paginationLabel="reparaciones"
             />
           )}
 
           {activeView === 'reacondicionado' && (
-            <div className="animate-rise-in space-y-6">
-              <div className="flex justify-between items-center bg-[#181c3a] p-8 rounded-3xl shadow-xl">
-                <div className="flex items-center gap-4 text-white">
-                  <div className="bg-emerald-500/20 p-3 rounded-2xl border border-emerald-500/30">
-                    <CheckSquare className="w-6 h-6 text-emerald-400" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-black">Pruebas de Reacondicionado</h3>
-                    <p className="text-xs font-bold text-white/40 uppercase tracking-widest">Catálogo de pruebas y vinculaciones</p>
-                  </div>
-                </div>
-                <Button variant="primary" size="sm" onClick={() => handleOpenModal('reacondicionado')} className="bg-emerald-500 hover:bg-emerald-600 text-white" leftIcon={<Plus className="w-4 h-4" />}>Nueva Prueba</Button>
-              </div>
-
-              <div className="bg-white rounded-3xl border-2 border-slate-100 overflow-hidden shadow-sm overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead>
-                    <tr className="bg-slate-50/50 border-b border-slate-100">
-                      <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">ID</th>
-                      <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">Prueba</th>
-                      <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">Vinculación (Tec / Modelo)</th>
-                      <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {reacondicionadoTests.map(rt => {
-                      const selectedTechs = tecnologias.filter(t => rt.technologyIds?.includes(t.id));
-                      const selectedModels = modelos.filter(m => rt.modelIds?.includes(m.id));
-                      return (
-                        <tr key={rt.id} className="hover:bg-slate-50 transition-colors">
-                          <td className="px-8 py-5 font-mono text-[10px] text-slate-400">#{rt.id.substring(0,8)}</td>
-                          <td className="px-8 py-5 font-black text-[#181c3a] text-sm uppercase">{rt.nombre}</td>
-                          <td className="px-8 py-5">
-                            <div className="flex flex-wrap gap-2">
-                              {selectedTechs.length > 0 ? (
-                                selectedTechs.map(tech => <Badge key={tech.id} variant="slate" className="bg-slate-100 text-slate-600 border-none text-[9px] font-bold px-2 py-0.5 uppercase">{tech.nombre}</Badge>)
-                              ) : (
-                                <Badge variant="slate" className="bg-slate-50 text-slate-400 border-none text-[9px] font-bold px-2 py-0.5 uppercase">TODAS LAS TECNOLOGÍAS</Badge>
-                              )}
-                              {selectedModels.length > 0 ? (
-                                selectedModels.map(mod => <Badge key={mod.id} variant="slate" className="bg-slate-100 text-slate-600 border-none text-[9px] font-bold px-2 py-0.5 uppercase">{mod.nombre}</Badge>)
-                              ) : (
-                                <Badge variant="slate" className="bg-slate-50 text-slate-400 border-none text-[9px] font-bold px-2 py-0.5 uppercase">TODOS LOS MODELOS</Badge>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-8 py-5 text-right">
-                            <div className="flex justify-end gap-2">
-                              <button onClick={() => handleOpenModal('reacondicionado', rt)} className="p-3 bg-slate-50 text-slate-400 hover:text-[#181c3a] hover:bg-slate-100 rounded-xl transition-all"><Edit3 size={16} /></button>
-                              <button onClick={() => handleDelete('reacondicionado', rt.id)} className="p-3 bg-rose-50 text-rose-300 hover:text-rose-500 hover:bg-rose-100 rounded-xl transition-all"><Trash2 size={16} /></button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <CatalogTableView
+              type="reacondicionado"
+              theme="dark"
+              compact
+              title="Pruebas de Reacondicionado"
+              subtitle="Catálogo de pruebas y vinculaciones"
+              addLabel="Nueva Prueba"
+              icon={<CheckSquare className="w-5 h-5 text-emerald-400" />}
+              iconWrapClassName="bg-emerald-500/20 p-2 rounded-xl border border-emerald-500/30"
+              data={reacondicionadoTests}
+              loading={loading}
+              emptyIcon={<CheckSquare size={48} className="mx-auto mb-3" />}
+              emptyText="No hay pruebas registradas"
+              paginationLabel="pruebas"
+              columns={[
+                {
+                  header: 'Prueba',
+                  cell: (rt) => (
+                    <span className="text-xs font-black uppercase text-[#181c3a]">{rt.nombre}</span>
+                  ),
+                },
+                {
+                  header: 'Vinculación (Tec / Modelo)',
+                  cell: (rt) => {
+                    const selectedTechs = tecnologias.filter((t) => rt.technologyIds?.includes(t.id));
+                    const selectedModels = modelos.filter((m) => rt.modelIds?.includes(m.id));
+                    return (
+                      <div className="flex flex-wrap gap-1">
+                        {selectedTechs.length > 0 ? (
+                          selectedTechs.map((tech) => (
+                            <Badge
+                              key={tech.id}
+                              variant="slate"
+                              className="border-none bg-slate-100 px-1.5 py-0 text-[9px] font-bold uppercase text-slate-600"
+                            >
+                              {tech.nombre}
+                            </Badge>
+                          ))
+                        ) : (
+                          <Badge variant="slate" className="border-none bg-slate-50 px-1.5 py-0 text-[9px] font-bold uppercase text-slate-400">
+                            TODAS LAS TECNOLOGÍAS
+                          </Badge>
+                        )}
+                        {selectedModels.length > 0 ? (
+                          selectedModels.map((mod) => (
+                            <Badge
+                              key={mod.id}
+                              variant="slate"
+                              className="border-none bg-slate-100 px-1.5 py-0 text-[9px] font-bold uppercase text-slate-600"
+                            >
+                              {mod.nombre}
+                            </Badge>
+                          ))
+                        ) : (
+                          <Badge variant="slate" className="border-none bg-slate-50 px-1.5 py-0 text-[9px] font-bold uppercase text-slate-400">
+                            TODOS LOS MODELOS
+                          </Badge>
+                        )}
+                      </div>
+                    );
+                  },
+                },
+              ]}
+              onOpenModal={handleOpenModal}
+              onQuickSave={handleQuickSave}
+              onDelete={handleDelete}
+              onExport={handleExportReacondicionado}
+              onImport={handleImportReacondicionado}
+              paginationLabel="pruebas"
+            />
           )}
 
           {activeView === 'transportes' && (
             <CatalogTableView
               type="transporte"
               theme="dark"
+              compact
               title="Transporte Logístico"
               subtitle="Catálogo de empresas de transporte"
               addLabel="Nuevo Transporte"
-              icon={<Truck className="w-6 h-6 text-[#2ec4f1]" />}
-              iconWrapClassName="bg-[#2ec4f1]/20 p-3 rounded-2xl border border-[#2ec4f1]/30"
+              icon={<Truck className="w-5 h-5 text-[#2ec4f1]" />}
+              iconWrapClassName="bg-[#2ec4f1]/20 p-2 rounded-xl border border-[#2ec4f1]/30"
               data={transportes}
               idField="dbId"
               loading={loading}
-              emptyIcon={<Truck size={64} className="mx-auto mb-4" />}
+              emptyIcon={<Truck size={48} className="mx-auto mb-3" />}
               emptyText="No hay empresas de transporte configuradas"
+              paginationLabel="transportes"
               columns={[
-                { header: 'Código', cell: (t) => <span className="font-mono text-[10px] text-slate-400">{t.id}</span> },
-                { header: 'Nombre de la Empresa', cell: (t) => <span className="font-black text-[#181c3a] text-sm uppercase">{t.nombre}</span> },
+                { header: 'Código', cell: (t) => <span className="font-mono text-[10px] text-slate-500">{t.id}</span> },
+                { header: 'Nombre', cell: (t) => <span className="text-xs font-black uppercase text-[#181c3a]">{t.nombre}</span> },
               ]}
               onOpenModal={handleOpenModal}
+              onQuickSave={handleQuickSave}
               onDelete={handleDelete}
+              onExport={handleExportTransportes}
+              onImport={handleImportTransportes}
             />
           )}
 

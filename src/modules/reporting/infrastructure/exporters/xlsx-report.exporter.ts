@@ -60,7 +60,94 @@ function applyHeaderCell(cell: ExcelJS.Cell) {
   cell.border = allThinBorders();
 }
 
-async function buildOpsMonthlyTechMatrixSheet(rows: ReportRow[], sheetName: string) {
+const ENTREGADO_COLS = [
+  'NO. DE SERIE',
+  'DESCRIPCIÓN SAP',
+  'MARCA',
+  'MODELO',
+  'TECNOLOGÍA',
+  'TRATAMIENTO',
+  'CANAL DE RECUPERACIÓN',
+  'PRODUCCIÓN',
+  'DIAGNÓSTICO',
+  'ACCIÓN',
+  'Material SAP',
+] as const;
+
+const ENTREGADO_COL_COUNT = ENTREGADO_COLS.length;
+
+function applyEntregadoHeaderCell(cell: ExcelJS.Cell) {
+  cell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: COLORS.infoRed },
+  };
+  cell.font = {
+    bold: true,
+    color: { argb: COLORS.headerWhite },
+    name: 'Calibri',
+    size: 11,
+  };
+  cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+  cell.border = allThinBorders();
+}
+
+function buildEntregadoWorksheet(workbook: ExcelJS.Workbook, rows: ReportRow[]) {
+  const sheet = workbook.addWorksheet('Entregado', {
+    views: [{ state: 'frozen', ySplit: 1 }],
+  });
+
+  sheet.columns = [
+    { width: 18 },
+    { width: 34 },
+    { width: 14 },
+    { width: 28 },
+    { width: 12 },
+    { width: 14 },
+    { width: 16 },
+    { width: 14 },
+    { width: 28 },
+    { width: 36 },
+    { width: 14 },
+  ];
+
+  const headerRow = sheet.getRow(1);
+  headerRow.height = 22;
+  ENTREGADO_COLS.forEach((label, i) => {
+    const cell = headerRow.getCell(i + 1);
+    cell.value = label;
+    applyEntregadoHeaderCell(cell);
+  });
+
+  rows.forEach((r, idx) => {
+    const excelRow = sheet.getRow(2 + idx);
+    ENTREGADO_COLS.forEach((col, i) => {
+      const cell = excelRow.getCell(i + 1);
+      const v = r[col];
+      cell.value = v === null || v === undefined || v === '' ? null : v;
+      cell.font = { color: { argb: COLORS.textBlack }, name: 'Calibri', size: 10 };
+      cell.alignment = {
+        horizontal: i === ENTREGADO_COL_COUNT - 1 ? 'right' : 'left',
+        vertical: 'middle',
+        wrapText: i >= 8,
+      };
+      cell.border = allThinBorders();
+    });
+  });
+
+  if (rows.length > 0) {
+    sheet.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: 1 + rows.length, column: ENTREGADO_COL_COUNT },
+    };
+  }
+}
+
+async function buildOpsMonthlyTechMatrixSheet(
+  rows: ReportRow[],
+  sheetName: string,
+  detailSheets?: ReportExportOptions['detailSheets'],
+) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'TC-ERP';
   const sheet = workbook.addWorksheet(sheetName.slice(0, 31), {
@@ -178,6 +265,12 @@ async function buildOpsMonthlyTechMatrixSheet(rows: ReportRow[], sheetName: stri
     }
   });
 
+  for (const detail of detailSheets ?? []) {
+    if (detail.layout === 'ops_monthly_entregado' || detail.name === 'Entregado') {
+      buildEntregadoWorksheet(workbook, detail.rows);
+    }
+  }
+
   const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
   return {
     buffer,
@@ -191,7 +284,7 @@ export class XlsxReportExporter implements IReportExporter {
 
   async export(rows: ReportRow[], sheetName: string, options?: ReportExportOptions) {
     if (options?.xlsxLayout === 'ops_monthly_tech_matrix') {
-      return buildOpsMonthlyTechMatrixSheet(rows, sheetName);
+      return buildOpsMonthlyTechMatrixSheet(rows, sheetName, options.detailSheets);
     }
 
     const ws = XLSX.utils.json_to_sheet(rows);

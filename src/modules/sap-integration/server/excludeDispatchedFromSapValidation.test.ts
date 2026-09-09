@@ -15,6 +15,22 @@ const unmatchedExport = readFileSync(
   join(process.cwd(), 'src', 'app', 'api', 'sap', 'unmatched', 'route.ts'),
   'utf8',
 );
+const osByStatusRoute = readFileSync(
+  join(process.cwd(), 'src', 'app', 'api', 'sap', 'os-by-status', 'route.ts'),
+  'utf8',
+);
+const sapDashboardStates = readFileSync(
+  join(process.cwd(), 'src', 'lib', 'sap', 'sapDashboardStates.ts'),
+  'utf8',
+);
+const sapKpisMigration = readFileSync(
+  join(process.cwd(), 'supabase', 'migrations', '20260908150000_sap_dashboard_kpis_en_planta.sql'),
+  'utf8',
+);
+const sapStatusDetailPanel = readFileSync(
+  join(process.cwd(), 'src', 'app', '(erp)', 'integracion-sap', '_components', 'SapStatusDetailPanel.tsx'),
+  'utf8',
+);
 const sapPage = readFileSync(
   join(process.cwd(), 'src', 'app', '(erp)', 'integracion-sap', 'page.tsx'),
   'utf8',
@@ -59,12 +75,18 @@ describe('SAP excluye OS despachadas de la revalidación', () => {
     expect(unmatchedExport).toContain("bookType: 'xlsx'");
     expect(unmatchedExport).toContain("filename=\"sap-sin-coincidencia-${stamp}.xlsx\"");
     expect(unmatchedExport).not.toContain('text/csv');
-    expect(sapPage).toContain('/api/sap/unmatched?format=xlsx');
-    expect(sapPage).toContain('Exportar Excel');
+    expect(osByStatusRoute).toContain("format === 'xlsx'");
+    expect(osByStatusRoute).toContain("bookType: 'xlsx'");
+    expect(sapStatusDetailPanel).toContain('/api/sap/os-by-status?status=');
+    expect(sapStatusDetailPanel).toContain('format=xlsx');
+    expect(sapStatusDetailPanel).toContain('Exportar Excel');
   });
 
-  it('explica que la tarjeta representa solo OS activas', () => {
-    expect(sapPage).toContain('OS activas en TC con serie');
-    expect(sapPage).toContain('% de OS activas');
+  it('tarjetas SAP usan KPIs en planta vía count_sap_integration_kpis', () => {
+    expect(sapDashboardStates).toContain('OS en planta con serie, ausentes del SAP validado');
+    expect(sapKpisMigration).toContain('count_sap_integration_kpis');
+    expect(sapPage).toContain('enPlantaSap');
+    expect(sapPage).not.toContain('Validado SAP histórico');
+    expect(sapPage).not.toContain('Flujo físico');
   });
 });

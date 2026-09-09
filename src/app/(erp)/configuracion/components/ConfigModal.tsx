@@ -1,6 +1,7 @@
 'use client';
 
 import { memo } from 'react';
+import { dedupeCatalogByName } from '@/shared/catalogs/catalogNameDedup';
 import { Card, Button } from '@/components/ui';
 import { X, Layers, CheckCircle2 } from 'lucide-react';
 
@@ -38,6 +39,8 @@ export const ConfigModal = memo(function ConfigModal({
   updateSeriesCount,
   modelsInSelectedBrand,
 }: Props) {
+  const reparacionesUnicas = dedupeCatalogByName(reparaciones);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#181c3a]/60 backdrop-blur-md p-6 overflow-y-auto">
       <Card className="max-w-2xl w-full shadow-2xl animate-rise-in p-0 overflow-hidden border-none my-8">
@@ -400,7 +403,7 @@ export const ConfigModal = memo(function ConfigModal({
               <div className="space-y-3">
                 <label className="text-[10px] font-black uppercase text-slate-400">Vincular Reparaciones Sugeridas</label>
                 <div className="flex flex-col gap-2 max-h-[300px] overflow-y-auto p-2 border-2 border-slate-50 rounded-2xl custom-scrollbar">
-                  {reparaciones.map(rep => {
+                  {reparacionesUnicas.map(rep => {
                     const isSelected = (formData.reparacionesIds || []).includes(rep.id);
                     return (
                       <button

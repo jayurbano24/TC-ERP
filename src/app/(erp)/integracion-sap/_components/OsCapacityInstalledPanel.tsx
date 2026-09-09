@@ -38,18 +38,11 @@ function pct(part: number, whole: number): number {
   return Math.round((part / whole) * 100);
 }
 
-function hasDetailBreakdown(m: OsInventoryModules | null): boolean {
+function isModulesRpcComplete(m: OsInventoryModules | null): boolean {
   if (!m) return false;
-  return (
-    'taller_diagnostico' in m &&
-    (m.taller_diagnostico > 0 ||
-      m.taller_reparacion > 0 ||
-      m.taller_qc > 0 ||
-      m.taller_scraps_piso > 0 ||
-      m.bodega_scraps > 0 ||
-      m.equipo_listo > 0 ||
-      m.series_recepcionado_bo > 0)
-  );
+  if (m.rpcComplete === true) return true;
+  if (m.rpcComplete === false) return false;
+  return Number(m.bodega_con_caja ?? 0) > 1000 && Number(m.activas ?? 0) > 10_000;
 }
 
 /**
@@ -59,10 +52,19 @@ function hasDetailBreakdown(m: OsInventoryModules | null): boolean {
 export function OsCapacityInstalledPanel({ mods, needsMigration }: Props) {
   const total = Number(mods?.total ?? 0);
   const despachadas = Number(mods?.despachado ?? 0);
+  const devueltas = Number(mods?.devuelto ?? 0);
   const bodega = Number(mods?.bodega_con_caja ?? 0);
   const bodegaDespacho = Number(mods?.bodega_despacho ?? 0);
   const pistoleo = Number(mods?.pistoleo_en_curso ?? 0);
-  const pendienteBodega = Number(mods?.backoffice ?? 0);
+  const cacBandeja = Number(mods?.backoffice ?? 0);
+  const cacOs = Number(mods?.backoffice_os ?? 0);
+  const seriesRecepcionadoBo = Number(mods?.series_recepcionado_bo ?? 0);
+  const pendienteIngreso =
+    Number(mods?.pendiente_bodega_os ?? 0) ||
+    Math.max(cacOs, seriesRecepcionadoBo) ||
+    cacBandeja;
+  const reacSuelto = Number(mods?.reac_suelto ?? 0);
+  const sinSeriesEnPlanta = Number(mods?.sin_series_en_planta ?? 0);
   const diag = Number(mods?.taller_diagnostico ?? 0);
   const rep = Number(mods?.taller_reparacion ?? 0);
   const reac = Number(mods?.taller_reacondicionado ?? 0);
@@ -73,28 +75,46 @@ export function OsCapacityInstalledPanel({ mods, needsMigration }: Props) {
   const scrapLedger = Number(mods?.scrap_ledger ?? mods?.scrap ?? 0);
   const equipoListo = Number(mods?.equipo_listo ?? 0);
 
+  /** Taller en `activas` — sin reacondicionado (ready_to_dispatch ya en bodega si tiene caja). */
+  const tallerActivas = diag + rep + cq + l3 + scrapsPiso;
+
   const tallerPiso =
     Number(mods?.taller_piso_total ?? 0) || diag + rep + reac + cq + l3 + scrapsPiso;
 
   const activas =
     Number(mods?.activas ?? 0) ||
     bodega +
+      equipoListo +
       bodegaDespacho +
       pistoleo +
-      pendienteBodega +
-      diag +
-      rep +
-      cq +
-      l3 +
-      scrapsPiso +
+      pendienteIngreso +
+      tallerActivas +
       scrapsCaja;
 
+  /** Suma tiles del flujo (buckets exclusivos; debe ≈ activas). */
+  const flujoSumadoClient =
+    pendienteIngreso +
+    bodega +
+    tallerActivas +
+    reacSuelto +
+    scrapsCaja +
+    equipoListo +
+    bodegaDespacho +
+    pistoleo;
+
+  const modulesRpcOk = isModulesRpcComplete(mods);
+  const flujoSumado = modulesRpcOk
+    ? Math.max(Number(mods?.activas ?? 0), flujoSumadoClient)
+    : flujoSumadoClient;
+
   const activasLedger = Math.max(
-    Number(mods?.activas_ledger ?? 0) || total - despachadas,
+    Number(mods?.activas_ledger ?? 0) || total - despachadas - devueltas,
     0
   );
 
-  const detailOk = hasDetailBreakdown(mods);
+  /** Histórico = en planta + despachadas + devueltas (buckets excluyentes post-mig 157000). */
+  const cuadreHistorico = activasLedger + despachadas + devueltas;
+  const historicoCuadra = total > 0 && cuadreHistorico === total;
 
   const flow: Array<{
     key: string;
@@ -108,8 +128,11 @@ export function OsCapacityInstalledPanel({ mods, needsMigration }: Props) {
     {
       key: 'bo',
       label: 'Pendiente Bodega',
-      sub: 'Cola CAC / Backoffice',
-      value: pendienteBodega,
+      sub:
+        cacBandeja > 0 || seriesRecepcionadoBo > 0
+          ? `OS únicas · ref. bandeja ${cacBandeja.toLocaleString()} · series BO ${seriesRecepcionadoBo.toLocaleString()}`
+          : 'Cola ingreso Bodega Central',
+      value: pendienteIngreso,
       icon: ClipboardList,
       tone: 'text-amber-800',
       ring: 'border-amber-200 bg-amber-50',
@@ -117,7 +140,7 @@ export function OsCapacityInstalledPanel({ mods, needsMigration }: Props) {
     {
       key: 'bodega',
       label: 'Bodega Central',
-      sub: pistoleo > 0 ? `+ ${pistoleo.toLocaleString()} TMP` : 'Stock con caja',
+      sub: pistoleo > 0 ? `Stock · + ${pistoleo.toLocaleString()} TMP aparte` : 'Stock con caja (sin listo)',
       value: bodega,
       icon: Warehouse,
       tone: 'text-emerald-800',
@@ -126,8 +149,13 @@ export function OsCapacityInstalledPanel({ mods, needsMigration }: Props) {
     {
       key: 'taller',
       label: 'Taller (piso)',
-      sub: 'Diag · Rep · CQ · L3 · Scrap',
-      value: tallerPiso,
+      sub:
+        reacSuelto > 0
+          ? `Diag · Rep · CQ · L3 · + ${reacSuelto.toLocaleString()} reac. suelto`
+          : reac > 0
+            ? `Sin reacond. (${reac.toLocaleString()} ya en bodega)`
+            : 'Diag · Rep · CQ · L3 · Scrap',
+      value: tallerActivas + reacSuelto,
       icon: Wrench,
       tone: 'text-blue-800',
       ring: 'border-blue-200 bg-blue-50',
@@ -144,7 +172,7 @@ export function OsCapacityInstalledPanel({ mods, needsMigration }: Props) {
     {
       key: 'listo',
       label: 'Equipo Listo',
-      sub: 'Listo outbound',
+      sub: 'Post-taller · bucket exclusivo',
       value: equipoListo,
       icon: Send,
       tone: 'text-cyan-800',
@@ -171,15 +199,20 @@ export function OsCapacityInstalledPanel({ mods, needsMigration }: Props) {
   ];
 
   const composition = [
-    { key: 'bodega', label: 'Bodega', value: bodega, color: 'bg-emerald-500' },
-    { key: 'taller', label: 'Taller', value: tallerPiso, color: 'bg-blue-500' },
+    { key: 'bodega', label: 'Bodega stock', value: bodega, color: 'bg-emerald-500' },
+    { key: 'listo', label: 'Equipo listo', value: equipoListo, color: 'bg-cyan-500' },
+    { key: 'taller', label: 'Taller', value: tallerActivas, color: 'bg-blue-500' },
     { key: 'despacho', label: 'Bodega Despacho', value: bodegaDespacho, color: 'bg-indigo-500' },
-    { key: 'bo', label: 'Pend. Bodega', value: pendienteBodega, color: 'bg-amber-500' },
+    { key: 'bo', label: 'Pend. Bodega', value: pendienteIngreso, color: 'bg-amber-500' },
     { key: 'scraps', label: 'SCRAPS caja', value: scrapsCaja, color: 'bg-rose-500' },
     { key: 'tmp', label: 'TMP', value: pistoleo, color: 'bg-teal-500' },
   ].filter((s) => s.value > 0);
 
-  const compositionTotal = composition.reduce((a, s) => a + s.value, 0) || 1;
+  const compositionTotal = activas || composition.reduce((a, s) => a + s.value, 0) || 1;
+  const gapFlujoVsLedger = modulesRpcOk ? flujoSumado - activasLedger : 0;
+  const sinClasificar = Math.max(0, -gapFlujoVsLedger);
+  const sobrecuentoFlujo = Math.max(0, gapFlujoVsLedger);
+  const enPlantaTotal = activasLedger;
 
   return (
     <Card className="overflow-hidden border border-[var(--border)] shadow-sm rounded-2xl">
@@ -193,17 +226,42 @@ export function OsCapacityInstalledPanel({ mods, needsMigration }: Props) {
             </h3>
           </div>
           <p className="mt-1 text-[11px] font-medium text-[var(--muted)]">
-            Unidad = 1 OS · Flujo operativo real (no ledger técnico)
+            Histórico = En planta + Despachadas + Devueltas · Tiles flujo ={' '}
+            {flujoSumado.toLocaleString()}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-emerald-700 ring-1 ring-emerald-200/80">
             <CheckCircle2 className="h-3 w-3" />
-            En planta {activas.toLocaleString()}
+            En planta {enPlantaTotal.toLocaleString()}
           </span>
+          {sinClasificar > 0 && modulesRpcOk ? (
+            <span className="inline-flex items-center gap-1.5 rounded-md bg-amber-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-amber-800 ring-1 ring-amber-200/80">
+              Sin ubicación {sinClasificar.toLocaleString()}
+            </span>
+          ) : null}
+          {sobrecuentoFlujo > 0 && modulesRpcOk ? (
+            <span className="inline-flex items-center gap-1.5 rounded-md bg-amber-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-amber-800 ring-1 ring-amber-200/80">
+              Tiles +{sobrecuentoFlujo.toLocaleString()}
+            </span>
+          ) : null}
+          {historicoCuadra ? (
+            <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-50/60 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-emerald-800 ring-1 ring-emerald-200/60">
+              Cuadra
+            </span>
+          ) : total > 0 ? (
+            <span className="inline-flex items-center gap-1.5 rounded-md bg-rose-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-rose-800 ring-1 ring-rose-200/80">
+              Descuadre {Math.abs(total - cuadreHistorico).toLocaleString()}
+            </span>
+          ) : null}
           <span className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-600 ring-1 ring-slate-200/80">
             Despachadas {despachadas.toLocaleString()}
           </span>
+          {devueltas > 0 ? (
+            <span className="inline-flex items-center gap-1.5 rounded-md bg-violet-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-violet-800 ring-1 ring-violet-200/80">
+              Devueltas {devueltas.toLocaleString()}
+            </span>
+          ) : null}
           <span className="inline-flex items-center gap-1.5 rounded-md bg-[var(--surface-hover)] px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-[var(--muted)] ring-1 ring-[var(--border)]">
             Histórico {total.toLocaleString()}
           </span>
@@ -211,11 +269,23 @@ export function OsCapacityInstalledPanel({ mods, needsMigration }: Props) {
       </div>
 
       <div className="space-y-5 p-5">
-        {(needsMigration || !detailOk) && (
+        {(needsMigration || !modulesRpcOk) && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-900">
-            Desglose incompleto: aplique la migración{' '}
-            <span className="font-black">228_os_inventory_reality_detail.sql</span> en Supabase y
-            recargue. Hasta entonces Pendiente Bodega puede mostrar el ledger viejo (~3k).
+            {needsMigration ? (
+              <>
+                Desglose incompleto: aplique la migración{' '}
+                <span className="font-black">228_os_inventory_reality_detail.sql</span> en Supabase y
+                recargue.
+              </>
+            ) : (
+              <>
+                Inventario OS incompleto — el RPC{' '}
+                <span className="font-black">count_os_inventory_modules</span> no respondió a tiempo
+                (solo se ven ~7k taller). Aplique migración{' '}
+                <span className="font-black">20260908158000_os_inventory_fuera_planta_perf.sql</span>{' '}
+                y recargue.
+              </>
+            )}
           </div>
         )}
 
@@ -265,8 +335,8 @@ export function OsCapacityInstalledPanel({ mods, needsMigration }: Props) {
               Distribución en planta
             </p>
             <p className="text-[10px] font-bold text-[var(--muted)]">
-              {pct(bodega, activas)}% bodega · {pct(tallerPiso, activas)}% taller ·{' '}
-              {pct(bodegaDespacho, activas)}% despacho · {pct(pendienteBodega, activas)}% pendiente
+              {pct(bodega + equipoListo, activas)}% bodega · {pct(tallerActivas, activas)}% taller ·{' '}
+              {pct(bodegaDespacho, activas)}% despacho · {pct(pendienteIngreso, activas)}% pendiente
               ingreso
             </p>
           </div>
@@ -329,41 +399,22 @@ export function OsCapacityInstalledPanel({ mods, needsMigration }: Props) {
           </div>
         </div>
 
-        {/* Compact ledger footer — no SQL dump */}
-        <div className="grid grid-cols-2 gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] p-3 sm:grid-cols-5">
-          <div>
-            <p className="text-[8px] font-black uppercase tracking-widest text-[var(--muted)]">Ledger activas</p>
-            <p className="text-sm font-black tabular-nums text-[var(--heading)]">
-              {activasLedger.toLocaleString()}
-            </p>
+        {sinClasificar > 0 ? (
+          <div className="rounded-lg border border-amber-200/80 bg-amber-50/80 px-3 py-2 text-[11px] font-medium text-amber-950">
+            <span className="font-black">{sinClasificar.toLocaleString()} OS</span> en planta sin tile
+            en el flujo (estados huérfanos o sin serie activa).
+            {sinSeriesEnPlanta > 0 ? (
+              <> Sin serie en planta: {sinSeriesEnPlanta.toLocaleString()}.</>
+            ) : null}
           </div>
-          <div>
-            <p className="text-[8px] font-black uppercase tracking-widest text-[var(--muted)]">Módulos sumados</p>
-            <p className="text-sm font-black tabular-nums text-[var(--heading)]">
-              {activas.toLocaleString()}
-            </p>
+        ) : null}
+        {sobrecuentoFlujo > 0 && modulesRpcOk ? (
+          <div className="rounded-lg border border-amber-200/80 bg-amber-50/80 px-3 py-2 text-[11px] font-medium text-amber-950">
+            Los tiles suman{' '}
+            <span className="font-black">{sobrecuentoFlujo.toLocaleString()} OS</span> de más vs. en
+            planta — revisar series de OS fuera de planta aún activas en un bucket.
           </div>
-          <div>
-            <p className="text-[8px] font-black uppercase tracking-widest text-[var(--muted)]">SCRAPS en caja</p>
-            <p className="text-sm font-black tabular-nums text-rose-700">
-              {scrapsCaja.toLocaleString()}
-            </p>
-          </div>
-          <div>
-            <p className="text-[8px] font-black uppercase tracking-widest text-[var(--muted)]">Equipo Listo</p>
-            <p className="text-sm font-black tabular-nums text-cyan-700">
-              {equipoListo.toLocaleString()}
-            </p>
-          </div>
-          <div>
-            <p className="text-[8px] font-black uppercase tracking-widest text-[var(--muted)]">
-              En Bodega Despacho
-            </p>
-            <p className="text-sm font-black tabular-nums text-indigo-700">
-              {bodegaDespacho.toLocaleString()}
-            </p>
-          </div>
-        </div>
+        ) : null}
       </div>
     </Card>
   );

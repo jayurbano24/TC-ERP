@@ -135,7 +135,7 @@ function DataTableComponent<T>({
   // (así la barra lateral siempre es visible y la cabecera no se desacopla).
   return (
     <div
-      className={`w-full ${className}`}
+      className={`${minWidth != null ? 'w-max min-w-full' : 'w-full'} ${className}`}
       style={minWidthStyle}
       role="table"
       aria-label={ariaLabel}

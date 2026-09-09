@@ -10,6 +10,84 @@ import { sanitizeCacAgencyRaw } from '@/lib/cacAgencyUtils';
 
 import { COUNT_HEAD, RECEPTION_UNDO_SELECT } from '@/shared/constants/dbProjections';
 
+const PLACEHOLDER_TRANSFER_NOTES = new Set([
+  '',
+  'n/a',
+  'na',
+  '---',
+  'sin motivo',
+  'sin notas',
+  'sin notas adicionales',
+]);
+
+/** Valores vacíos o placeholder que no deben mostrarse como nota de transferencia. */
+export function isPlaceholderTransferNote(value: string | null | undefined): boolean {
+  const v = String(value ?? '').trim().toLowerCase();
+  return PLACEHOLDER_TRANSFER_NOTES.has(v);
+}
+
+/** Texto visible en UI para la columna Notas de Transferencia. */
+export function displayTransferNotes(value: string | null | undefined): string {
+  return isPlaceholderTransferNote(value) ? 'Sin notas adicionales' : String(value).trim();
+}
+
+function extractGuideBlockFromNotes(notes: string, guideNumber: string): string | null {
+  const guideKey = String(guideNumber || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[''`´]/g, "'");
+  if (!guideKey || !notes) return null;
+
+  const regex = /\[Guía ([^\]]+)\]([\s\S]*?)(?=\[Guía|---|$)/gi;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(notes)) !== null) {
+    const guidesInHeader = match[1]
+      .split(/[,|]/)
+      .map((g) => g.trim().toLowerCase().replace(/[''`´]/g, "'"))
+      .filter(Boolean);
+    if (guidesInHeader.some((g) => g === guideKey || g.includes(guideKey) || guideKey.includes(g))) {
+      return match[2];
+    }
+  }
+  return null;
+}
+
+function pickTransferNoteFromBlock(block: string): string | null {
+  const motivo = block.match(/Motivo Devoluci[oó]n:\s*([^\n]+)/i)?.[1]?.trim();
+  if (motivo && !isPlaceholderTransferNote(motivo)) return motivo;
+
+  const notas = block.match(/Notas:\s*([^\n]+)/i)?.[1]?.trim();
+  if (notas && !isPlaceholderTransferNote(notas)) return notas;
+
+  return null;
+}
+
+function extractTransferNotesForGuide(
+  receptionNotes: string | undefined,
+  guideNumber: string,
+  motivo: string | null | undefined,
+): string {
+  if (!isPlaceholderTransferNote(motivo)) return String(motivo).trim();
+
+  const guideBlock = receptionNotes
+    ? extractGuideBlockFromNotes(receptionNotes, guideNumber)
+    : null;
+  if (guideBlock) {
+    const fromBlock = pickTransferNoteFromBlock(guideBlock);
+    if (fromBlock) return fromBlock;
+  }
+
+  if (receptionNotes) {
+    const fromMotivo = receptionNotes.split('Motivo Devolución: ')[1]?.split('\n')[0]?.trim();
+    if (!isPlaceholderTransferNote(fromMotivo)) return fromMotivo!;
+
+    const fromNotas = receptionNotes.split('Notas: ')[1]?.split('\n')[0]?.trim();
+    if (!isPlaceholderTransferNote(fromNotas)) return fromNotas!;
+  }
+
+  return '';
+}
+
 export async function processBlockReturnBySapTransfer(
   sapTransferId: string,
   formData: { motivo: string; guiaSalida: string; observaciones?: string },
@@ -462,11 +540,11 @@ function mapReceptionGuideToBoxReturnRow(rg: any): BoxReturnRow {
     (rg.classified_by && String(rg.classified_by).trim()) ||
     (move.by && String(move.by).trim()) ||
     'Sin registro';
-  const transferNotes =
-    rg.motivo ||
-    receptionNotes?.split('Motivo Devolución: ')[1]?.split('\n')[0]?.trim() ||
-    receptionNotes?.split('Notas: ')[1]?.split('\n')[0]?.trim() ||
-    '';
+  const transferNotes = extractTransferNotesForGuide(
+    receptionNotes,
+    String(rg.guide_number || ''),
+    rg.motivo as string | null | undefined,
+  );
 
   const agencyRawClean = sanitizeCacAgencyRaw(rg.agency, rg.receptions?.carrier) || undefined;
 
@@ -1294,7 +1372,14 @@ export type ReturnsReportStats = {
   topReason: ReturnsReportRankRow | null;
   refreshedAt: string | null;
   source: string;
+  periodLabel: string;
 };
+
+export type { ReturnsReportPeriod } from '@/lib/returns/returnsReportPeriod';
+export {
+  buildReturnsReportPeriodOptions,
+  resolveReturnsReportBounds,
+} from '@/lib/returns/returnsReportPeriod';
 
 function normalizeReportStats(raw: unknown): ReturnsReportStats {
   const data = (raw && typeof raw === 'object' ? raw : {}) as {
@@ -1310,12 +1395,18 @@ function normalizeReportStats(raw: unknown): ReturnsReportStats {
         .filter((r) => r.count > 0)
         .sort((a, b) => b.count - a.count)
     : [];
-  const reasons = Array.isArray(data.reasons)
-    ? data.reasons
-        .map((r) => ({ name: String(r?.name || 'Sin motivo'), count: Number(r?.count) || 0 }))
-        .filter((r) => r.count > 0)
-        .sort((a, b) => b.count - a.count)
-    : [];
+  const reasonBuckets = new Map<string, number>();
+  if (Array.isArray(data.reasons)) {
+    for (const r of data.reasons) {
+      const raw = String(r?.name || '').trim();
+      const name = isPlaceholderTransferNote(raw) ? 'Sin motivo declarado' : raw || 'Sin motivo declarado';
+      reasonBuckets.set(name, (reasonBuckets.get(name) || 0) + (Number(r?.count) || 0));
+    }
+  }
+  const reasons = [...reasonBuckets.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .filter((r) => r.count > 0)
+    .sort((a, b) => b.count - a.count);
   return {
     total: Number(data.total) || 0,
     agencies,
@@ -1324,6 +1415,7 @@ function normalizeReportStats(raw: unknown): ReturnsReportStats {
     topReason: reasons[0] || null,
     refreshedAt: data.refreshed_at ? String(data.refreshed_at) : null,
     source: String(data.source || 'returns_report_etl'),
+    periodLabel: 'Todo el histórico',
   };
 }
 
@@ -1331,7 +1423,14 @@ function normalizeReportStats(raw: unknown): ReturnsReportStats {
  * ETL de reporte de devoluciones: refresca snapshot y devuelve cantidades
  * agregadas (total / agencia / motivo). Requiere migración 210.
  */
-export async function getReturnsReportStats(): Promise<ReturnsReportStats> {
+export async function getReturnsReportStats(
+  period: import('@/lib/returns/returnsReportPeriod').ReturnsReportPeriod = 'todo',
+  options: { refresh?: boolean } = {},
+): Promise<ReturnsReportStats> {
+  const { resolveReturnsReportBounds } = await import('@/lib/returns/returnsReportPeriod');
+  const bounds = resolveReturnsReportBounds(period);
+  const shouldRefresh = options.refresh !== false;
+
   const empty: ReturnsReportStats = {
     total: 0,
     agencies: [],
@@ -1340,27 +1439,33 @@ export async function getReturnsReportStats(): Promise<ReturnsReportStats> {
     topReason: null,
     refreshedAt: null,
     source: 'empty',
+    periodLabel: bounds.label,
   };
 
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return empty;
 
-  const { error: refreshError } = await supabase.rpc('refresh_returns_report_etl');
-  if (refreshError) {
-    console.error('refresh_returns_report_etl:', refreshError.message);
-    throw new Error(
-      refreshError.message.includes('Could not find the function') ||
-      refreshError.message.includes('does not exist')
-        ? 'Aplique la migración 210_returns_report_etl.sql en Supabase para generar el reporte.'
-        : `No se pudo refrescar el ETL de devoluciones: ${refreshError.message}`
-    );
+  if (shouldRefresh) {
+    const { error: refreshError } = await supabase.rpc('refresh_returns_report_etl');
+    if (refreshError) {
+      console.error('refresh_returns_report_etl:', refreshError.message);
+      throw new Error(
+        refreshError.message.includes('Could not find the function') ||
+        refreshError.message.includes('does not exist')
+          ? 'Aplique la migración 210_returns_report_etl.sql en Supabase para generar el reporte.'
+          : `No se pudo refrescar el ETL de devoluciones: ${refreshError.message}`
+      );
+    }
   }
 
-  const { data, error } = await supabase.rpc('get_returns_report_stats');
+  const { data, error } = await supabase.rpc('get_returns_report_stats', {
+    p_start: bounds.startIso,
+    p_end: bounds.endIso,
+  });
   if (error) {
     console.error('get_returns_report_stats:', error.message);
     throw new Error(`No se pudieron leer las cantidades del reporte: ${error.message}`);
   }
 
-  return normalizeReportStats(data);
+  return { ...normalizeReportStats(data), periodLabel: bounds.label };
 }

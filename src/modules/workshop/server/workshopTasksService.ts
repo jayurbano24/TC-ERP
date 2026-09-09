@@ -9,6 +9,16 @@ import {
   sanitizeWorkshopSearchToken,
 } from '@/modules/workshop/shared/workshopSearch';
 import { resolveEntrySource } from '@/modules/workshop/shared/entrySource';
+import { collectWorkshopCatalogIds } from '@/modules/workshop/shared/workshopHistoryDisplay';
+import {
+  finalizeWorkshopGroupSeriesOrder,
+  indexSeriesSapBySn,
+  seriesSlotsFromRow,
+} from '@/modules/workshop/shared/workshopSeriesDisplay';
+import {
+  buildCatalogNameLookup,
+  dedupeCatalogByName,
+} from '@/shared/catalogs/catalogNameDedup';
 
 export type WorkshopTabId =
   | 'diagnostico'
@@ -92,6 +102,7 @@ const WORKSHOP_SERIES_SELECT = `
   service_orders (
     id,
     os_label,
+    main_serial,
     reception_guide_id,
     sap_transfer_id,
     reception_guides ( guide_number, agency )
@@ -105,7 +116,8 @@ const WORKSHOP_SERIES_SELECT = `
   ),
   boxes ( box_code, rack_location ),
   ingress_count,
-  current_diagnostics
+  current_diagnostics,
+  sap_status
 `;
 
 export type WorkshopLocateResult = {
@@ -182,14 +194,8 @@ async function searchWorkshopSeriesSingleInTab(
   if (tab === 'listo') {
     rows = await attachWorkshopAuditFlags(supabase, rows, 'listo');
   }
-  rows = await enrichWorkshopServiceOrders(supabase, rows);
-  if (tab === 'diagnostico') {
-    rows = await enrichWorkshopSourceBoxCodes(supabase, rows);
-  }
-  if (tab === 'l3') {
-    rows = await enrichWorkshopL3Diagnostics(supabase, rows);
-  }
-  return groupWorkshopSeriesRows(rows);
+  rows = await enrichWorkshopRowsBeforeGroup(supabase, rows, tab);
+  return finalizeWorkshopTaskGroups(supabase, groupWorkshopSeriesRows(rows));
 }
 
 async function searchWorkshopSeriesMultiInTab(
@@ -257,14 +263,8 @@ async function searchWorkshopSeriesMultiInTab(
   if (tab === 'listo') {
     rows = await attachWorkshopAuditFlags(supabase, rows, 'listo');
   }
-  rows = await enrichWorkshopServiceOrders(supabase, rows);
-  if (tab === 'diagnostico') {
-    rows = await enrichWorkshopSourceBoxCodes(supabase, rows);
-  }
-  if (tab === 'l3') {
-    rows = await enrichWorkshopL3Diagnostics(supabase, rows);
-  }
-  return groupWorkshopSeriesRows(rows);
+  rows = await enrichWorkshopRowsBeforeGroup(supabase, rows, tab);
+  return finalizeWorkshopTaskGroups(supabase, groupWorkshopSeriesRows(rows));
 }
 
 const EMPTY_LOCATE: WorkshopLocateResult = {
@@ -505,9 +505,10 @@ function mergeWorkshopGroup(target: any, source: any) {
   for (const id of source.all_dbIds || [source.id]) {
     if (id && !target.all_dbIds.includes(id)) target.all_dbIds.push(id);
   }
-  for (const sn of source.all_sns || (source.serial_number ? [source.serial_number] : [])) {
+  for (const sn of seriesSlotsFromRow(source)) {
     if (sn && !target.all_sns.includes(sn)) target.all_sns.push(sn);
   }
+  indexSeriesSapBySn(target, source);
   if (!target.sn_to_series_id) target.sn_to_series_id = {};
   const srcMap = source.sn_to_series_id || {};
   for (const [sn, id] of Object.entries(srcMap)) {
@@ -544,6 +545,8 @@ function mergeWorkshopGroup(target: any, source: any) {
   if (tgtDiags.length === 0 && srcDiags.length > 0) {
     target.current_diagnostics = srcDiags;
   }
+  mergeWorkshopCatalogIdField(target, source, 'current_repairs');
+  mergeWorkshopCatalogIdField(target, source, 'current_reacondicionado');
   if (!target.l3_reason_text && source.l3_reason_text) {
     target.l3_reason_text = source.l3_reason_text;
   }
@@ -561,7 +564,7 @@ function dedupeWorkshopGroups(groups: any[]): any[] {
 
   for (const g of groups) {
     g.all_dbIds = g.all_dbIds || [g.id];
-    g.all_sns = g.all_sns || (g.serial_number ? [g.serial_number] : []);
+    g.all_sns = g.all_sns?.length ? g.all_sns : seriesSlotsFromRow(g);
     const osKey = g.service_order_id ? String(g.service_order_id) : '';
     const labelKey = g.service_orders?.os_label
       ? String(g.service_orders.os_label).toUpperCase()
@@ -588,9 +591,7 @@ function dedupeWorkshopGroups(groups: any[]): any[] {
   }
 
   for (const g of out) {
-    g.all_sns = [...(g.all_sns || [])].sort(
-      (a: string, b: string) => b.length - a.length || a.localeCompare(b)
-    );
+    finalizeWorkshopGroupSeriesOrder(g);
   }
 
   return out;
@@ -632,9 +633,10 @@ function groupWorkshopSeriesRows(rows: any[]) {
         series_entry_map: seriesEntryMap,
         sn_to_series_id: snToSeriesId,
         all_dbIds: [row.id],
-        all_sns: sn ? [sn] : [],
+        all_sns: seriesSlotsFromRow(row),
         source_box_code: row.source_box_code ?? null,
       });
+      indexSeriesSapBySn(groupedMap.get(groupKey)!, row);
       continue;
     }
 
@@ -645,8 +647,9 @@ function groupWorkshopSeriesRows(rows: any[]) {
       series_entry_map: seriesEntryMap,
       sn_to_series_id: snToSeriesId,
       all_dbIds: [row.id],
-      all_sns: sn ? [sn] : [],
+      all_sns: seriesSlotsFromRow(row),
     });
+    indexSeriesSapBySn(existing, row);
   }
 
   const groups = dedupeWorkshopGroups([...groupedMap.values()]);
@@ -975,8 +978,11 @@ async function queryListoTasksPage(
     'in_central_warehouse'
   );
   // Ya filtrados por auditoría en RPC/fallback; no re-escanear todo el stock.
-  seriesRows = await enrichWorkshopServiceOrders(supabase, seriesRows);
-  const items = groupWorkshopSeriesRows(seriesRows);
+  seriesRows = await enrichWorkshopRowsBeforeGroup(supabase, seriesRows, 'listo');
+  const items = await finalizeWorkshopTaskGroups(
+    supabase,
+    groupWorkshopSeriesRows(seriesRows),
+  );
 
   const { data: totalOs } = await supabase.rpc('count_workshop_os_all_tabs');
   const listoTotal =
@@ -1212,6 +1218,179 @@ async function enrichWorkshopL3Diagnostics(
   });
 }
 
+const WORKSHOP_REPAIR_AUDIT_ACTIONS = [
+  'REPARACIÓN COMPLETADA',
+  'REPARACIÓN L3 COMPLETADA',
+] as const;
+
+const WORKSHOP_REACOND_AUDIT_ACTION = 'REACONDICIONADO COMPLETADO';
+
+function mergeWorkshopCatalogIdField(target: any, source: any, key: string) {
+  const merged = new Set<string>();
+  for (const id of [...(Array.isArray(target[key]) ? target[key] : []), ...(Array.isArray(source[key]) ? source[key] : [])]) {
+    const normalized = String(id || '').trim();
+    if (normalized) merged.add(normalized);
+  }
+  if (merged.size > 0) target[key] = [...merged];
+}
+
+function extractWorkshopRepairIds(payload: Record<string, unknown>): string[] {
+  const repairs = payload.repairs;
+  if (Array.isArray(repairs) && repairs.length > 0) {
+    return [...new Set(repairs.map(String).filter(Boolean))];
+  }
+  const items = payload.items;
+  if (Array.isArray(items) && items.length > 0) {
+    return [...new Set(items.map(String).filter(Boolean))];
+  }
+  return collectWorkshopCatalogIds(payload);
+}
+
+function extractWorkshopReacondIds(payload: Record<string, unknown>): string[] {
+  const items = payload.items;
+  if (Array.isArray(items) && items.length > 0) {
+    return [...new Set(items.map(String).filter(Boolean))];
+  }
+  return [];
+}
+
+/** Recupera reparaciones y pruebas de reacondicionado desde auditoría por serie. */
+async function enrichWorkshopRepairAndReacondCatalogs(
+  supabase: SupabaseClient,
+  rows: any[],
+): Promise<any[]> {
+  if (rows.length === 0) return rows;
+
+  const seriesIds = rows.map((row) => String(row.id)).filter(Boolean);
+  const repairBySeries = new Map<string, string[]>();
+  const reacondBySeries = new Map<string, string[]>();
+
+  for (let i = 0; i < seriesIds.length; i += 80) {
+    const chunk = seriesIds.slice(i, i + 80);
+    const { data, error } = await supabase
+      .from('erp_audit_logs')
+      .select('record_id, action, new_values, created_at')
+      .in('record_id', chunk)
+      .in('action', [...WORKSHOP_REPAIR_AUDIT_ACTIONS, WORKSHOP_REACOND_AUDIT_ACTION])
+      .order('created_at', { ascending: false })
+      .limit(2500);
+
+    if (error) {
+      console.warn('[workshop/server] repair/reacond catalog enrich:', error.message);
+      break;
+    }
+
+    for (const log of data || []) {
+      const sid = String(log.record_id || '');
+      if (!sid) continue;
+      const payload = (log.new_values || {}) as Record<string, unknown>;
+      const action = String(log.action || '');
+
+      if (
+        (WORKSHOP_REPAIR_AUDIT_ACTIONS as readonly string[]).includes(action) &&
+        !repairBySeries.has(sid)
+      ) {
+        const ids = extractWorkshopRepairIds(payload);
+        if (ids.length > 0) repairBySeries.set(sid, ids);
+      }
+
+      if (action === WORKSHOP_REACOND_AUDIT_ACTION && !reacondBySeries.has(sid)) {
+        const ids = extractWorkshopReacondIds(payload);
+        if (ids.length > 0) reacondBySeries.set(sid, ids);
+      }
+    }
+  }
+
+  return rows.map((row) => {
+    const sid = String(row.id);
+    return {
+      ...row,
+      current_repairs: repairBySeries.get(sid) ?? row.current_repairs ?? [],
+      current_reacondicionado:
+        reacondBySeries.get(sid) ?? row.current_reacondicionado ?? [],
+    };
+  });
+}
+
+async function enrichWorkshopRowsBeforeGroup(
+  supabase: SupabaseClient,
+  rows: any[],
+  tab: WorkshopTabId,
+): Promise<any[]> {
+  rows = await enrichWorkshopServiceOrders(supabase, rows);
+  if (tab === 'diagnostico') {
+    rows = await enrichWorkshopSourceBoxCodes(supabase, rows);
+  }
+  if (tab === 'l3') {
+    rows = await enrichWorkshopL3Diagnostics(supabase, rows);
+  }
+  return enrichWorkshopRepairAndReacondCatalogs(supabase, rows);
+}
+
+const WORKSHOP_STAGE_HISTORY_ACTIONS = [
+  'REPARACIÓN COMPLETADA',
+  'REPARACIÓN L3 COMPLETADA',
+  'REACONDICIONADO COMPLETADO',
+] as const;
+
+/** Marca si alguna serie de la OS pasó por Reparación (RP) o Reacondicionado (RC). */
+async function enrichWorkshopStageHistoryFlags(
+  supabase: SupabaseClient,
+  groups: any[],
+): Promise<any[]> {
+  if (groups.length === 0) return groups;
+
+  const seriesIds = [
+    ...new Set(groups.flatMap((g) => (g.all_dbIds as string[] | undefined) || []).filter(Boolean)),
+  ];
+  if (seriesIds.length === 0) return groups;
+
+  const repairIds = new Set<string>();
+  const reacondIds = new Set<string>();
+
+  for (let i = 0; i < seriesIds.length; i += 80) {
+    const chunk = seriesIds.slice(i, i + 80);
+    const { data, error } = await supabase
+      .from('erp_audit_logs')
+      .select('record_id, action')
+      .in('record_id', chunk)
+      .in('action', [...WORKSHOP_STAGE_HISTORY_ACTIONS])
+      .limit(4000);
+
+    if (error) {
+      console.warn('[workshop/server] stage history flags:', error.message);
+      break;
+    }
+
+    for (const log of data || []) {
+      const id = String(log.record_id || '');
+      const action = String(log.action || '');
+      if (!id) continue;
+      if (action === 'REACONDICIONADO COMPLETADO') {
+        reacondIds.add(id);
+      } else if (action === 'REPARACIÓN COMPLETADA' || action === 'REPARACIÓN L3 COMPLETADA') {
+        repairIds.add(id);
+      }
+    }
+  }
+
+  return groups.map((g) => {
+    const ids = (g.all_dbIds as string[] | undefined) || [];
+    return {
+      ...g,
+      passed_repair: ids.some((id) => repairIds.has(id)),
+      passed_reacond: ids.some((id) => reacondIds.has(id)),
+    };
+  });
+}
+
+async function finalizeWorkshopTaskGroups(
+  supabase: SupabaseClient,
+  groups: any[],
+): Promise<any[]> {
+  return enrichWorkshopStageHistoryFlags(supabase, groups);
+}
+
 async function fetchWorkshopTasksViaOsQueue(
   supabase: SupabaseClient,
   tab: Exclude<WorkshopTabId, 'listo'>,
@@ -1277,7 +1456,10 @@ export async function queryWorkshopTasksPage(
 ): Promise<WorkshopTasksPageResult> {
   const search = opts.search?.trim();
   if (search) {
-    const items = await searchWorkshopSeriesInTab(supabase, tab, search);
+    const items = await finalizeWorkshopTaskGroups(
+      supabase,
+      await searchWorkshopSeriesInTab(supabase, tab, search),
+    );
     return { items, nextCursor: null, totalOs: items.length };
   }
 
@@ -1332,8 +1514,11 @@ export async function queryWorkshopTasksPage(
       );
 
       let seriesRows = await fetchWorkshopSeriesForOsIds(supabase, osIds, status);
-      seriesRows = await enrichWorkshopServiceOrders(supabase, seriesRows);
-      const groups = groupWorkshopSeriesRows(seriesRows);
+      seriesRows = await enrichWorkshopRowsBeforeGroup(supabase, seriesRows, tab);
+      const groups = await finalizeWorkshopTaskGroups(
+        supabase,
+        groupWorkshopSeriesRows(seriesRows),
+      );
       items.push(...groups);
 
       cursor = String(pageRows[pageRows.length - 1].service_order_id);
@@ -1385,14 +1570,11 @@ export async function queryWorkshopTasksPage(
   const osIds = pageRows.map((r: { service_order_id: string }) => String(r.service_order_id));
 
   let seriesRows = await fetchWorkshopSeriesForOsIds(supabase, osIds, status);
-  seriesRows = await enrichWorkshopServiceOrders(supabase, seriesRows);
-  if (tab === 'diagnostico') {
-    seriesRows = await enrichWorkshopSourceBoxCodes(supabase, seriesRows);
-  }
-  if (tab === 'l3') {
-    seriesRows = await enrichWorkshopL3Diagnostics(supabase, seriesRows);
-  }
-  const items = groupWorkshopSeriesRows(seriesRows);
+  seriesRows = await enrichWorkshopRowsBeforeGroup(supabase, seriesRows, tab);
+  const items = await finalizeWorkshopTaskGroups(
+    supabase,
+    groupWorkshopSeriesRows(seriesRows),
+  );
 
   return {
     items,
@@ -1410,14 +1592,8 @@ async function queryWorkshopTasksLegacyAll(
   if (status === 'in_central_warehouse') {
     rows = await attachWorkshopAuditFlags(supabase, rows, 'exclude_warehouse_stock');
   }
-  rows = await enrichWorkshopServiceOrders(supabase, rows);
-  if (tab === 'diagnostico') {
-    rows = await enrichWorkshopSourceBoxCodes(supabase, rows);
-  }
-  if (tab === 'l3') {
-    rows = await enrichWorkshopL3Diagnostics(supabase, rows);
-  }
-  return groupWorkshopSeriesRows(rows);
+  rows = await enrichWorkshopRowsBeforeGroup(supabase, rows, tab);
+  return finalizeWorkshopTaskGroups(supabase, groupWorkshopSeriesRows(rows));
 }
 
 /** Catálogos operativos de Taller con relaciones diagnóstico→reparación. */
@@ -1434,7 +1610,7 @@ export async function fetchWorkshopOperationCatalogs(supabase: SupabaseClient) {
   if (reacondRes.error) throw reacondRes.error;
 
   const relData = relRes.data ?? [];
-  const diagnostics = (diagnosticsRes.data ?? []).map((d) => {
+  const diagnosticsAll = (diagnosticsRes.data ?? []).map((d) => {
     const rels = relData.filter((r: { diagnostic_id: string }) => r.diagnostic_id === d.id);
     return {
       id: d.id,
@@ -1442,10 +1618,14 @@ export async function fetchWorkshopOperationCatalogs(supabase: SupabaseClient) {
       reparacionesIds: rels.map((r: { repair_id: string }) => r.repair_id),
     };
   });
+  const repairsAll = (repairsRes.data ?? []).map((r) => ({ id: r.id, nombre: r.name }));
 
   return {
-    diagnostics,
-    repairs: (repairsRes.data ?? []).map((r) => ({ id: r.id, nombre: r.name })),
+    diagnostics: dedupeCatalogByName(diagnosticsAll),
+    repairs: dedupeCatalogByName(repairsAll),
+    catalogNamesById: Object.fromEntries(
+      buildCatalogNameLookup([...diagnosticsAll, ...repairsAll]),
+    ),
     reacondicionadoTests: reacondRes.data ?? [],
   };
 }

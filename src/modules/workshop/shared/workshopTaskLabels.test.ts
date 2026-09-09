@@ -24,6 +24,21 @@ describe('workshopTaskLabels', () => {
     expect(resolveWorkshopDiagnosticLabel({}, sources)).toBe('Sin diagnóstico registrado');
   });
 
+  it('no muestra UUID crudo si el id no está en catálogo', () => {
+    expect(
+      resolveWorkshopDiagnosticLabel(
+        { current_diagnostics: ['d8ad312a-a962-4fad-b05d-fc3c7b8cd969'] },
+        sources,
+      ),
+    ).toBe('Diagnóstico no catalogado');
+  });
+
+  it('resuelve diagnóstico desde catálogo de reparaciones como fallback', () => {
+    expect(
+      resolveWorkshopDiagnosticLabel({ current_diagnostics: ['r1'] }, sources),
+    ).toBe('CAMBIO DE PUERTO USB');
+  });
+
   it('resuelve reparación y reacondicionado', () => {
     expect(resolveWorkshopRepairLabel({ current_repairs: ['r1'] }, sources)).toBe(
       'CAMBIO DE PUERTO USB',

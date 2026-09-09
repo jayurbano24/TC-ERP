@@ -1137,9 +1137,9 @@ async function enrichWorkshopSourceBoxCodes(
 }
 
 /**
- * Si L3 no tiene current_diagnostics, recupera IDs (o Motivo L3) desde auditoría.
+ * Recupera IDs de diagnóstico (o Motivo L3) desde auditoría cuando la serie no los tiene en BD.
  */
-async function enrichWorkshopL3Diagnostics(
+async function enrichWorkshopDiagnosticsFromAudit(
   supabase: SupabaseClient,
   rows: any[]
 ): Promise<any[]> {
@@ -1321,9 +1321,7 @@ async function enrichWorkshopRowsBeforeGroup(
   if (tab === 'diagnostico') {
     rows = await enrichWorkshopSourceBoxCodes(supabase, rows);
   }
-  if (tab === 'l3') {
-    rows = await enrichWorkshopL3Diagnostics(supabase, rows);
-  }
+  rows = await enrichWorkshopDiagnosticsFromAudit(supabase, rows);
   return enrichWorkshopRepairAndReacondCatalogs(supabase, rows);
 }
 

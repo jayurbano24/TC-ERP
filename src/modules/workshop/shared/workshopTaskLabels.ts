@@ -1,4 +1,5 @@
 import {
+  isWorkshopUuidLike,
   resolveWorkshopCatalogName,
   type WorkshopCatalogEntry,
 } from '@/modules/workshop/shared/workshopHistoryDisplay';
@@ -37,16 +38,22 @@ function resolveCatalogNames(
 
 export function resolveWorkshopDiagnosticLabel(
   row: WorkshopTaskCatalogRow,
-  sources: Pick<WorkshopTaskLabelSources, 'diagnostics' | 'catalogNamesById'>,
+  sources: Pick<WorkshopTaskLabelSources, 'diagnostics' | 'repairs' | 'catalogNamesById'>,
 ): string {
   const diagIds = Array.isArray(row.current_diagnostics)
     ? row.current_diagnostics.map(String).filter(Boolean)
     : [];
   if (diagIds.length > 0) {
-    return joinCatalogLabels(
-      resolveCatalogNames(diagIds, sources.diagnostics, [], sources.catalogNamesById),
-      'Sin diagnóstico registrado',
+    const names = resolveCatalogNames(
+      diagIds,
+      sources.diagnostics,
+      sources.repairs ?? [],
+      sources.catalogNamesById,
     );
+    if (names.length > 0) {
+      return joinCatalogLabels(names, 'Sin diagnóstico registrado');
+    }
+    return 'Diagnóstico no catalogado';
   }
   const reason = String(row.l3_reason_text || '').trim();
   if (reason) return reason;
@@ -79,7 +86,9 @@ export function resolveWorkshopReacondicionadoLabel(
     const fromLookup = sources.catalogNamesById?.[id];
     if (fromLookup) return fromLookup;
     const hit = sources.reacondicionadoTests.find((t) => t.id === id);
-    return String(hit?.name || '').trim() || id;
+    const name = String(hit?.name || '').trim();
+    if (name) return name;
+    return isWorkshopUuidLike(id) ? '' : id;
   });
 
   return joinCatalogLabels(names, 'Sin reacondicionado registrado');

@@ -1,5 +1,12 @@
 export type WorkshopCatalogEntry = { id: string; nombre: string };
 
+const UUID_LIKE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function isWorkshopUuidLike(value: string): boolean {
+  return UUID_LIKE.test(String(value || '').trim());
+}
+
 export function formatWorkshopResultLabel(result: unknown): string {
   const r = String(result || '');
   if (r === 'reparacion') return 'Reparación (L1/L2)';
@@ -39,6 +46,7 @@ export function resolveWorkshopCatalogName(
   if (diag?.nombre) return diag.nombre;
   const rep = repairs.find((r) => r.id === id);
   if (rep?.nombre) return rep.nombre;
+  if (isWorkshopUuidLike(id)) return '';
   return id;
 }
 

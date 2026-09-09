@@ -689,6 +689,16 @@ function resolveCatalogLabels(
   return [...new Set(names)].join(', ');
 }
 
+/** Misma serie representativa que usa la matriz (seriesList[0]), con preferencia por la que tiene serial. */
+function pickPrimarySeriesId(
+  seriesIds: string[],
+  seriesMap: Map<string, SeriesDetailRow>,
+): string | null {
+  if (seriesIds.length === 0) return null;
+  const withSerial = seriesIds.find((id) => seriesMap.get(id)?.serial_number?.trim());
+  return withSerial ?? seriesIds[0];
+}
+
 async function buildEntregadoDetailRows(
   supabase: SupabaseClient,
   hits: DetailHit[],
@@ -709,59 +719,54 @@ async function buildEntregadoDetailRows(
   ]);
 
   const rows: ReportRow[] = [];
-  const seriesSeen = new Set<string>();
 
+  // 1 fila por DetailHit (1 OS × categoría) — misma unidad de conteo que la matriz resumen.
   for (const hit of hits) {
-    const ids = hit.seriesIds.length > 0 ? hit.seriesIds : [];
-    for (const seriesId of ids) {
-      const dedupeKey = `${seriesId}|${hit.category}|${hit.month}|${hit.tech}`;
-      if (seriesSeen.has(dedupeKey)) continue;
-      seriesSeen.add(dedupeKey);
+    const tech = hit.tech;
+    const primaryId = pickPrimarySeriesId(hit.seriesIds, seriesMap);
+    const s = primaryId ? seriesMap.get(primaryId) : undefined;
 
-      const s = seriesMap.get(seriesId);
-      if (!s?.serial_number?.trim()) continue;
+    const model = s?.model_id ? brandModel.modelById.get(s.model_id) : null;
+    const brandId = s?.brand_id || model?.brandId || null;
+    const marca = (brandId && brandModel.brandById.get(brandId)) || '';
+    const modelo = model?.name || '';
 
-      const model = s.model_id ? brandModel.modelById.get(s.model_id) : null;
-      const brandId = s.brand_id || model?.brandId || null;
-      const marca = (brandId && brandModel.brandById.get(brandId)) || '';
-      const modelo = model?.name || '';
-      const tech = hit.tech;
+    const sapDesc =
+      String(s?.valuation || '').trim().toUpperCase() ||
+      `${tech} ${marca} ${modelo}`.trim().toUpperCase();
 
-      const sapDesc =
-        String(s.valuation || '').trim().toUpperCase() ||
-        `${tech} ${marca} ${modelo}`.trim().toUpperCase();
-
-      const audit = auditLabels.get(seriesId);
-      const diagFromSeries = resolveCatalogLabels(s.current_diagnostics, catalogs.diagnostics);
-      const diagnostico = (diagFromSeries || audit?.diagnostico || '').toUpperCase();
-      let accion = (audit?.accion || '').toUpperCase();
-      if (accion && /^[0-9a-f-]{36}$/i.test(accion.split(',')[0]?.trim() || '')) {
-        accion = resolveCatalogLabels(
-          accion.split(',').map((part) => part.trim()),
-          catalogs.repairs,
-        ).toUpperCase();
-      }
-
-      const po = poByOs.get(hit.osId);
-      const produccion = po || `PS - ${hit.year || defaultYear}`;
-
-      rows.push({
-        'NO. DE SERIE': s.serial_number.trim().toUpperCase(),
-        'DESCRIPCIÓN SAP': sapDesc,
-        MARCA: marca,
-        MODELO: modelo || sapDesc,
-        TECNOLOGÍA: tech,
-        TRATAMIENTO: treatmentCode(hit.category),
-        'CANAL DE RECUPERACIÓN': hit.source.toUpperCase(),
-        PRODUCCIÓN: produccion,
-        DIAGNÓSTICO: diagnostico,
-        ACCIÓN: accion,
-        'Material SAP': s.material?.trim() || '',
-        _sortMes: hit.month,
-        _sortTech: tech,
-        _sortCat: hit.category,
-      });
+    const audit = primaryId ? auditLabels.get(primaryId) : undefined;
+    const diagFromSeries = resolveCatalogLabels(s?.current_diagnostics, catalogs.diagnostics);
+    const diagnostico = (diagFromSeries || audit?.diagnostico || '').toUpperCase();
+    let accion = (audit?.accion || '').toUpperCase();
+    if (accion && /^[0-9a-f-]{36}$/i.test(accion.split(',')[0]?.trim() || '')) {
+      accion = resolveCatalogLabels(
+        accion.split(',').map((part) => part.trim()),
+        catalogs.repairs,
+      ).toUpperCase();
     }
+
+    const po = poByOs.get(hit.osId);
+    const produccion = po || `PS - ${hit.year || defaultYear}`;
+    const serial = s?.serial_number?.trim().toUpperCase() || 'SIN SERIE';
+
+    rows.push({
+      'NO. DE SERIE': serial,
+      'DESCRIPCIÓN SAP': sapDesc,
+      MARCA: marca,
+      MODELO: modelo || sapDesc,
+      TECNOLOGÍA: tech,
+      TRATAMIENTO: treatmentCode(hit.category),
+      'CANAL DE RECUPERACIÓN': hit.source.toUpperCase(),
+      PRODUCCIÓN: produccion,
+      DIAGNÓSTICO: diagnostico,
+      ACCIÓN: accion,
+      'Material SAP': s?.material?.trim() || '',
+      _sortMes: hit.month,
+      _sortTech: tech,
+      _sortCat: hit.category,
+      _sortSource: hit.source,
+    });
   }
 
   rows.sort((a, b) => {
@@ -774,17 +779,21 @@ async function buildEntregadoDetailRows(
     const ca = String(a._sortCat || '');
     const cb = String(b._sortCat || '');
     if (ca !== cb) return ca.localeCompare(cb, 'es');
+    const sa = String(a._sortSource || '');
+    const sb = String(b._sortSource || '');
+    if (sa !== sb) return sa.localeCompare(sb, 'es');
     return String(a['NO. DE SERIE'] || '').localeCompare(String(b['NO. DE SERIE'] || ''), 'es');
   });
 
-  return rows.map(({ _sortMes, _sortTech, _sortCat, ...rest }) => rest);
+  return rows.map(({ _sortMes, _sortTech, _sortCat, _sortSource, ...rest }) => rest);
 }
 
 /**
  * Matriz = foto de referencia:
  * Ingresado | Taller | Obsoleto | Reparado | Reacondicionado  (cada uno CACs / PX)
  *
- * Unidad de conteo equipo: 1 OS = 1 (Ingresado / Taller / Obsoleto).
+ * Unidad de conteo equipo: 1 OS = 1 (Ingresado / Taller / Obsoleto). La hoja Entregado
+ * emite exactamente 1 fila por OS y categoría (mismo DetailHit), cuadrando por Mes/Tecnología/TRATAMIENTO/canal.
  * Taller = equipos en cola Taller (mismo criterio UI) + los que entraron en el periodo.
  * Reparado: 1 OS que ya avanzó de Reparación → Control de Calidad o Equipo Listo.
  *   (no cuenta los que aún están en pestaña Reparación / in_qc).

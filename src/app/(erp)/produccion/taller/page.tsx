@@ -74,6 +74,7 @@ import {
 } from '@/modules/workshop/shared/workshopQueueColumnFilters';
 import {
   useWorkshopTabDataset,
+  useWorkshopTabSearch,
   workshopTabDatasetQueryKey,
 } from '@/modules/workshop/client/useWorkshopTabDataset';
 
@@ -308,9 +309,25 @@ export default function TallerPage() {
   const workshopTab = activeTab as WorkshopTabId;
   const queueTabEnabled = activeTab !== 'po' && activeTab !== 'despacho';
   const workshopDatasetQuery = useWorkshopTabDataset(workshopTab, queueTabEnabled);
-  const loading = workshopDatasetQuery.isLoading;
+  const searchTokensParsed = useMemo(
+    () => (debouncedSearchTerm.trim() ? parseWorkshopSearchTokens(debouncedSearchTerm) : null),
+    [debouncedSearchTerm],
+  );
+  const hasServerSearch = Boolean(
+    queueTabEnabled && searchTokensParsed && searchTokensParsed.tokens.length > 0,
+  );
+  const workshopSearchQuery = useWorkshopTabSearch(
+    workshopTab,
+    debouncedSearchTerm,
+    hasServerSearch,
+  );
+  const loading =
+    workshopDatasetQuery.isLoading || (hasServerSearch && workshopSearchQuery.isLoading);
   const isRefreshing =
-    workshopDatasetQuery.isFetching && !workshopDatasetQuery.isLoading;
+    (workshopDatasetQuery.isFetching && !workshopDatasetQuery.isLoading) ||
+    (hasServerSearch &&
+      workshopSearchQuery.isFetching &&
+      !workshopSearchQuery.isLoading);
 
   useEffect(() => {
     if (activeTab === 'po' || activeTab === 'despacho') {
@@ -537,6 +554,15 @@ export default function TallerPage() {
     );
   }, [workshopDatasetQuery.data?.items, catModelos, catDiagnosticos, catReparaciones, catReacondicionadoTests, catalogNamesById, skuLabelsByOs, responsableOverrides]);
 
+  const searchTabRows = useMemo(() => {
+    const raw = workshopSearchQuery.data ?? [];
+    return raw.map(adaptWorkshopRow).map((row) =>
+      responsableOverrides[row.dbId]
+        ? { ...row, responsable: responsableOverrides[row.dbId] }
+        : row,
+    );
+  }, [workshopSearchQuery.data, catModelos, catDiagnosticos, catReparaciones, catReacondicionadoTests, catalogNamesById, skuLabelsByOs, responsableOverrides]);
+
   const setColFilter = useCallback((col: WorkshopQueueFilterCol, next: ExcelFilterSelection) => {
     setExcelFilters((prev) => ({ ...prev, [col]: next }));
     startTransition(() => setTasksPage(1));
@@ -556,6 +582,7 @@ export default function TallerPage() {
   const refetchWorkshopQueue = useCallback(async () => {
     setTasksPage(1);
     await queryClient.invalidateQueries({ queryKey: workshopTabDatasetQueryKey(workshopTab) });
+    await queryClient.invalidateQueries({ queryKey: ['workshop-tab-search', workshopTab] });
     void tabCountsQuery.refetch();
   }, [queryClient, workshopTab, tabCountsQuery]);
 
@@ -1013,12 +1040,14 @@ ${funcNotes || 'Ninguno evaluado'}
     { id: 'despacho', label: 'Retornar a Bodega', icon: Send, color: 'text-indigo-500', bg: 'bg-indigo-50' },
   ];
 
-  // La API entrega la cola por pestaña; filtrado Excel + búsqueda en cliente.
-  const tabTasks = allTabRows;
+  // Cola por pestaña; búsqueda server-side cuando hay serie/OS en el buscador.
+  const tabTasks = hasServerSearch ? searchTabRows : allTabRows;
 
   const filterOptionsByCol = useMemo(() => {
     const cols = workshopQueueFilterColumnsForTab(activeTab as WorkshopQueueTabId);
-    const searchPool = tabTasks.filter((row) => rowMatchesSearch(row, debouncedSearchTerm));
+    const searchPool = hasServerSearch
+      ? tabTasks
+      : tabTasks.filter((row) => rowMatchesSearch(row, debouncedSearchTerm));
     const map = {} as Record<WorkshopQueueFilterCol, string[]>;
     for (const col of cols) {
       const pool = searchPool.filter((row) =>
@@ -1027,7 +1056,7 @@ ${funcNotes || 'Ninguno evaluado'}
       map[col] = workshopQueueUniqueValues(pool, col, filterHelpers);
     }
     return map;
-  }, [tabTasks, debouncedSearchTerm, excelFilters, filterHelpers, activeTab]);
+  }, [tabTasks, debouncedSearchTerm, excelFilters, filterHelpers, activeTab, hasServerSearch, rowMatchesSearch]);
 
   const techFilterOptions = useMemo(() => {
     const byKey = new Map<string, string>();
@@ -1057,7 +1086,7 @@ ${funcNotes || 'Ninguno evaluado'}
     const techKey = catalogLabelKey(techFilter);
     const modelKey = catalogLabelKey(modelFilter);
     let list = tabTasks.filter((row) => {
-      if (!rowMatchesSearch(row, debouncedSearchTerm)) return false;
+      if (!hasServerSearch && !rowMatchesSearch(row, debouncedSearchTerm)) return false;
       if (techKey && catalogLabelKey(row.tecnologia) !== techKey) return false;
       if (modelKey && catalogLabelKey(row.modelo) !== modelKey) return false;
       return matchesWorkshopQueueExcelFilters(row, excelFilters, filterHelpers);
@@ -1076,6 +1105,7 @@ ${funcNotes || 'Ninguno evaluado'}
   }, [
     tabTasks,
     debouncedSearchTerm,
+    hasServerSearch,
     techFilter,
     modelFilter,
     excelFilters,
@@ -1107,23 +1137,44 @@ ${funcNotes || 'Ninguno evaluado'}
       if (!singleToken) setLocateHint(null);
       return;
     }
+    if (hasServerSearch && workshopSearchQuery.isLoading) return;
 
     const seq = ++locateSeqRef.current;
     void locateWorkshopEquipmentViaApi(singleToken)
       .then((loc) => {
         if (seq !== locateSeqRef.current) return;
-        setLocateHint(
-          loc.found &&
-            (loc.outsideWorkshop ||
-              (Boolean(loc.tab) && loc.tab !== (activeTab as WorkshopTabId)))
-            ? loc
-            : null,
-        );
+        if (!loc.found) {
+          setLocateHint(null);
+          return;
+        }
+        if (loc.outsideWorkshop) {
+          setLocateHint(loc);
+          return;
+        }
+        if (loc.tab && loc.tab !== (activeTab as WorkshopTabId)) {
+          setLocateHint(loc);
+          return;
+        }
+        if (hasServerSearch && loc.tab === (activeTab as WorkshopTabId)) {
+          setLocateHint({
+            ...loc,
+            message:
+              'está en esta etapa pero no coincide con los filtros activos. Limpie tecnología, modelo o filtros Excel.',
+          });
+          return;
+        }
+        setLocateHint(null);
       })
       .catch(() => {
         if (seq === locateSeqRef.current) setLocateHint(null);
       });
-  }, [debouncedSearchTerm, filteredTasks.length, activeTab]);
+  }, [
+    debouncedSearchTerm,
+    filteredTasks.length,
+    activeTab,
+    hasServerSearch,
+    workshopSearchQuery.isLoading,
+  ]);
 
   // Cascada: limpiar filtros inválidos al cambiar pestaña / tech.
   useEffect(() => {
@@ -1315,7 +1366,10 @@ ${funcNotes || 'Ninguno evaluado'}
 
             return (
               <div className="space-y-6">
-                {locateHint?.found && (locateHint.outsideWorkshop || (locateHint.tab && locateHint.tabLabel)) && (
+                {locateHint?.found &&
+                  (locateHint.outsideWorkshop ||
+                    locateHint.message ||
+                    (locateHint.tab && locateHint.tabLabel)) && (
                   <div className="flex flex-col justify-between gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-6 py-4 sm:flex-row sm:items-center">
                     <p className="text-sm font-bold text-[var(--heading)]">
                       {locateHint.outsideWorkshop ? (
@@ -1330,6 +1384,13 @@ ${funcNotes || 'Ninguno evaluado'}
                               Ubicación: {locateHint.locationLabel}
                             </span>
                           ) : null}
+                        </>
+                      ) : locateHint.tab === activeTab && locateHint.message ? (
+                        <>
+                          {locateHint.osLabel || locateHint.serial}{' '}
+                          <span className="text-amber-600 dark:text-amber-400">
+                            {locateHint.message}
+                          </span>
                         </>
                       ) : (
                         <>
@@ -1589,7 +1650,7 @@ ${funcNotes || 'Ninguno evaluado'}
                         />
                       </div>
                     </div>
-                  ) : loading && allTabRows.length === 0 ? (
+                  ) : loading && tabTasks.length === 0 ? (
                     <div className="py-20 text-center">
                       <Loader2 className="mx-auto h-8 w-8 animate-spin text-[var(--muted)]" />
                       <p className="mt-4 text-[10px] font-semibold tracking-widest text-[var(--muted)] uppercase">

@@ -308,6 +308,19 @@ export async function executePxScanSubmit(ctx: PxScanSubmitContext): Promise<voi
             'El equipo no fue registrado. Cierre esta caja y seleccione o cree la siguiente.',
           duration: 10000,
         });
+      } else if (
+        message.includes('otra captura en proceso') ||
+        message.includes('BOX_BUSY')
+      ) {
+        notify.warning('Caja ocupada', {
+          description: message,
+          duration: 6000,
+        });
+      } else if (message.includes('captura tardó demasiado')) {
+        notify.error(message, {
+          description: 'El equipo no fue registrado. Espere unos segundos e intente de nuevo.',
+          duration: 10000,
+        });
       } else {
         notify.error(message);
       }

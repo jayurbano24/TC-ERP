@@ -23,6 +23,14 @@ import {
   isDuplicatePxGuideError,
 } from '@/lib/database/receptions';
 import type { GuideData } from '@/app/(erp)/recepcion/types/reception.types';
+import {
+  mapRpcCaptureError,
+  mapRpcFinalizeError,
+  parsePxRpcError,
+} from '@/lib/database/pxRpcErrorMapping';
+
+export { mapRpcCaptureError, mapRpcFinalizeError } from '@/lib/database/pxRpcErrorMapping';
+export type { PxRpcErrorContext } from '@/lib/database/pxRpcErrorMapping';
 
 const PX_REC_MIN = 800000;
 const PX_IN_PROGRESS = 'EN_PROCESO';
@@ -175,22 +183,32 @@ async function validatePxHeaderForStart(guideData: GuideData): Promise<{ ok: tru
 export async function emitPxCaptureMetric(payload: {
   receptionId?: string;
   boxId?: string;
+  mainSerial?: string | null;
+  operatorId?: string | null;
   action: string;
   outcome: 'success' | 'error';
   durationMs?: number;
   errorCode?: string;
+  sqlstate?: string | null;
   metadata?: Record<string, unknown>;
 }) {
   try {
     const supabase = getSupabaseServerClient();
+    const normalizedSerial = payload.mainSerial?.trim().toUpperCase() || null;
     await supabase.from('px_capture_metrics').insert({
       reception_id: payload.receptionId ?? null,
       box_id: payload.boxId ?? null,
+      main_serial: normalizedSerial,
+      operator_id: asUuidOrNull(payload.operatorId),
       action: payload.action,
       outcome: payload.outcome,
       duration_ms: payload.durationMs ?? null,
       error_code: payload.errorCode ?? null,
-      metadata: payload.metadata ?? {},
+      sqlstate: payload.sqlstate ?? null,
+      metadata: {
+        ...(payload.metadata ?? {}),
+        ...(normalizedSerial ? { main_serial: normalizedSerial } : {}),
+      },
     });
   } catch (e) {
     console.error('emitPxCaptureMetric:', e);
@@ -747,79 +765,6 @@ export function formatDuplicateOpenOsMessage(
   return `SERIE DUPLICADA – ORDEN DE SERVICIO ABIERTA\n\nLa serie ${details.serial} ya se encuentra registrada en otra Orden de Servicio abierta.\n\nOS: ${os}\nEstado: ${status}\n\nEsta unidad NO puede ser ingresada nuevamente a PX. Debe resolverse la Orden de Servicio existente antes de realizar la recepción.`;
 }
 
-export function mapRpcCaptureError(message: string): string {
-  const msg = message || '';
-  if (msg.includes('DUPLICATE_OPEN_OS')) {
-    return 'SERIE DUPLICADA – ORDEN DE SERVICIO ABIERTA. Esta unidad no puede ser ingresada nuevamente a PX.';
-  }
-  if (msg.includes('DUPLICATE_IN_OTHER_GUIDE')) {
-    return msg.replace(
-      /^.*DUPLICATE_IN_OTHER_GUIDE:\s*/i,
-      'Serie ya capturada en otra guía. Elimine el duplicado antes de continuar: ',
-    );
-  }
-  if (msg.includes('DUPLICATE_IN_RECEPTION')) {
-    // Preferir texto del RPC (incluye guía/caja) cuando viene enriquecido
-    if (/Elimine el duplicado/i.test(msg)) {
-      return msg.replace(/^.*DUPLICATE_IN_RECEPTION:\s*/i, '');
-    }
-    return 'Serie repetida en esta recepción PX. Ya está en otra caja de esta guía — elimínela ahí antes de continuar.';
-  }
-  if (msg.includes('DUPLICATE_GLOBAL')) {
-    return msg.replace(
-      /^.*DUPLICATE_GLOBAL:\s*/i,
-      'Serie ya en inventario TC (orden abierta). No capture de nuevo: ',
-    );
-  }
-  if (msg.includes('DUPLICATE_IN_EQUIPMENT')) {
-    return 'Serie repetida en el mismo equipo (mismo lote de caja). Revise que S1–S4 no estén duplicadas.';
-  }
-  if (msg.includes('BOX_FULL')) {
-    return 'La caja alcanzó su capacidad declarada.';
-  }
-  if (msg.includes('BOX_EMPTY_DUPLICATE_OPEN_OS')) {
-    return 'No es posible finalizar esta caja. No se registró ninguna unidad porque las series fueron rechazadas por existir en otras Órdenes de Servicio abiertas.';
-  }
-  if (msg.includes('ZERO_ACCEPTED_BOX')) {
-    return msg.replace(/^.*ZERO_ACCEPTED_BOX:\s*/i, '');
-  }
-  if (msg.includes('BOX_EMPTY')) {
-    return 'No es posible finalizar esta caja porque no tiene unidades aceptadas.';
-  }
-  if (msg.includes('BOX_LOCKED') || msg.includes('BOX_NOT_LOCKED')) {
-    if (msg.includes('BOX_NOT_LOCKED')) return 'Debe tomar control de la caja antes de escanear.';
-    return msg.replace(/^.*BOX_LOCKED:\s*/i, '');
-  }
-  if (msg.includes('VERSION_CONFLICT')) {
-    return 'Conflicto de versión: otro operador modificó la caja. Recargue e intente de nuevo.';
-  }
-  if (msg.includes('PARTIAL_REASON_REQUIRED')) {
-    return 'Indique motivo de caja parcial o ajuste la cantidad esperada antes de cerrar.';
-  }
-  if (msg.includes('REASON_REQUIRED')) {
-    return 'Motivo obligatorio para ajustar la cantidad.';
-  }
-  if (msg.includes('QUANTITY_BELOW_CAPTURED')) {
-    return msg.replace(/^.*QUANTITY_BELOW_CAPTURED:\s*/i, '');
-  }
-  if (msg.includes('INVALID_STATE')) {
-    return 'La recepción no está en proceso o la caja no puede reabrirse en este estado.';
-  }
-  if (msg.includes('VARIANCE_REASON_REQUIRED')) {
-    return msg.replace(/^.*VARIANCE_REASON_REQUIRED:\s*/i, '');
-  }
-  if (msg.includes('BOX_NOT_CLOSED')) {
-    return msg.replace(/^.*BOX_NOT_CLOSED:\s*/i, '');
-  }
-  if (msg.includes('RECEPTION_EMPTY')) {
-    return 'No hay equipos capturados para finalizar.';
-  }
-  if (msg.includes('statement timeout') || msg.includes('57014')) {
-    return 'La finalización tardó demasiado (timeout). Pulse Finalizar de nuevo: las cajas cerradas y los equipos ya ingresados se conservan.';
-  }
-  return msg;
-}
-
 function scheduleReceptionReceivedUnitsSync(receptionId: string) {
   void (async () => {
     try {
@@ -876,6 +821,8 @@ function scheduleCapturePxEquipmentSideEffects(
       await emitPxCaptureMetric({
         receptionId: input.receptionId,
         boxId: input.boxId,
+        mainSerial: input.mainSerial,
+        operatorId: input.operatorId,
         action: 'capture_px_equipment',
         outcome: 'success',
         durationMs: Date.now() - started,
@@ -923,17 +870,24 @@ export async function capturePxEquipment(input: {
   });
 
   if (error) {
-    const errorCode = (error.message.match(/^([A-Z_]+):/) || [])[1] || 'RPC_ERROR';
+    const parsed = parsePxRpcError(error.message);
     await emitPxCaptureMetric({
       receptionId: input.receptionId,
       boxId: input.boxId,
+      mainSerial: input.mainSerial,
+      operatorId: input.operatorId,
       action: 'capture_px_equipment',
       outcome: 'error',
-      errorCode,
+      errorCode: parsed.code,
+      sqlstate: parsed.sqlstate ?? null,
       durationMs: Date.now() - started,
       metadata: { message: error.message },
     });
-    return { success: false, error: mapRpcCaptureError(error.message), errorCode };
+    return {
+      success: false,
+      error: mapRpcCaptureError(error.message, 'capture'),
+      errorCode: parsed.code,
+    };
   }
 
   const payload = data as
@@ -971,6 +925,8 @@ export async function capturePxEquipment(input: {
     await emitPxCaptureMetric({
       receptionId: input.receptionId,
       boxId: input.boxId,
+      mainSerial: payload.serial ?? input.mainSerial,
+      operatorId: input.operatorId,
       action: 'capture_px_equipment',
       outcome: 'error',
       errorCode: details.errorCode,
@@ -1442,7 +1398,7 @@ export async function finalizePxReceptionPrepStep(input: {
   ]);
 
   if (error) {
-    return { success: false, error: mapRpcCaptureError(error.message) };
+    return { success: false, error: mapRpcFinalizeError(error.message) };
   }
 
   if (data?.already_finalized || data?.phase === 'done') {
@@ -1501,7 +1457,7 @@ export async function finalizePxReceptionPromoteStep(input: {
   ]);
 
   if (error) {
-    return { success: false, error: mapRpcCaptureError(error.message) };
+    return { success: false, error: mapRpcFinalizeError(error.message) };
   }
 
   const remaining = (data?.remaining_active as number | undefined) ?? 0;

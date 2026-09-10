@@ -51,7 +51,6 @@ import { DespachoView } from './components/DespachoView';
 import { OperationDrawer } from './components/OperationDrawer';
 import { RequestPartModal } from './components/RequestPartModal';
 import { fetchDispatchedSkusByOsApi } from '@/lib/api/parts';
-import { fetchOsPartStatus } from '@/lib/api/parts';
 import { buildWorkshopQueueColumns } from './components/workshopQueueTableColumns';
 import type { ExcelFilterSelection } from '@/components/molecules/ExcelColumnFilter';
 import { enrichWorkshopTaskDisplayLabels } from '@/modules/workshop/shared/workshopTaskLabels';
@@ -1024,30 +1023,6 @@ ${repairCorrectionChanged ? `- Reparación corregida en QC: ${selectedDiagnostic
         if (!prereq.ok) {
           notify.warning(prereq.message);
           return;
-        }
-      }
-
-      if (activeTab === 'reparacion' || activeTab === 'qc' || activeTab === 'reacondicionado') {
-        const items = Array.isArray(selectedForOperation)
-          ? selectedForOperation
-          : [selectedForOperation];
-        for (const item of items) {
-          const osId = item?.dbId || item?.groupId;
-          if (!osId) continue;
-          try {
-            const partStatus = await fetchOsPartStatus(String(osId));
-            if (partStatus.pendingReturns?.length > 0) {
-              notify.warning(
-                'Hay una pieza reemplazada pendiente de retorno a Bodega Mala. Debe entregarse antes de avanzar.'
-              );
-              return;
-            }
-          } catch (error: unknown) {
-            notify.error('No se pudo validar el retorno de piezas', {
-              description: error instanceof Error ? error.message : 'Error desconocido',
-            });
-            return;
-          }
         }
       }
 

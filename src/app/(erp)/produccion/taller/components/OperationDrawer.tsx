@@ -591,7 +591,7 @@ export const OperationDrawer = memo(function OperationDrawer({
                       {partStatus.pendingReturns.length > 0 && (
                         <p>
                           Retorno pendiente: {partStatus.pendingReturns.length} pieza(s) por entregar en
-                          Bodega Mala. Debe completarse antes de avanzar.
+                          Bodega Mala. Es informativo y no bloquea completar la reparación.
                         </p>
                       )}
                     </div>

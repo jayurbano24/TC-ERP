@@ -44,7 +44,9 @@ export default function ReportesPage() {
   const [country, setCountry] = useState('GT');
   const [technology, setTechnology] = useState('');
 
-  const isOpsMonthly = selectedCode === 'OPERACIONES_MENSUAL_TECNOLOGIA';
+  const isPeriodMatrixReport =
+    selectedCode === 'OPERACIONES_MENSUAL_TECNOLOGIA' || selectedCode === 'CENAM_REFURBISHED';
+  const isCenamReport = selectedCode === 'CENAM_REFURBISHED';
 
   useEffect(() => {
     if (!enabled) {
@@ -77,19 +79,23 @@ export default function ReportesPage() {
 
   const handleExport = async () => {
     if (!selected) return;
+    if (isCenamReport && !month.trim()) {
+      setError('CENAM Refurbished requiere seleccionar un mes (ENE–DIC). No exporte el año completo.');
+      return;
+    }
     setExporting(true);
     setError(null);
     try {
       await downloadReportApi(
         selected.code,
         {
-          from: selected.requiresDateRange && !isOpsMonthly ? from : undefined,
-          to: selected.requiresDateRange && !isOpsMonthly ? to : undefined,
+          from: selected.requiresDateRange && !isPeriodMatrixReport ? from : undefined,
+          to: selected.requiresDateRange && !isPeriodMatrixReport ? to : undefined,
           batchNumber: selected.code === 'DESPACHO_POR_LOTE_SALIDA' ? batchNumber || undefined : undefined,
-          year: isOpsMonthly ? year || undefined : undefined,
-          month: isOpsMonthly ? month || undefined : undefined,
-          country: isOpsMonthly ? country || undefined : undefined,
-          technology: isOpsMonthly ? technology || undefined : undefined,
+          year: isPeriodMatrixReport ? year || undefined : undefined,
+          month: isPeriodMatrixReport ? month || undefined : undefined,
+          country: isPeriodMatrixReport ? country || undefined : undefined,
+          technology: isPeriodMatrixReport ? technology || undefined : undefined,
         },
         format
       );
@@ -174,7 +180,7 @@ export default function ReportesPage() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {selected.requiresDateRange && !isOpsMonthly && (
+                {selected.requiresDateRange && !isPeriodMatrixReport && (
                   <>
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)] flex items-center gap-1">
@@ -199,7 +205,7 @@ export default function ReportesPage() {
                   </>
                 )}
 
-                {isOpsMonthly && (
+                {isPeriodMatrixReport && (
                   <>
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)] flex items-center gap-1">
@@ -227,14 +233,19 @@ export default function ReportesPage() {
                     </div>
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)]">
-                        Mes (opcional)
+                        Mes {isCenamReport ? '(obligatorio)' : '(opcional)'}
                       </label>
                       <select
                         value={month}
                         onChange={(e) => setMonth(e.target.value)}
                         className="w-full p-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] text-sm font-bold"
                       >
-                        <option value="">Todos</option>
+                        {!isCenamReport && <option value="">Todos</option>}
+                        {isCenamReport && !month && (
+                          <option value="" disabled>
+                            Seleccione mes…
+                          </option>
+                        )}
                         {['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'].map(
                           (m) => (
                             <option key={m} value={m}>
@@ -286,6 +297,17 @@ export default function ReportesPage() {
                   </select>
                 </div>
               </div>
+
+              {isCenamReport && (
+                <div className="rounded-xl border border-[var(--accent)]/30 bg-[var(--accent)]/10 p-3 text-sm text-[var(--foreground)]">
+                  <p className="font-bold">Motor ETL por mes</p>
+                  <p className="text-[var(--muted)] mt-1 text-xs leading-relaxed">
+                    La primera exportación del mes construye un snapshot en Postgres (~1–3 min). Las
+                    siguientes del mismo mes usan caché (rápido). Exporte un mes a la vez para evitar
+                    timeouts y costo excesivo.
+                  </p>
+                </div>
+              )}
 
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)] mb-2">Columnas</p>

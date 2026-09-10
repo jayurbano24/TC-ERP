@@ -20,6 +20,7 @@ export const PX_PROVIDER_SELECT = 'id, name, code';
 export const CAT_REPAIR_SELECT = 'id, name';
 export const CAT_DIAGNOSTIC_SELECT = 'id, name';
 export const CAT_DIAGNOSTIC_REPAIR_SELECT = 'diagnostic_id, repair_id';
+export const CAT_DIAGNOSTIC_TECHNOLOGY_SELECT = 'diagnostic_id, technology_id';
 export const CAT_REACOND_TEST_SELECT = 'id, name, technology_ids, model_ids';
 
 export const SAP_TRANSFER_DOC_SELECT =

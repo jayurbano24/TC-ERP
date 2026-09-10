@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   CAT_DIAGNOSTIC_REPAIR_SELECT,
+  CAT_DIAGNOSTIC_TECHNOLOGY_SELECT,
   CAT_DIAGNOSTIC_SELECT,
 } from '@/shared/constants/dbProjections';
 import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
@@ -9,7 +10,11 @@ import {
   sanitizeWorkshopSearchToken,
 } from '@/modules/workshop/shared/workshopSearch';
 import { resolveEntrySource } from '@/modules/workshop/shared/entrySource';
-import { collectWorkshopCatalogIds } from '@/modules/workshop/shared/workshopHistoryDisplay';
+import {
+  collectWorkshopCatalogIds,
+  parseWorkshopEvaluationNotes,
+} from '@/modules/workshop/shared/workshopHistoryDisplay';
+import { formatWorkshopScrapOriginStage } from '@/modules/workshop/shared/workshopTaskLabels';
 import {
   finalizeWorkshopGroupSeriesOrder,
   indexSeriesSapBySn,
@@ -549,6 +554,19 @@ function mergeWorkshopGroup(target: any, source: any) {
   mergeWorkshopCatalogIdField(target, source, 'current_reacondicionado');
   if (!target.l3_reason_text && source.l3_reason_text) {
     target.l3_reason_text = source.l3_reason_text;
+  }
+  if (!target.scrap_origin_stage && source.scrap_origin_stage) {
+    target.scrap_origin_stage = source.scrap_origin_stage;
+  }
+  if (!target.scrap_reason_text && source.scrap_reason_text) {
+    target.scrap_reason_text = source.scrap_reason_text;
+  }
+  if (!target.scrap_marked_by_name && source.scrap_marked_by_name) {
+    target.scrap_marked_by_name = source.scrap_marked_by_name;
+    target.scrap_marked_at = source.scrap_marked_at ?? target.scrap_marked_at;
+  }
+  if (!target.diagnostic_detail_text && source.diagnostic_detail_text) {
+    target.diagnostic_detail_text = source.diagnostic_detail_text;
   }
   if (new Date(String(source.updated_at)) > new Date(String(target.updated_at))) {
     target.updated_at = source.updated_at;
@@ -1218,10 +1236,175 @@ async function enrichWorkshopDiagnosticsFromAudit(
   });
 }
 
+const WORKSHOP_SCRAP_AUDIT_ACTIONS = [
+  'DIAGNÓSTICO INICIAL COMPLETADO',
+  'REPARACIÓN COMPLETADA',
+  'REACONDICIONADO COMPLETADO',
+  'REPARACIÓN L3 COMPLETADA',
+  'CONTROL DE CALIDAD COMPLETADO',
+  'OPERACIÓN COMPLETADA',
+] as const;
+
+function extractWorkshopDiagnosticDetailFromNotes(notes: string): string {
+  const parsed = parseWorkshopEvaluationNotes(notes);
+  const parts: string[] = [];
+  for (const line of parsed.bodyLines) {
+    const trimmed = line.replace(/^-\s*/, '').trim();
+    if (trimmed) parts.push(trimmed);
+  }
+  const additional = String(parsed.additionalNotes || '').trim();
+  if (additional && !/^sin notas/i.test(additional)) {
+    parts.push(additional);
+  }
+  return parts.join(' · ').trim();
+}
+
+/** Recupera notas del diagnóstico inicial desde auditoría (SCRAPS). */
+async function enrichWorkshopDiagnosticDetailFromAudit(
+  supabase: SupabaseClient,
+  rows: any[],
+): Promise<any[]> {
+  const seriesIds = rows.map((row) => String(row.id)).filter(Boolean);
+  if (seriesIds.length === 0) return rows;
+
+  const detailBySeries = new Map<string, string>();
+
+  for (let i = 0; i < seriesIds.length; i += 80) {
+    const chunk = seriesIds.slice(i, i + 80);
+    const { data: auditRows } = await supabase
+      .from('erp_audit_logs')
+      .select('record_id, action, new_values, created_at')
+      .in('record_id', chunk)
+      .eq('action', 'DIAGNÓSTICO INICIAL COMPLETADO')
+      .order('created_at', { ascending: false })
+      .limit(1000);
+
+    for (const log of auditRows || []) {
+      const sid = String(log.record_id || '');
+      if (!sid || detailBySeries.has(sid)) continue;
+      const payload = (log.new_values || {}) as { notes?: string };
+      const detail = extractWorkshopDiagnosticDetailFromNotes(String(payload.notes || ''));
+      if (detail) detailBySeries.set(sid, detail);
+    }
+  }
+
+  return rows.map((row) => {
+    const sid = String(row.id);
+    const hit = detailBySeries.get(sid);
+    if (!hit) return row;
+    return { ...row, diagnostic_detail_text: hit };
+  });
+}
+
+function extractWorkshopScrapReasonFromNotes(notes: string): string {
+  const parsed = parseWorkshopEvaluationNotes(notes);
+  const additional = String(parsed.additionalNotes || '').trim();
+  if (additional && !/^sin notas/i.test(additional)) {
+    return additional;
+  }
+  const body = parsed.bodyLines
+    .map((line) => line.replace(/^-\s*/, '').trim())
+    .filter((line) => line && !/^(por:|clasificación|controles de calidad|pruebas de reacondicionado)/i.test(line));
+  return body.join(' · ').trim();
+}
+
+/** Recupera etapa y motivo del envío a SCRAPS desde auditoría. */
+async function enrichWorkshopScrapReasonFromAudit(
+  supabase: SupabaseClient,
+  rows: any[],
+): Promise<any[]> {
+  const scrapRows = rows.filter(
+    (row) =>
+      row.current_status === 'irreparable' ||
+      row.current_status === 'scrapped' ||
+      row.scrap_origin_stage ||
+      row.scrap_reason_text,
+  );
+  if (scrapRows.length === 0) return rows;
+
+  const seriesIds = scrapRows.map((row) => String(row.id)).filter(Boolean);
+  const scrapBySeries = new Map<
+    string,
+    { stage: string; reason: string; userId: string | null; markedAt: string | null; userRole: string | null }
+  >();
+
+  for (let i = 0; i < seriesIds.length; i += 80) {
+    const chunk = seriesIds.slice(i, i + 80);
+    const { data: auditRows } = await supabase
+      .from('erp_audit_logs')
+      .select('record_id, action, new_values, created_at, user_id, user_role')
+      .in('record_id', chunk)
+      .in('action', [...WORKSHOP_SCRAP_AUDIT_ACTIONS])
+      .order('created_at', { ascending: false })
+      .limit(1000);
+
+    for (const log of auditRows || []) {
+      const sid = String(log.record_id || '');
+      if (!sid || scrapBySeries.has(sid)) continue;
+      const payload = (log.new_values || {}) as { result?: string; notes?: string };
+      if (payload.result !== 'scraps') continue;
+      scrapBySeries.set(sid, {
+        stage: formatWorkshopScrapOriginStage(String(log.action || '')),
+        reason: extractWorkshopScrapReasonFromNotes(String(payload.notes || '')),
+        userId: log.user_id ? String(log.user_id) : null,
+        markedAt: log.created_at ? String(log.created_at) : null,
+        userRole: log.user_role ? String(log.user_role) : null,
+      });
+    }
+  }
+
+  const userIds = [
+    ...new Set(
+      [...scrapBySeries.values()]
+        .map((v) => v.userId)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  const nameByUserId = new Map<string, string>();
+  for (let i = 0; i < userIds.length; i += 80) {
+    const chunk = userIds.slice(i, i + 80);
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('id, full_name')
+      .in('id', chunk);
+    for (const p of profiles || []) {
+      const name = String(p.full_name || '').trim();
+      if (name) nameByUserId.set(String(p.id), name);
+    }
+  }
+
+  return rows.map((row) => {
+    const sid = String(row.id);
+    const hit = scrapBySeries.get(sid);
+    if (!hit) return row;
+    const markedByName =
+      (hit.userId ? nameByUserId.get(hit.userId) : null) ||
+      hit.userRole ||
+      null;
+    return {
+      ...row,
+      scrap_origin_stage: hit.stage,
+      scrap_reason_text: hit.reason || row.scrap_reason_text || null,
+      scrap_marked_by_user_id: hit.userId,
+      scrap_marked_by_name: markedByName,
+      scrap_marked_at: hit.markedAt,
+    };
+  });
+}
+
 const WORKSHOP_REPAIR_AUDIT_ACTIONS = [
+  'REPARACIÓN CORREGIDA EN QC',
   'REPARACIÓN COMPLETADA',
   'REPARACIÓN L3 COMPLETADA',
+  'CONTROL DE CALIDAD COMPLETADO',
 ] as const;
+
+const WORKSHOP_REPAIR_AUDIT_PRIORITY: Record<string, number> = {
+  'REPARACIÓN CORREGIDA EN QC': 0,
+  'CONTROL DE CALIDAD COMPLETADO': 1,
+  'REPARACIÓN COMPLETADA': 2,
+  'REPARACIÓN L3 COMPLETADA': 3,
+};
 
 const WORKSHOP_REACOND_AUDIT_ACTION = 'REACONDICIONADO COMPLETADO';
 
@@ -1264,6 +1447,10 @@ async function enrichWorkshopRepairAndReacondCatalogs(
   const seriesIds = rows.map((row) => String(row.id)).filter(Boolean);
   const repairBySeries = new Map<string, string[]>();
   const reacondBySeries = new Map<string, string[]>();
+  const repairCandidates = new Map<
+    string,
+    { ids: string[]; at: number; priority: number }
+  >();
 
   for (let i = 0; i < seriesIds.length; i += 80) {
     const chunk = seriesIds.slice(i, i + 80);
@@ -1286,12 +1473,15 @@ async function enrichWorkshopRepairAndReacondCatalogs(
       const payload = (log.new_values || {}) as Record<string, unknown>;
       const action = String(log.action || '');
 
-      if (
-        (WORKSHOP_REPAIR_AUDIT_ACTIONS as readonly string[]).includes(action) &&
-        !repairBySeries.has(sid)
-      ) {
+      if ((WORKSHOP_REPAIR_AUDIT_ACTIONS as readonly string[]).includes(action)) {
         const ids = extractWorkshopRepairIds(payload);
-        if (ids.length > 0) repairBySeries.set(sid, ids);
+        if (ids.length === 0) continue;
+        const at = log.created_at ? new Date(String(log.created_at)).getTime() : 0;
+        const priority = WORKSHOP_REPAIR_AUDIT_PRIORITY[action] ?? 99;
+        const prev = repairCandidates.get(sid);
+        if (!prev || at > prev.at || (at === prev.at && priority < prev.priority)) {
+          repairCandidates.set(sid, { ids, at, priority });
+        }
       }
 
       if (action === WORKSHOP_REACOND_AUDIT_ACTION && !reacondBySeries.has(sid)) {
@@ -1299,6 +1489,10 @@ async function enrichWorkshopRepairAndReacondCatalogs(
         if (ids.length > 0) reacondBySeries.set(sid, ids);
       }
     }
+  }
+
+  for (const [sid, candidate] of repairCandidates) {
+    repairBySeries.set(sid, candidate.ids);
   }
 
   return rows.map((row) => {
@@ -1322,6 +1516,10 @@ async function enrichWorkshopRowsBeforeGroup(
     rows = await enrichWorkshopSourceBoxCodes(supabase, rows);
   }
   rows = await enrichWorkshopDiagnosticsFromAudit(supabase, rows);
+  if (tab === 'scraps') {
+    rows = await enrichWorkshopDiagnosticDetailFromAudit(supabase, rows);
+    rows = await enrichWorkshopScrapReasonFromAudit(supabase, rows);
+  }
   return enrichWorkshopRepairAndReacondCatalogs(supabase, rows);
 }
 
@@ -1480,17 +1678,19 @@ export async function queryWorkshopTasksPage(
     const items: any[] = [];
     let cursor = opts.cursor ?? null;
     let guard = 0;
-    let lastPageHadMore = false;
+    let lastRpcLimit = 0;
+    let lastRpcRowCount = 0;
 
-    while (items.length < limit && guard < 12) {
+    while (items.length < limit && guard < 50) {
       guard += 1;
-      const need = limit - items.length + 1;
+      const remaining = limit - items.length;
+      lastRpcLimit = Math.min(Math.max(remaining + 1, 20), 80);
       const { data: queueRows, error: queueError } = await supabase.rpc(
         'workshop_list_os_queue_page',
         {
           p_status: status,
           p_cursor: cursor,
-          p_limit: Math.min(need + 10, 80),
+          p_limit: lastRpcLimit,
         }
       );
 
@@ -1503,10 +1703,11 @@ export async function queryWorkshopTasksPage(
       }
 
       const rows = queueRows ?? [];
+      lastRpcRowCount = rows.length;
       if (rows.length === 0) break;
 
-      lastPageHadMore = rows.length > need;
-      const pageRows = lastPageHadMore ? rows.slice(0, need) : rows;
+      const hasMoreRpcRows = rows.length > remaining;
+      const pageRows = hasMoreRpcRows ? rows.slice(0, remaining) : rows;
       const osIds = pageRows.map((r: { service_order_id: string }) =>
         String(r.service_order_id)
       );
@@ -1517,10 +1718,17 @@ export async function queryWorkshopTasksPage(
         supabase,
         groupWorkshopSeriesRows(seriesRows),
       );
-      items.push(...groups);
 
-      cursor = String(pageRows[pageRows.length - 1].service_order_id);
-      if (!lastPageHadMore && rows.length <= need) break;
+      for (const group of groups) {
+        if (items.length >= limit) break;
+        items.push(group);
+      }
+
+      cursor = String(pageRows[pageRows.length - 1]?.service_order_id || '');
+      if (!cursor) break;
+
+      // Cola RPC agotada (menos filas que el lote pedido).
+      if (rows.length < lastRpcLimit) break;
     }
 
     const trimmed = items.slice(0, limit);
@@ -1532,10 +1740,11 @@ export async function queryWorkshopTasksPage(
       console.warn('[workshop/server] count RPC failed:', countError.message);
     }
 
+    const queueHasMore = lastRpcRowCount >= lastRpcLimit && lastRpcLimit > 0;
+
     return {
       items: trimmed,
-      nextCursor:
-        trimmed.length > 0 && (trimmed.length >= limit || lastPageHadMore) ? cursor : null,
+      nextCursor: trimmed.length > 0 && queueHasMore ? cursor : null,
       totalOs: typeof totalOs === 'number' ? totalOs : null,
     };
   }
@@ -1596,11 +1805,12 @@ async function queryWorkshopTasksLegacyAll(
 
 /** Catálogos operativos de Taller con relaciones diagnóstico→reparación. */
 export async function fetchWorkshopOperationCatalogs(supabase: SupabaseClient) {
-  const [diagnosticsRes, repairsRes, reacondRes, relRes] = await Promise.all([
+  const [diagnosticsRes, repairsRes, reacondRes, relRes, techRelRes] = await Promise.all([
     supabase.from('cat_diagnostics').select(CAT_DIAGNOSTIC_SELECT).order('name'),
     supabase.from('cat_repairs').select('id, name').order('name'),
     supabase.from('cat_reacondicionado_tests').select('id, name, technology_ids, model_ids').order('name'),
     supabase.from('cat_diagnostic_repairs').select(CAT_DIAGNOSTIC_REPAIR_SELECT),
+    supabase.from('cat_diagnostic_technologies').select(CAT_DIAGNOSTIC_TECHNOLOGY_SELECT),
   ]);
 
   if (diagnosticsRes.error) throw diagnosticsRes.error;
@@ -1608,12 +1818,17 @@ export async function fetchWorkshopOperationCatalogs(supabase: SupabaseClient) {
   if (reacondRes.error) throw reacondRes.error;
 
   const relData = relRes.data ?? [];
+  const techRelData = techRelRes.data ?? [];
   const diagnosticsAll = (diagnosticsRes.data ?? []).map((d) => {
     const rels = relData.filter((r: { diagnostic_id: string }) => r.diagnostic_id === d.id);
+    const techRels = techRelData.filter(
+      (r: { diagnostic_id: string }) => r.diagnostic_id === d.id,
+    );
     return {
       id: d.id,
       nombre: d.name,
       reparacionesIds: rels.map((r: { repair_id: string }) => r.repair_id),
+      technologyIds: techRels.map((r: { technology_id: string }) => r.technology_id),
     };
   });
   const repairsAll = (repairsRes.data ?? []).map((r) => ({ id: r.id, nombre: r.name }));

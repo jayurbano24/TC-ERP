@@ -1,8 +1,12 @@
 import { formatWorkshopStageHistoryLabel } from '@/modules/workshop/shared/workshopSeriesDisplay';
 import type { ExcelFilterSelection } from '@/components/molecules/ExcelColumnFilter';
 import {
+  WORKSHOP_SCRAPS_HIDDEN_FILTER_COLS,
   workshopQueueShowsDiagnosticColumn,
+  workshopQueueShowsDiagnosticDetailColumn,
   workshopQueueShowsQcHistoryColumns,
+  workshopQueueShowsScrapReasonColumn,
+  workshopQueueShowsScrapResponsableColumn,
   type WorkshopQueueTabId,
 } from '@/modules/workshop/shared/workshopQueueTablePolicy';
 
@@ -22,6 +26,9 @@ export type WorkshopQueueRow = {
   hora?: string;
   series_sap_by_sn?: Record<string, string | null>;
   diagnosticoLabel?: string;
+  diagnosticoDetalleLabel?: string;
+  scrapReasonLabel?: string;
+  scrapResponsableLabel?: string;
   reparacionLabel?: string;
   reacondicionadoLabel?: string;
   passed_repair?: boolean;
@@ -40,6 +47,9 @@ export type WorkshopQueueFilterCol =
   | 'sku'
   | 'caja'
   | 'diagnostico'
+  | 'detalle_diagnostico'
+  | 'razon_scrap'
+  | 'responsable_scrap'
   | 'reparacion'
   | 'reacondicionado'
   | 'fecha'
@@ -70,11 +80,19 @@ export function workshopQueueFilterColumnsForTab(tab: WorkshopQueueTabId): Works
   if (tab === 'reparacion') cols.push('sku');
   cols.push('caja');
   if (workshopQueueShowsDiagnosticColumn(tab)) cols.push('diagnostico');
+  if (workshopQueueShowsDiagnosticDetailColumn(tab)) cols.push('detalle_diagnostico');
+  if (workshopQueueShowsScrapReasonColumn(tab)) cols.push('razon_scrap');
+  if (workshopQueueShowsScrapResponsableColumn(tab)) cols.push('responsable_scrap');
   if (workshopQueueShowsQcHistoryColumns(tab)) {
     cols.push('reparacion', 'reacondicionado');
   }
-  cols.push('fecha', 'ingresos');
-  return cols;
+  cols.push('fecha');
+  if (tab !== 'scraps') cols.push('ingresos');
+  return cols.filter(
+    (col) =>
+      tab !== 'scraps' ||
+      !(WORKSHOP_SCRAPS_HIDDEN_FILTER_COLS as readonly string[]).includes(col),
+  );
 }
 
 export function workshopQueueCellValue(
@@ -108,6 +126,12 @@ export function workshopQueueCellValue(
       return String(row.boxCode || '—');
     case 'diagnostico':
       return String(row.diagnosticoLabel || 'Sin diagnóstico registrado');
+    case 'detalle_diagnostico':
+      return String(row.diagnosticoDetalleLabel || 'Sin detalle registrado');
+    case 'razon_scrap':
+      return String(row.scrapReasonLabel || 'Sin razón registrada');
+    case 'responsable_scrap':
+      return String(row.scrapResponsableLabel || '—');
     case 'reparacion':
       return String(row.reparacionLabel || 'Sin reparación registrada');
     case 'reacondicionado':

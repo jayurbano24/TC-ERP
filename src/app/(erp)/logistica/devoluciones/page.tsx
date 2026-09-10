@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import React, { useState, useMemo, useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { Card, Badge, Button, notify, confirmDialog, DataTable, TablePagination, type DataTableColumn } from '@/components/ui';
 import { ModulePage, ModuleToolbar } from '@/components/module-page';
@@ -26,6 +26,10 @@ import { getAgencies, getReturnReasons } from '@/shared/catalogs/catalogs';
 import { filterCacAgenciesOnly } from '@/lib/cacAgencyUtils';
 import { BodegaDevolucionTable } from './components/BodegaDevolucionTable';
 import { ReturnsReportPanel } from './components/ReturnsReportPanel';
+import {
+  buildReturnsReportPeriodOptions,
+  type ReturnsReportPeriod,
+} from '@/lib/returns/returnsReportPeriod';
 import type { CatalogAgency } from '@/app/(erp)/produccion/backoffice/types';
 import { getReceptions } from '@/modules/recepcion/client/receptions';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
@@ -148,6 +152,10 @@ export default function DevolucionesPage() {
   const boxRows = returnsData?.boxRows ?? [];
   const devoluciones = returnsData?.devoluciones ?? [];
   const [dispatchGuiaSalida, setDispatchGuiaSalida] = useState('');
+  const [bodegaVisibleCount, setBodegaVisibleCount] = useState<number | null>(null);
+  const [reportPeriod, setReportPeriod] = useState<ReturnsReportPeriod>('month_current');
+  const reportPeriodOptions = useMemo(() => buildReturnsReportPeriodOptions(), []);
+  const queryClient = useQueryClient();
 
   // Reporte: ETL snapshot (cantidades por agencia / motivo) — migración 210.
   const {
@@ -159,18 +167,25 @@ export default function DevolucionesPage() {
       topReason: null,
       refreshedAt: null,
       source: 'empty',
+      periodLabel: 'Este mes',
     } as ReturnsReportStats,
     isPending: isReportPending,
     isFetching: isFetchingReport,
     error: reportError,
-    refetch: refetchReport,
   } = useQuery({
-    queryKey: ['devoluciones-report-etl'],
-    queryFn: getReturnsReportStats,
+    queryKey: ['devoluciones-report-etl', reportPeriod],
+    queryFn: () => getReturnsReportStats(reportPeriod, { refresh: false }),
     enabled: activeCategory === 'REPORTES',
     staleTime: 60_000,
     retry: 1,
   });
+
+  const handleRefreshReport = useCallback(async () => {
+    await queryClient.fetchQuery({
+      queryKey: ['devoluciones-report-etl', reportPeriod],
+      queryFn: () => getReturnsReportStats(reportPeriod, { refresh: true }),
+    });
+  }, [queryClient, reportPeriod]);
 
   const handleExportReport = () => {
     if (!reportStats.total) {
@@ -196,7 +211,14 @@ export default function DevolucionesPage() {
       }))
     );
     XLSX.utils.book_append_sheet(wb, wsR, 'Por Razón');
-    XLSX.writeFile(wb, `reporte-devoluciones-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    const periodSlug = (reportStats.periodLabel || reportPeriod)
+      .toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9-]/g, '');
+    XLSX.writeFile(
+      wb,
+      `reporte-devoluciones-${periodSlug || 'periodo'}-${new Date().toISOString().slice(0, 10)}.xlsx`,
+    );
   };
 
   useEffect(() => {
@@ -1012,9 +1034,12 @@ export default function DevolucionesPage() {
       {activeCategory === 'REPORTES' ? (
         <ReturnsReportPanel
           stats={reportStats}
-          loading={isReportPending || (isFetchingReport && reportStats.source === 'empty')}
+          loading={isReportPending || isFetchingReport}
           error={reportError instanceof Error ? reportError.message : reportError ? String(reportError) : null}
-          onRetry={() => void refetchReport()}
+          period={reportPeriod}
+          periodOptions={reportPeriodOptions}
+          onPeriodChange={setReportPeriod}
+          onRetry={() => void handleRefreshReport()}
           onExport={handleExportReport}
         />
       ) : (
@@ -1037,7 +1062,7 @@ export default function DevolucionesPage() {
                 </p>
               </div>
               <div className="px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest bg-rose-50 text-rose-600">
-                {filteredBoxRows.length} Cajas Registradas
+                {bodegaVisibleCount ?? filteredBoxRows.length} Cajas Registradas
               </div>
             </div>
           )}
@@ -1095,6 +1120,7 @@ export default function DevolucionesPage() {
               selectedId={selectedDev?.id || null}
               selectedIds={selectedIds}
               searchKey={debouncedSearch}
+              onFilteredCountChange={setBodegaVisibleCount}
               onSelectRow={selectBoxRow}
               onToggleSelect={(id, checked) => {
                 if (checked) setSelectedIds((prev) => [...prev, id]);

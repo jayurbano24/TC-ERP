@@ -40,6 +40,7 @@ export const ConfigModal = memo(function ConfigModal({
   modelsInSelectedBrand,
 }: Props) {
   const reparacionesUnicas = dedupeCatalogByName(reparaciones);
+  const tecnologiasUnicas = dedupeCatalogByName(tecnologias);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#181c3a]/60 backdrop-blur-md p-6 overflow-y-auto">
@@ -387,48 +388,128 @@ export const ConfigModal = memo(function ConfigModal({
             </div>
           )}
 
-          {modalType === 'diagnostico' && (
-            <div className="space-y-6">
-              <div className="space-y-2">
+          {modalType === 'diagnostico' && (() => {
+            const techIds: string[] = formData.technologyIds || [];
+            const allTechnologies = techIds.length === 0;
+
+            const compactToggleClass = (selected: boolean, tone: 'sky' | 'amber') =>
+              selected
+                ? tone === 'sky'
+                  ? 'bg-sky-50 border-sky-400 text-sky-800'
+                  : 'bg-amber-50 border-amber-400 text-amber-800'
+                : 'bg-white border-slate-100 text-slate-600 hover:border-slate-300';
+
+            const compactCheckClass = (selected: boolean, tone: 'sky' | 'amber') =>
+              selected
+                ? tone === 'sky'
+                  ? 'bg-sky-400 border-sky-400 text-white'
+                  : 'bg-amber-400 border-amber-400 text-white'
+                : 'border-slate-300';
+
+            return (
+            <div className="space-y-4">
+              <div className="space-y-1">
                 <label className="text-[10px] font-black uppercase text-slate-400">Nombre de la Falla / Diagnóstico</label>
                 <input
                   type="text" required
-                  className="w-full bg-slate-50 p-4 rounded-xl border border-slate-100 font-bold outline-none focus:border-amber-400"
+                  className="w-full bg-slate-50 px-3 py-2 rounded-lg border border-slate-100 text-sm font-bold outline-none focus:border-amber-400"
                   value={formData.nombre || ''}
                   onChange={e => setFormData({...formData, nombre: e.target.value})}
                   placeholder="Ej. Sin Señal WIFI"
                 />
               </div>
 
-              <div className="space-y-3">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase text-slate-400">
+                  ¿A qué tecnología corresponde esta falla?
+                </label>
+                <p className="text-[9px] font-medium text-slate-500 leading-snug">
+                  Elija una o más tecnologías. En Taller la falla solo aparecerá al diagnosticar equipos de esas tecnologías.
+                </p>
+                {!allTechnologies && techIds.length > 0 ? (
+                  <p className="text-[9px] font-black uppercase text-sky-700">
+                    {techIds.length} tecnología{techIds.length !== 1 ? 's' : ''} asignada{techIds.length !== 1 ? 's' : ''}
+                  </p>
+                ) : null}
+                <div className="max-h-[140px] overflow-y-auto rounded-lg border border-slate-100 p-1.5 custom-scrollbar">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, technologyIds: [] })}
+                      className={`col-span-2 sm:col-span-3 flex items-center gap-2 px-2 py-1.5 rounded-md border text-left transition-all ${compactToggleClass(allTechnologies, 'sky')}`}
+                    >
+                      <div className={`w-3.5 h-3.5 shrink-0 rounded border flex items-center justify-center ${compactCheckClass(allTechnologies, 'sky')}`}>
+                        {allTechnologies && <CheckCircle2 size={10} />}
+                      </div>
+                      <span className="text-[9px] font-black uppercase tracking-tight">
+                        Todas — la falla aplica a cualquier tecnología
+                      </span>
+                    </button>
+                    {tecnologiasUnicas.map((tech) => {
+                      const isSelected = !allTechnologies && techIds.includes(tech.id);
+                      return (
+                        <button
+                          key={tech.id}
+                          type="button"
+                          onClick={() => {
+                            const currentIds = allTechnologies ? [] : formData.technologyIds || [];
+                            const newIds = isSelected
+                              ? currentIds.filter((id: string) => id !== tech.id)
+                              : [...currentIds, tech.id];
+                            setFormData({ ...formData, technologyIds: newIds });
+                          }}
+                          className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md border text-left transition-all ${compactToggleClass(isSelected, 'sky')}`}
+                        >
+                          <div className={`w-3.5 h-3.5 shrink-0 rounded border flex items-center justify-center ${compactCheckClass(isSelected, 'sky')}`}>
+                            {isSelected && <CheckCircle2 size={10} />}
+                          </div>
+                          <span className="text-[9px] font-black uppercase tracking-tight leading-tight truncate">
+                            {tech.nombre}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {tecnologiasUnicas.length === 0 ? (
+                    <p className="text-[9px] font-bold uppercase text-slate-400 text-center py-2">
+                      No hay tecnologías configuradas
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
                 <label className="text-[10px] font-black uppercase text-slate-400">Vincular Reparaciones Sugeridas</label>
-                <div className="flex flex-col gap-2 max-h-[300px] overflow-y-auto p-2 border-2 border-slate-50 rounded-2xl custom-scrollbar">
-                  {reparacionesUnicas.map(rep => {
-                    const isSelected = (formData.reparacionesIds || []).includes(rep.id);
-                    return (
-                      <button
-                        key={rep.id}
-                        type="button"
-                        onClick={() => {
-                          const currentIds = formData.reparacionesIds || [];
-                          const newIds = isSelected
-                            ? currentIds.filter((id: string) => id !== rep.id)
-                            : [...currentIds, rep.id];
-                          setFormData({ ...formData, reparacionesIds: newIds });
-                        }}
-                        className={`flex items-center gap-3 p-4 rounded-xl border-2 transition-all text-left ${isSelected ? 'bg-amber-50 border-amber-400' : 'bg-white border-slate-100 hover:border-slate-300'}`}
-                      >
-                        <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${isSelected ? 'bg-amber-400 border-amber-400 text-white' : 'border-slate-300'}`}>
-                          {isSelected && <CheckCircle2 size={12} />}
-                        </div>
-                        <span className={`text-[11px] font-black uppercase tracking-tight ${isSelected ? 'text-amber-700' : 'text-slate-600'}`}>{rep.nombre}</span>
-                      </button>
-                    );
-                  })}
+                <div className="max-h-[180px] overflow-y-auto rounded-lg border border-slate-100 p-1.5 custom-scrollbar">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
+                    {reparacionesUnicas.map(rep => {
+                      const isSelected = (formData.reparacionesIds || []).includes(rep.id);
+                      return (
+                        <button
+                          key={rep.id}
+                          type="button"
+                          onClick={() => {
+                            const currentIds = formData.reparacionesIds || [];
+                            const newIds = isSelected
+                              ? currentIds.filter((id: string) => id !== rep.id)
+                              : [...currentIds, rep.id];
+                            setFormData({ ...formData, reparacionesIds: newIds });
+                          }}
+                          className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md border text-left transition-all ${compactToggleClass(isSelected, 'amber')}`}
+                        >
+                          <div className={`w-3.5 h-3.5 shrink-0 rounded border flex items-center justify-center ${compactCheckClass(isSelected, 'amber')}`}>
+                            {isSelected && <CheckCircle2 size={10} />}
+                          </div>
+                          <span className="text-[9px] font-black uppercase tracking-tight leading-tight truncate">{rep.nombre}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             </div>
-          )}
+            );
+          })()}
 
           {modalType === 'px_provider' && (
             <div className="space-y-4">

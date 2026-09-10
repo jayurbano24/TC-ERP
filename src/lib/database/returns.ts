@@ -31,6 +31,26 @@ export function displayTransferNotes(value: string | null | undefined): string {
   return isPlaceholderTransferNote(value) ? 'Sin notas adicionales' : String(value).trim();
 }
 
+const GENERIC_RETURN_MOTIVO = 'devolución de caja';
+
+/** True si la guía no tiene un motivo de devolución válido del catálogo. */
+export function isMissingReturnMotivo(value: string | null | undefined): boolean {
+  const v = String(value ?? '').trim();
+  if (!v) return true;
+  if (isPlaceholderTransferNote(v)) return true;
+  return v.toLowerCase() === GENERIC_RETURN_MOTIVO;
+}
+
+export function validateReturnMotivoAgainstCatalog(
+  motivo: string,
+  catalogNames: string[],
+): boolean {
+  const trimmed = motivo.trim();
+  if (!trimmed) return false;
+  if (catalogNames.length === 0) return trimmed.length >= 3;
+  return catalogNames.some((name) => name.trim().toLowerCase() === trimmed.toLowerCase());
+}
+
 function extractGuideBlockFromNotes(notes: string, guideNumber: string): string | null {
   const guideKey = String(guideNumber || '')
     .trim()

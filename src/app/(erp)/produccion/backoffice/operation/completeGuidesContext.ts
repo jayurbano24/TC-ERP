@@ -28,6 +28,8 @@ export type CompleteGuidesContext = {
   selectedAgencyId: string;
   agencia: string;
   returnReason: string;
+  /** Nombres activos de `return_reasons` (Configuración). */
+  returnReasonOptions?: string[];
   returnTracking: string;
   returnCourier: string;
   accessoryPhotos: string[];

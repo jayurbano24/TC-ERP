@@ -15,6 +15,8 @@ type Props = {
   onChange: (next: ExcelFilterSelection) => void;
   sortDir?: 'asc' | 'desc' | null;
   onSort?: (dir: 'asc' | 'desc' | null) => void;
+  /** Cabecera de tabla con fondo oscuro / color (texto blanco). */
+  inverted?: boolean;
 };
 
 const PANEL_WIDTH = 260;
@@ -39,6 +41,7 @@ export function ExcelColumnFilter({
   onChange,
   sortDir = null,
   onSort,
+  inverted = false,
 }: Props) {
   const btnRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -179,8 +182,10 @@ export function ExcelColumnFilter({
           if (open) setOpen(false);
           else openMenu();
         }}
-        className={`inline-flex max-w-full items-center gap-1 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-black/5 ${
-          isActive || hasSort ? 'text-[var(--accent)]' : ''
+        className={`inline-flex max-w-full items-center gap-1 rounded-md px-1 py-0.5 text-left transition-colors ${
+          inverted
+            ? `hover:bg-white/10 ${isActive || hasSort ? 'text-white' : 'text-white/90'}`
+            : `hover:bg-black/5 ${isActive || hasSort ? 'text-[var(--accent)]' : ''}`
         }`}
         title={`Filtrar ${label}`}
         aria-haspopup="dialog"
@@ -188,7 +193,15 @@ export function ExcelColumnFilter({
       >
         <span className="truncate text-[9px] font-black uppercase tracking-widest">{label}</span>
         <Filter
-          className={`h-3 w-3 shrink-0 ${isActive || hasSort ? 'fill-current opacity-90' : 'opacity-50'}`}
+          className={`h-3 w-3 shrink-0 ${
+            inverted
+              ? isActive || hasSort
+                ? 'fill-white text-white opacity-100'
+                : 'text-white/70 opacity-80'
+              : isActive || hasSort
+                ? 'fill-current opacity-90'
+                : 'opacity-50'
+          }`}
         />
       </button>
 

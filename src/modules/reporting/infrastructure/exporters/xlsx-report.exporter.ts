@@ -62,6 +62,10 @@ function applyHeaderCell(cell: ExcelJS.Cell) {
 
 const ENTREGADO_COLS = [
   'NO. DE SERIE',
+  'S1',
+  'S2',
+  'S3',
+  'S4',
   'DESCRIPCIÓN SAP',
   'MARCA',
   'MODELO',
@@ -75,6 +79,58 @@ const ENTREGADO_COLS = [
 ] as const;
 
 const ENTREGADO_COL_COUNT = ENTREGADO_COLS.length;
+
+const INGRESOS_COLS = [
+  'No.',
+  'Canal de Ingreso',
+  'ESTADO',
+  'FECHA DE INGRESO TCW',
+  'MARCA',
+  'MODELO',
+  'S1',
+  'S2',
+  'S3',
+  'S4',
+  'SN',
+  'MAC',
+  'MATERIAL',
+  'Texto breve de material',
+  'TECNOLOGÍA',
+] as const;
+
+const IRREPARABLES_COLS = [
+  'SN',
+  'S1',
+  'S2',
+  'S3',
+  'S4',
+  'CASN',
+  'TECNOLOGÍA',
+  'MODELO',
+  'SUCURSAL SN',
+  'FALLA',
+] as const;
+
+const CENAM_MATRIX_COLS = [
+  'Año',
+  'País',
+  'Mes',
+  'Tecnología',
+  'Recuperados CACs',
+  'Recuperados PX',
+  'Recuperados Mora',
+  'Obsoleto CACs',
+  'Obsoleto PX',
+  'Obsoleto Mora',
+  'Reparado CACs',
+  'Reparado PX',
+  'Reparado Mora',
+  'Reacondicionado CACs',
+  'Reacondicionado PX',
+  'Reacondicionado Mora',
+] as const;
+
+const CENAM_COL_COUNT = CENAM_MATRIX_COLS.length;
 
 function applyEntregadoHeaderCell(cell: ExcelJS.Cell) {
   cell.fill = {
@@ -92,13 +148,21 @@ function applyEntregadoHeaderCell(cell: ExcelJS.Cell) {
   cell.border = allThinBorders();
 }
 
-function buildEntregadoWorksheet(workbook: ExcelJS.Workbook, rows: ReportRow[]) {
-  const sheet = workbook.addWorksheet('Entregado', {
+function buildEntregadoWorksheet(
+  workbook: ExcelJS.Workbook,
+  rows: ReportRow[],
+  sheetName = 'Entregado',
+) {
+  const sheet = workbook.addWorksheet(sheetName.slice(0, 31), {
     views: [{ state: 'frozen', ySplit: 1 }],
   });
 
   sheet.columns = [
     { width: 18 },
+    { width: 16 },
+    { width: 16 },
+    { width: 16 },
+    { width: 16 },
     { width: 34 },
     { width: 14 },
     { width: 28 },
@@ -141,6 +205,193 @@ function buildEntregadoWorksheet(workbook: ExcelJS.Workbook, rows: ReportRow[]) 
       to: { row: 1 + rows.length, column: ENTREGADO_COL_COUNT },
     };
   }
+}
+
+function buildSimpleRedHeaderSheet(
+  workbook: ExcelJS.Workbook,
+  sheetName: string,
+  columns: readonly string[],
+  rows: ReportRow[],
+  colWidths?: number[],
+) {
+  const sheet = workbook.addWorksheet(sheetName.slice(0, 31), {
+    views: [{ state: 'frozen', ySplit: 1 }],
+  });
+
+  sheet.columns = columns.map((_, i) => ({ width: colWidths?.[i] ?? 16 }));
+
+  const headerRow = sheet.getRow(1);
+  headerRow.height = 22;
+  columns.forEach((label, i) => {
+    const cell = headerRow.getCell(i + 1);
+    cell.value = label;
+    applyEntregadoHeaderCell(cell);
+  });
+
+  rows.forEach((r, idx) => {
+    const excelRow = sheet.getRow(2 + idx);
+    columns.forEach((col, i) => {
+      const cell = excelRow.getCell(i + 1);
+      const v = r[col];
+      cell.value = v === null || v === undefined || v === '' ? null : v;
+      cell.font = { color: { argb: COLORS.textBlack }, name: 'Calibri', size: 10 };
+      cell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: i >= 9 };
+      cell.border = allThinBorders();
+    });
+  });
+
+  if (rows.length > 0) {
+    sheet.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: 1 + rows.length, column: columns.length },
+    };
+  }
+}
+
+function buildCenamResumenWorksheet(workbook: ExcelJS.Workbook, rows: ReportRow[]) {
+  const sheet = workbook.addWorksheet('Libro 4 - Resumen', {
+    views: [{ state: 'frozen', ySplit: 3 }],
+  });
+
+  sheet.columns = Array.from({ length: CENAM_COL_COUNT }, (_, i) => ({
+    width: i === 3 ? 14 : i < 4 ? 8 : 10,
+  }));
+
+  const titleRow = sheet.getRow(1);
+  titleRow.height = 22;
+  for (let c = 1; c <= CENAM_COL_COUNT; c++) {
+    const cell = titleRow.getCell(c);
+    cell.value = c === 1 ? 'INFORMACIÓN' : null;
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: COLORS.infoRed },
+    };
+    cell.font = {
+      bold: true,
+      color: { argb: COLORS.textBlack },
+      name: 'Calibri',
+      size: 12,
+    };
+    cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    cell.border = allThinBorders();
+  }
+  sheet.mergeCells(1, 1, 1, CENAM_COL_COUNT);
+
+  const groupRow = sheet.getRow(2);
+  groupRow.height = 20;
+  const groupLabels: Array<{ col: number; value: string; span: number }> = [
+    { col: 1, value: 'Año', span: 1 },
+    { col: 2, value: 'País', span: 1 },
+    { col: 3, value: 'Mes', span: 1 },
+    { col: 4, value: 'Tecnología', span: 1 },
+    { col: 5, value: 'Recuperados', span: 3 },
+    { col: 8, value: 'Obsoleto', span: 3 },
+    { col: 11, value: 'Reparado', span: 3 },
+    { col: 14, value: 'Reacondicionado', span: 3 },
+  ];
+
+  for (let c = 1; c <= CENAM_COL_COUNT; c++) {
+    applyHeaderCell(groupRow.getCell(c));
+  }
+  for (const g of groupLabels) {
+    groupRow.getCell(g.col).value = g.value;
+    if (g.span > 1) {
+      sheet.mergeCells(2, g.col, 2, g.col + g.span - 1);
+    }
+  }
+
+  const subRow = sheet.getRow(3);
+  subRow.height = 18;
+  const subLabels = [
+    '',
+    '',
+    '',
+    '',
+    'CACs',
+    'PX',
+    'Mora',
+    'CACs',
+    'PX',
+    'Mora',
+    'CACs',
+    'PX',
+    'Mora',
+    'CACs',
+    'PX',
+    'Mora',
+  ];
+  for (let c = 1; c <= CENAM_COL_COUNT; c++) {
+    const cell = subRow.getCell(c);
+    cell.value = subLabels[c - 1] || null;
+    applyHeaderCell(cell);
+  }
+  for (let c = 1; c <= 4; c++) {
+    sheet.mergeCells(2, c, 3, c);
+    applyHeaderCell(sheet.getCell(2, c));
+  }
+
+  const dataStart = 4;
+  rows.forEach((r, idx) => {
+    const excelRow = sheet.getRow(dataStart + idx);
+    CENAM_MATRIX_COLS.forEach((col, i) => {
+      const cell = excelRow.getCell(i + 1);
+      const v = r[col];
+      cell.value = v === null || v === undefined || v === '' ? null : v;
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: COLORS.bodyGray },
+      };
+      cell.font = { color: { argb: COLORS.textBlack }, name: 'Calibri', size: 10 };
+      cell.alignment = {
+        horizontal: i < 4 ? 'center' : 'right',
+        vertical: 'middle',
+      };
+      cell.border = allThinBorders();
+    });
+
+    const next = rows[idx + 1];
+    if (!next || next['Mes'] !== r['Mes']) {
+      for (let c = 1; c <= CENAM_COL_COUNT; c++) {
+        excelRow.getCell(c).border = {
+          ...allThinBorders(),
+          bottom: mediumBlack,
+        };
+      }
+    }
+  });
+}
+
+async function buildCenamRefurbishedWorkbook(
+  rows: ReportRow[],
+  detailSheets?: ReportExportOptions['detailSheets'],
+) {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'TC-ERP';
+
+  for (const detail of detailSheets ?? []) {
+    if (detail.layout === 'cenam_ingresos') {
+      buildSimpleRedHeaderSheet(workbook, detail.name, INGRESOS_COLS, detail.rows, [
+        8, 14, 10, 16, 12, 22, 16, 16, 16, 16, 18, 14, 12, 34, 12,
+      ]);
+    } else if (detail.layout === 'cenam_entregado' || detail.layout === 'ops_monthly_entregado') {
+      buildEntregadoWorksheet(workbook, detail.rows, detail.name);
+    } else if (detail.layout === 'cenam_irreparables') {
+      buildSimpleRedHeaderSheet(workbook, detail.name, IRREPARABLES_COLS, detail.rows, [
+        18, 16, 16, 16, 16, 18, 12, 22, 16, 36,
+      ]);
+    }
+  }
+
+  buildCenamResumenWorksheet(workbook, rows);
+
+  const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+  return {
+    buffer,
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    extension: 'xlsx',
+  };
 }
 
 async function buildOpsMonthlyTechMatrixSheet(
@@ -283,6 +534,10 @@ export class XlsxReportExporter implements IReportExporter {
   readonly format = 'XLSX' as const;
 
   async export(rows: ReportRow[], sheetName: string, options?: ReportExportOptions) {
+    if (options?.xlsxLayout === 'cenam_refurbished') {
+      return buildCenamRefurbishedWorkbook(rows, options.detailSheets);
+    }
+
     if (options?.xlsxLayout === 'ops_monthly_tech_matrix') {
       return buildOpsMonthlyTechMatrixSheet(rows, sheetName, options.detailSheets);
     }

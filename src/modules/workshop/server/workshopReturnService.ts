@@ -130,10 +130,15 @@ export async function returnWorkshopSeriesBatch(
   const targetSeriesIds = await expandSeriesIdsToEquipmentSiblings(admin, seriesIds);
   let processed = 0;
 
+  const clearCurrentRepairs = targetStatus === 'in_qc';
+
   for (const chunk of chunkIds(targetSeriesIds, BATCH_LIMITS.WORKSHOP_OPERATE_SERIES_BATCH)) {
     const updatePayload: Record<string, unknown> = { current_status: targetStatus };
     if (clearBoxId) {
       updatePayload.current_box_id = null;
+    }
+    if (clearCurrentRepairs) {
+      updatePayload.current_repairs = [];
     }
 
     const { error: updateError } = await supabase
@@ -159,6 +164,7 @@ export async function returnWorkshopSeriesBatch(
         requested_series: seriesIds.length,
         expanded_series: targetSeriesIds.length,
         clear_box_id: clearBoxId || undefined,
+        clear_current_repairs: clearCurrentRepairs || undefined,
       },
       user_agent: 'api/v1/workshop/return-batch',
     }));

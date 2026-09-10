@@ -164,6 +164,31 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
           return;
         }
 
+        if (isDevolucion) {
+          const { validateReturnMotivoAgainstCatalog } = await import('@/lib/database/returns');
+          const motivo = ctx.returnReason?.trim() || '';
+          if (!motivo) {
+            notify.warning('Motivo obligatorio', {
+              description: 'Seleccione un motivo de devolución del catálogo antes de enviar a Bodega Devolución.',
+            });
+            ctx.setIsSubmitting(false);
+            ctx.isSubmittingRef.current = false;
+            return;
+          }
+          const options = ctx.returnReasonOptions ?? [];
+          if (!validateReturnMotivoAgainstCatalog(motivo, options)) {
+            notify.warning('Motivo no válido', {
+              description:
+                options.length > 0
+                  ? 'Debe elegir una opción de la lista configurada en Configuración → Razones de devolución.'
+                  : 'El motivo debe tener al menos 3 caracteres. Configure razones en Configuración.',
+            });
+            ctx.setIsSubmitting(false);
+            ctx.isSubmittingRef.current = false;
+            return;
+          }
+        }
+
         const defaultTech =
           finalCategory.toLowerCase() === 'accesorio'
             ? 'ACCESORIOS'

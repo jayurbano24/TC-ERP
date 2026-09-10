@@ -101,20 +101,26 @@ export function exportRepairsCsv(items: Array<{ nombre: string }>): void {
 }
 
 export function exportDiagnosticsCsv(
-  items: Array<{ nombre: string; reparacionesIds: string[] }>,
+  items: Array<{ nombre: string; reparacionesIds: string[]; technologyIds?: string[] }>,
   repairs: Array<{ id: string; nombre: string }>,
+  tecnologias: Array<{ id: string; nombre: string }> = [],
 ): void {
   const repairNameById = new Map(repairs.map((r) => [r.id, r.nombre]));
+  const techNameById = new Map(tecnologias.map((t) => [t.id, t.nombre]));
   void downloadCatalogExcel(
     `catalogo_diagnosticos_${Date.now()}.xlsx`,
-    'Diagnósticos — reparaciones_sugeridas: nombres separados por |.',
-    ['nombre', 'reparaciones_sugeridas'],
+    'Diagnósticos — tecnologias y reparaciones_sugeridas: nombres separados por |. Vacío en tecnologias = todas.',
+    ['nombre', 'tecnologias', 'reparaciones_sugeridas'],
     items.map((d) => {
       const reps = (d.reparacionesIds || [])
         .map((id) => repairNameById.get(id) || '')
         .filter(Boolean)
         .join('|');
-      return [d.nombre, reps];
+      const techs = (d.technologyIds || [])
+        .map((id) => techNameById.get(id) || '')
+        .filter(Boolean)
+        .join('|');
+      return [d.nombre, techs, reps];
     }),
   );
 }

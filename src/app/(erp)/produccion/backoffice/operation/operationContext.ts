@@ -28,6 +28,7 @@ export type OperationContext = {
   setManifestPanelOpen: React.Dispatch<React.SetStateAction<boolean>>;
   returnReason: string;
   setReturnReason: React.Dispatch<React.SetStateAction<string>>;
+  returnReasonOptions: string[];
   returnTracking: string;
   setReturnTracking: React.Dispatch<React.SetStateAction<string>>;
   returnCourier: string;

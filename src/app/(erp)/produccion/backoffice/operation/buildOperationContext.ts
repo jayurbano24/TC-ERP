@@ -68,6 +68,7 @@ export type BuildOperationContextParams = {
   setCategory: React.Dispatch<React.SetStateAction<OperationCategory>>;
   returnReason: string;
   setReturnReason: React.Dispatch<React.SetStateAction<string>>;
+  returnReasonOptions: string[];
   returnTracking: string;
   setReturnTracking: React.Dispatch<React.SetStateAction<string>>;
   returnCourier: string;

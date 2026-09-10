@@ -29,6 +29,14 @@ export class GenerateReportHandler {
       };
     }
 
+    if (params.reportCode === 'CENAM_REFURBISHED' && !params.filters.month?.trim()) {
+      return {
+        success: false,
+        error:
+          'CENAM Refurbished requiere un mes específico. Seleccione ENE–DIC (no exporte el año completo).',
+      };
+    }
+
     const provider = getReportDataProvider(params.reportCode);
     if (!provider) {
       return { success: false, error: `Provider no implementado para ${params.reportCode}` };
@@ -41,7 +49,8 @@ export class GenerateReportHandler {
 
     try {
       const data = await provider.fetch(params.filters);
-      if (data.rows.length === 0) {
+      const detailRowCount = (data.detailSheets ?? []).reduce((sum, sheet) => sum + sheet.rows.length, 0);
+      if (data.rows.length === 0 && detailRowCount === 0) {
         await this.runRepo.recordRun({
           reportCode: params.reportCode,
           userId: params.userId,

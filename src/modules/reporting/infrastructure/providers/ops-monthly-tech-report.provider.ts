@@ -3,7 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { IReportDataProvider } from '../../domain/ports/report-data-provider.port';
 import type { ReportDataResult, ReportFilterParams, ReportRow } from '../../domain/types/report.types';
 
-const MONTH_LABELS = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'] as const;
+export const MONTH_LABELS = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'] as const;
 const CHUNK = 200;
 
 /**
@@ -29,9 +29,9 @@ const TALLER_ENTRY_AUDIT_ACTIONS = [
 ] as const;
 
 type BucketKey = string;
-type Source = 'cac' | 'px';
+export type Source = 'cac' | 'px';
 
-type Bucket = {
+export type Bucket = {
   year: number;
   country: string;
   month: number;
@@ -62,7 +62,7 @@ type SeriesRow = {
   entry_source: string | null;
 };
 
-type IngresadoHit = {
+export type IngresadoHit = {
   osId: string;
   seriesIds: string[];
   year: number;
@@ -71,14 +71,14 @@ type IngresadoHit = {
   source: Source;
 };
 
-type DetailCategory =
+export type DetailCategory =
   | 'ingresado'
   | 'taller'
   | 'obsoleto'
   | 'reparado'
   | 'reacondicionado';
 
-type DetailHit = {
+export type DetailHit = {
   osId: string;
   seriesIds: string[];
   year: number;
@@ -162,7 +162,7 @@ function emptyBucket(year: number, country: string, month: number, tech: string)
   };
 }
 
-function parseMonthFilter(raw?: string): number | null {
+export function parseMonthFilter(raw?: string): number | null {
   if (!raw?.trim()) return null;
   const t = raw.trim().toUpperCase();
   const idx = MONTH_LABELS.indexOf(t as (typeof MONTH_LABELS)[number]);
@@ -186,7 +186,7 @@ function normalizeTechName(name: string | null | undefined): string {
   return raw;
 }
 
-function numOrBlank(n: number): number | '' {
+export function numOrBlank(n: number): number | '' {
   return n > 0 ? n : '';
 }
 
@@ -699,7 +699,7 @@ function pickPrimarySeriesId(
   return withSerial ?? seriesIds[0];
 }
 
-async function buildEntregadoDetailRows(
+export async function buildEntregadoDetailRows(
   supabase: SupabaseClient,
   hits: DetailHit[],
   country: string,
@@ -732,7 +732,8 @@ async function buildEntregadoDetailRows(
     const modelo = model?.name || '';
 
     const sapDesc =
-      String(s?.valuation || '').trim().toUpperCase() ||
+      modelo ||
+      `${tech} ${marca}`.trim().toUpperCase() ||
       `${tech} ${marca} ${modelo}`.trim().toUpperCase();
 
     const audit = primaryId ? auditLabels.get(primaryId) : undefined;
@@ -800,11 +801,67 @@ async function buildEntregadoDetailRows(
  * Reacondicionado: 1 OS en pestaña Reacondicionado (ready_to_dispatch).
  * Origen CAC/PX: series.entry_source (mayoría por OS; fallback recepción / bandeja).
  */
-export class OpsMonthlyTechReportProvider implements IReportDataProvider {
-  readonly code = 'OPERACIONES_MENSUAL_TECNOLOGIA';
+export type OpsMonthlyAggregation = {
+  buckets: Bucket[];
+  ingresadoHits: IngresadoHit[];
+  detailHits: DetailHit[];
+  year: number;
+  country: string;
+  monthFilter: number | null;
+  startIso: string;
+  endIso: string;
+  cacOsFirstDate: Map<string, Date>;
+  pxOsFirstDate: Map<string, { dt: Date; modelId: string | null }>;
+  hasData: boolean;
+  matrixRows: ReportRow[];
+};
 
-  async fetch(filters: ReportFilterParams): Promise<ReportDataResult> {
-    const supabase = getSupabaseServerClient();
+export type OpsMonthlyAggregationOptions = {
+  /** CENAM: omite cola Taller completa; solo carga series en Reparado/Reacondicionado. */
+  cenamMode?: boolean;
+};
+
+async function loadDispatchSeriesForReport(
+  supabase: SupabaseClient,
+): Promise<WorkshopSeriesRow[]> {
+  return fetchPaged<WorkshopSeriesRow>((from, to) =>
+    supabase
+      .from('series')
+      .select(
+        'id, service_order_id, model_id, current_reception_id, current_status, entry_source, updated_at',
+      )
+      .in('current_status', ['in_validation', 'in_central_warehouse', 'ready_to_dispatch'])
+      .not('service_order_id', 'is', null)
+      .order('updated_at', { ascending: false })
+      .range(from, to),
+  );
+}
+
+function buildCurrentByOsFromSeries(seriesList: WorkshopSeriesRow[]): Map<string, WorkshopSeriesRow[]> {
+  const currentByOs = new Map<string, WorkshopSeriesRow[]>();
+  for (const s of seriesList) {
+    const osId = String(s.service_order_id || '');
+    if (!osId) continue;
+    const list = currentByOs.get(osId) || [];
+    list.push({
+      ...s,
+      id: String(s.id),
+      service_order_id: osId,
+      model_id: s.model_id ? String(s.model_id) : null,
+      current_reception_id: s.current_reception_id ? String(s.current_reception_id) : null,
+      current_status: s.current_status ? String(s.current_status) : null,
+      entry_source: s.entry_source ? String(s.entry_source).toLowerCase() : null,
+    });
+    currentByOs.set(osId, list);
+  }
+  return currentByOs;
+}
+
+export async function aggregateOpsMonthlyTechData(
+  supabase: SupabaseClient,
+  filters: ReportFilterParams,
+  options?: OpsMonthlyAggregationOptions,
+): Promise<OpsMonthlyAggregation> {
     const now = new Date();
     const year = Number(filters.year) || now.getFullYear();
     if (!Number.isInteger(year) || year < 2000 || year > 2100) {
@@ -990,104 +1047,90 @@ export class OpsMonthlyTechReportProvider implements IReportDataProvider {
       pushDetailHit(detailHits, detailHitSeen, { ...hit, category: 'ingresado' });
     }
 
-    // --- Taller: 1 OS = 1 (cola actual + entradas del periodo), no depende de Ingresado ---
-    const tallerOsSeen = new Set<string>();
-    const countTallerOs = (
-      osId: string,
-      month: number,
-      tech: string,
-      source: Source,
-      seriesIds: string[],
-    ) => {
-      const key = `${month}|${osId}`;
-      if (tallerOsSeen.has(key)) return;
-      tallerOsSeen.add(key);
-      const b = ensure(year, month, tech);
-      if (source === 'px') b.tallerPx += 1;
-      else b.tallerCac += 1;
-      pushDetailHit(detailHits, detailHitSeen, {
-        osId,
-        seriesIds,
-        year,
-        month,
-        tech,
-        source,
-        category: 'taller',
-      });
-    };
+    let currentByOs: Map<string, WorkshopSeriesRow[]>;
 
-    const queueSeries = await loadCurrentWorkshopQueueSeries(supabase);
-    const listoSeries = await loadListoWorkshopSeries(supabase);
-    const currentTallerSeries = [...queueSeries, ...listoSeries];
+    if (options?.cenamMode) {
+      // CENAM no usa bucket Taller: solo Reparado/Reacondicionado (mucho más liviano).
+      currentByOs = buildCurrentByOsFromSeries(await loadDispatchSeriesForReport(supabase));
+    } else {
+      // --- Taller: 1 OS = 1 (cola actual + entradas del periodo), no depende de Ingresado ---
+      const tallerOsSeen = new Set<string>();
+      const countTallerOs = (
+        osId: string,
+        month: number,
+        tech: string,
+        source: Source,
+        seriesIds: string[],
+      ) => {
+        const key = `${month}|${osId}`;
+        if (tallerOsSeen.has(key)) return;
+        tallerOsSeen.add(key);
+        const b = ensure(year, month, tech);
+        if (source === 'px') b.tallerPx += 1;
+        else b.tallerCac += 1;
+        pushDetailHit(detailHits, detailHitSeen, {
+          osId,
+          seriesIds,
+          year,
+          month,
+          tech,
+          source,
+          category: 'taller',
+        });
+      };
 
-    // Agrupar series actuales por OS
-    const currentByOs = new Map<string, WorkshopSeriesRow[]>();
-    for (const s of currentTallerSeries) {
-      const osId = String(s.service_order_id || '');
-      if (!osId) continue;
-      const list = currentByOs.get(osId) || [];
-      list.push({
-        ...s,
-        id: String(s.id),
-        service_order_id: osId,
-        model_id: s.model_id ? String(s.model_id) : null,
-        current_reception_id: s.current_reception_id ? String(s.current_reception_id) : null,
-        current_status: s.current_status ? String(s.current_status) : null,
-        entry_source: s.entry_source ? String(s.entry_source).toLowerCase() : null,
-      });
-      currentByOs.set(osId, list);
-    }
+      const queueSeries = await loadCurrentWorkshopQueueSeries(supabase);
+      const listoSeries = await loadListoWorkshopSeries(supabase);
+      currentByOs = buildCurrentByOsFromSeries([...queueSeries, ...listoSeries]);
 
-    for (const [osId, seriesList] of currentByOs) {
-      // Snapshot: con filtro de mes van al mes pedido (alineado a contadores UI);
-      // sin filtro, al mes de updated_at más reciente.
-      let m: number;
-      if (monthFilter) {
-        m = monthFilter;
-      } else {
-        const latest = seriesList.reduce((acc, s) => {
-          const t = new Date(s.updated_at).getTime();
-          return Number.isNaN(t) ? acc : Math.max(acc, t);
-        }, 0);
-        const dt = latest ? new Date(latest) : null;
-        if (!dt || dt.getFullYear() !== year) continue;
-        m = dt.getMonth() + 1;
+      for (const [osId, seriesList] of currentByOs) {
+        let m: number;
+        if (monthFilter) {
+          m = monthFilter;
+        } else {
+          const latest = seriesList.reduce((acc, s) => {
+            const t = new Date(s.updated_at).getTime();
+            return Number.isNaN(t) ? acc : Math.max(acc, t);
+          }, 0);
+          const dt = latest ? new Date(latest) : null;
+          if (!dt || dt.getFullYear() !== year) continue;
+          m = dt.getMonth() + 1;
+        }
+        const tech = resolveTech(seriesList[0]?.model_id);
+        if (techFilterRaw && !techNames.includes(tech)) continue;
+        const source = sourceFromSeriesList(seriesList, 'cac');
+        countTallerOs(
+          osId,
+          m,
+          tech,
+          source,
+          seriesList.map((s) => s.id),
+        );
       }
-      const tech = resolveTech(seriesList[0]?.model_id);
-      if (techFilterRaw && !techNames.includes(tech)) continue;
-      const source = sourceFromSeriesList(seriesList, 'cac');
-      countTallerOs(
-        osId,
-        m,
-        tech,
-        source,
-        seriesList.map((s) => s.id),
-      );
-    }
 
-    // Entradas a taller en el periodo (aunque ya no estén en cola)
-    const entryOsDates = await loadWorkshopEntryOsByPeriod(supabase, startIso, endIso);
-    const entryOsIds = [...entryOsDates.keys()].filter((id) => !currentByOs.has(id));
-    const entrySeriesByOs = await loadSeriesByOsIds(supabase, entryOsIds);
-    const entryOsMeta = await loadOsMeta(supabase, entryOsIds);
+      const entryOsDates = await loadWorkshopEntryOsByPeriod(supabase, startIso, endIso);
+      const entryOsIds = [...entryOsDates.keys()].filter((id) => !currentByOs.has(id));
+      const entrySeriesByOs = await loadSeriesByOsIds(supabase, entryOsIds);
+      const entryOsMeta = await loadOsMeta(supabase, entryOsIds);
 
-    for (const osId of entryOsIds) {
-      const dt = entryOsDates.get(osId)!;
-      if (dt.getFullYear() !== year) continue;
-      const m = dt.getMonth() + 1;
-      if (monthFilter && m !== monthFilter) continue;
-      const seriesList = entrySeriesByOs.get(osId) || [];
-      const meta = entryOsMeta.get(osId);
-      const tech = resolveTech(seriesList[0]?.model_id || meta?.modelId);
-      if (techFilterRaw && !techNames.includes(tech)) continue;
-      const source = sourceFromSeriesList(seriesList, 'cac');
-      countTallerOs(
-        osId,
-        m,
-        tech,
-        source,
-        seriesList.map((s) => s.id),
-      );
+      for (const osId of entryOsIds) {
+        const dt = entryOsDates.get(osId)!;
+        if (dt.getFullYear() !== year) continue;
+        const m = dt.getMonth() + 1;
+        if (monthFilter && m !== monthFilter) continue;
+        const seriesList = entrySeriesByOs.get(osId) || [];
+        const meta = entryOsMeta.get(osId);
+        const tech = resolveTech(seriesList[0]?.model_id || meta?.modelId);
+        if (techFilterRaw && !techNames.includes(tech)) continue;
+        const source = sourceFromSeriesList(seriesList, 'cac');
+        countTallerOs(
+          osId,
+          m,
+          tech,
+          source,
+          seriesList.map((s) => s.id),
+        );
+      }
     }
 
     // --- Obsoleto: 1 OS = 1 equipo ---
@@ -1257,12 +1300,35 @@ export class OpsMonthlyTechReportProvider implements IReportDataProvider {
       metricKeys.some((k) => typeof r[k] === 'number' && (r[k] as number) > 0)
     );
 
-    const entregadoRows = hasData
-      ? await buildEntregadoDetailRows(supabase, detailHits, country, year)
+  return {
+    buckets: [...buckets.values()],
+    ingresadoHits,
+    detailHits,
+    year,
+    country,
+    monthFilter,
+    startIso,
+    endIso,
+    cacOsFirstDate,
+    pxOsFirstDate,
+    hasData,
+    matrixRows: hasData ? rows : [],
+  };
+}
+
+export class OpsMonthlyTechReportProvider implements IReportDataProvider {
+  readonly code = 'OPERACIONES_MENSUAL_TECNOLOGIA';
+
+  async fetch(filters: ReportFilterParams): Promise<ReportDataResult> {
+    const supabase = getSupabaseServerClient();
+    const agg = await aggregateOpsMonthlyTechData(supabase, filters);
+
+    const entregadoRows = agg.hasData
+      ? await buildEntregadoDetailRows(supabase, agg.detailHits, agg.country, agg.year)
       : [];
 
     return {
-      rows: hasData ? rows : [],
+      rows: agg.matrixRows,
       xlsxLayout: 'ops_monthly_tech_matrix',
       detailSheets:
         entregadoRows.length > 0

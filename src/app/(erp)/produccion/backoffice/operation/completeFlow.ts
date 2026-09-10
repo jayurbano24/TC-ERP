@@ -5,6 +5,7 @@ import type { BackofficeTab, BackofficeReception, CatalogAgency, CatalogBrand, C
 import type { CompleteGuidesContext } from './completeGuidesContext';
 import { runCompleteCurrentGuides } from './completeCurrentGuides';
 import { notify } from '@/components/ui/messaging/messageStore';
+import { validateReturnMotivoAgainstCatalog } from '@/lib/database/returns';
 
 export type CompleteFlowParams = {
   isSubmitting: boolean;
@@ -22,6 +23,7 @@ export type CompleteFlowParams = {
   selectedAgencyId: string;
   agencia: string;
   returnReason: string;
+  returnReasonOptions: string[];
   returnTracking: string;
   returnCourier: string;
   accessoryPhotos: string[];
@@ -63,6 +65,7 @@ function buildCompleteCtx(params: CompleteFlowParams): CompleteGuidesContext {
     selectedAgencyId: params.selectedAgencyId,
     agencia: params.agencia,
     returnReason: params.returnReason,
+    returnReasonOptions: params.returnReasonOptions,
     returnTracking: params.returnTracking,
     returnCourier: params.returnCourier,
     accessoryPhotos: params.accessoryPhotos,
@@ -91,8 +94,15 @@ export function createCompleteFlowHandlers(params: CompleteFlowParams) {
   };
 
   const handleConfirmReturn = async () => {
-    if (!params.returnReason) {
-      notify.warning('Por favor ingrese el motivo de la devolución.');
+    const motivo = params.returnReason?.trim() || '';
+    if (!motivo) {
+      notify.warning('Seleccione el motivo de la devolución.');
+      return;
+    }
+    if (!validateReturnMotivoAgainstCatalog(motivo, params.returnReasonOptions)) {
+      notify.warning('Motivo no válido', {
+        description: 'Debe elegir una opción del catálogo de razones de devolución.',
+      });
       return;
     }
     if (!params.selectedAgencyId) {

@@ -11,6 +11,9 @@ export type WorkshopTaskCatalogRow = {
   current_repairs?: string[];
   current_reacondicionado?: string[];
   l3_reason_text?: string | null;
+  diagnostic_detail_text?: string | null;
+  scrap_origin_stage?: string | null;
+  scrap_reason_text?: string | null;
 };
 
 export type WorkshopTaskLabelSources = {
@@ -94,17 +97,57 @@ export function resolveWorkshopReacondicionadoLabel(
   return joinCatalogLabels(names, 'Sin reacondicionado registrado');
 }
 
+export function formatWorkshopScrapOriginStage(action: string): string {
+  const normalized = String(action || '').trim().toUpperCase();
+  if (normalized.includes('DIAGNÓSTICO')) return 'Diagnóstico';
+  if (normalized.includes('REPARACIÓN L3') || normalized.includes('REPARACION L3')) return 'L3';
+  if (normalized.includes('REPARACIÓN') || normalized.includes('REPARACION')) return 'Reparación';
+  if (normalized.includes('REACONDICIONADO')) return 'Reacondicionado';
+  if (normalized.includes('CONTROL DE CALIDAD')) return 'Control de Calidad';
+  return 'Taller';
+}
+
+export function resolveWorkshopDiagnosticDetailLabel(
+  row: WorkshopTaskCatalogRow,
+  sources: Pick<WorkshopTaskLabelSources, 'diagnostics' | 'repairs' | 'catalogNamesById'>,
+): string {
+  const catalog = resolveWorkshopDiagnosticLabel(row, sources);
+  const detail = String(row.diagnostic_detail_text || '').trim();
+  const hasCatalog =
+    catalog !== 'Sin diagnóstico registrado' && catalog !== 'Diagnóstico no catalogado';
+
+  if (hasCatalog && detail) return `${catalog} · ${detail}`;
+  if (detail) return detail;
+  if (hasCatalog) return catalog;
+  const l3Reason = String(row.l3_reason_text || '').trim();
+  if (l3Reason) return l3Reason;
+  return 'Sin detalle registrado';
+}
+
+export function resolveWorkshopScrapReasonLabel(row: WorkshopTaskCatalogRow): string {
+  const stage = String(row.scrap_origin_stage || '').trim();
+  const reason = String(row.scrap_reason_text || '').trim();
+  if (stage && reason) return `Desde ${stage}: ${reason}`;
+  if (reason) return reason;
+  if (stage) return `Marcado en ${stage}`;
+  return 'Sin razón registrada';
+}
+
 export function enrichWorkshopTaskDisplayLabels(
   row: WorkshopTaskCatalogRow,
   sources: WorkshopTaskLabelSources,
 ): {
   diagnosticoLabel: string;
+  diagnosticoDetalleLabel: string;
   reparacionLabel: string;
   reacondicionadoLabel: string;
+  scrapReasonLabel: string;
 } {
   return {
     diagnosticoLabel: resolveWorkshopDiagnosticLabel(row, sources),
+    diagnosticoDetalleLabel: resolveWorkshopDiagnosticDetailLabel(row, sources),
     reparacionLabel: resolveWorkshopRepairLabel(row, sources),
     reacondicionadoLabel: resolveWorkshopReacondicionadoLabel(row, sources),
+    scrapReasonLabel: resolveWorkshopScrapReasonLabel(row),
   };
 }

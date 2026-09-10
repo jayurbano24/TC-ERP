@@ -42,4 +42,19 @@ describe('assertAllowedWorkshopResult', () => {
       assertAllowedWorkshopResult('REPARACIÓN L3 COMPLETADA', 'reacondicionado')
     ).toThrow(BusinessException);
   });
+
+  it('bloquea scraps desde Diagnóstico inicial', () => {
+    expect(() =>
+      assertAllowedWorkshopResult('DIAGNÓSTICO INICIAL COMPLETADO', 'scraps')
+    ).toThrow(BusinessException);
+  });
+
+  it('permite reparacion y l3 desde Diagnóstico inicial', () => {
+    expect(() =>
+      assertAllowedWorkshopResult('DIAGNÓSTICO INICIAL COMPLETADO', 'reparacion')
+    ).not.toThrow();
+    expect(() =>
+      assertAllowedWorkshopResult('DIAGNÓSTICO INICIAL COMPLETADO', 'l3')
+    ).not.toThrow();
+  });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildReturnsReportPeriodOptions,
+  normalizeReturnsReportPeriod,
   resolveReturnsReportBounds,
   type ReturnsReportPeriod,
 } from './returnsReportPeriod';
@@ -32,6 +33,13 @@ describe('returnsReportPeriod', () => {
     expect(b.startIso).toBe('2026-01-01T06:00:00.000Z');
     expect(b.endIso).toBe('2026-02-01T05:59:59.999Z');
     expect(b.label).toContain('2026');
+  });
+
+  it('normaliza valores no string a todo', () => {
+    expect(normalizeReturnsReportPeriod(undefined)).toBe('todo');
+    expect(normalizeReturnsReportPeriod({ queryKey: ['x'] })).toBe('todo');
+    const b = resolveReturnsReportBounds({ queryKey: ['devoluciones-report-etl'] });
+    expect(b.label).toBe('Todo el histórico');
   });
 
   it('opciones incluyen semanas, meses y histórico', () => {

@@ -1,5 +1,11 @@
 import type { WorkshopTabId } from '@/lib/database/workshop';
 import { fetchWorkshopTasksPageViaApi } from '@/lib/api/workshopTasks';
+import {
+  buildWorkshopScrapExportRow,
+  WORKSHOP_SCRAP_EXPORT_HEADERS,
+  type WorkshopScrapExportRow,
+} from '@/modules/workshop/shared/workshopScrapsExport';
+import type { WorkshopTaskLabelSources } from '@/modules/workshop/shared/workshopTaskLabels';
 
 const TAB_LABELS: Record<string, string> = {
   diagnostico: 'Diagnostico',
@@ -114,4 +120,27 @@ export async function exportWorkshopTabToExcel(
   const rawItems = await fetchAllWorkshopTasksForTab(tab);
   const mapper = adaptRow ?? adaptWorkshopItemForExport;
   await exportWorkshopRowsToExcel(tab, rawItems.map(mapper));
+}
+
+export async function exportWorkshopScrapsReportToExcel(
+  labelSources: WorkshopTaskLabelSources,
+): Promise<void> {
+  const rawItems = await fetchAllWorkshopTasksForTab('scraps');
+  const rows: WorkshopScrapExportRow[] = rawItems.map((raw) =>
+    buildWorkshopScrapExportRow(raw, labelSources),
+  );
+
+  const XLSX = await import('xlsx');
+  const sheetRows = rows.map((row) => {
+    const out: Record<string, string> = {};
+    for (const { key, header } of WORKSHOP_SCRAP_EXPORT_HEADERS) {
+      out[header] = row[key];
+    }
+    return out;
+  });
+  const ws = XLSX.utils.json_to_sheet(sheetRows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'SCRAPS');
+  const today = new Date().toISOString().split('T')[0];
+  XLSX.writeFile(wb, `Reporte_SCRAPS_Taller_${today}.xlsx`);
 }

@@ -6,6 +6,7 @@ import {
   loadCompletedWorkshopActionsBySeries,
   validateEquipmentPrerequisites,
 } from '@/modules/workshop/server/workshopStagePrerequisites';
+import { assertWorkshopRepairsMatchDiagnostics } from '@/modules/workshop/server/workshopDiagnosticRepairValidation';
 
 export function resolveWorkshopNextStatus(result: string): string {
   if (result === 'reacondicionado') return 'ready_to_dispatch';
@@ -20,7 +21,7 @@ export function resolveWorkshopNextStatus(result: string): string {
 
 /** Resultados válidos por acción de etapa (evita saltos de flujo desde el cliente). */
 const ALLOWED_RESULTS_BY_ACTION: Record<string, readonly string[]> = {
-  'DIAGNÓSTICO INICIAL COMPLETADO': ['reacondicionado', 'reparacion', 'l3', 'scraps'],
+  'DIAGNÓSTICO INICIAL COMPLETADO': ['reacondicionado', 'reparacion', 'l3'],
   'REPARACIÓN COMPLETADA': ['control_calidad', 'reacondicionado', 'l3', 'scraps'],
   'REACONDICIONADO COMPLETADO': ['control_calidad', 'reparacion', 'l3', 'scraps'],
   'CONTROL DE CALIDAD COMPLETADO': ['listo', 'rechazado_qc'],
@@ -155,10 +156,25 @@ export async function operateWorkshopSeriesBatch(
 
   assertAllowedWorkshopResult(actionName, result);
 
+  await assertWorkshopRepairsMatchDiagnostics(
+    admin,
+    targetSeriesIds,
+    selectedDiagnostics,
+    actionName,
+  );
+
   const nextStatus = resolveWorkshopNextStatus(result);
   const updateData: Record<string, unknown> = { current_status: nextStatus };
   if (actionName === 'DIAGNÓSTICO INICIAL COMPLETADO') {
     updateData.current_diagnostics = selectedDiagnostics;
+  }
+  const persistsRepairs =
+    actionName === 'REPARACIÓN COMPLETADA' ||
+    actionName === 'REPARACIÓN L3 COMPLETADA' ||
+    (actionName === 'CONTROL DE CALIDAD COMPLETADO' && selectedDiagnostics.length > 0);
+
+  if (persistsRepairs) {
+    updateData.current_repairs = selectedDiagnostics;
   }
 
   const auditPayload = {
@@ -167,11 +183,12 @@ export async function operateWorkshopSeriesBatch(
     nextStatus,
     operator_name: operatorName,
     diagnostics: actionName === 'DIAGNÓSTICO INICIAL COMPLETADO' ? selectedDiagnostics : undefined,
-    repairs:
-      actionName === 'REPARACIÓN COMPLETADA' || actionName === 'REPARACIÓN L3 COMPLETADA'
-        ? selectedDiagnostics
+    repairs: persistsRepairs ? selectedDiagnostics : undefined,
+    items: persistsRepairs ? selectedDiagnostics : undefined,
+    qc_repair_correction:
+      actionName === 'CONTROL DE CALIDAD COMPLETADO' && selectedDiagnostics.length > 0
+        ? true
         : undefined,
-    items: selectedDiagnostics,
     equipment_complete: true,
     requested_series: seriesIds.length,
     expanded_series: targetSeriesIds.length,
@@ -201,17 +218,44 @@ export async function operateWorkshopSeriesBatch(
       );
     }
 
-    const auditRows = chunk.map((recordId) => ({
-      user_id: userId,
-      user_role: userRole || 'Desconocido',
-      module: 'Taller',
-      table_name: 'series',
-      record_id: recordId,
-      action: actionName,
-      severity: 'INFO',
-      new_values: auditPayload,
-      user_agent: 'api/v1/workshop/operate-batch',
-    }));
+    const auditRows = chunk.flatMap((recordId) => {
+      const rows: Array<Record<string, unknown>> = [];
+
+      if (persistsRepairs && actionName === 'CONTROL DE CALIDAD COMPLETADO') {
+        rows.push({
+          user_id: userId,
+          user_role: userRole || 'Desconocido',
+          module: 'Taller',
+          table_name: 'series',
+          record_id: recordId,
+          action: 'REPARACIÓN CORREGIDA EN QC',
+          severity: 'INFO',
+          new_values: {
+            repairs: selectedDiagnostics,
+            items: selectedDiagnostics,
+            operator_name: operatorName,
+            source_action: actionName,
+            qc_result: result,
+            equipment_complete: true,
+          },
+          user_agent: 'api/v1/workshop/operate-batch',
+        });
+      }
+
+      rows.push({
+        user_id: userId,
+        user_role: userRole || 'Desconocido',
+        module: 'Taller',
+        table_name: 'series',
+        record_id: recordId,
+        action: actionName,
+        severity: 'INFO',
+        new_values: auditPayload,
+        user_agent: 'api/v1/workshop/operate-batch',
+      });
+
+      return rows;
+    });
 
     const { error: auditError } = await admin.from('erp_audit_logs').insert(auditRows);
     if (auditError) {

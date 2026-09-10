@@ -6,6 +6,8 @@ import { ROLES_PRODUCCION } from '@/shared/authz/roleGuard';
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
+/** CENAM ETL puede tardar ~1–3 min la primera vez por mes; re-export usa snapshot. */
+export const maxDuration = 300;
 
 const controller = new ReportingController();
 

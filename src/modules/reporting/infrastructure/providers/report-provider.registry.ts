@@ -3,6 +3,7 @@ import { AccessoryDirectDispatchReportProvider } from './accessory-direct-dispat
 import { AccessoryInventoryReportProvider } from './accessory-inventory-report.provider';
 import { CacClassificationReportProvider } from './cac-classification-report.provider';
 import { DispatchBatchReportProvider } from './dispatch-batch-report.provider';
+import { CenamRefurbishedReportProvider } from './cenam-refurbished-report.provider';
 import { OpsMonthlyTechReportProvider } from './ops-monthly-tech-report.provider';
 import { ReceptionCacReportProvider } from './reception-cac-report.provider';
 
@@ -13,6 +14,7 @@ const providers: IReportDataProvider[] = [
   new DispatchBatchReportProvider(),
   new AccessoryDirectDispatchReportProvider(),
   new OpsMonthlyTechReportProvider(),
+  new CenamRefurbishedReportProvider(),
 ];
 
 const byCode = new Map(providers.map((p) => [p.code, p]));

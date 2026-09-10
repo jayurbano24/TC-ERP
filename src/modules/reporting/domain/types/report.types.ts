@@ -38,7 +38,14 @@ export type ReportDefinitionSummary = {
 };
 
 /** Layout Excel con cabeceras agrupadas (Año/País/Mes/Tech + Ingresado/…). */
-export type ReportXlsxLayout = 'default' | 'ops_monthly_tech_matrix' | 'ops_monthly_entregado';
+export type ReportXlsxLayout =
+  | 'default'
+  | 'ops_monthly_tech_matrix'
+  | 'ops_monthly_entregado'
+  | 'cenam_refurbished'
+  | 'cenam_ingresos'
+  | 'cenam_entregado'
+  | 'cenam_irreparables';
 
 export type ReportDetailSheet = {
   name: string;

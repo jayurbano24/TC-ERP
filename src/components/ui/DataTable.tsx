@@ -45,6 +45,8 @@ export interface DataTableProps<T> {
   minWidth?: number | string;
   /** Si true, padding reducido en celdas (tablas densas). */
   compact?: boolean;
+  /** Padding extra denso (p. ej. cola SCRAPS). */
+  dense?: boolean;
   className?: string;
   rowClassName?: (row: T, index: number) => string | undefined;
   ariaLabel?: string;
@@ -52,6 +54,8 @@ export interface DataTableProps<T> {
   headerClassName?: string;
   /** Clases de texto base para las celdas de cabecera. */
   headerTextClassName?: string;
+  /** Filas con celdas multilínea alineadas arriba (p. ej. detalle SCRAPS). */
+  alignRows?: 'center' | 'start';
 }
 
 const ALIGN_CLASS: Record<DataTableAlign, string> = {
@@ -83,11 +87,13 @@ function DataTableComponent<T>({
   emptyMessage = 'Sin registros',
   minWidth,
   compact = false,
+  dense = false,
   className = '',
   rowClassName,
   ariaLabel,
   headerClassName = 'border-b border-[var(--border)] bg-[var(--surface)]',
   headerTextClassName = 'text-[var(--muted)]',
+  alignRows = 'center',
 }: DataTableProps<T>) {
   const parentRef = useRef<HTMLDivElement>(null);
   const gridTemplateColumns = columns.map((c) => c.width ?? '1fr').join(' ');
@@ -102,8 +108,8 @@ function DataTableComponent<T>({
 
   const clickable = Boolean(onRowClick);
 
-  const cellPad = compact ? 'px-1.5 py-1' : 'px-3';
-  const headerPad = compact ? 'px-1.5 py-1' : 'px-3 py-3';
+  const cellPad = dense ? 'px-1 py-0.5' : compact ? 'px-1.5 py-1' : 'px-3';
+  const headerPad = dense ? 'px-1 py-0.5' : compact ? 'px-1.5 py-1' : 'px-3 py-3';
   const rowText = compact ? 'text-[10px]' : 'text-xs';
 
   const stickyEndClass = (col: DataTableColumn<T>, isHeader = false) =>
@@ -121,15 +127,26 @@ function DataTableComponent<T>({
       ? undefined
       : { minWidth: typeof minWidth === 'number' ? `${minWidth}px` : minWidth };
 
+  const rowAlignClass = alignRows === 'start' ? 'items-start' : 'items-center';
+
   const renderCells = (row: T, index: number) =>
-    columns.map((col) => (
-      <div
-        key={col.id}
-        className={`flex items-center ${cellPad} min-w-0 ${col.sticky === 'end' ? 'overflow-visible' : 'overflow-hidden'} ${ALIGN_CLASS[col.align ?? 'left']} ${stickyEndClass(col)} ${col.cellClassName ?? ''}`}
-      >
-        {col.cell(row, index)}
-      </div>
-    ));
+    columns.map((col) => {
+      const cellClass = col.cellClassName ?? '';
+      const cellAlign =
+        cellClass.includes('items-start') || alignRows === 'start' ? 'items-start' : 'items-center';
+      const cellOverflow =
+        col.sticky === 'end' || cellClass.includes('overflow-visible')
+          ? 'overflow-visible'
+          : 'overflow-hidden';
+      return (
+        <div
+          key={col.id}
+          className={`flex ${cellAlign} ${cellPad} min-w-0 ${cellOverflow} ${ALIGN_CLASS[col.align ?? 'left']} ${stickyEndClass(col)} ${cellClass}`}
+        >
+          {col.cell(row, index)}
+        </div>
+      );
+    });
 
   // Scroll vertical interno; el horizontal lo controla el wrapper del padre
   // (así la barra lateral siempre es visible y la cabecera no se desacopla).
@@ -179,7 +196,7 @@ function DataTableComponent<T>({
                     key={getRowId(row, vItem.index)}
                     role="row"
                     onClick={clickable ? () => onRowClick!(row, vItem.index) : undefined}
-                    className={`group grid items-center border-b border-[var(--border)] ${rowText} font-medium hover:bg-[var(--surface-hover)] ${clickable ? 'cursor-pointer' : ''} ${rowClassName?.(row, vItem.index) ?? ''}`}
+                    className={`group grid ${rowAlignClass} border-b border-[var(--border)] ${rowText} font-medium hover:bg-[var(--surface-hover)] ${clickable ? 'cursor-pointer' : ''} ${rowClassName?.(row, vItem.index) ?? ''}`}
                     style={{
                       position: 'absolute',
                       top: 0,
@@ -202,10 +219,10 @@ function DataTableComponent<T>({
                 key={getRowId(row, index)}
                 role="row"
                 onClick={clickable ? () => onRowClick!(row, index) : undefined}
-                className={`group grid w-full items-center border-b border-[var(--border)] ${rowText} font-medium hover:bg-[var(--surface-hover)] ${clickable ? 'cursor-pointer' : ''} ${rowClassName?.(row, index) ?? ''}`}
+                className={`group grid w-full ${rowAlignClass} border-b border-[var(--border)] ${rowText} font-medium hover:bg-[var(--surface-hover)] ${clickable ? 'cursor-pointer' : ''} ${alignRows === 'start' ? 'py-0.5' : ''} ${rowClassName?.(row, index) ?? ''}`}
                 style={{
                   gridTemplateColumns,
-                  minHeight: rowHeight,
+                  minHeight: alignRows === 'start' ? undefined : rowHeight,
                   color: 'var(--foreground)',
                 }}
               >

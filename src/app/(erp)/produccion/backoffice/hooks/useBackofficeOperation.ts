@@ -17,6 +17,7 @@ import { printConduce } from '../operation/printConduce';
 import { runUndoClassification } from '../operation/undoClassification';
 import { createCompleteFlowHandlers } from '../operation/completeFlow';
 import { buildOperationContext } from '../operation/buildOperationContext';
+import { getReturnReasons } from '@/shared/catalogs/catalogs';
 
 export function useBackofficeOperation() {
   const {
@@ -41,6 +42,7 @@ export function useBackofficeOperation() {
   const [selectedAgencyId, setSelectedAgencyId] = useState<string>('');
   const [category, setCategory] = useState<OperationCategory>('Equipo');
   const [returnReason, setReturnReason] = useState('');
+  const [returnReasonOptions, setReturnReasonOptions] = useState<string[]>([]);
   const [returnTracking, setReturnTracking] = useState('');
   const [returnCourier, setReturnCourier] = useState('');
   const [activeReception, setActiveReception] = useState<BackofficeReception | null>(null);

@@ -70,19 +70,25 @@ function formatMonthLabel(yearMonth: string): string {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
-export function resolveReturnsReportBounds(period: ReturnsReportPeriod): {
+export function normalizeReturnsReportPeriod(period: unknown): ReturnsReportPeriod {
+  if (typeof period === 'string' && period.length > 0) return period as ReturnsReportPeriod;
+  return 'todo';
+}
+
+export function resolveReturnsReportBounds(period: ReturnsReportPeriod | unknown): {
   startIso: string | null;
   endIso: string | null;
   label: string;
 } {
+  const resolved = normalizeReturnsReportPeriod(period);
   const today = todayGt();
   const yearMonth = today.slice(0, 7);
 
-  if (period === 'todo') {
+  if (resolved === 'todo') {
     return { startIso: null, endIso: null, label: 'Todo el histórico' };
   }
 
-  if (period === 'week_current') {
+  if (resolved === 'week_current') {
     const start = mondayOfWeek(today);
     return {
       startIso: guatemalaDayStartUtc(start),
@@ -91,7 +97,7 @@ export function resolveReturnsReportBounds(period: ReturnsReportPeriod): {
     };
   }
 
-  if (period === 'week_previous') {
+  if (resolved === 'week_previous') {
     const thisMon = mondayOfWeek(today);
     const start = addDays(thisMon, -7);
     const end = addDays(thisMon, -1);
@@ -102,7 +108,7 @@ export function resolveReturnsReportBounds(period: ReturnsReportPeriod): {
     };
   }
 
-  if (period === 'month_current') {
+  if (resolved === 'month_current') {
     const start = firstDayOfMonth(yearMonth);
     return {
       startIso: guatemalaDayStartUtc(start),
@@ -111,7 +117,7 @@ export function resolveReturnsReportBounds(period: ReturnsReportPeriod): {
     };
   }
 
-  if (period === 'month_previous') {
+  if (resolved === 'month_previous') {
     const [y, m] = yearMonth.split('-').map(Number);
     const prevMonth = m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
     const start = firstDayOfMonth(prevMonth);
@@ -123,8 +129,8 @@ export function resolveReturnsReportBounds(period: ReturnsReportPeriod): {
     };
   }
 
-  if (period.startsWith('month:')) {
-    const ym = period.slice(6);
+  if (resolved.startsWith('month:')) {
+    const ym = resolved.slice(6);
     const start = firstDayOfMonth(ym);
     const end = lastDayOfMonth(ym);
     return {

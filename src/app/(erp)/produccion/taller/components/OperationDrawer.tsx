@@ -12,6 +12,11 @@ import {
   isKaonQcPrintableModel,
   printKaonQcLabel,
 } from '../printKaonQcLabel';
+import {
+  filterDiagnosticsForTechnology,
+  intersectAllowedRepairIdsAcrossEquipments,
+  resolveAllowedRepairIdsForDiagnostics,
+} from '@/modules/workshop/shared/workshopDiagnosticRepairPolicy';
 
 type DispatchedPart = {
   id: string;
@@ -165,6 +170,115 @@ export const OperationDrawer = memo(function OperationDrawer({
   handleCompleteOperation,
   onRequestPart,
 }: Props) {
+  const operationItems = useMemo(
+    () =>
+      !selectedForOperation
+        ? []
+        : Array.isArray(selectedForOperation)
+          ? selectedForOperation
+          : [selectedForOperation],
+    [selectedForOperation],
+  );
+
+  const diagnosticIdsForRepairGate = useMemo(() => {
+    if (activeTab !== 'reparacion' && activeTab !== 'l3' && activeTab !== 'qc') return [] as string[];
+    if (operationItems.length === 0) return lockedDiagnostics;
+
+    const perItem = operationItems.map((item) => {
+      const fromRow = Array.isArray(item?.current_diagnostics)
+        ? item.current_diagnostics.map(String).filter(Boolean)
+        : [];
+      return fromRow.length > 0 ? fromRow : lockedDiagnostics;
+    });
+
+    if (operationItems.length === 1) return perItem[0] ?? [];
+
+    return [...new Set(perItem.flat())];
+  }, [activeTab, operationItems, lockedDiagnostics]);
+
+  const availableRepairs = useMemo(() => {
+    if (activeTab === 'diagnostico') return [];
+    if (activeTab !== 'reparacion' && activeTab !== 'l3' && activeTab !== 'qc') return catReparaciones;
+
+    if (diagnosticIdsForRepairGate.length === 0) return [];
+
+    if (operationItems.length <= 1) {
+      const allowed = resolveAllowedRepairIdsForDiagnostics(
+        diagnosticIdsForRepairGate,
+        catDiagnosticos,
+      );
+      if (allowed.size === 0) return [];
+      return catReparaciones.filter((r) => allowed.has(String(r.id)));
+    }
+
+    const perItemDiags = operationItems.map((item) => {
+      const fromRow = Array.isArray(item?.current_diagnostics)
+        ? item.current_diagnostics.map(String).filter(Boolean)
+        : [];
+      return fromRow.length > 0 ? fromRow : lockedDiagnostics;
+    });
+    const allowed = intersectAllowedRepairIdsAcrossEquipments(perItemDiags, catDiagnosticos);
+    if (allowed.size === 0) return [];
+    return catReparaciones.filter((r) => allowed.has(String(r.id)));
+  }, [
+    activeTab,
+    catDiagnosticos,
+    catReparaciones,
+    diagnosticIdsForRepairGate,
+    operationItems,
+    lockedDiagnostics,
+  ]);
+
+  useEffect(() => {
+    if (activeTab !== 'reparacion' && activeTab !== 'l3' && activeTab !== 'qc') return;
+    if (availableRepairs.length === 0 || selectedDiagnostics.length === 0) return;
+    const allowed = new Set(availableRepairs.map((r) => String(r.id)));
+    const next = selectedDiagnostics.filter((id) => allowed.has(String(id)));
+    if (next.length !== selectedDiagnostics.length) {
+      if (activeTab === 'qc') {
+        notify.warning(
+          'La reparación seleccionada no corresponde al diagnóstico del equipo. Elija una opción del catálogo permitido.',
+        );
+      }
+      setSelectedDiagnostics(next);
+    }
+  }, [activeTab, availableRepairs, selectedDiagnostics, setSelectedDiagnostics]);
+
+  const availableDiagnostics = useMemo(() => {
+    if (activeTab !== 'diagnostico') return catDiagnosticos;
+
+    const resolveTechId = (item: { tecnologia?: string; technology_id?: string }) => {
+      if (item.technology_id) return String(item.technology_id);
+      const techName = item.tecnologia;
+      if (!techName) return null;
+      const hit = catTecnologias.find(
+        (t) => String(t.name || t.nombre || '').toUpperCase() === String(techName).toUpperCase(),
+      );
+      return hit?.id ? String(hit.id) : null;
+    };
+
+    if (operationItems.length <= 1) {
+      const techId = operationItems[0] ? resolveTechId(operationItems[0]) : null;
+      return filterDiagnosticsForTechnology(catDiagnosticos, techId);
+    }
+
+    const perItem = operationItems.map((item) =>
+      filterDiagnosticsForTechnology(catDiagnosticos, resolveTechId(item)),
+    );
+    const allowedIds = new Set(perItem.flat().map((d) => String(d.id)));
+    return catDiagnosticos.filter((d) => allowedIds.has(String(d.id)));
+  }, [activeTab, catDiagnosticos, catTecnologias, operationItems]);
+
+  const repairOutcomeBlocked =
+    (activeTab === 'reparacion' || activeTab === 'l3') &&
+    (selectedDiagnostics.length === 0 || availableRepairs.length === 0);
+
+  useEffect(() => {
+    if (repairOutcomeBlocked && diagnosticResult) {
+      setDiagnosticResult(null);
+    }
+  }, [repairOutcomeBlocked, diagnosticResult, setDiagnosticResult]);
+
   const [partStatus, setPartStatus] = useState<{
     hasOpenRequest: boolean;
     pendingReturns: any[];
@@ -585,8 +699,8 @@ export const OperationDrawer = memo(function OperationDrawer({
                     {lockedDiagProfile && <span className="ml-auto text-[9px] font-black text-slate-100 bg-slate-800 px-3 py-1 rounded-full shadow-sm tracking-widest border border-slate-900">POR: {lockedDiagProfile.toUpperCase()}</span>}
                   </h4>
                   <div className="flex flex-col gap-2">
-                    {lockedDiagnostics && lockedDiagnostics.length > 0 ? (
-                      lockedDiagnostics.map((id: string) => {
+                    {(lockedDiagnostics.length > 0 ? lockedDiagnostics : diagnosticIdsForRepairGate).length > 0 ? (
+                      (lockedDiagnostics.length > 0 ? lockedDiagnostics : diagnosticIdsForRepairGate).map((id: string) => {
                         const diag = catDiagnosticos.find(d => d.id === id);
                         return (
                           <div key={id} className="bg-white border border-slate-200 text-slate-600 px-4 py-3 rounded-xl shadow-sm flex items-center gap-2">
@@ -602,8 +716,8 @@ export const OperationDrawer = memo(function OperationDrawer({
                 </div>
               )}
 
-              {/* REPARACIONES PREVIAS (SOLO EN QC O POSTERIOR) */}
-              {activeTab !== 'diagnostico' && activeTab !== 'reparacion' && (
+              {/* REPARACIONES PREVIAS (SOLO EN REACOND / L3 — en QC son editables abajo) */}
+              {activeTab !== 'diagnostico' && activeTab !== 'reparacion' && activeTab !== 'qc' && (
                 <div className="bg-slate-50 p-3 rounded-xl shadow-sm border border-slate-200 mt-2">
                   <h4 className="text-[9px] font-black uppercase tracking-wider text-blue-500 mb-4 flex flex-wrap items-center gap-2">
                     <Wrench className="w-4 h-4" />
@@ -634,44 +748,52 @@ export const OperationDrawer = memo(function OperationDrawer({
               )}
 
               {/* 4. FALLAS O REPARACIONES */}
-              {(activeTab === 'diagnostico' || activeTab === 'reparacion' || activeTab === 'l3') && (
+              {(activeTab === 'diagnostico' || activeTab === 'reparacion' || activeTab === 'l3' || activeTab === 'qc') && (
               <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 transition-all">
                 <button 
                   onClick={() => setIsDiagnosticsOpen(!isDiagnosticsOpen)}
                   className="w-full flex items-center justify-between group outline-none"
                 >
-                  <h4 className={`text-[9px] font-black uppercase tracking-wider flex items-center gap-2 ${activeTab === 'diagnostico' ? 'text-amber-500' : activeTab === 'l3' ? 'text-orange-500' : 'text-blue-500'}`}>
+                  <h4 className={`text-[9px] font-black uppercase tracking-wider flex items-center gap-2 ${activeTab === 'diagnostico' ? 'text-amber-500' : activeTab === 'l3' ? 'text-orange-500' : activeTab === 'qc' ? 'text-purple-600' : 'text-blue-500'}`}>
                     {activeTab === 'diagnostico' ? <AlertCircle className="w-4 h-4 group-hover:scale-110 transition-transform" /> : <Wrench className="w-4 h-4 group-hover:scale-110 transition-transform" />}
                     {activeTab === 'diagnostico'
                       ? '4. Fallas Encontradas (Catálogo)'
                       : activeTab === 'l3'
                         ? '4. Reparaciones L3 (Catálogo)'
-                        : '4. Reparaciones Aplicadas (Catálogo)'}
+                        : activeTab === 'qc'
+                          ? '4. Reparaciones Aplicadas (Editable en QC)'
+                          : '4. Reparaciones Aplicadas (Catálogo)'}
                   </h4>
                   <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform duration-300 ${isDiagnosticsOpen ? 'rotate-180' : ''}`} />
                 </button>
                 
                 {isDiagnosticsOpen && (() => {
-                  const availableRepairs = (() => {
-                    if (activeTab === 'diagnostico') return [];
-                    if (!lockedDiagnostics || lockedDiagnostics.length === 0) return catReparaciones;
-                    
-                    const matchingDiags = catDiagnosticos.filter(d => lockedDiagnostics.includes(d.id));
-                    const allowedRepairIds = new Set(matchingDiags.flatMap(d => d.reparacionesIds || []));
-                    
-                    if (allowedRepairIds.size > 0) {
-                      return catReparaciones.filter(r => allowedRepairIds.has(r.id));
-                    }
-                    return catReparaciones;
-                  })();
-                  
-                  const optionsList = activeTab === 'diagnostico' ? catDiagnosticos : availableRepairs;
+                  const optionsList = activeTab === 'diagnostico' ? availableDiagnostics : availableRepairs;
+                  const repairGateMessage =
+                    activeTab === 'reparacion' || activeTab === 'l3' || activeTab === 'qc'
+                      ? diagnosticIdsForRepairGate.length === 0
+                        ? 'Registre el diagnóstico inicial antes de aplicar reparaciones.'
+                        : availableRepairs.length === 0
+                          ? operationItems.length > 1
+                            ? 'Ninguna reparación es válida para todos los equipos seleccionados.'
+                            : 'No hay reparaciones configuradas para este diagnóstico. Revise Configuración → Catálogo Taller.'
+                          : null
+                      : null;
 
                   return (
                   <div className="mt-6 border-t border-slate-100 pt-6 animate-in slide-in-from-top-2 fade-in duration-200">
                     <p className="text-[10px] font-bold text-slate-400 mb-4 uppercase tracking-widest">
-                      {activeTab === 'diagnostico' ? 'Seleccione hasta 3 diagnósticos' : 'Seleccione hasta 3 reparaciones'}
+                      {activeTab === 'diagnostico'
+                        ? 'Seleccione hasta 3 diagnósticos'
+                        : activeTab === 'qc'
+                          ? 'Corrija la reparación registrada (hasta 3) — p. ej. CAMBIO DE LED / AJUSTE DE LED'
+                          : 'Seleccione hasta 3 reparaciones'}
                     </p>
+                    {repairGateMessage ? (
+                      <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-amber-700">
+                        {repairGateMessage}
+                      </p>
+                    ) : null}
                     
                     <div className="flex flex-col gap-4">
                       <select
@@ -904,6 +1026,13 @@ export const OperationDrawer = memo(function OperationDrawer({
                   <Activity className="w-3.5 h-3.5" />
                   Resultado de evaluación
                 </h4>
+                {repairOutcomeBlocked ? (
+                  <p className="mb-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-rose-700">
+                    {availableRepairs.length === 0
+                      ? 'No hay reparaciones válidas para el diagnóstico. Revise el catálogo antes de continuar.'
+                      : 'Seleccione al menos una reparación del catálogo para habilitar el resultado.'}
+                  </p>
+                ) : null}
                 <div className="grid grid-cols-2 gap-2">
                   {(activeTab === 'qc' ? [
                     { label: 'Aceptado → Listo', value: 'listo', variant: 'text-emerald-600 border-emerald-500/30 hover:border-emerald-500 hover:bg-emerald-50' },
@@ -923,16 +1052,20 @@ export const OperationDrawer = memo(function OperationDrawer({
                     { label: 'Reparaciones', value: 'reparacion', variant: 'text-blue-600 border-blue-500/30 hover:border-blue-500 hover:bg-blue-50' },
                     { label: 'Scraps', value: 'scraps', variant: 'text-rose-600 border-rose-500/30 hover:border-rose-500 hover:bg-rose-50' },
                   ] : [
-                    // Diagnóstico inicial
+                    // Diagnóstico inicial — SCRAP solo desde Reparación, Reacondicionado o L3.
                     { label: 'Reacondicionar', value: 'reacondicionado', variant: 'text-emerald-600 border-emerald-500/30 hover:border-emerald-500 hover:bg-emerald-50' },
                     { label: 'Reparación L1/L2', value: 'reparacion', variant: 'text-blue-600 border-blue-500/30 hover:border-blue-500 hover:bg-blue-50' },
                     { label: 'Nivel 3', value: 'l3', variant: 'text-orange-600 border-orange-500/30 hover:border-orange-500 hover:bg-orange-50' },
-                    { label: 'Scraps', value: 'scraps', variant: 'text-rose-600 border-rose-500/30 hover:border-rose-500 hover:bg-rose-50' },
                   ]).map((res) => (
                     <button 
-                      key={res.value} 
-                      onClick={() => setDiagnosticResult(res.value)}
-                      className={`p-2 rounded-lg border text-center transition-all ${res.variant} ${diagnosticResult === res.value ? 'bg-current/10 border-current shadow-sm' : 'bg-white border-slate-200'}`}
+                      key={res.value}
+                      type="button"
+                      disabled={repairOutcomeBlocked}
+                      onClick={() => {
+                        if (repairOutcomeBlocked) return;
+                        setDiagnosticResult(res.value);
+                      }}
+                      className={`p-2 rounded-lg border text-center transition-all ${res.variant} ${diagnosticResult === res.value ? 'bg-current/10 border-current shadow-sm' : 'bg-white border-slate-200'} ${repairOutcomeBlocked ? 'cursor-not-allowed opacity-40 pointer-events-none' : ''}`}
                     >
                       <p className="text-[8px] font-black uppercase leading-tight">{res.label}</p>
                     </button>
@@ -962,6 +1095,7 @@ export const OperationDrawer = memo(function OperationDrawer({
                 disabled={
                   loading || 
                   !diagnosticResult || 
+                  repairOutcomeBlocked ||
                   (activeTab === 'diagnostico' && (!cosmeticClass || !labelStatus || selectedDiagnostics.length === 0)) ||
                   (diagnosticResult === 'l3' &&
                     activeTab !== 'diagnostico' &&

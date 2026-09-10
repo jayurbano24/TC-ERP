@@ -24,7 +24,7 @@ import {
 import {
   returnWorkshopInBatches,
 } from '@/lib/api/workshopReturn';
-import { exportWorkshopTabToExcel } from '@/lib/api/workshopExport';
+import { exportWorkshopScrapsReportToExcel, exportWorkshopTabToExcel } from '@/lib/api/workshopExport';
 import {
   validateWorkshopPrerequisitesViaApi,
   actionNameForTab,
@@ -55,8 +55,13 @@ import { fetchOsPartStatus } from '@/lib/api/parts';
 import { buildWorkshopQueueColumns } from './components/workshopQueueTableColumns';
 import type { ExcelFilterSelection } from '@/components/molecules/ExcelColumnFilter';
 import { enrichWorkshopTaskDisplayLabels } from '@/modules/workshop/shared/workshopTaskLabels';
+import { validateRepairsAgainstDiagnostics } from '@/modules/workshop/shared/workshopDiagnosticRepairPolicy';
 import {
+  workshopQueueIsCompactTab,
+  workshopQueueTableClassName,
+  workshopQueueTableMaxBodyHeight,
   workshopQueueTableMinWidth,
+  workshopQueueTableRowHeight,
   workshopQueueUsesTopScroll,
   WORKSHOP_QUEUE_PAGE_SIZE,
   type WorkshopQueueTabId,
@@ -77,6 +82,10 @@ import {
   useWorkshopTabSearch,
   workshopTabDatasetQueryKey,
 } from '@/modules/workshop/client/useWorkshopTabDataset';
+import {
+  useWorkshopTabPagedQueue,
+  workshopTabPagedQueryKey,
+} from '@/modules/workshop/client/useWorkshopTabPagedQueue';
 
 type TabType = 'diagnostico' | 'reparacion' | 'esperando_partes' | 'reacondicionado' | 'qc' | 'l3' | 'scraps' | 'listo' | 'despacho' | 'po';
 
@@ -134,6 +143,7 @@ export default function TallerPage() {
   const [lockedRepairs, setLockedRepairs] = useState<string[]>([]);
   const [lockedDiagProfile, setLockedDiagProfile] = useState<string | null>(null);
   const [lockedRepProfile, setLockedRepProfile] = useState<string | null>(null);
+  const qcRepairSeedKeyRef = useRef<string | null>(null);
   const [returnModalOpen, setReturnModalOpen] = useState<{isOpen: boolean, item: any | null}>({isOpen: false, item: null});
   const [returnTargetStage, setReturnTargetStage] = useState<string>('in_workshop');
   const [commentModalOpen, setCommentModalOpen] = useState<{ isOpen: boolean; item: any | null }>({
@@ -308,7 +318,10 @@ export default function TallerPage() {
 
   const workshopTab = activeTab as WorkshopTabId;
   const queueTabEnabled = activeTab !== 'po' && activeTab !== 'despacho';
-  const workshopDatasetQuery = useWorkshopTabDataset(workshopTab, queueTabEnabled);
+  const hasActiveExcelFilters = useMemo(
+    () => hasActiveWorkshopQueueExcelFilters(excelFilters),
+    [excelFilters],
+  );
   const searchTokensParsed = useMemo(
     () => (debouncedSearchTerm.trim() ? parseWorkshopSearchTokens(debouncedSearchTerm) : null),
     [debouncedSearchTerm],
@@ -316,15 +329,37 @@ export default function TallerPage() {
   const hasServerSearch = Boolean(
     queueTabEnabled && searchTokensParsed && searchTokensParsed.tokens.length > 0,
   );
+  /** SCRAPS: paginar por cursor en servidor (1386+ OS); filtros locales requieren dataset completo. */
+  const scrapsServerPaging =
+    activeTab === 'scraps' &&
+    !hasServerSearch &&
+    !hasActiveExcelFilters &&
+    !techFilter &&
+    !modelFilter &&
+    !sortCol;
+  const workshopDatasetQuery = useWorkshopTabDataset(
+    workshopTab,
+    queueTabEnabled && !scrapsServerPaging,
+  );
+  const workshopPagedQuery = useWorkshopTabPagedQueue(
+    workshopTab,
+    tasksPage,
+    queueTabEnabled && scrapsServerPaging,
+  );
   const workshopSearchQuery = useWorkshopTabSearch(
     workshopTab,
     debouncedSearchTerm,
     hasServerSearch,
   );
   const loading =
-    workshopDatasetQuery.isLoading || (hasServerSearch && workshopSearchQuery.isLoading);
+    (scrapsServerPaging
+      ? workshopPagedQuery.isLoading
+      : workshopDatasetQuery.isLoading) ||
+    (hasServerSearch && workshopSearchQuery.isLoading);
   const isRefreshing =
-    (workshopDatasetQuery.isFetching && !workshopDatasetQuery.isLoading) ||
+    (scrapsServerPaging
+      ? workshopPagedQuery.isFetching && !workshopPagedQuery.isLoading
+      : workshopDatasetQuery.isFetching && !workshopDatasetQuery.isLoading) ||
     (hasServerSearch &&
       workshopSearchQuery.isFetching &&
       !workshopSearchQuery.isLoading);
@@ -532,6 +567,7 @@ export default function TallerPage() {
         ? t.current_reacondicionado.map(String).filter(Boolean)
         : [],
       ...catalogLabels,
+      scrapResponsableLabel: String(t.scrap_marked_by_name || '').trim() || '—',
       brandId: t.brand_id || brandId || null,
       modelId: t.model_id || modelId || null,
       seriesId: t.all_dbIds?.[0] || t.id || null,
@@ -546,13 +582,26 @@ export default function TallerPage() {
   );
 
   const allTabRows = useMemo(() => {
-    const raw = workshopDatasetQuery.data?.items ?? [];
+    const raw = scrapsServerPaging
+      ? (workshopPagedQuery.data?.items ?? [])
+      : (workshopDatasetQuery.data?.items ?? []);
     return raw.map(adaptWorkshopRow).map((row) =>
       responsableOverrides[row.dbId]
         ? { ...row, responsable: responsableOverrides[row.dbId] }
         : row,
     );
-  }, [workshopDatasetQuery.data?.items, catModelos, catDiagnosticos, catReparaciones, catReacondicionadoTests, catalogNamesById, skuLabelsByOs, responsableOverrides]);
+  }, [
+    scrapsServerPaging,
+    workshopPagedQuery.data?.items,
+    workshopDatasetQuery.data?.items,
+    catModelos,
+    catDiagnosticos,
+    catReparaciones,
+    catReacondicionadoTests,
+    catalogNamesById,
+    skuLabelsByOs,
+    responsableOverrides,
+  ]);
 
   const searchTabRows = useMemo(() => {
     const raw = workshopSearchQuery.data ?? [];
@@ -582,6 +631,8 @@ export default function TallerPage() {
   const refetchWorkshopQueue = useCallback(async () => {
     setTasksPage(1);
     await queryClient.invalidateQueries({ queryKey: workshopTabDatasetQueryKey(workshopTab) });
+    await queryClient.invalidateQueries({ queryKey: workshopTabPagedQueryKey(workshopTab, 1) });
+    await queryClient.invalidateQueries({ queryKey: ['workshop-tab-paged', workshopTab] });
     await queryClient.invalidateQueries({ queryKey: ['workshop-tab-search', workshopTab] });
     void tabCountsQuery.refetch();
   }, [queryClient, workshopTab, tabCountsQuery]);
@@ -664,6 +715,9 @@ export default function TallerPage() {
     }
     const canProceed = await validateStagePrerequisites(selection, activeTab);
     if (!canProceed) return;
+    qcRepairSeedKeyRef.current = null;
+    setSelectedDiagnostics([]);
+    setDiagnosticResult(null);
     setSelectedForOperation(selection);
   };
 
@@ -720,21 +774,43 @@ export default function TallerPage() {
          }
 
          const repLog = data.find((l: any) => l.action === 'REPARACIÓN COMPLETADA');
+         let repairsFromAudit: string[] = [];
          if (repLog) {
             if (repLog.profiles?.full_name) {
               setLockedRepProfile(repLog.profiles.full_name);
             }
             if (repLog.payload) {
               if (repLog.payload.repairs) {
-                setLockedRepairs(repLog.payload.repairs);
+                repairsFromAudit = repLog.payload.repairs;
               } else if (repLog.payload.items) {
-                setLockedRepairs(repLog.payload.items);
+                repairsFromAudit = repLog.payload.items;
               }
+              setLockedRepairs(repairsFromAudit);
             }
+         }
+
+         if (activeTab === 'qc') {
+           const qcItem = Array.isArray(selectedForOperation)
+             ? selectedForOperation[0]
+             : selectedForOperation;
+           const seedKey = String(
+             qcItem?.dbId || qcItem?.groupId || qcItem?.id || dbId || 'qc',
+           );
+           if (qcRepairSeedKeyRef.current !== seedKey) {
+             qcRepairSeedKeyRef.current = seedKey;
+             const fromRow = Array.isArray(qcItem?.current_repairs)
+               ? qcItem.current_repairs.map(String).filter(Boolean)
+               : [];
+             const seed = repairsFromAudit.length > 0 ? repairsFromAudit : fromRow;
+             if (seed.length > 0) {
+               setSelectedDiagnostics(seed);
+             }
+           }
          }
       };
       fetchHistoryForLockedCosmetic();
     } else {
+      qcRepairSeedKeyRef.current = null;
       setLockedCosmetic(null);
       setLockedDiagnostics([]);
       setLockedRepairs([]);
@@ -756,6 +832,9 @@ export default function TallerPage() {
       row.modelo,
       row.boxCode,
       row.diagnosticoLabel,
+      row.diagnosticoDetalleLabel,
+      row.scrapReasonLabel,
+      row.scrapResponsableLabel,
       row.reparacionLabel,
       row.reacondicionadoLabel,
       row.dispatchedSkuLabel,
@@ -773,6 +852,16 @@ export default function TallerPage() {
     }
     setExportingReport(true);
     try {
+      if (activeTab === 'scraps') {
+        await exportWorkshopScrapsReportToExcel({
+          diagnostics: catDiagnosticos,
+          repairs: catReparaciones,
+          reacondicionadoTests: catReacondicionadoTests,
+          catalogNamesById,
+        });
+        notify.success('Reporte SCRAPS exportado');
+        return;
+      }
       await exportWorkshopTabToExcel(activeTab as WorkshopTabId, (raw) => {
         const a = adaptWorkshopRow(raw);
         return {
@@ -789,6 +878,8 @@ export default function TallerPage() {
           modelo: a.modelo,
           caja: a.boxCode,
           diagnostico: a.diagnosticoLabel || '',
+          detalle_diagnostico: a.diagnosticoDetalleLabel || '',
+          razon_scrap: a.scrapReasonLabel || '',
           reparacion: a.reparacionLabel || '',
           reacondicionado: a.reacondicionadoLabel || '',
           fecha: a.fecha,
@@ -818,6 +909,11 @@ export default function TallerPage() {
       return;
     }
 
+    if (activeTab === 'diagnostico' && diagnosticResult === 'scraps') {
+      notify.warning('No se puede enviar a SCRAP desde Diagnóstico. Derive a Reparación, Reacondicionado o L3.');
+      return;
+    }
+
     if (diagnosticResult === 'l3') {
       const priorDiags = Array.isArray(selectedForOperation.current_diagnostics)
         ? selectedForOperation.current_diagnostics
@@ -838,6 +934,40 @@ export default function TallerPage() {
       if (!confirmed) return;
     }
 
+    if (activeTab === 'reparacion' || activeTab === 'l3') {
+      if (selectedDiagnostics.length === 0) {
+        notify.warning('Seleccione al menos una reparación del catálogo antes de guardar.');
+        return;
+      }
+    }
+
+    if (activeTab === 'reparacion' || activeTab === 'l3' || activeTab === 'qc') {
+      if (activeTab === 'qc' && selectedDiagnostics.length === 0) {
+        // QC puede aprobar/rechazar sin corregir reparación.
+      } else if (selectedDiagnostics.length > 0) {
+        const items = Array.isArray(selectedForOperation)
+          ? selectedForOperation
+          : [selectedForOperation];
+        for (const item of items) {
+          const diagIds = Array.isArray(item?.current_diagnostics)
+            ? item.current_diagnostics.map(String).filter(Boolean)
+            : lockedDiagnostics;
+          const check = validateRepairsAgainstDiagnostics(
+            diagIds,
+            selectedDiagnostics,
+            catDiagnosticos,
+            catReparaciones,
+          );
+          if (!check.ok) {
+            notify.warning(check.message, {
+              description: item?.id ? `OS ${item.id}` : undefined,
+            });
+            return;
+          }
+        }
+      }
+    }
+
     let finalNotes = `[Evaluación Taller - ${activeTab.toUpperCase()}]\n`;
     
     if (activeTab === 'diagnostico') {
@@ -849,12 +979,17 @@ ${funcNotes || 'Ninguno evaluado'}
 
 `;
     } else if (activeTab === 'qc') {
+      const repairCorrectionChanged =
+        selectedDiagnostics.length > 0 &&
+        (lockedRepairs.length === 0 ||
+          selectedDiagnostics.length !== lockedRepairs.length ||
+          selectedDiagnostics.some((id, idx) => String(id) !== String(lockedRepairs[idx])));
       finalNotes += `Controles de Calidad:
 - Cambio de Etiqueta: ${qcEtiqueta || 'No evaluado'}
 - Sello de Seguridad: ${qcSello || 'No evaluado'}
 - Check List Funcional: ${qcChecklist || 'No evaluado'}
 - Datos Legibles: ${qcLegible || 'No evaluado'}
-
+${repairCorrectionChanged ? `- Reparación corregida en QC: ${selectedDiagnostics.length} ítem(s)\n` : ''}
 `;
     } else if (activeTab === 'reacondicionado') {
       finalNotes += `Pruebas de Reacondicionado Realizadas:\n${reacondTests.length > 0 ? reacondTests.map(t => `- ${t}`).join('\n') : 'Ninguna'}\n\n`;
@@ -1189,7 +1324,12 @@ ${funcNotes || 'Ninguno evaluado'}
     }
   }, [modelFilter, modelFilterOptions]);
 
-  const queueTotalCount = filteredTasks.length;
+  const scrapsTotalOs = scrapsServerPaging
+    ? (workshopPagedQuery.data?.totalOs ??
+      (typeof tabCounts.scraps === 'number' ? tabCounts.scraps : null))
+    : null;
+  const queueTotalCount =
+    scrapsServerPaging && scrapsTotalOs != null ? scrapsTotalOs : filteredTasks.length;
   const queueTotalPages = Math.max(1, Math.ceil(queueTotalCount / WORKSHOP_QUEUE_PAGE_SIZE));
   const safeQueuePage = Math.min(Math.max(1, tasksPage), queueTotalPages);
   const queueStartItem =
@@ -1206,9 +1346,10 @@ ${funcNotes || 'Ninguno evaluado'}
   }, [tasksPage, queueTotalPages]);
 
   const pageItems = useMemo(() => {
+    if (scrapsServerPaging) return filteredTasks;
     const start = (safeQueuePage - 1) * WORKSHOP_QUEUE_PAGE_SIZE;
     return filteredTasks.slice(start, start + WORKSHOP_QUEUE_PAGE_SIZE);
-  }, [filteredTasks, safeQueuePage]);
+  }, [filteredTasks, safeQueuePage, scrapsServerPaging]);
 
   const handleQueuePageChange: React.Dispatch<React.SetStateAction<number>> = (next) => {
     const resolved = typeof next === 'function' ? next(safeQueuePage) : next;
@@ -1220,8 +1361,6 @@ ${funcNotes || 'Ninguno evaluado'}
     const selectedItems = filteredTasks.filter((t) => selectedRows.includes(t.dbId));
     void openOperationForSelection(selectedItems);
   };
-
-  const hasActiveExcelFilters = hasActiveWorkshopQueueExcelFilters(excelFilters);
 
   const clearExcelFilters = useCallback(() => {
     setExcelFilters(createEmptyWorkshopQueueExcelFilters(activeTab as WorkshopQueueTabId));
@@ -1326,7 +1465,17 @@ ${funcNotes || 'Ninguno evaluado'}
               },
               onReturnStage: (item) => {
                 setReturnModalOpen({ isOpen: true, item });
-                setReturnTargetStage('in_workshop');
+                setReturnTargetStage(
+                  activeTab === 'qc'
+                    ? 'in_qc'
+                    : activeTab === 'reparacion'
+                      ? 'in_workshop'
+                      : activeTab === 'reacondicionado'
+                        ? 'in_qc'
+                        : activeTab === 'l3'
+                          ? 'in_qc'
+                          : 'in_workshop',
+                );
               },
               onOpenHistory: (item) => setHistoryModalOpen({ isOpen: true, item }),
               onOpenComment: (item) => setCommentModalOpen({ isOpen: true, item }),
@@ -1345,10 +1494,12 @@ ${funcNotes || 'Ninguno evaluado'}
                 columns={tallerColumns}
                 data={pageItems}
                 getRowId={(item: any) => item.groupId || item.dbId}
-                rowHeight={36}
-                maxBodyHeight={680}
+                rowHeight={workshopQueueTableRowHeight(activeTab)}
+                maxBodyHeight={workshopQueueTableMaxBodyHeight(activeTab)}
                 minWidth={workshopQueueTableMinWidth(activeTab)}
+                className={workshopQueueTableClassName(activeTab)}
                 compact
+                alignRows={workshopQueueIsCompactTab(activeTab) ? 'start' : 'center'}
                 headerClassName={TALLER_TABLE_HEADER}
                 headerTextClassName={TALLER_TABLE_HEADER_TEXT}
                 emptyMessage="No hay equipos en cola"

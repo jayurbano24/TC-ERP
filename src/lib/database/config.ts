@@ -17,6 +17,7 @@ import {
   BRAND_SELECT,
   CARRIER_SELECT,
   CAT_DIAGNOSTIC_REPAIR_SELECT,
+  CAT_DIAGNOSTIC_TECHNOLOGY_SELECT,
   CAT_DIAGNOSTIC_SELECT,
   CAT_REACOND_TEST_SELECT,
   CAT_REPAIR_SELECT,
@@ -620,15 +621,37 @@ export async function getDiagnostics() {
     return []; 
   }
   
-  // We can fetch relations separately to avoid PostgREST join issues
-  const { data: relData } = await supabase.from('cat_diagnostic_repairs').select(CAT_DIAGNOSTIC_REPAIR_SELECT);
-  
+  const [relRes, techRelRes] = await Promise.all([
+    supabase.from('cat_diagnostic_repairs').select(CAT_DIAGNOSTIC_REPAIR_SELECT),
+    supabase.from('cat_diagnostic_technologies').select(CAT_DIAGNOSTIC_TECHNOLOGY_SELECT),
+  ]);
+
+  if (relRes.error) {
+    console.error('Error fetching diagnostic repairs:', relRes.error);
+  }
+  if (techRelRes.error) {
+    console.error('Error fetching diagnostic technologies:', techRelRes.error);
+    if (typeof window !== 'undefined') {
+      notify.warning('Catálogo de tecnologías por falla no disponible', {
+        description:
+          'Aplique la migración 241_cat_diagnostic_technologies.sql en Supabase para vincular fallas a tecnologías.',
+      });
+    }
+  }
+
+  const relData = relRes.data;
+  const techRelData = techRelRes.error ? [] : techRelRes.data;
+
   return (data || []).map(d => {
-    const rels = (relData || []).filter((r: any) => r.diagnostic_id === d.id);
+    const rels = (relData || []).filter((r: { diagnostic_id: string }) => r.diagnostic_id === d.id);
+    const techRels = (techRelData || []).filter(
+      (r: { diagnostic_id: string }) => r.diagnostic_id === d.id,
+    );
     return {
       id: d.id,
       nombre: d.name,
-      reparacionesIds: rels.map((r: any) => r.repair_id)
+      reparacionesIds: rels.map((r: { repair_id: string }) => r.repair_id),
+      technologyIds: techRels.map((r: { technology_id: string }) => r.technology_id),
     };
   });
 }
@@ -637,7 +660,7 @@ export async function saveDiagnosticConfig(diagnostic: any) {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: "Supabase not configured" };
   
-  const { id, nombre, reparacionesIds } = diagnostic;
+  const { id, nombre, reparacionesIds, technologyIds } = diagnostic;
   const trimmed = String(nombre || '').trim();
   if (!trimmed) {
     return { error: { message: 'El nombre del diagnóstico es obligatorio.' } };
@@ -681,16 +704,60 @@ export async function saveDiagnosticConfig(diagnostic: any) {
     diagnosticId = data.id;
   }
 
-  // Update relations
   if (reparacionesIds) {
-    await supabase.from('cat_diagnostic_repairs').delete().eq('diagnostic_id', diagnosticId);
-    
+    const { error: delRepError } = await supabase
+      .from('cat_diagnostic_repairs')
+      .delete()
+      .eq('diagnostic_id', diagnosticId);
+    if (delRepError) return { error: delRepError };
+
     if (reparacionesIds.length > 0) {
       const relations = reparacionesIds.map((rId: string) => ({
         diagnostic_id: diagnosticId,
-        repair_id: rId
+        repair_id: rId,
       }));
-      await supabase.from('cat_diagnostic_repairs').insert(relations);
+      const { error: insRepError } = await supabase.from('cat_diagnostic_repairs').insert(relations);
+      if (insRepError) return { error: insRepError };
+    }
+  }
+
+  if (technologyIds !== undefined) {
+    const { error: delTechError } = await supabase
+      .from('cat_diagnostic_technologies')
+      .delete()
+      .eq('diagnostic_id', diagnosticId);
+    if (delTechError) {
+      return {
+        error: {
+          message:
+            delTechError.message.includes('does not exist') ||
+            delTechError.message.includes('relation')
+              ? 'Falta la tabla cat_diagnostic_technologies. Aplique la migración 241 en Supabase.'
+              : delTechError.message,
+        },
+      };
+    }
+
+    const techIds = [...new Set((technologyIds as string[]).map(String).filter(Boolean))];
+    if (techIds.length > 0) {
+      const techRelations = techIds.map((technologyId: string) => ({
+        diagnostic_id: diagnosticId,
+        technology_id: technologyId,
+      }));
+      const { error: insTechError } = await supabase
+        .from('cat_diagnostic_technologies')
+        .insert(techRelations);
+      if (insTechError) {
+        return {
+          error: {
+            message:
+              insTechError.message.includes('does not exist') ||
+              insTechError.message.includes('relation')
+                ? 'Falta la tabla cat_diagnostic_technologies. Aplique la migración 241 en Supabase.'
+                : insTechError.message,
+          },
+        };
+      }
     }
   }
 

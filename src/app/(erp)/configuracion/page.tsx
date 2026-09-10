@@ -101,6 +101,7 @@ type Diagnostico = {
   id: string;
   nombre: string;
   reparacionesIds: string[];
+  technologyIds: string[];
 };
 
 type ReacondicionadoTest = {
@@ -228,9 +229,21 @@ export default function ConfiguracionPage() {
     setModalType(type);
     setEditingItem(item);
     if (item) {
-      setFormData(item);
+      setFormData({
+        ...item,
+        reparacionesIds: item.reparacionesIds || [],
+        technologyIds: item.technologyIds || [],
+      });
     } else {
-      setFormData(type === 'tecnologia' ? { seriesCount: 1, digitsPerSeries: [12] } : type === 'modelo' ? { seriesCount: 2, digitsPerSeries: [12, 12] } : {});
+      setFormData(
+        type === 'tecnologia'
+          ? { seriesCount: 1, digitsPerSeries: [12] }
+          : type === 'modelo'
+            ? { seriesCount: 2, digitsPerSeries: [12, 12] }
+            : type === 'diagnostico'
+              ? { reparacionesIds: [], technologyIds: [] }
+              : {},
+      );
     }
     setShowModal(true);
   };
@@ -327,7 +340,11 @@ export default function ConfiguracionPage() {
             return;
           }
         } else {
-          const { error } = await saveDiagnosticConfig({ ...editingItem, ...formData });
+          const { error } = await saveDiagnosticConfig({
+            ...editingItem,
+            ...formData,
+            technologyIds: formData.technologyIds || [],
+          });
           if (!error) {
             const d = await getDiagnostics();
             setDiagnosticos(d);
@@ -614,7 +631,7 @@ export default function ConfiguracionPage() {
   };
 
   const handleExportDiagnosticos = () => {
-    exportDiagnosticsCsv(diagnosticos, reparaciones);
+    exportDiagnosticsCsv(diagnosticos, reparaciones, tecnologias);
   };
 
   const handleExportReacondicionado = () => {
@@ -848,10 +865,13 @@ export default function ConfiguracionPage() {
         }
         const repsRaw = String(row.reparaciones_sugeridas || row.reparaciones || '').trim();
         const reparacionesIds = resolveRepairIdsFromNames(repsRaw, reparaciones);
+        const techRaw = String(row.tecnologias || row.technologies || '').trim();
+        const technologyIds = resolveCatalogIdsFromNames(techRaw, tecnologias);
         const { error } = await saveDiagnosticConfig({
           id: existingId,
           nombre,
           reparacionesIds,
+          technologyIds,
         });
         if (error) skipped += 1;
         else ok += 1;
@@ -1337,7 +1357,7 @@ export default function ConfiguracionPage() {
               theme="light"
               compact
               title="Catálogo de Fallas"
-              subtitle="Diagnósticos y reparaciones sugeridas"
+              subtitle="Falla → tecnología(s) → reparaciones sugeridas (Taller)"
               addLabel="Nueva Falla"
               icon={<Activity className="w-5 h-5 text-amber-500" />}
               iconWrapClassName="bg-amber-50 p-2 rounded-xl"
@@ -1355,6 +1375,28 @@ export default function ConfiguracionPage() {
                   header: 'Falla / Diagnóstico',
                   cell: (diag) => (
                     <span className="text-xs font-black uppercase text-[#181c3a]">{diag.nombre}</span>
+                  ),
+                },
+                {
+                  header: 'Tecnologías',
+                  cell: (diag) => (
+                    <div className="flex flex-wrap gap-1">
+                      {(diag.technologyIds || []).length > 0 ? (
+                        diag.technologyIds.map((tid: string) => {
+                          const tech = tecnologias.find((t) => t.id === tid);
+                          return (
+                            <Badge
+                              key={tid}
+                              className="border-sky-200 bg-sky-50 px-1.5 py-0 text-[9px] font-bold uppercase text-sky-800"
+                            >
+                              {tech?.nombre || 'Desconocida'}
+                            </Badge>
+                          );
+                        })
+                      ) : (
+                        <span className="text-[10px] font-medium italic text-neutral-500">Todas</span>
+                      )}
+                    </div>
                   ),
                 },
                 {

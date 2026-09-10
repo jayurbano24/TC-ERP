@@ -21,6 +21,7 @@ async function loadWorkshopDiagnosticRepairCatalog(
 
   if (diagnosticsRes.error) throw new Error(diagnosticsRes.error.message);
   if (repairsRes.error) throw new Error(repairsRes.error.message);
+  if (relRes.error) throw new Error(relRes.error.message);
 
   const relData = relRes.data ?? [];
   const diagnostics = (diagnosticsRes.data ?? []).map((d) => {

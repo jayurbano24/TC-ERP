@@ -208,7 +208,13 @@ export async function operateWorkshopSeriesBatch(
       .select('id');
 
     if (updateError) {
-      throw new Error(updateError.message);
+      const msg = updateError.message || '';
+      if (/current_repairs/i.test(msg) && /does not exist|column/i.test(msg)) {
+        throw new BusinessException(
+          'Falta migración 245 (current_repairs) en la base de datos. Ejecute supabase db push e intente de nuevo.',
+        );
+      }
+      throw new Error(msg);
     }
 
     const updatedCount = updatedRows?.length ?? 0;

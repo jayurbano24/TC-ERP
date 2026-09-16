@@ -134,6 +134,64 @@ function formatReturnNetworkError(err: unknown, fallback: string): string {
   return msg || fallback;
 }
 
+/** Estado de serie al que regresar tras reverso de devolución (no confundir con status de recepción). */
+const SERIES_STATUS_AFTER_UNDO_RETURN = 'RECEPCIONADO_BODEGA_GENERAL';
+
+const RECEPTION_STATUS_TO_SERIES: Record<string, string> = {
+  CLASIFICADA: SERIES_STATUS_AFTER_UNDO_RETURN,
+  'PENDIENTE DE CLASIFICAR': SERIES_STATUS_AFTER_UNDO_RETURN,
+  PENDIENTE_BACKOFFICE: SERIES_STATUS_AFTER_UNDO_RETURN,
+  RECIBIDO_BACKOFFICE: SERIES_STATUS_AFTER_UNDO_RETURN,
+  PROCESADO: SERIES_STATUS_AFTER_UNDO_RETURN,
+  RECIBIDO: 'received',
+};
+
+function normalizeSeriesStatusForRestore(raw: string | null | undefined): string {
+  const value = String(raw || '').trim();
+  if (!value) return SERIES_STATUS_AFTER_UNDO_RETURN;
+  const mapped = RECEPTION_STATUS_TO_SERIES[value.toUpperCase()];
+  if (mapped) return mapped;
+  return value;
+}
+
+function buildReturnSeriesNotesHeader(params: {
+  motivo: string;
+  guiaSalida: string;
+  category?: string;
+  usuario: string;
+  prevStatus: string;
+  observaciones?: string;
+}): string {
+  const lines = [
+    '--- DEVOLUCIÓN ---',
+    `Motivo: ${params.motivo}`,
+    `Guía Salida: ${params.guiaSalida}`,
+    `Cat: ${params.category || 'BODEGA DEVOLUCIÓN'}`,
+    `Fecha: ${new Date().toLocaleString()}`,
+    `Usuario: ${params.usuario}`,
+    `PrevStatus: ${params.prevStatus}`,
+  ];
+  if (params.observaciones?.trim()) {
+    lines.push(`Observaciones: ${params.observaciones.trim()}`);
+  }
+  return lines.join('\n');
+}
+
+function resolveSeriesStatusAfterUndoReturn(notes: string): string {
+  const match = notes.match(/PrevStatus:\s*([^\n]+)/i);
+  if (match?.[1]) {
+    return normalizeSeriesStatusForRestore(match[1]);
+  }
+  return SERIES_STATUS_AFTER_UNDO_RETURN;
+}
+
+function stripReturnBlockFromSeriesNotes(notes: string): string {
+  return notes
+    .replace(/--- DEVOLUCIÓN ---[\s\S]*?(?:PrevStatus:[^\n]+\n+)?(?=\n---|$)/i, '')
+    .replace(/--- DEVOLUCIÓN BLOQUE SAP ---[\s\S]*?(?:PrevStatus:[^\n]+\n+)?(?=\n---|$)/i, '')
+    .trim();
+}
+
 /** Filas para módulo Logística → Devoluciones (equipos devueltos por bloque SAP) */
 export async function getSapBlockReturnRows() {
   const supabase = getSupabaseBrowserClient();
@@ -1071,7 +1129,13 @@ export async function registerNewReturn(returnEntry: any) {
     }
   }
 
-  const returnNote = `--- DEVOLUCIÓN ---\nMotivo: ${returnEntry.motivo}\nGuía Salida: ${returnEntry.guiaSalida}\nCat: ${returnEntry.category || 'BODEGA DEVOLUCIÓN'}\nFecha: ${new Date().toLocaleString()}\nUsuario: ${returnEntry.usuario || returnEntry.classifiedBy || 'SISTEMA'}`;
+  const returnNote = buildReturnSeriesNotesHeader({
+    motivo: returnEntry.motivo,
+    guiaSalida: returnEntry.guiaSalida,
+    category: returnEntry.category || 'BODEGA DEVOLUCIÓN',
+    usuario: returnEntry.usuario || returnEntry.classifiedBy || 'SISTEMA',
+    prevStatus: String(existing.current_status || SERIES_STATUS_AFTER_UNDO_RETURN),
+  });
 
   const { error: updateError } = await supabase
     .from('series')
@@ -1247,8 +1311,16 @@ async function processFullReceptionReturnLegacy(
     const newNotes = `--- DEVOLUCIÓN ---\nMotivo: ${formData.motivo}\nGuía de Salida: ${formData.guiaSalida}\nFecha: ${new Date().toLocaleString()}\nUsuario: ${currentUserFullName}\nObservaciones: ${formData.observaciones || 'N/A'}`;
 
     // 4. Update all series to 'returned' and prepend notes so it shows up in Devoluciones grid
-    const updateSeriesPromises = seriesList.map(s => {
-      const newSeriesNotes = `--- DEVOLUCIÓN ---\nMotivo: ${formData.motivo}\nGuía Salida: ${formData.guiaSalida}\nCat: BODEGA DEVOLUCIÓN\nFecha: ${new Date().toLocaleString()}\nUsuario: ${currentUserFullName}\n\n${s.notes || ''}`;
+    const updateSeriesPromises = seriesList.map((s) => {
+      const header = buildReturnSeriesNotesHeader({
+        motivo: formData.motivo,
+        guiaSalida: formData.guiaSalida,
+        category: 'BODEGA DEVOLUCIÓN',
+        usuario: currentUserFullName,
+        prevStatus: String(s.current_status || SERIES_STATUS_AFTER_UNDO_RETURN),
+        observaciones: formData.observaciones,
+      });
+      const newSeriesNotes = `${header}\n\n${s.notes || ''}`;
       return supabase.from('series').update({
         current_status: 'returned',
         notes: newSeriesNotes,
@@ -1322,23 +1394,13 @@ export async function undoFullReceptionReturn(receptionId: string) {
     if (seriesError) return { error: 'Error obteniendo equipos devueltos' };
 
     // 3. Revert each series
-    const updateSeriesPromises = seriesList.map(s => {
-      let prevStatus = 'CLASIFICADA'; // Fallback
-      let newNotes = s.notes || '';
-      
-      if (newNotes.includes('PrevStatus: ')) {
-        const match = newNotes.match(/PrevStatus:\s*([^\n]+)/);
-        if (match && match[1]) {
-          prevStatus = match[1].trim();
-        }
-      }
-
-      // Remove the Devolución block
-      newNotes = newNotes.replace(/--- DEVOLUCIÓN ---[\s\S]*?Cat: BODEGA DEVOLUCIÓN\s*(PrevStatus:[^\n]+\n+)?/, '');
+    const updateSeriesPromises = seriesList.map((s) => {
+      const newNotes = stripReturnBlockFromSeriesNotes(String(s.notes || ''));
+      const prevStatus = resolveSeriesStatusAfterUndoReturn(String(s.notes || ''));
 
       return supabase.from('series').update({
         current_status: prevStatus,
-        notes: newNotes.trim(),
+        notes: newNotes,
         updated_at: new Date().toISOString()
       }).eq('id', s.id);
     });

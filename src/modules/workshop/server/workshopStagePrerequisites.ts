@@ -213,3 +213,32 @@ export async function loadCompletedWorkshopActionsBySeries(
 
   return completedBySeries;
 }
+
+/** Auditoría + current_diagnostics (equipos legados o DIAG solo en S1/hermanas). */
+export async function loadWorkshopCompletionBySeries(
+  db: SupabaseClient,
+  seriesIds: string[],
+): Promise<Map<string, Set<string>>> {
+  const completedBySeries = await loadCompletedWorkshopActionsBySeries(db, seriesIds);
+  const uniqueIds = [...new Set(seriesIds)];
+  if (uniqueIds.length === 0) return completedBySeries;
+
+  for (const chunk of chunkIds(uniqueIds)) {
+    const { data, error } = await db
+      .from('series')
+      .select('id, current_diagnostics')
+      .in('id', chunk);
+    if (error) throw error;
+
+    for (const row of data || []) {
+      const diags = row.current_diagnostics as string[] | null;
+      if (!Array.isArray(diags) || diags.length === 0) continue;
+      const id = String(row.id);
+      const set = completedBySeries.get(id) ?? new Set<string>();
+      set.add(WORKSHOP_STAGE_ACTIONS.DIG);
+      completedBySeries.set(id, set);
+    }
+  }
+
+  return completedBySeries;
+}

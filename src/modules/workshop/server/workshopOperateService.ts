@@ -3,7 +3,7 @@ import { getSupabaseServerClient } from '@/lib/supabase/server';
 import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
 import { BusinessException } from '@/shared/errors/Exceptions';
 import {
-  loadCompletedWorkshopActionsBySeries,
+  loadWorkshopCompletionBySeries,
   validateEquipmentPrerequisites,
 } from '@/modules/workshop/server/workshopStagePrerequisites';
 import { assertWorkshopRepairsMatchDiagnostics } from '@/modules/workshop/server/workshopDiagnosticRepairValidation';
@@ -142,7 +142,7 @@ export async function operateWorkshopSeriesBatch(
     }
   }
 
-  const completedBySeries = await loadCompletedWorkshopActionsBySeries(admin, targetSeriesIds);
+  const completedBySeries = await loadWorkshopCompletionBySeries(admin, targetSeriesIds);
   const prerequisiteCheck = validateEquipmentPrerequisites(
     targetSeriesIds,
     seriesToOs,

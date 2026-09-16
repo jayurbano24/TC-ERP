@@ -5,9 +5,10 @@ import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
 import { ROLES_TALLER } from '@/shared/authz/roleGuard';
 import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
 import {
-  loadCompletedWorkshopActionsBySeries,
-  validateSeriesPrerequisites,
+  loadWorkshopCompletionBySeries,
+  validateEquipmentPrerequisites,
 } from '@/modules/workshop/server/workshopStagePrerequisites';
+import { expandSeriesIdsToEquipmentSiblings } from '@/modules/workshop/server/workshopOperateService';
 import { getWorkshopReadClient } from '@/shared/infrastructure/workshop/workshopReadClient';
 
 const Query = z.object({
@@ -24,6 +25,14 @@ const Query = z.object({
   action_name: z.string().min(1).max(120),
 });
 
+function chunkIds(ids: string[], size = BATCH_LIMITS.UUID_IN_CLAUSE): string[][] {
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += size) {
+    chunks.push(ids.slice(i, i + size));
+  }
+  return chunks;
+}
+
 export const GET = withErrorHandler(
   async (req: Request) => {
     const auth = await requireApiUser(req);
@@ -38,13 +47,32 @@ export const GET = withErrorHandler(
     }
 
     const db = getWorkshopReadClient();
-    const seriesIds = [...new Set(parsed.data.series_ids)];
-    const completedBySeries = await loadCompletedWorkshopActionsBySeries(db, seriesIds);
+    const requestedIds = [...new Set(parsed.data.series_ids)];
+    const seriesIds = await expandSeriesIdsToEquipmentSiblings(db, requestedIds);
 
-    const result = validateSeriesPrerequisites(
+    const seriesToOs = new Map<string, string | null>();
+    const seriesStatus = new Map<string, string>();
+    for (const chunk of chunkIds(seriesIds)) {
+      const { data, error } = await db
+        .from('series')
+        .select('id, service_order_id, current_status')
+        .in('id', chunk);
+      if (error) throw error;
+      for (const row of data || []) {
+        const id = String(row.id);
+        seriesToOs.set(id, row.service_order_id ? String(row.service_order_id) : null);
+        seriesStatus.set(id, String(row.current_status || ''));
+      }
+    }
+
+    const completedBySeries = await loadWorkshopCompletionBySeries(db, seriesIds);
+
+    const result = validateEquipmentPrerequisites(
       seriesIds,
+      seriesToOs,
       completedBySeries,
-      parsed.data.action_name
+      parsed.data.action_name,
+      seriesStatus,
     );
 
     return NextResponse.json(result);

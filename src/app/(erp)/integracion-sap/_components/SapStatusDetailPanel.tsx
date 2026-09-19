@@ -6,6 +6,7 @@ import { AlertTriangle, Download, Loader2 } from 'lucide-react';
 import { Badge, Button, Card, TablePagination } from '@/components/ui';
 import { erpSoftStat } from '@/lib/design/tokens';
 import { apiFetch } from '@/lib/http/apiFetch';
+import { downloadSapUnmatchedExcel } from '@/lib/sap/downloadSapUnmatchedExport';
 import { SAP_DASHBOARD_STATES } from '@/lib/sap/sapDashboardStates';
 import type { SapValidationState } from '@/modules/sap-integration/domain/sap-validation-status';
 
@@ -77,6 +78,10 @@ export function SapStatusDetailPanel({ status, onConsultSerial }: Props) {
   const handleExport = async () => {
     setExporting(true);
     try {
+      if (status === 'Sin Coincidencia') {
+        await downloadSapUnmatchedExcel();
+        return;
+      }
       const res = await apiFetch(
         `/api/sap/os-by-status?status=${encodeURIComponent(status)}&format=xlsx`,
       );

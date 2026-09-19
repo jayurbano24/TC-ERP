@@ -74,6 +74,16 @@ function getTimeRangeBounds(timeRange: string): { startIso: string; endIso: stri
   return { startIso: startOfRange.toISOString(), endIso: endOfRange.toISOString() };
 }
 
+/** Meta diaria → semana (×5) → mes (×25). Alineado con kpi-engine / pestaña KPI Taller. */
+export function scaleKpiTargetForPeriod(dailyTarget: number, timeRange: string): number {
+  if (dailyTarget <= 0) return 0;
+  const metaSemana = dailyTarget * 5;
+  const metaMes = metaSemana * 5;
+  if (timeRange === 'Este Mes') return metaMes;
+  if (timeRange === 'Esta Semana') return metaSemana;
+  return dailyTarget;
+}
+
 function normalizeNameTokens(name: string): string[] {
   return name
     .toLowerCase()

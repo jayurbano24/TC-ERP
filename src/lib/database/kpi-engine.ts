@@ -1634,11 +1634,13 @@ export async function getEngineKPIs(timeRange: string = 'Hoy') {
       const estadoMeta =
         meta <= 0
           ? ''
-          : porcentaje >= 100
-            ? 'Meta'
-            : porcentaje >= 80
-              ? 'Cerca'
-              : 'Bajo';
+          : porcentaje > 100
+            ? 'Supera'
+            : porcentaje >= 100
+              ? 'Meta'
+              : porcentaje >= 80
+                ? 'Cerca'
+                : 'Bajo';
 
       return {
         tecnico,

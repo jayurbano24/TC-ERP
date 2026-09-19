@@ -20,6 +20,7 @@ import {
   pctOfActivas,
   SAP_DASHBOARD_STATES,
 } from '@/lib/sap/sapDashboardStates';
+import { downloadSapUnmatchedExcel } from '@/lib/sap/downloadSapUnmatchedExport';
 import type { SapValidationState } from '@/modules/sap-integration/domain/sap-validation-status';
 import { DEFAULT_PAGE_SIZE, useClientPagination } from '@/hooks/useClientPagination';
 
@@ -363,9 +364,23 @@ function IntegracionSapPage() {
   const dashboardData = dashboardQuery.data ?? null;
   const isLoadingDashboard = dashboardQuery.isLoading;
 
+  const [exportingUnmatched, setExportingUnmatched] = useState(false);
+
   const openStatusDetail = (status: SapValidationState) => {
     setDetailSapStatus(status);
     setActiveTab('detalle');
+  };
+
+  const handleExportUnmatched = async () => {
+    setExportingUnmatched(true);
+    try {
+      await downloadSapUnmatchedExcel();
+      notify.success('Excel de Sin Coincidencia descargado');
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : 'Error al exportar');
+    } finally {
+      setExportingUnmatched(false);
+    }
   };
 
   const historyQuery = useQuery({
@@ -586,14 +601,11 @@ function IntegracionSapPage() {
                   : cfg.accent === 'muted'
                     ? erpSoftStat.accent
                     : erpSoftStat.warning;
-            return (
-              <button
-                key={cfg.status}
-                type="button"
-                onClick={() => openStatusDetail(cfg.status)}
-                className="text-left p-5 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)] flex flex-col justify-between min-h-[9.5rem] gap-2 hover:border-[var(--accent)]/50 hover:shadow-md transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-                title={`Ver detalle: ${cfg.title}`}
-              >
+            const cardShellClass =
+              'text-left p-5 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)] flex flex-col justify-between min-h-[9.5rem] gap-2 hover:border-[var(--accent)]/50 hover:shadow-md transition-all';
+
+            const cardBody = (
+              <>
                 <div className="flex justify-between items-start w-full">
                   <div>
                     <p className="text-[10px] font-black text-[var(--muted)] uppercase tracking-widest mb-1">
@@ -619,6 +631,57 @@ function IntegracionSapPage() {
                 <p className="text-[10px] font-black text-[var(--heading)]">
                   {pctOfActivas(count, enPlantaSap)}%
                 </p>
+              </>
+            );
+
+            if (cfg.status === 'Sin Coincidencia') {
+              return (
+                <div key={cfg.status} className={cardShellClass}>
+                  <button
+                    type="button"
+                    onClick={() => openStatusDetail(cfg.status)}
+                    className="flex flex-col gap-2 text-left flex-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded-xl"
+                    title={`Ver detalle: ${cfg.title}`}
+                  >
+                    {cardBody}
+                  </button>
+                  <div className="flex items-center justify-between gap-2 pt-2 border-t border-[var(--border)]/60">
+                    <button
+                      type="button"
+                      onClick={() => openStatusDetail(cfg.status)}
+                      className="text-[9px] font-black uppercase tracking-widest text-[var(--accent)] hover:underline"
+                    >
+                      Ver detalle →
+                    </button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-[9px] font-black uppercase tracking-wider gap-1.5 shrink-0"
+                      disabled={exportingUnmatched}
+                      onClick={() => void handleExportUnmatched()}
+                    >
+                      {exportingUnmatched ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <FileSpreadsheet className="w-3 h-3" />
+                      )}
+                      Excel
+                    </Button>
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <button
+                key={cfg.status}
+                type="button"
+                onClick={() => openStatusDetail(cfg.status)}
+                className={`${cardShellClass} focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]`}
+                title={`Ver detalle: ${cfg.title}`}
+              >
+                {cardBody}
                 <span className="text-[9px] font-black uppercase tracking-widest text-[var(--accent)]">
                   Ver detalle →
                 </span>

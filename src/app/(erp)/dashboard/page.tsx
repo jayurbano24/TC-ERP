@@ -11,7 +11,8 @@ import {
   getDashboardMetrics, 
   DashboardMetrics, 
   getBIData,
-  getStorageData
+  getStorageData,
+  scaleKpiTargetForPeriod,
 } from '@/modules/kpi-analytics/client/kpi';
 import { getEngineKPIs } from '@/modules/kpi-analytics/client/kpiEngine';
 import {
@@ -736,20 +737,35 @@ export default function GeneralDashboardPage() {
             <div className="space-y-6">
             {rendimientoKpis.map((kpi) => {
               const score = progressForCanal(kpi, produccionCanal);
-              const pct = kpi.target > 0 ? Math.round((score / kpi.target) * 100) : 0;
-              const statusLabel = pct >= 90 ? 'TOP' : pct >= 50 ? 'AVG' : 'LOW';
-              const statusColor =
-                pct >= 90
+              const periodTarget = scaleKpiTargetForPeriod(kpi.target, timeRange);
+              const pct =
+                periodTarget > 0 ? Math.round((score / periodTarget) * 100) : 0;
+              const superaMeta = pct > 100;
+              const statusLabel = superaMeta
+                ? `${pct}%`
+                : pct >= 90
+                  ? 'TOP'
+                  : pct >= 50
+                    ? 'AVG'
+                    : 'LOW';
+              const statusColor = superaMeta
+                ? 'border-[var(--success)]/40 bg-[var(--success)]/20 text-[var(--success)]'
+                : pct >= 90
                   ? 'border-[var(--success)]/30 bg-[var(--success)]/15 text-[var(--success)]'
                   : pct >= 50
                     ? 'border-[var(--warning)]/30 bg-[var(--warning)]/15 text-[var(--warning)]'
                     : 'border-[var(--danger)]/30 bg-[var(--danger)]/15 text-[var(--danger)]';
-              const barColor =
-                pct >= 90
+              const barColor = superaMeta
+                ? 'bg-[var(--success)]'
+                : pct >= 90
                   ? 'bg-[var(--success)]'
                   : pct >= 50
                     ? 'bg-[var(--accent)]'
                     : 'bg-[var(--danger)]';
+              const metaTitle =
+                periodTarget !== kpi.target
+                  ? `Meta diaria: ${kpi.target.toLocaleString()} · Meta del periodo: ${periodTarget.toLocaleString()}`
+                  : undefined;
               const breakdown = formatKpiBreakdown(kpi, produccionCanal);
 
               return (
@@ -794,12 +810,18 @@ export default function GeneralDashboardPage() {
                       ) : (
                         <div
                           className="cursor-pointer text-xs font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
+                          title={metaTitle}
                           onClick={() => {
                             setEditingUserId(kpi.user_id);
                             setEditTargetValue(kpi.target.toString());
                           }}
                         >
-                          Meta: {kpi.target}
+                          Meta: {periodTarget.toLocaleString()}
+                          {periodTarget !== kpi.target ? (
+                            <span className="ml-1 text-[9px] font-bold uppercase text-[var(--muted)]">
+                              periodo
+                            </span>
+                          ) : null}
                         </div>
                       )}
                       <Badge className={`border px-3 py-1 font-black ${statusColor}`}>
@@ -811,22 +833,39 @@ export default function GeneralDashboardPage() {
                   <div>
                     <div className="mb-2 flex justify-between text-[10px] font-black tracking-widest text-[var(--muted)] uppercase">
                       <span>
-                        Progreso Meta ({score}/{kpi.target})
+                        Progreso Meta ({score.toLocaleString()}/{periodTarget.toLocaleString()})
                       </span>
                       <span
                         className={
-                          pct >= 90 ? 'text-[var(--success)]' : 'text-[var(--foreground)]'
+                          superaMeta
+                            ? 'text-[var(--success)] text-sm tabular-nums'
+                            : pct >= 90
+                              ? 'text-[var(--success)]'
+                              : 'text-[var(--foreground)]'
                         }
                       >
                         {pct}%
                       </span>
                     </div>
-                    <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--surface-hover)]">
+                    <div className="flex h-2 w-full overflow-hidden rounded-full bg-[var(--surface-hover)]">
                       <div
-                        className={`h-full rounded-full transition-all duration-1000 ${barColor}`}
+                        className={`h-full rounded-l-full transition-all duration-1000 ${barColor}`}
                         style={{ width: `${Math.min(pct, 100)}%` }}
                       />
+                      {superaMeta ? (
+                        <div
+                          className="h-full rounded-r-full bg-[var(--success)]/60"
+                          style={{ width: `${Math.min((pct - 100) / 2, 30)}%` }}
+                          title={`+${pct - 100}% sobre meta`}
+                        />
+                      ) : null}
                     </div>
+                    {superaMeta ? (
+                      <p className="mt-1.5 text-[9px] font-black uppercase tracking-widest text-[var(--success)]">
+                        Meta superada · +{pct - 100}% (
+                        {(score - periodTarget).toLocaleString()} equipos extra)
+                      </p>
+                    ) : null}
                   </div>
                 </div>
               );

@@ -238,17 +238,21 @@ export function TallerKpiView({ data, timeRange = 'Hoy' }: { data: any; timeRang
                     const meta = Number(r.meta ?? r.metaDiaria ?? 0);
                     const rowKey = r.user_id || r.tecnico;
                     const pctColor =
-                      pct >= 100
-                        ? 'text-emerald-700'
-                        : pct >= 80
-                          ? 'text-amber-700'
-                          : 'text-rose-700';
+                      pct > 100
+                        ? 'text-emerald-800 font-black'
+                        : pct >= 100
+                          ? 'text-emerald-700'
+                          : pct >= 80
+                            ? 'text-amber-700'
+                            : 'text-rose-700';
                     const badgeClass =
-                      r.estadoMeta === 'Meta'
-                        ? 'bg-emerald-100 text-emerald-800'
-                        : r.estadoMeta === 'Cerca'
-                          ? 'bg-amber-100 text-amber-800'
-                          : 'bg-rose-100 text-rose-800';
+                      r.estadoMeta === 'Supera'
+                        ? 'bg-emerald-200 text-emerald-900'
+                        : r.estadoMeta === 'Meta'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : r.estadoMeta === 'Cerca'
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-rose-100 text-rose-800';
                     return (
                       <tr key={rowKey} className="border-b border-slate-50 hover:bg-slate-50/80">
                         <td className="p-3 font-black text-[#181c3a] sticky left-0 bg-white">
@@ -284,11 +288,13 @@ export function TallerKpiView({ data, timeRange = 'Hoy' }: { data: any; timeRang
                         <td className="p-3 text-center">
                           {meta > 0 ? (
                             <Badge className={`px-2 py-0.5 text-[9px] font-black ${badgeClass}`}>
-                              {r.estadoMeta === 'Meta'
-                                ? 'Llegó'
-                                : r.estadoMeta === 'Cerca'
-                                  ? 'Cerca'
-                                  : 'Bajo'}
+                              {r.estadoMeta === 'Supera'
+                                ? `${pct}%`
+                                : r.estadoMeta === 'Meta'
+                                  ? 'Llegó'
+                                  : r.estadoMeta === 'Cerca'
+                                    ? 'Cerca'
+                                    : 'Bajo'}
                             </Badge>
                           ) : (
                             <span className="text-slate-400" title="Define la meta en Rendimiento">

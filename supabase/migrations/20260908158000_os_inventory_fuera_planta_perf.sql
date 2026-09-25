@@ -266,4 +266,6 @@ $$;
 COMMENT ON FUNCTION public.count_os_inventory_modules() IS
   'Inventario OS set-based (fuera_planta_ids CTE). Histórico = activas_ledger + despachado + devuelto.';
 
+ALTER FUNCTION public.count_os_inventory_modules() SET statement_timeout = '30s';
+
 NOTIFY pgrst, 'reload schema';

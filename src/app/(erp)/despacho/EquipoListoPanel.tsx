@@ -128,7 +128,7 @@ async function fetchEquipoListoDataset(): Promise<{
   });
   const items = [...first.items];
   let cursor = first.nextCursor;
-  for (let page = 0; page < 100 && cursor && items.length < 5000; page++) {
+  for (let page = 0; page < 200 && cursor; page++) {
     const next = await fetchDespachoEquipoListoPage({
       cursor,
       limit: BATCH_LIMITS.API_PAGE_MAX,
@@ -474,8 +474,11 @@ export function EquipoListoPanel() {
               <h3 className="text-sm font-black uppercase tracking-wide text-[var(--heading)]">
                 Equipo Listo
               </h3>
-              <p className="text-xs text-[var(--muted)]">
-                Aceptados en Control de Calidad — listos para escanear en Outbound.
+              <p className="text-xs text-[var(--muted)] max-w-2xl">
+                Solo OS en{' '}
+                <span className="font-semibold text-[var(--heading)]">Bodega Central</span> tras{' '}
+                <span className="font-semibold text-[var(--heading)]">QC → Aceptado → Listo</span>.
+                Stock ingresado sin Taller, Reacondicionado pendiente o Bodega Despacho no aparecen aquí.
               </p>
             </div>
             <Badge variant="blue" className="ml-2 font-black text-[10px]">
@@ -577,7 +580,7 @@ export function EquipoListoPanel() {
             emptyMessage={
               hasActiveFilters
                 ? 'Sin resultados con los filtros actuales.'
-                : 'No hay equipos en Equipo Listo. Aparecen aquí tras QC → Aceptado → Listo.'
+                : 'No hay equipos en Equipo Listo. Deben estar en Bodega Central con QC completado (Aceptado → Listo), no solo movidos a bodega o despacho.'
             }
           />
           <TablePagination

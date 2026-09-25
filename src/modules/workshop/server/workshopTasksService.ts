@@ -995,7 +995,8 @@ async function queryListoTasksPage(
     osIds,
     'in_central_warehouse'
   );
-  // Ya filtrados por auditoría en RPC/fallback; no re-escanear todo el stock.
+  // Defensa: RPC/fallback pueden incluir OS con series hermanas sin auditoría visible (RLS).
+  seriesRows = await attachWorkshopAuditFlags(supabase, seriesRows, 'listo');
   seriesRows = await enrichWorkshopRowsBeforeGroup(supabase, seriesRows, 'listo');
   const items = await finalizeWorkshopTaskGroups(
     supabase,

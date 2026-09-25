@@ -3,6 +3,7 @@ import { COUNT_HEAD, SAP_UPLOAD_SELECT } from '@/shared/constants/dbProjections'
 import { requireApiUser } from '@/shared/infrastructure/http/requireApiUser';
 import { resolveReadClient } from '@/shared/infrastructure/http/resolveReadClient';
 import { logOnlyRoleCheck, ROLES_RETURNS_SAP } from '@/shared/authz/roleGuard';
+import { getSupabaseServerClient } from '@/lib/supabase/server';
 import { fetchOsInventoryModules } from '@/lib/sap/osInventoryModules';
 import { fetchSapIntegrationKpis } from '@/lib/sap/sapDashboardKpis';
 
@@ -20,13 +21,16 @@ export async function GET(request: Request) {
   const { client: supabase } = resolveReadClient(auth.supabase);
 
   try {
+    // Inventario OS: agregado pesado (~6–8s). Service role + fetch dedicado evita timeout
+    // cuando USE_RLS_READS=true o Promise.all compite por conexiones PostgREST.
+    const osModules = await fetchOsInventoryModules(getSupabaseServerClient());
+
     const [
       totalSeriesRes,
       seriesValidadasRes,
       seriesSinMatchRes,
       totalTCRes,
       lastUploadRes,
-      osModules,
       sapKpis,
     ] = await Promise.all([
       supabase
@@ -50,7 +54,6 @@ export async function GET(request: Request) {
         .order('fecha', { ascending: false })
         .limit(1)
         .maybeSingle(),
-      fetchOsInventoryModules(supabase),
       fetchSapIntegrationKpis(supabase),
     ]);
 

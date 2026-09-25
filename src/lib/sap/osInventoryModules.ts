@@ -245,11 +245,27 @@ export function buildOsRealityTableRows(m: OsInventoryModules): OsRealityRow[] {
  * Capacidad instalada / inventario físico por módulo (1 OS = 1 equipo).
  * Prefiere RPC `count_os_inventory_modules` (migración 228).
  */
+async function rpcCountOsInventoryModules(supabase: SupabaseClient) {
+  const maxAttempts = 2;
+  let lastError: { message: string } | null = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const { data, error } = await supabase.rpc('count_os_inventory_modules');
+    if (!error && data && typeof data === 'object') {
+      return { data: data as Record<string, unknown>, error: null };
+    }
+    lastError = error ?? { message: 'RPC returned empty payload' };
+    if (attempt < maxAttempts) {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
+  }
+  return { data: null, error: lastError };
+}
+
 export async function fetchOsInventoryModules(
   supabase: SupabaseClient
 ): Promise<OsInventoryModules> {
-  const { data, error } = await supabase.rpc('count_os_inventory_modules');
-  if (!error && data && typeof data === 'object') {
+  const { data, error } = await rpcCountOsInventoryModules(supabase);
+  if (!error && data) {
     const d = data as Record<string, unknown>;
     const total = num(d.total);
     const despachado = num(d.despachado);

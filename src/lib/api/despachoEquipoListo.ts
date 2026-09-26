@@ -71,26 +71,14 @@ export async function fetchDespachoEquipoListoPage(opts?: {
   };
 }
 
-const EXPORT_PAGE_LIMIT = BATCH_LIMITS.API_PAGE_MAX;
-const EXPORT_MAX_OS = 5000;
-
-/** Descarga todas las páginas de Equipo Listo (para Excel). Respeta búsqueda. */
-export async function fetchAllDespachoEquipoListo(opts?: {
-  search?: string;
-}): Promise<DespachoEquipoListoRow[]> {
-  const all: DespachoEquipoListoRow[] = [];
-  let cursor: string | null = null;
-
-  for (let page = 0; page < 100 && all.length < EXPORT_MAX_OS; page++) {
-    const result = await fetchDespachoEquipoListoPage({
-      cursor,
-      search: opts?.search,
-      limit: EXPORT_PAGE_LIMIT,
-    });
-    all.push(...result.items);
-    if (!result.nextCursor || result.items.length === 0) break;
-    cursor = result.nextCursor;
+/** Descarga toda la cola Equipo Listo (no la primera página de 200). */
+export async function fetchAllDespachoEquipoListo(): Promise<DespachoEquipoListoRow[]> {
+  const res = await apiFetch('/api/v1/despacho/equipo-listo?all=1', {
+    credentials: 'include',
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error ?? data.detail ?? `HTTP ${res.status}`);
   }
-
-  return all;
+  return (data.items ?? []) as DespachoEquipoListoRow[];
 }

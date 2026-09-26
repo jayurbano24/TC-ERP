@@ -24,6 +24,11 @@ import {
   buildCatalogNameLookup,
   dedupeCatalogByName,
 } from '@/shared/catalogs/catalogNameDedup';
+import {
+  formatListoOsCursor,
+  parseListoOsCursor,
+  sliceListoOsPage,
+} from '@/modules/workshop/server/listoOsPageCursor';
 
 export type WorkshopTabId =
   | 'diagnostico'
@@ -962,25 +967,40 @@ async function queryListoTasksPage(
   let nextCursor: string | null = null;
   let usedRpc = false;
 
-  // cursor = ISO timestamptz del sort_ts de la última fila
-  const cursorTs = opts.cursor?.trim() || null;
+  // cursor = sort_ts|service_order_id (el id desempata OS con el mismo updated_at)
+  const cursor = parseListoOsCursor(opts.cursor);
+  const pageLimit = limit + 1;
 
-  const { data: rpcRows, error: rpcError } = await supabase.rpc(
-    'workshop_list_listo_os_page',
-    {
-      p_cursor: cursorTs,
-      p_limit: limit + 1,
-    }
-  );
+  let rpcRows: Array<{ service_order_id?: string; sort_ts?: string }> | null = null;
+  let rpcError: { code?: string; message?: string } | null = null;
+
+  const keyset = await supabase.rpc('workshop_list_listo_os_page', {
+    p_cursor: cursor.ts,
+    p_limit: pageLimit,
+    p_cursor_id: cursor.id,
+  });
+  if (!keyset.error && Array.isArray(keyset.data)) {
+    rpcRows = keyset.data;
+  } else if (keyset.error && isRpcMissing(keyset.error)) {
+    const legacy = await supabase.rpc('workshop_list_listo_os_page', {
+      p_cursor: cursor.ts,
+      p_limit: pageLimit,
+    });
+    rpcRows = Array.isArray(legacy.data) ? legacy.data : null;
+    rpcError = legacy.error;
+  } else {
+    rpcError = keyset.error;
+  }
 
   if (!rpcError && Array.isArray(rpcRows)) {
     usedRpc = true;
-    const hasMore = rpcRows.length > limit;
-    const page = hasMore ? rpcRows.slice(0, limit) : rpcRows;
-    osIds = page.map((r: { service_order_id: string }) => String(r.service_order_id));
-    nextCursor = hasMore
-      ? String(page[page.length - 1].sort_ts)
-      : null;
+    const { page, hasMore } = sliceListoOsPage(rpcRows, limit);
+    osIds = page.map((r) => String(r.service_order_id));
+    const last = page[page.length - 1];
+    nextCursor =
+      hasMore && last?.sort_ts && last.service_order_id
+        ? formatListoOsCursor(String(last.sort_ts), String(last.service_order_id))
+        : null;
   } else if (rpcError && !isRpcMissing(rpcError)) {
     console.warn('[workshop/server] listo RPC failed, fallback:', rpcError.message);
   }
@@ -1014,6 +1034,68 @@ async function queryListoTasksPage(
     nextCursor,
     totalOs: Number.isFinite(listoTotal) ? listoTotal : items.length,
   };
+}
+
+/** Bajo el tope SQL de 200: se pide 200 y, si llegan 200, hay otra página. */
+const EQUIPO_LISTO_EXPORT_PAGE = 199;
+
+/**
+ * Toda la cola Equipo Listo. La página de 200 corta el Excel: el SQL
+ * histórico devolvía como máximo 200 filas y el cliente no pedía la siguiente.
+ */
+export async function queryAllEquipoListo(
+  supabase: SupabaseClient,
+): Promise<{ items: any[]; totalOs: number }> {
+  const osIds: string[] = [];
+  const seen = new Set<string>();
+  let cursorTs: string | null = null;
+  let cursorId: string | null = null;
+
+  for (let page = 0; page < 40; page++) {
+    const { data, error } = await supabase.rpc('workshop_list_listo_os_page', {
+      p_cursor: cursorTs,
+      p_limit: EQUIPO_LISTO_EXPORT_PAGE + 1,
+      p_cursor_id: cursorId,
+    });
+    if (error) throw error;
+
+    const rows = (Array.isArray(data) ? data : []) as Array<{
+      service_order_id?: string;
+      sort_ts?: string;
+    }>;
+    if (rows.length === 0) break;
+
+    const hasMore = rows.length > EQUIPO_LISTO_EXPORT_PAGE;
+    const slice = hasMore ? rows.slice(0, EQUIPO_LISTO_EXPORT_PAGE) : rows;
+    for (const row of slice) {
+      const id = String(row.service_order_id || '');
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      osIds.push(id);
+    }
+
+    if (!hasMore) break;
+    const last = slice[slice.length - 1];
+    const nextTs = last?.sort_ts ? String(last.sort_ts) : null;
+    const nextId = last?.service_order_id ? String(last.service_order_id) : null;
+    if (!nextTs || !nextId || (nextTs === cursorTs && nextId === cursorId)) break;
+    cursorTs = nextTs;
+    cursorId = nextId;
+  }
+
+  let seriesRows = await fetchWorkshopSeriesForOsIds(
+    supabase,
+    osIds,
+    'in_central_warehouse',
+  );
+  seriesRows = await attachWorkshopAuditFlags(supabase, seriesRows, 'listo');
+  seriesRows = await enrichWorkshopRowsBeforeGroup(supabase, seriesRows, 'listo');
+  const items = await finalizeWorkshopTaskGroups(
+    supabase,
+    groupWorkshopSeriesRows(seriesRows),
+  );
+
+  return { items, totalOs: osIds.length };
 }
 
 async function attachWorkshopAuditFlags(
@@ -1657,7 +1739,19 @@ export async function queryWorkshopTasksPage(
       supabase,
       await searchWorkshopSeriesInTab(supabase, tab, search),
     );
-    return { items, nextCursor: null, totalOs: items.length };
+    if (tab !== 'listo') {
+      return { items, nextCursor: null, totalOs: items.length };
+    }
+    const { data: totals } = await supabase.rpc('count_workshop_os_all_tabs');
+    const listoTotal =
+      totals && typeof totals === 'object' && 'listo' in totals
+        ? Number((totals as { listo: number }).listo)
+        : null;
+    return {
+      items,
+      nextCursor: null,
+      totalOs: listoTotal != null && Number.isFinite(listoTotal) ? listoTotal : items.length,
+    };
   }
 
   const limit = Math.min(

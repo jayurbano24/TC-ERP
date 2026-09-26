@@ -3,7 +3,11 @@ import { z } from 'zod';
 import { requireApiUser } from '@/shared/infrastructure/http/requireApiUser';
 import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
 import { ROLES_BODEGA_DESPACHO } from '@/shared/authz/roleGuard';
-import { queryWorkshopTasksPage, fetchEquipoListoByTechnology } from '@/modules/workshop/server/workshopTasksService';
+import {
+  queryWorkshopTasksPage,
+  queryAllEquipoListo,
+  fetchEquipoListoByTechnology,
+} from '@/modules/workshop/server/workshopTasksService';
 import { estimateJsonBytes, logEgress } from '@/shared/infrastructure/http/egressLog';
 import { getCorrelationIdFromHeaders } from '@/shared/infrastructure/http/correlationId';
 import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
@@ -11,8 +15,9 @@ import { getWorkshopReadClient } from '@/shared/infrastructure/workshop/workshop
 import { WORKSHOP_SEARCH_Q_MAX_CHARS } from '@/modules/workshop/shared/workshopSearch';
 
 const ListQuery = z.object({
-  cursor: z.string().max(64).optional(),
+  cursor: z.string().max(120).optional(),
   q: z.string().max(WORKSHOP_SEARCH_Q_MAX_CHARS).optional(),
+  all: z.enum(['1']).optional(),
   limit: z.coerce
     .number()
     .int()
@@ -20,6 +25,8 @@ const ListQuery = z.object({
     .max(BATCH_LIMITS.API_PAGE_MAX)
     .default(BATCH_LIMITS.WORKSHOP_QUEUE_PAGE_OS),
 });
+
+export const maxDuration = 60;
 
 /**
  * Cola Equipo Listo para Despacho (status in_central_warehouse vía Taller QC).
@@ -42,16 +49,22 @@ export const GET = withErrorHandler(
       );
     }
 
-    const { cursor, limit, q } = parsed.data;
+    const { cursor, limit, q, all } = parsed.data;
     const db = getWorkshopReadClient();
 
     // KPIs por tecnología solo en primera página (sin cursor) — evita costo en paginación Excel.
     const [page, byTechnology] = await Promise.all([
-      queryWorkshopTasksPage(db, 'listo', {
-        cursor: cursor ?? null,
-        limit,
-        search: q,
-      }),
+      all === '1'
+        ? queryAllEquipoListo(db).then((full) => ({
+            items: full.items,
+            nextCursor: null,
+            totalOs: full.totalOs,
+          }))
+        : queryWorkshopTasksPage(db, 'listo', {
+            cursor: cursor ?? null,
+            limit,
+            search: q,
+          }),
       !cursor
         ? fetchEquipoListoByTechnology(db)
         : Promise.resolve([] as Awaited<ReturnType<typeof fetchEquipoListoByTechnology>>),

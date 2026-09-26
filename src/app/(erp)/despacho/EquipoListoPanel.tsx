@@ -12,7 +12,7 @@ import {
   type DataTableColumn,
   notify,
 } from '@/components/ui';
-import { CheckCircle2, FileSpreadsheet, Loader2, RefreshCw, Search, X } from 'lucide-react';
+import { CheckCircle2, Download, FileSpreadsheet, Loader2, RefreshCw, Search, X } from 'lucide-react';
 import { erpFieldClass, erpTableHeader, erpTableHeaderText } from '@/lib/design/tokens';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import {
@@ -118,16 +118,9 @@ function matchesExcelFilters(row: ListoRow, filters: ExcelFilters, except?: Filt
   return true;
 }
 
-async function fetchEquipoListoDataset(): Promise<{
-  items: DespachoEquipoListoRow[];
-  totalOs: number | null;
-  byTechnology: DespachoEquipoListoTechStat[];
-}> {
-  const first = await fetchDespachoEquipoListoPage({
-    limit: BATCH_LIMITS.API_PAGE_MAX,
-  });
-  const items = [...first.items];
-  let cursor = first.nextCursor;
+async function fetchEquipoListoRest(startCursor: string): Promise<DespachoEquipoListoRow[]> {
+  const items: DespachoEquipoListoRow[] = [];
+  let cursor: string | null = startCursor;
   for (let page = 0; page < 200 && cursor; page++) {
     const next = await fetchDespachoEquipoListoPage({
       cursor,
@@ -137,11 +130,7 @@ async function fetchEquipoListoDataset(): Promise<{
     if (!next.nextCursor || next.items.length === 0) break;
     cursor = next.nextCursor;
   }
-  return {
-    items,
-    totalOs: first.totalOs,
-    byTechnology: first.byTechnology ?? [],
-  };
+  return items;
 }
 
 /**
@@ -153,13 +142,36 @@ export function EquipoListoPanel() {
   const [sortCol, setSortCol] = useState<FilterCol | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc' | null>(null);
   const [page, setPage] = useState(1);
-  const [exporting, setExporting] = useState(false);
+  const [exporting, setExporting] = useState<'filtered' | 'all' | null>(null);
   const debouncedSearch = useDebouncedValue(search, 300);
 
   const query = useQuery({
-    queryKey: ['despacho-equipo-listo-all'],
-    queryFn: fetchEquipoListoDataset,
+    queryKey: ['despacho-equipo-listo-head'],
+    queryFn: () =>
+      fetchDespachoEquipoListoPage({
+        limit: BATCH_LIMITS.API_PAGE_MAX,
+      }),
     staleTime: 30_000,
+  });
+
+  const restCursor = query.data?.nextCursor ?? null;
+  const restQuery = useQuery({
+    queryKey: ['despacho-equipo-listo-rest', restCursor],
+    queryFn: () => fetchEquipoListoRest(restCursor as string),
+    enabled: Boolean(restCursor),
+    staleTime: 30_000,
+  });
+
+  const searchText = debouncedSearch.trim();
+  const searchQuery = useQuery({
+    queryKey: ['despacho-equipo-listo-search', searchText],
+    queryFn: () =>
+      fetchDespachoEquipoListoPage({
+        search: searchText,
+        limit: BATCH_LIMITS.API_PAGE_MAX,
+      }),
+    enabled: searchText.length > 0,
+    staleTime: 15_000,
   });
 
   const catalogsQuery = useQuery({
@@ -168,10 +180,23 @@ export function EquipoListoPanel() {
     staleTime: 5 * 60_000,
   });
 
-  const allRows = useMemo(
-    () => (query.data?.items ?? []).map(adaptRow),
-    [query.data?.items]
+  const allRows = useMemo(() => {
+    const seen = new Set<string>();
+    const merged = [...(query.data?.items ?? []), ...(restQuery.data ?? [])];
+    return merged
+      .filter((row) => {
+        const key = String(row.service_order_id || row.id);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map(adaptRow);
+  }, [query.data?.items, restQuery.data]);
+  const searchRows = useMemo(
+    () => (searchQuery.data?.items ?? []).map(adaptRow),
+    [searchQuery.data?.items]
   );
+  const datasetRows = searchText ? searchRows : allRows;
 
   const setColFilter = useCallback((col: FilterCol, next: ExcelFilterSelection) => {
     setExcelFilters((prev) => ({ ...prev, [col]: next }));
@@ -200,16 +225,7 @@ export function EquipoListoPanel() {
   const hasActiveFilters = Boolean(debouncedSearch.trim()) || hasExcelFilter || Boolean(sortDir);
 
   const filteredRows = useMemo(() => {
-    const q = debouncedSearch.trim().toUpperCase();
-    let list = allRows.filter((r) => {
-      if (q) {
-        const blob = [r.os, r.s1, r.s2, r.s3, r.s4, r.tech, r.brand, r.model, r.material, r.valuation]
-          .join(' ')
-          .toUpperCase();
-        if (!blob.includes(q)) return false;
-      }
-      return matchesExcelFilters(r, excelFilters);
-    });
+    let list = datasetRows.filter((r) => matchesExcelFilters(r, excelFilters));
 
     if (sortCol && sortDir) {
       list = [...list].sort((a, b) => {
@@ -221,18 +237,11 @@ export function EquipoListoPanel() {
     }
 
     return list;
-  }, [allRows, debouncedSearch, excelFilters, sortCol, sortDir]);
+  }, [datasetRows, excelFilters, sortCol, sortDir]);
 
   /** Valores del menú Excel: respetan filtros de otras columnas (cascada). */
   const optionRowsByCol = useMemo(() => {
-    const q = debouncedSearch.trim().toUpperCase();
-    const base = allRows.filter((r) => {
-      if (!q) return true;
-      const blob = [r.os, r.s1, r.s2, r.s3, r.s4, r.tech, r.brand, r.model, r.material, r.valuation]
-        .join(' ')
-        .toUpperCase();
-      return blob.includes(q);
-    });
+    const base = datasetRows;
 
     const cols: FilterCol[] = [
       'os',
@@ -252,7 +261,7 @@ export function EquipoListoPanel() {
       map[col] = uniqueValues(pool, col);
     }
     return map;
-  }, [allRows, debouncedSearch, excelFilters]);
+  }, [datasetRows, excelFilters]);
 
   const totalCount = filteredRows.length;
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
@@ -278,7 +287,11 @@ export function EquipoListoPanel() {
 
   const techCards = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const row of query.data?.byTechnology ?? []) {
+    const techStats =
+      query.data?.byTechnology?.length
+        ? query.data.byTechnology
+        : (searchQuery.data?.byTechnology ?? []);
+    for (const row of techStats) {
       const name = String(row.tech_name || '').trim().toUpperCase();
       if (!name) continue;
       counts.set(name, (counts.get(name) ?? 0) + (Number(row.total_os) || 0));
@@ -301,9 +314,15 @@ export function EquipoListoPanel() {
       name,
       count: counts.get(name) ?? 0,
     }));
-  }, [query.data?.byTechnology, catalogsQuery.data?.technologies]);
+  }, [query.data?.byTechnology, searchQuery.data?.byTechnology, catalogsQuery.data?.technologies]);
 
-  const totalOs = query.data?.totalOs ?? allRows.length;
+  const totalOs =
+    query.data?.totalOs ??
+    (searchText ? searchQuery.data?.totalOs : null) ??
+    allRows.length;
+  const listLoading = searchText ? searchQuery.isLoading : query.isLoading;
+  const listFailed = searchText ? searchQuery.isError : query.isError;
+  const listError = searchText ? searchQuery.error : query.error;
 
   const applyTechCard = (techName: string) => {
     const current = excelFilters.tech;
@@ -315,14 +334,23 @@ export function EquipoListoPanel() {
     setColFilter('tech', new Set([techName]));
   };
 
-  const handleExportExcel = async () => {
+  const handleExportExcel = async (scope: 'filtered' | 'all') => {
     if (exporting) return;
-    setExporting(true);
+    setExporting(scope);
     try {
+      const full = (await fetchAllDespachoEquipoListo()).map(adaptRow);
+      const searchNeedle = debouncedSearch.trim().toLowerCase();
       const source =
-        hasActiveFilters || filteredRows.length !== allRows.length
-          ? filteredRows
-          : (await fetchAllDespachoEquipoListo({})).map(adaptRow);
+        scope === 'all'
+          ? full
+          : full.filter((row) => {
+              if (!matchesExcelFilters(row, excelFilters)) return false;
+              if (!searchNeedle) return true;
+              const blob = [row.os, row.s1, row.s2, row.s3, row.s4, row.tech, row.brand, row.model]
+                .join(' ')
+                .toLowerCase();
+              return searchNeedle.split(/\s+/).every((token) => blob.includes(token));
+            });
 
       if (source.length === 0) {
         notify.warning('No hay equipos en Equipo Listo para exportar.');
@@ -348,14 +376,16 @@ export function EquipoListoPanel() {
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Equipo Listo');
       const stamp = new Date().toISOString().slice(0, 10);
-      XLSX.writeFile(wb, `Equipo_Listo_${stamp}.xlsx`);
-      notify.success(`Excel generado: ${excelRows.length} equipo(s)`);
+      const fileName =
+        scope === 'all' ? `Equipo_Listo_completo_${stamp}.xlsx` : `Equipo_Listo_${stamp}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+      notify.success(`Excel generado: ${excelRows.length.toLocaleString('es-GT')} equipo(s)`);
     } catch (e: unknown) {
       notify.error('No se pudo exportar Equipo Listo', {
         description: e instanceof Error ? e.message : undefined,
       });
     } finally {
-      setExporting(false);
+      setExporting(null);
     }
   };
 
@@ -512,33 +542,52 @@ export function EquipoListoPanel() {
             ) : null}
             <Button
               variant="outline"
+              size="sm"
               className="h-9 px-3"
-              disabled={exporting || query.isLoading}
-              onClick={() => void handleExportExcel()}
+              disabled={exporting !== null || query.isLoading}
+              onClick={() => void handleExportExcel('filtered')}
+              title="Excel de lo que está filtrado, sobre toda la cola"
               leftIcon={
-                exporting ? (
+                exporting === 'filtered' ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 ) : (
                   <FileSpreadsheet className="w-3.5 h-3.5" />
                 )
               }
             >
-              {exporting ? 'Exportando…' : 'Excel'}
+              {exporting === 'filtered' ? 'Exportando…' : 'Excel'}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 px-3"
+              disabled={exporting !== null || query.isLoading}
+              onClick={() => void handleExportExcel('all')}
+              title="Descarga todas las órdenes de Equipo Listo"
+              leftIcon={
+                exporting === 'all' ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Download className="w-3.5 h-3.5" />
+                )
+              }
+            >
+              {exporting === 'all' ? 'Descargando…' : 'Descargar todo'}
             </Button>
             <Button
               variant="outline"
               className="h-9 px-3"
               onClick={() => {
-                void query.refetch().then((r) => {
-                  if (r.isError) {
+                void Promise.all([query.refetch(), restQuery.refetch()]).then(([head]) => {
+                  if (head.isError) {
                     notify.error('No se pudo refrescar Equipo Listo', {
-                      description: r.error instanceof Error ? r.error.message : undefined,
+                      description: head.error instanceof Error ? head.error.message : undefined,
                     });
                   }
                 });
               }}
               leftIcon={
-                query.isFetching ? (
+                query.isFetching || restQuery.isFetching ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 ) : (
                   <RefreshCw className="w-3.5 h-3.5" />
@@ -551,18 +600,22 @@ export function EquipoListoPanel() {
         </div>
       </Card>
 
-      {query.isLoading ? (
+      {listLoading ? (
         <div className="flex items-center justify-center gap-2 py-16 text-slate-500 text-sm">
           <Loader2 className="w-4 h-4 animate-spin" />
           Cargando equipos listos…
         </div>
-      ) : query.isError ? (
+      ) : listFailed ? (
         <Card className="p-8 text-center border-rose-200 bg-rose-50/40">
           <p className="text-sm font-bold text-rose-700">No se pudo cargar Equipo Listo</p>
           <p className="text-xs text-rose-600 mt-1">
-            {query.error instanceof Error ? query.error.message : 'Error desconocido'}
+            {listError instanceof Error ? listError.message : 'Error desconocido'}
           </p>
-          <Button variant="outline" className="mt-4" onClick={() => void query.refetch()}>
+          <Button
+            variant="outline"
+            className="mt-4"
+            onClick={() => void (searchText ? searchQuery.refetch() : query.refetch())}
+          >
             Reintentar
           </Button>
         </Card>

@@ -22,16 +22,20 @@ export async function exportHistoryReport(
   trayEntries: HistoryUnitEntry[],
   catalogs: ExportCatalogs,
   dateFilterFrom: string,
-  dateFilterTo: string
+  dateFilterTo: string,
+  opts?: { includePending?: boolean }
 ): Promise<void> {
-  if (trayEntries.length === 0) {
+  const exportEntries = opts?.includePending
+    ? trayEntries
+    : trayEntries.filter((entry) => entry.prediagnostico);
+  if (exportEntries.length === 0) {
     notify.warning('Sin resultados para exportar', { description: 'No hay ingresos CAC con orden de servicio TC-XXX que coincidan con los filtros actuales.' });
     return;
   }
 
   const rows: Record<string, string>[] = [];
 
-  trayEntries.forEach((entry) => {
+  exportEntries.forEach((entry) => {
     const rec = entry.rec;
     const grp = entry.grp;
     const unit = entry.unit;
@@ -66,6 +70,13 @@ export async function exportHistoryReport(
       Tecnología: techObj?.nombre || '---',
       Marca: brandObj?.nombre || '---',
       Modelo: modelObj?.nombre || '---',
+      Clase: entry.prediagnostico?.shellClass || '—',
+      Dictamen: entry.prediagnostico?.verdict || 'Pendiente',
+      Observaciones: entry.prediagnostico?.notes || '',
+      'Usuario prediagnóstico': entry.prediagnostico?.updatedByName || '',
+      'Fecha prediagnóstico': entry.prediagnostico?.updatedAt
+        ? new Date(entry.prediagnostico.updatedAt).toLocaleString('es-GT')
+        : '',
       'Documento SAP': entry.unitSap,
       'Validación SAP': formatUnitSapValidationForExport(unitSapValidationStatus),
       'S-1': unit[0]?.serial_number || '---',

@@ -420,6 +420,33 @@ export async function listPxInProgressReceptions(): Promise<
   }));
 }
 
+/** Cierra recepciones PX abiertas que no tienen equipos capturados ni ingresados. */
+export async function discardEmptyPxReceptions(ids: string[]) {
+  const requested = new Set(ids);
+  const list = await listPxInProgressReceptions();
+  const empty = list.filter(
+    (row) =>
+      requested.has(row.id) &&
+      row.status === PX_IN_PROGRESS &&
+      row.captured_count === 0 &&
+      row.promoted_count === 0
+  );
+  if (empty.length === 0) return { discarded: [] as string[] };
+
+  const supabase = getSupabaseServerClient();
+  const idList = empty.map((row) => row.id);
+  await supabase.from('boxes').update({ rack_location: 'ELIMINADO' }).in('reception_id', idList);
+  const { error } = await supabase
+    .from('receptions')
+    .update({ status: 'ELIMINADO POR BODEGA' })
+    .in('id', idList)
+    .eq('source', 'px')
+    .eq('status', PX_IN_PROGRESS);
+
+  if (error) throw new Error(error.message);
+  return { discarded: idList };
+}
+
 type PxCreatedBoxRow = {
   id: string;
   box_code: string;

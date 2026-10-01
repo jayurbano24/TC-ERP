@@ -27,6 +27,13 @@ function parseTrayParams(url: URL): CacTrayQueryParams {
     brandId: sp.get('brandId') || undefined,
     modelId: sp.get('modelId') || undefined,
     agencyId: sp.get('agencyId') || undefined,
+    shellClass: sp.get('shellClass') || undefined,
+    verdict: sp.get('verdict') || undefined,
+    serials: (sp.get('serials') || '')
+      .split(/[\s,;]+/)
+      .map((token) => token.trim())
+      .filter(Boolean)
+      .slice(0, 25),
   };
 }
 

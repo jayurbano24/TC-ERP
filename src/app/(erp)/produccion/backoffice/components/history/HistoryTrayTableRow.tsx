@@ -16,6 +16,20 @@ export type HistoryTrayRowActions = {
   onPrintConduce: (rec: unknown) => void;
 };
 
+const VERDICT_STYLE: Record<string, string> = {
+  pendiente: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
+  reacondicionado: 'bg-blue-500/15 text-blue-700 dark:text-blue-300',
+  reparado: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
+  irreparable: 'bg-rose-500/15 text-rose-700 dark:text-rose-300',
+};
+
+const VERDICT_LABEL: Record<string, string> = {
+  pendiente: 'Pendiente',
+  reacondicionado: 'Reacondicionado',
+  reparado: 'Reparado',
+  irreparable: 'Irreparable',
+};
+
 type Props = HistoryTrayRowActions & {
   entry: HistoryUnitEntry;
   rowIdx: number;
@@ -64,6 +78,7 @@ export const HistoryTrayTableRow = memo(function HistoryTrayTableRow({
     resolveUnitSapStatus(unit[0]?.service_orders?.sap_integration_status, seriesSapStatuses);
 
   const cell = 'px-2 py-2 text-[10px] font-medium text-[var(--foreground)] whitespace-nowrap';
+  const verdictKey = entry.prediagnostico?.verdict || 'pendiente';
 
   return (
     <tr className={`border-b border-[var(--border)] transition-colors hover:bg-[var(--accent)]/10 ${bandBg}`}>
@@ -86,9 +101,22 @@ export const HistoryTrayTableRow = memo(function HistoryTrayTableRow({
         </span>
       </td>
       <td className="px-2 py-2 whitespace-nowrap">
-        <Badge className="bg-[var(--surface-hover)] text-[var(--foreground)] border-none font-medium text-[9px] px-1.5 py-0.5">
+        <span className="inline-flex items-center rounded-md bg-[var(--surface-hover)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--foreground)]">
           {osLabel}
-        </Badge>
+        </span>
+      </td>
+      <td className={`${cell} text-center`}>
+        {entry.prediagnostico ? (
+          <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">Sí</span>
+        ) : (
+          <span className="text-[10px] font-semibold text-[var(--muted)]">No</span>
+        )}
+      </td>
+      <td className={`${cell} text-center font-black`}>{entry.prediagnostico?.shellClass || '—'}</td>
+      <td className="px-2 py-2 whitespace-nowrap">
+        <span className={`text-[8px] uppercase font-medium tracking-wide px-2 py-0.5 rounded-full ${VERDICT_STYLE[verdictKey] || VERDICT_STYLE.pendiente}`}>
+          {VERDICT_LABEL[verdictKey] || 'Pendiente'}
+        </span>
       </td>
       <td className="px-2 py-2 text-center whitespace-nowrap">
         <Badge

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { CurrentEntry } from '../types/reception.types';
 import type { PxFinalizeProgress } from '../services/pxIncrementalApi';
-import { fetchPxInProgressList } from '../services/pxIncrementalApi';
+import { fetchPxInProgressList, discardEmptyPxReceptionsApi } from '../services/pxIncrementalApi';
 import { getCurrentReceptionActor } from '@/modules/recepcion/client/receptionActor';
 import { usePxReceptionSession } from './usePxReceptionSession';
 import { usePxReceptionSnapshotQuery } from './usePxReceptionSnapshotQuery';
@@ -372,6 +372,18 @@ export function useReceptionPXIncremental({
     [operational, operatorId, currentUserFullName, incrementalReceptionId, session, setGuideData, setIsReceptionStarted, loadInProgressList, onHistoryRefresh]
   );
 
+  const onDiscardEmptyPxReceptions = useCallback(
+    async (ids: string[]) => {
+      const result = await discardEmptyPxReceptionsApi(ids);
+      if (incrementalReceptionId && result.discarded.includes(incrementalReceptionId)) {
+        session.clearSession();
+      }
+      await loadInProgressList();
+      return result.discarded.length;
+    },
+    [incrementalReceptionId, loadInProgressList, session]
+  );
+
   return {
     useIncrementalCapture: true as const,
     incrementalReceptionId,
@@ -392,6 +404,7 @@ export function useReceptionPXIncremental({
     isScanning,
     onStartReceptionIncremental,
     onResumePxReception,
+    onDiscardEmptyPxReceptions,
     onAddLotToBoxIncremental,
     onAcquireBoxLock,
     onAdjustBoxQuantity,

@@ -61,7 +61,7 @@ export const HistoryTrayTable = memo(function HistoryTrayTable({
       lastHourKey = hourKey;
       hourRows.push(
         <tr key={`hour-${hourKey}`} className="bg-[color-mix(in_srgb,var(--accent)_12%,transparent)]">
-          <td colSpan={19} className="px-3 py-2 text-[9px] font-medium tracking-wider text-[var(--heading)] uppercase">
+          <td colSpan={22} className="px-3 py-2 text-[9px] font-medium tracking-wider text-[var(--heading)] uppercase">
             {formatHistoryHourLabel(entry.classifiedAtIso)}
           </td>
         </tr>
@@ -101,6 +101,9 @@ export const HistoryTrayTable = memo(function HistoryTrayTable({
               <th className="px-2 py-2 text-[9px] font-medium uppercase tracking-wider whitespace-nowrap text-[var(--muted)] hidden 2xl:table-cell">Clasificó</th>
               <th className="px-2 py-2 text-[9px] font-medium uppercase tracking-wider whitespace-nowrap text-[var(--muted)]">Estatus</th>
               <th className="px-2 py-2 text-[9px] font-medium uppercase tracking-wider whitespace-nowrap text-[var(--muted)]">OS</th>
+              <th className="px-2 py-2 text-[9px] font-medium uppercase tracking-wider whitespace-nowrap text-[var(--muted)]">Pre-diagnosticado</th>
+              <th className="px-2 py-2 text-[9px] font-medium uppercase tracking-wider whitespace-nowrap text-[var(--muted)]">Clase</th>
+              <th className="px-2 py-2 text-[9px] font-medium uppercase tracking-wider whitespace-nowrap text-[var(--muted)]">Dictamen</th>
               <th className="px-2 py-2 text-[9px] font-medium uppercase tracking-wider whitespace-nowrap text-[var(--muted)]">Ingreso</th>
               <th className="px-2 py-2 text-[9px] font-medium uppercase tracking-wider whitespace-nowrap text-[var(--muted)]">Agencia</th>
               <th className="px-2 py-2 text-[9px] font-medium uppercase tracking-wider whitespace-nowrap text-[var(--muted)]">Tec.</th>
@@ -119,7 +122,7 @@ export const HistoryTrayTable = memo(function HistoryTrayTable({
             {loading ? (
               Array.from({ length: 8 }).map((_, i) => (
                 <tr key={`sk-${i}`} className="border-b border-[var(--border)]">
-                  {Array.from({ length: 19 }).map((__, j) => (
+                  {Array.from({ length: 22 }).map((__, j) => (
                     <td key={j} className="px-2 py-2">
                       <div className="h-3 bg-[var(--surface-hover)] rounded animate-pulse" />
                     </td>
@@ -128,7 +131,7 @@ export const HistoryTrayTable = memo(function HistoryTrayTable({
               ))
             ) : totalCount === 0 ? (
               <tr>
-                <td colSpan={19} className="p-8 text-center">
+                <td colSpan={22} className="p-8 text-center">
                   <Database className="w-10 h-10 text-[var(--border)] mx-auto mb-3" />
                   <p className="text-[10px] font-medium text-[var(--muted)] uppercase tracking-wider max-w-lg mx-auto leading-relaxed">
                     {emptyMessage}

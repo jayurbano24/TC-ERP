@@ -29,6 +29,7 @@ import {
 import { useAuthz } from '@/components/authz';
 import { canConfigureThemes } from '@/lib/design/seasonal-presets';
 import { ThemeColorsView } from './components/ThemeColorsView';
+import { PrediagnosticoCatalogPanel } from './components/PrediagnosticoCatalogPanel';
 import { 
   getTechnologies, saveTechnology, deleteTechnology,
   getBrands, saveBrand, deleteBrand,
@@ -125,7 +126,7 @@ export default function ConfiguracionPage() {
   const [sessionEmail, setSessionEmail] = useState<string | null>(null);
   const resolvedEmail = authzEmail || snapshot.email || sessionEmail;
   const canEditThemes = canConfigureThemes(resolvedEmail);
-  const [activeView, setActiveView] = useState<'tema' | 'marcas' | 'modelos' | 'tecnologias' | 'diagnosticos' | 'reparaciones' | 'reacondicionado' | 'agencias' | 'transportes' | 'usuarios' | 'px_providers' | 'razones_devolucion' | 'piezas'>('marcas');
+  const [activeView, setActiveView] = useState<'tema' | 'marcas' | 'modelos' | 'tecnologias' | 'diagnosticos' | 'reparaciones' | 'reacondicionado' | 'prediagnostico' | 'agencias' | 'transportes' | 'usuarios' | 'px_providers' | 'razones_devolucion' | 'piezas'>('marcas');
   const [showModal, setShowModal] = useState(false);
 
   useEffect(() => {
@@ -837,7 +838,7 @@ export default function ConfiguracionPage() {
   };
 
   const handleImportDiagnosticos = async (file: File) => {
-    setLoading(true);
+        setLoading(true);
     try {
       const rows = await readCatalogSpreadsheet(file);
       let ok = 0;
@@ -959,33 +960,33 @@ export default function ConfiguracionPage() {
         return;
       }
 
-      const { error } = await saveAgenciesBulk(newAgencias);
-      if (!error) {
-        const a = await getAgencies();
+        const { error } = await saveAgenciesBulk(newAgencias);
+        if (!error) {
+          const a = await getAgencies();
         setAgencias(
           a.map((x: any) => ({
             dbId: x.id,
-            id: x.code,
-            nombre: x.name,
-            encargado: x.manager || '',
-            email: x.email || '',
-            telefono: x.phone || '',
+            id: x.code, 
+            nombre: x.name, 
+            encargado: x.manager || '', 
+            email: x.email || '', 
+            telefono: x.phone || '', 
             direccion: x.address || '',
           })),
         );
-        notify.success(`Se han importado ${newAgencias.length} agencias correctamente.`);
-      } else {
+          notify.success(`Se han importado ${newAgencias.length} agencias correctamente.`);
+        } else {
         notify.error('Error al guardar', {
           description: (error as any)?.message || JSON.stringify(error),
         });
-      }
+        }
     } catch (err: unknown) {
       notify.error('No se pudo importar agencias', {
         description: err instanceof Error ? err.message : String(err),
       });
     } finally {
-      setLoading(false);
-    }
+        setLoading(false);
+      }
   };
 
   // Actualizar array de dígitos cuando cambia la cantidad de series
@@ -1076,6 +1077,12 @@ export default function ConfiguracionPage() {
               className={`w-full flex items-center gap-3 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all ${activeView === 'reacondicionado' ? 'bg-[#181c3a] text-white shadow-xl' : 'text-black hover:bg-neutral-100'}`}
             >
               <CheckSquare size={14} /> Reacondicionado
+            </button>
+            <button
+              onClick={() => setActiveView('prediagnostico')}
+              className={`w-full flex items-center gap-3 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all ${activeView === 'prediagnostico' ? 'bg-[#181c3a] text-white shadow-xl' : 'text-black hover:bg-neutral-100'}`}
+            >
+              <ClipboardList size={14} /> Pre-Diagnóstico
             </button>
           </div>
 
@@ -1248,9 +1255,9 @@ export default function ConfiguracionPage() {
                     <div className="flex items-center gap-2">
                       <div className="w-6 h-6 rounded-md bg-slate-50 flex items-center justify-center text-[#181c3a] border border-slate-100">
                         <Layers size={12} />
-                      </div>
+                  </div>
                       <span className="text-xs font-black uppercase text-[#181c3a]">{tech.nombre}</span>
-                    </div>
+                  </div>
                   ),
                 },
                 {
@@ -1301,7 +1308,7 @@ export default function ConfiguracionPage() {
                   header: 'Marca',
                   cell: (mod) => {
                     const marca = marcas.find((m) => m.id === mod.marcaId);
-                    return (
+                          return (
                       <Badge className="border-neutral-200 bg-neutral-100 px-1.5 py-0 text-[9px] font-bold uppercase text-black !text-black">
                         {marca?.nombre || '—'}
                       </Badge>
@@ -1323,11 +1330,11 @@ export default function ConfiguracionPage() {
                               Duplicado
                             </Badge>
                           ) : null}
-                        </div>
+                                </div>
                         <span className="text-[9px] font-semibold uppercase tracking-wide text-neutral-600">
                           {tech?.nombre || '—'}
                         </span>
-                      </div>
+                                </div>
                     );
                   },
                 },
@@ -1341,7 +1348,7 @@ export default function ConfiguracionPage() {
                       <Badge className="border-neutral-200 bg-neutral-100 px-1.5 py-0 text-[9px] text-black !text-black">
                         {mod.digitsPerSeries?.join('/')} Dig.
                       </Badge>
-                    </div>
+                </div>
                   ),
                 },
               ]}
@@ -1396,14 +1403,14 @@ export default function ConfiguracionPage() {
                       ) : (
                         <span className="text-[10px] font-medium italic text-neutral-500">Todas</span>
                       )}
-                    </div>
+                  </div>
                   ),
                 },
                 {
                   header: 'Reparaciones sugeridas',
                   cell: (diag) => (
-                    <div className="flex flex-wrap gap-1">
-                      {diag.reparacionesIds.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {diag.reparacionesIds.length > 0 ? (
                         diag.reparacionesIds.map((rid: string) => {
                           const rep = reparaciones.find((r) => r.id === rid);
                           return (
@@ -1414,11 +1421,11 @@ export default function ConfiguracionPage() {
                               {rep?.nombre || 'Desconocida'}
                             </Badge>
                           );
-                        })
-                      ) : (
+                              })
+                            ) : (
                         <span className="text-[10px] font-medium italic text-neutral-500">Sin reparaciones</span>
-                      )}
-                    </div>
+                            )}
+                          </div>
                   ),
                 },
               ]}
@@ -1467,6 +1474,10 @@ export default function ConfiguracionPage() {
             />
           )}
 
+          {activeView === 'prediagnostico' && (
+            <PrediagnosticoCatalogPanel tecnologias={tecnologias} marcas={marcas} />
+          )}
+
           {activeView === 'reacondicionado' && (
             <CatalogTableView
               type="reacondicionado"
@@ -1481,7 +1492,6 @@ export default function ConfiguracionPage() {
               loading={loading}
               emptyIcon={<CheckSquare size={48} className="mx-auto mb-3" />}
               emptyText="No hay pruebas registradas"
-              paginationLabel="pruebas"
               columns={[
                 {
                   header: 'Prueba',
@@ -1494,9 +1504,9 @@ export default function ConfiguracionPage() {
                   cell: (rt) => {
                     const selectedTechs = tecnologias.filter((t) => rt.technologyIds?.includes(t.id));
                     const selectedModels = modelos.filter((m) => rt.modelIds?.includes(m.id));
-                    return (
+                      return (
                       <div className="flex flex-wrap gap-1">
-                        {selectedTechs.length > 0 ? (
+                              {selectedTechs.length > 0 ? (
                           selectedTechs.map((tech) => (
                             <Badge
                               key={tech.id}
@@ -1510,8 +1520,8 @@ export default function ConfiguracionPage() {
                           <Badge variant="slate" className="border-none bg-slate-50 px-1.5 py-0 text-[9px] font-bold uppercase text-slate-400">
                             TODAS LAS TECNOLOGÍAS
                           </Badge>
-                        )}
-                        {selectedModels.length > 0 ? (
+                              )}
+                              {selectedModels.length > 0 ? (
                           selectedModels.map((mod) => (
                             <Badge
                               key={mod.id}
@@ -1525,8 +1535,8 @@ export default function ConfiguracionPage() {
                           <Badge variant="slate" className="border-none bg-slate-50 px-1.5 py-0 text-[9px] font-bold uppercase text-slate-400">
                             TODOS LOS MODELOS
                           </Badge>
-                        )}
-                      </div>
+                              )}
+                            </div>
                     );
                   },
                 },

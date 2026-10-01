@@ -70,6 +70,17 @@ export function trayRowToHistoryEntry(row: CacTrayUnitRow, groupIndex = 0): Hist
     seriesSapStatuses: seriesSapStatuses as string[],
     sortAt,
     classifiedAtIso,
+    serviceOrderId: row.service_order_id,
+    techId: row.tech_id || '',
+    prediagnostico: row.prediagnostico_clase
+      ? {
+          shellClass: row.prediagnostico_clase,
+          verdict: row.prediagnostico_dictamen || '',
+          notes: row.prediagnostico_observaciones || '',
+          updatedByName: row.prediagnostico_actualizado_por_nombre || '',
+          updatedAt: row.prediagnostico_actualizado_en || '',
+        }
+      : null,
   };
 }
 

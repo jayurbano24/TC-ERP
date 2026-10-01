@@ -819,6 +819,51 @@ export async function deleteReacondicionadoTest(id: string) {
   return { error };
 }
 
+export async function getPrediagnosticoItems() {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from('cat_prediagnostico_items')
+    .select('id, name, item_kind, technology_ids, brand_ids, sort_order, active')
+    .order('sort_order');
+  if (error) {
+    console.error('Error fetching prediagnostico items:', error);
+    return [];
+  }
+  return data || [];
+}
+
+export async function savePrediagnosticoItem(item: {
+  id?: string;
+  nombre: string;
+  itemKind: 'cosmetico' | 'funcionamiento';
+  technologyIds: string[];
+  brandIds: string[];
+}) {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return { error: 'Supabase not configured' };
+  const dbItem = {
+    name: item.nombre,
+    item_kind: item.itemKind,
+    technology_ids: item.technologyIds,
+    brand_ids: item.brandIds,
+    active: true,
+  };
+  if (item.id && item.id.includes('-')) {
+    const { data, error } = await supabase.from('cat_prediagnostico_items').update(dbItem).eq('id', item.id).select();
+    return { data: data ? data[0] : null, error };
+  }
+  const { data, error } = await supabase.from('cat_prediagnostico_items').insert([dbItem]).select();
+  return { data: data ? data[0] : null, error };
+}
+
+export async function deletePrediagnosticoItem(id: string) {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return { error: 'Supabase not configured' };
+  const { error } = await supabase.from('cat_prediagnostico_items').delete().eq('id', id);
+  return { error };
+}
+
 
 // --- USUARIOS ---
 

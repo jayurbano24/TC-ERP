@@ -18,6 +18,15 @@ export type HistoryUnitEntry = {
   sortAt: number;
   /** Fecha/hora real de clasificación en Backoffice (OS o serie) */
   classifiedAtIso: string;
+  serviceOrderId?: string;
+  techId?: string;
+  prediagnostico?: {
+    shellClass: string;
+    verdict: string;
+    notes: string;
+    updatedByName: string;
+    updatedAt: string;
+  } | null;
 };
 
 export type HistoryTrayFilters = {
@@ -32,6 +41,8 @@ export type HistoryTrayFilters = {
   brandId: string;
   modelId: string;
   agencyId: string;
+  shellClass: string;
+  verdict: string;
 };
 
 export const EMPTY_HISTORY_TRAY_FILTERS: HistoryTrayFilters = {
@@ -46,4 +57,6 @@ export const EMPTY_HISTORY_TRAY_FILTERS: HistoryTrayFilters = {
   brandId: '',
   modelId: '',
   agencyId: '',
+  shellClass: '',
+  verdict: '',
 };

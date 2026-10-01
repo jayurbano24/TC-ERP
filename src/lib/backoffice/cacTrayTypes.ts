@@ -27,6 +27,11 @@ export type CacTrayUnitRow = {
   sap_integration_status?: string | null;
   /** sap_status por serie, mismo orden que serial_numbers / series_ids */
   series_sap_statuses?: (string | null)[];
+  prediagnostico_clase?: string | null;
+  prediagnostico_dictamen?: string | null;
+  prediagnostico_observaciones?: string | null;
+  prediagnostico_actualizado_por_nombre?: string | null;
+  prediagnostico_actualizado_en?: string | null;
 };
 
 export type CacTrayQueryParams = {
@@ -46,6 +51,10 @@ export type CacTrayQueryParams = {
   brandId?: string;
   modelId?: string;
   agencyId?: string;
+  shellClass?: string;
+  verdict?: string;
+  /** Series u OS pegadas (máximo 25). Sustituye el filtro `search`. */
+  serials?: string[];
 };
 
 export type CacTrayPageResponse = {

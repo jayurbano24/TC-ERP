@@ -21,6 +21,18 @@ export const STATIC_REPORT_CATALOG = [
     requiresDateRange: true,
   },
   {
+    code: 'PREDIAGNOSTICO_EQUIPOS',
+    name: 'Equipos prediagnosticados',
+    category: 'CAC / Recepción',
+    description: 'Detalle de prediagnóstico CAC: series, descripción SAP, diagnóstico, acción y dictamen',
+    columns: [
+      'OS', 'FE', 'S1', 'S2', 'DESCRIPCIÓN SAP', 'MARCA', 'MODELO', 'TECNOLOGÍA',
+      'TRATAMIENTO', 'CANAL DE RECUPERACIÓN', 'DIAGNÓSTICO', 'ACCIÓN', 'SAP',
+      'CLASE', 'DICTAMEN', 'OBSERVACIONES',
+    ],
+    requiresDateRange: true,
+  },
+  {
     code: 'INVENTARIO_ACCESORIOS',
     name: 'Stock accesorios',
     category: 'Bodega',

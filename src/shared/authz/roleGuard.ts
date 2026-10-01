@@ -33,6 +33,7 @@ export const ROLES_BODEGA_DESPACHO: OperationalRole[] = ['admin', 'supervisor', 
 export const ROLES_PRODUCCION: OperationalRole[] = ['admin', 'supervisor', 'gerencia'];
 export const ROLES_RETURNS_SAP: OperationalRole[] = ['admin', 'supervisor'];
 export const ROLES_TALLER: OperationalRole[] = ['admin', 'supervisor', 'tecnico', 'qc'];
+export const ROLES_PREDIAGNOSTICO_WRITE: OperationalRole[] = ['admin', 'supervisor', 'receptor_cac'];
 
 const TTL_MS = 30_000;
 const cache = new Map<string, { roles: string[]; ts: number }>();
@@ -72,6 +73,14 @@ async function loadEnumRoles(userId: string): Promise<string[]> {
 
   cache.set(userId, { roles, ts: Date.now() });
   return roles;
+}
+
+export async function userHasAnyOperationalRole(
+  userId: string,
+  allowed: readonly string[]
+): Promise<boolean> {
+  const roles = await loadEnumRoles(userId);
+  return roles.some((role) => allowed.includes(role));
 }
 
 export function authzEnforced(): boolean {

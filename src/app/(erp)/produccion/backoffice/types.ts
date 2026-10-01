@@ -51,7 +51,7 @@ export type ReceptionStep =
   | 'sub_bodega_transfer'
   | 'completed';
 
-export type BackofficeTab = 'op' | 'history' | 'sub_accesorios' | 'sub_telefonos';
+export type BackofficeTab = 'op' | 'history' | 'prediagnostico' | 'sub_accesorios' | 'sub_telefonos';
 export type BackofficeReception = {
   id: string;
   status: string;

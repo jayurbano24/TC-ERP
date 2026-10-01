@@ -422,6 +422,7 @@ export default function ReceptionsPage() {
           currentOperatorId={pxIncremental.currentOperatorId}
           onStartReceptionIncremental={pxIncremental.onStartReceptionIncremental}
           onResumePxReception={pxIncremental.onResumePxReception}
+          onDiscardEmptyPxReceptions={pxIncremental.onDiscardEmptyPxReceptions}
           onAddLotToBoxIncremental={pxIncremental.onAddLotToBoxIncremental}
           onAcquireBoxLock={pxIncremental.onAcquireBoxLock}
           onAdjustBoxQuantity={pxIncremental.onAdjustBoxQuantity}

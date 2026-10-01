@@ -173,6 +173,28 @@ describe('PxReceptionSessionStore', () => {
     expect(store.getState().appliedVersion).toBe(0);
   });
 
+  it('una carga cancelada no rechaza con AbortError', async () => {
+    const { store } = createTestStore(async (id, params) => {
+      if (params.reason === 'START') {
+        return buildEntry(id, 1, params.reason, params.includeEquipment);
+      }
+      const signal = params.signal;
+      return new Promise<PxSnapshotCacheEntry>((_resolve, reject) => {
+        const fail = () => reject(new DOMException('Aborted', 'AbortError'));
+        if (signal?.aborted) {
+          fail();
+          return;
+        }
+        signal?.addEventListener('abort', fail, { once: true });
+      });
+    });
+
+    await store.start(RECEPTION_A);
+    const pending = store.refresh('EXPLICIT_REFRESH');
+    store.clearSession();
+    await expect(pending).resolves.toBeUndefined();
+  });
+
   it('registra métricas px_snapshot_fetch con reason', async () => {
     const { recordPxSnapshotFetch } = await import('./pxReceptionSessionMetrics');
     resetPxSnapshotFetchMetrics();

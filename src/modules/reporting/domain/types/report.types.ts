@@ -17,6 +17,8 @@ export type ReportFilterParams = {
   brandId?: string;
   modelId?: string;
   agencyId?: string;
+  shellClass?: string;
+  verdict?: string;
   batchNumber?: string;
   batchId?: string;
   /** Filtros reporte matriz mensual (OPERACIONES_MENSUAL_TECNOLOGIA). */

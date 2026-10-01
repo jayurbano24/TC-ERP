@@ -34,7 +34,8 @@ function buildQueryParams(
   historySearch: string,
   historyFilters: HistoryTrayFilters,
   dateFilterFrom: string,
-  dateFilterTo: string
+  dateFilterTo: string,
+  onlyPending: boolean
 ): CacTrayQueryParams {
   return {
     page,
@@ -53,6 +54,8 @@ function buildQueryParams(
     brandId: historyFilters.brandId || undefined,
     modelId: historyFilters.modelId || undefined,
     agencyId: historyFilters.agencyId || undefined,
+    shellClass: onlyPending ? undefined : historyFilters.shellClass || undefined,
+    verdict: onlyPending ? 'pendiente' : historyFilters.verdict || undefined,
   };
 }
 
@@ -79,7 +82,8 @@ export function useBackofficeHistory(
   catalogs: Catalogs,
   dateFilterFrom: string,
   dateFilterTo: string,
-  enabled = true
+  enabled = true,
+  onlyPending = false
 ) {
   const historyFetchIdRef = useRef(0);
   const [historyLoadError, setHistoryLoadError] = useState<string | null>(null);
@@ -96,8 +100,8 @@ export function useBackofficeHistory(
 
   // historySearch ya llega debounceado desde HistorySearchInput (evita doble wait).
   const queryParams = useMemo(
-    () => buildQueryParams(historyPage, historySearch, historyFilters, dateFilterFrom, dateFilterTo),
-    [historyPage, historySearch, historyFilters, dateFilterFrom, dateFilterTo]
+    () => buildQueryParams(historyPage, historySearch, historyFilters, dateFilterFrom, dateFilterTo, onlyPending),
+    [historyPage, historySearch, historyFilters, dateFilterFrom, dateFilterTo, onlyPending]
   );
 
   const fetchHistory = useCallback(

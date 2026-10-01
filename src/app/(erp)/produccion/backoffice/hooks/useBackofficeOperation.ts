@@ -79,7 +79,8 @@ export function useBackofficeOperation() {
     { CAC_AGENCIES, MASTER_MARCAS, MASTER_MODELOS, resolveSeriesPerUnit },
     dateFilterFrom,
     dateFilterTo,
-    activeTab === 'history'
+    activeTab === 'history' || activeTab === 'prediagnostico',
+    activeTab === 'prediagnostico'
   );
 
   const inbox = useBackofficeInbox({
@@ -124,6 +125,9 @@ export function useBackofficeOperation() {
     fetchPending: inbox.fetchPending,
     fetchHistory,
     currentUserFullName,
+    includePendingPrediagnostico: historyFilters.verdict === 'pendiente',
+    shellClass: historyFilters.shellClass,
+    verdict: historyFilters.verdict,
   });
 
   useBackofficeLifecycle({
@@ -213,7 +217,7 @@ export function useBackofficeOperation() {
     if (result.success) {
       notify.success('Conexión exitosa con Supabase');
       await inbox.fetchPending();
-      if (activeTab === 'history') await fetchHistory();
+      if (activeTab === 'history' || activeTab === 'prediagnostico') await fetchHistory();
     } else {
       notify.error('Error de conexión', { description: result.error });
       inbox.setInboxLoadError(result.error || 'Error de conexión con Supabase');

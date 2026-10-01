@@ -5,10 +5,12 @@ import { CacClassificationReportProvider } from './cac-classification-report.pro
 import { DispatchBatchReportProvider } from './dispatch-batch-report.provider';
 import { CenamRefurbishedReportProvider } from './cenam-refurbished-report.provider';
 import { OpsMonthlyTechReportProvider } from './ops-monthly-tech-report.provider';
+import { PrediagnosticoReportProvider } from './prediagnostico-report.provider';
 import { ReceptionCacReportProvider } from './reception-cac-report.provider';
 
 const providers: IReportDataProvider[] = [
   new CacClassificationReportProvider(),
+  new PrediagnosticoReportProvider(),
   new ReceptionCacReportProvider(),
   new AccessoryInventoryReportProvider(),
   new DispatchBatchReportProvider(),

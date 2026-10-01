@@ -24,6 +24,9 @@ type Params = {
   fetchPending: (opts?: { silent?: boolean }) => Promise<void>;
   fetchHistory: (opts?: { silent?: boolean }) => Promise<void>;
   currentUserFullName: string;
+  includePendingPrediagnostico?: boolean;
+  shellClass?: string;
+  verdict?: string;
 };
 
 export function useBackofficeHistoryActions({
@@ -34,6 +37,9 @@ export function useBackofficeHistoryActions({
   fetchPending,
   fetchHistory,
   currentUserFullName,
+  includePendingPrediagnostico = false,
+  shellClass,
+  verdict,
 }: Params) {
   const handleExportReport = useCallback(async (opts?: { allData?: boolean }) => {
     const allData = Boolean(opts?.allData) || (!dateFilterFrom && !dateFilterTo);
@@ -46,6 +52,8 @@ export function useBackofficeHistoryActions({
                 from: dateFilterFrom || undefined,
                 to: dateFilterTo || undefined,
               }),
+          shellClass: shellClass || undefined,
+          verdict: verdict || undefined,
         });
         notify.success(
           allData
@@ -59,13 +67,14 @@ export function useBackofficeHistoryActions({
         entries,
         catalogs,
         allData ? '' : dateFilterFrom,
-        allData ? '' : dateFilterTo
+        allData ? '' : dateFilterTo,
+        { includePending: includePendingPrediagnostico }
       );
     } catch (err) {
       console.error(err);
       notify.error(err instanceof Error ? err.message : 'Error al exportar el reporte.');
     }
-  }, [catalogs, dateFilterFrom, dateFilterTo, fetchExportEntries]);
+  }, [catalogs, dateFilterFrom, dateFilterTo, fetchExportEntries, includePendingPrediagnostico, shellClass, verdict]);
 
   const handleReturnToPending = useCallback(
     async (receptionId: string) => {

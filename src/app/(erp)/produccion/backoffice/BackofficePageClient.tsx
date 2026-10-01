@@ -4,6 +4,7 @@ import { useCallback, startTransition } from 'react';
 import { ModulePage } from '@/components/module-page';
 import { BackofficeTabNav } from './components/BackofficeTabNav';
 import { HistoryTab } from './components/history/HistoryTab';
+import { PrediagnosticoTab } from './components/history/PrediagnosticoTab';
 import { BackofficeModals } from './components/modals/BackofficeModals';
 import { OperationTab } from './components/operation/OperationTab';
 import { SubBodegaTab } from './components/SubBodegaTab';
@@ -197,6 +198,32 @@ export default function BackofficePageClient() {
           onShowTimeline={handleShowTimeline}
           onOpenHistoryModal={handleOpenHistoryModalStable}
           onPrintConduce={handlePrintConduceStable}
+        />
+      )}
+
+      {activeTab === 'prediagnostico' && (
+        <PrediagnosticoTab
+          historyLoadError={historyLoadError}
+          historyLoading={historyLoading}
+          totalCount={totalCount}
+          totalPages={totalPages}
+          historySearch={historySearch}
+          setHistorySearch={setHistorySearch}
+          historyFilters={historyFilters}
+          historyFiltersOpen={historyFiltersOpen}
+          setHistoryFiltersOpen={setHistoryFiltersOpen}
+          historyPage={historyPage}
+          setHistoryPage={setHistoryPage}
+          fetchHistory={fetchHistory}
+          getHistoryTrayEntries={getHistoryTrayEntries}
+          historyFilterBrands={historyFilterBrands}
+          historyFilterModels={historyFilterModels}
+          patchHistoryFilter={patchHistoryFilter}
+          clearHistoryFilters={clearHistoryFilters}
+          CAC_AGENCIES={CAC_AGENCIES}
+          MASTER_TECNOLOGIAS={MASTER_TECNOLOGIAS}
+          MASTER_MARCAS={MASTER_MARCAS}
+          MASTER_MODELOS={MASTER_MODELOS}
         />
       )}
 

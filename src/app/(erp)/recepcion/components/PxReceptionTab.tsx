@@ -1,5 +1,6 @@
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { notify, confirmDialog } from '@/components/ui';
 import { FileText, ArrowRight, ArrowLeft } from 'lucide-react';
 import { PxHeaderFields } from './px/PxHeaderFields';
 import { PxBoxDetailView } from './px/PxBoxDetailView';
@@ -10,7 +11,7 @@ export const PxReceptionTab = (props: any) => {
   const {
     guideData, setGuideData, systemPxProviders, manifestItems, scannedSeries,
     useIncrementalCapture, pxInProgressList, isLoadingIncrementalResume,
-    onResumePxReception, isReceptionStarted, isSubmittingPX, finalizeProgress, lastSavedAt,
+    onResumePxReception, onDiscardEmptyPxReceptions, isReceptionStarted, isSubmittingPX, finalizeProgress, lastSavedAt,
     incrementalReceptionId, boxMetaByCode, closedBoxes, handleFinalizePX,
     handleAddSN_PX, currentEntry, setCurrentEntry, currentScans, setCurrentScans,
     systemTechnologies, filteredBrands, filteredModels, systemModels,
@@ -74,13 +75,63 @@ export const PxReceptionTab = (props: any) => {
 
               {useIncrementalCapture && (pxInProgressList?.length > 0 || isLoadingIncrementalResume) && (
                 <div className="rounded-2xl border border-[var(--accent)]/30 bg-[var(--accent)]/5 px-5 py-4 space-y-3">
-                  <p className="text-[11px] font-black uppercase tracking-widest text-[var(--heading)]">
-                    Recepciones pendientes en servidor
-                  </p>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-[11px] font-black uppercase tracking-widest text-[var(--heading)]">
+                      Recepciones pendientes en servidor
+                    </p>
+                    {(pxInProgressList || []).some(
+                      (rec: { status?: string; captured_count?: number; promoted_count?: number }) =>
+                        rec.status !== 'FINALIZANDO' &&
+                        Number(rec.captured_count || 0) === 0 &&
+                        Number(rec.promoted_count || 0) === 0
+                    ) && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          const emptyIds = (pxInProgressList || [])
+                            .filter(
+                              (rec: { status?: string; captured_count?: number; promoted_count?: number }) =>
+                                rec.status !== 'FINALIZANDO' &&
+                                Number(rec.captured_count || 0) === 0 &&
+                                Number(rec.promoted_count || 0) === 0
+                            )
+                            .map((rec: { id: string }) => rec.id);
+                          void (async () => {
+                            const ok = await confirmDialog({
+                              title: 'Eliminar recepciones vacías',
+                              message: `Se eliminarán ${emptyIds.length} recepción(es) abiertas con 0 equipos capturados.`,
+                              tone: 'error',
+                              confirmText: 'Eliminar',
+                            });
+                            if (!ok || !onDiscardEmptyPxReceptions) return;
+                            try {
+                              const removed = await onDiscardEmptyPxReceptions(emptyIds);
+                              notify.success(
+                                removed === 1
+                                  ? 'Se eliminó 1 recepción sin equipos'
+                                  : `Se eliminaron ${removed} recepciones sin equipos`
+                              );
+                            } catch (error: unknown) {
+                              notify.error(error instanceof Error ? error.message : 'No se pudieron eliminar');
+                            }
+                          })();
+                        }}
+                        className="h-8 px-3 text-[9px] font-black uppercase tracking-widest text-rose-600 border-rose-200"
+                      >
+                        Eliminar las de 0 equipos
+                      </Button>
+                    )}
+                  </div>
                   {isLoadingIncrementalResume && (
                     <p className="text-xs font-bold text-slate-500">Recuperando sesión...</p>
                   )}
-                  {(pxInProgressList || []).map((rec: any) => (
+                  {(pxInProgressList || []).map((rec: any) => {
+                    const isEmpty =
+                      rec.status !== 'FINALIZANDO' &&
+                      Number(rec.captured_count || 0) === 0 &&
+                      Number(rec.promoted_count || 0) === 0;
+                    return (
                     <div
                       key={rec.id}
                       className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-white border border-slate-100 px-4 py-3"
@@ -99,15 +150,44 @@ export const PxReceptionTab = (props: any) => {
                           </p>
                         )}
                       </div>
-                      <Button
-                        type="button"
-                        onClick={() => onResumePxReception?.(rec.id)}
-                        className="h-9 px-4 text-[9px] font-black uppercase tracking-widest bg-[var(--accent)] hover:bg-[#25aed4] text-white rounded-xl"
-                      >
-                        {rec.status === 'FINALIZANDO' ? 'Reanudar finalización' : 'Continuar'}
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        {isEmpty && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => {
+                              void (async () => {
+                                const ok = await confirmDialog({
+                                  title: 'Eliminar recepción',
+                                  message: `¿Eliminar ${rec.guide_number}? No tiene equipos capturados.`,
+                                  tone: 'error',
+                                  confirmText: 'Eliminar',
+                                });
+                                if (!ok || !onDiscardEmptyPxReceptions) return;
+                                try {
+                                  await onDiscardEmptyPxReceptions([rec.id]);
+                                  notify.success(`${rec.guide_number} eliminada`);
+                                } catch (error: unknown) {
+                                  notify.error(error instanceof Error ? error.message : 'No se pudo eliminar');
+                                }
+                              })();
+                            }}
+                            className="h-9 px-3 text-[9px] font-black uppercase tracking-widest text-rose-600 border-rose-200"
+                          >
+                            Eliminar
+                          </Button>
+                        )}
+                        <Button
+                          type="button"
+                          onClick={() => onResumePxReception?.(rec.id)}
+                          className="h-9 px-4 text-[9px] font-black uppercase tracking-widest bg-[var(--accent)] hover:bg-[#25aed4] text-white rounded-xl"
+                        >
+                          {rec.status === 'FINALIZANDO' ? 'Reanudar finalización' : 'Continuar'}
+                        </Button>
+                      </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

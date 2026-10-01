@@ -34,6 +34,17 @@ export function setIncrementalReceptionIdInSession(receptionId: string | null) {
   }
 }
 
+export async function discardEmptyPxReceptionsApi(ids: string[]) {
+  const res = await apiFetch('/api/recepcion/px/discard-empty', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  });
+  const json = await res.json();
+  if (!res.ok || !json.success) throw new Error(json.error || 'No se pudieron eliminar las recepciones vacías');
+  return json as { success: true; discarded: string[] };
+}
+
 export async function fetchPxInProgressList() {
   const res = await apiFetch('/api/recepcion/px');
   const json = await res.json();

@@ -74,6 +74,30 @@ export function HistoryFiltersPanel({
         </div>
         <div>
           <label className="text-[8px] font-black text-[var(--muted)] uppercase tracking-widest mb-1.5 block">
+            Clase de carcasa
+          </label>
+          <select className={fieldClass} value={historyFilters.shellClass} onChange={(e) => patchHistoryFilter({ shellClass: e.target.value })}>
+            <option value="">TODAS</option>
+            <option value="A">Clase A</option>
+            <option value="B">Clase B</option>
+            <option value="C">Clase C</option>
+            <option value="D">Clase D</option>
+          </select>
+        </div>
+        <div>
+          <label className="text-[8px] font-black text-[var(--muted)] uppercase tracking-widest mb-1.5 block">
+            Dictamen
+          </label>
+          <select className={fieldClass} value={historyFilters.verdict} onChange={(e) => patchHistoryFilter({ verdict: e.target.value })}>
+            <option value="">TODOS</option>
+            <option value="pendiente">Pendiente</option>
+            <option value="reacondicionado">Reacondicionado</option>
+            <option value="reparado">Reparado</option>
+            <option value="irreparable">Irreparable</option>
+          </select>
+        </div>
+        <div>
+          <label className="text-[8px] font-black text-[var(--muted)] uppercase tracking-widest mb-1.5 block">
             Agencia CAC
           </label>
           <select className={fieldClass} value={historyFilters.agencyId} onChange={(e) => patchHistoryFilter({ agencyId: e.target.value })}>

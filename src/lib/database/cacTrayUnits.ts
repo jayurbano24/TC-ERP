@@ -6,6 +6,10 @@ import type {
   TransferEligibleItem,
 } from '@/lib/backoffice/cacTrayTypes';
 import { enrichCacTrayRowsWithSapValidation } from '@/lib/backoffice/enrichCacTraySapValidation';
+import {
+  attachPrediagnosticoSummaries,
+  restrictByPrediagnostico,
+} from '@/modules/backoffice/prediagnostico/attachPrediagnostico';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
 import { sanitizeOrFilterValue } from '@/lib/database/postgrestSafe';
 import { CAC_TRAY_UNIT_SELECT, COUNT_HEAD } from '@/shared/constants/dbProjections';
@@ -31,8 +35,16 @@ function applyTrayFilters(
   if (params.brandId) q = q.eq('brand_id', params.brandId);
   if (params.modelId) q = q.eq('model_id', params.modelId);
 
-  const search = params.search?.trim();
-  if (search) q = q.ilike('search_text', `%${search.toLowerCase()}%`);
+  const serials = (params.serials || [])
+    .map((token) => sanitizeOrFilterValue(token.toLowerCase()))
+    .filter(Boolean)
+    .slice(0, 25);
+  if (serials.length > 0) {
+    q = q.or(serials.map((token) => `search_text.ilike.%${token}%`).join(','));
+  } else {
+    const search = params.search?.trim();
+    if (search) q = q.ilike('search_text', `%${search.toLowerCase()}%`);
+  }
 
   const guide = params.guide?.trim();
   if (guide) q = q.ilike('guide_number', `%${guide}%`);
@@ -148,6 +160,8 @@ export async function queryCacTrayPage(
 
   rowsQuery = applyTrayFilters(rowsQuery, params);
   countQuery = applyTrayFilters(countQuery, params);
+  rowsQuery = await restrictByPrediagnostico(supabase, rowsQuery, params);
+  countQuery = await restrictByPrediagnostico(supabase, countQuery, params);
 
   const [{ data, error }, { count, error: countError }] = await Promise.all([
     rowsQuery,
@@ -170,7 +184,10 @@ export async function queryCacTrayPage(
       : await enrichCacTrayRowsWithSapValidation(baseRows);
   // Enrich puede marcar live "Ingresado a Bodega General" aunque el snapshot
   // aún diga Backoffice → ocultar esas filas de la bandeja operativa.
-  const rows = enriched.filter(isCacTrayRowStillInBackofficeQueue);
+  const rows = await attachPrediagnosticoSummaries(
+    supabase,
+    enriched.filter(isCacTrayRowStillInBackofficeQueue)
+  );
 
   // Desactivar en DB las OS ya en bodega y realinear el total (dato real).
   const toDeactivate = enriched.filter((r) => !isCacTrayRowStillInBackofficeQueue(r));
@@ -282,6 +299,7 @@ export async function queryCacTrayAllFiltered(
       .range(offset, end);
 
     query = applyTrayFilters(query, params);
+    query = await restrictByPrediagnostico(supabase, query, params);
 
     const { data, error } = await query;
     if (error) throw new Error(error.message);
@@ -292,7 +310,10 @@ export async function queryCacTrayAllFiltered(
   }
 
   const enriched = await enrichCacTrayRowsWithSapValidation(all);
-  return enriched.filter(isCacTrayRowStillInBackofficeQueue);
+  return attachPrediagnosticoSummaries(
+    supabase,
+    enriched.filter(isCacTrayRowStillInBackofficeQueue)
+  );
 }
 
 export async function queryTransferEligibleSeries(

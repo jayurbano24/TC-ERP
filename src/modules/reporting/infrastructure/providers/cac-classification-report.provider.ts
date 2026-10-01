@@ -50,6 +50,8 @@ export class CacClassificationReportProvider implements IReportDataProvider {
       brandId: filters.brandId,
       modelId: filters.modelId,
       agencyId: filters.agencyId,
+      shellClass: filters.shellClass,
+      verdict: filters.verdict,
     });
 
     const entries = trayRowsToHistoryEntries(rows);
@@ -71,6 +73,8 @@ export class CacClassificationReportProvider implements IReportDataProvider {
       const unitSapValidationStatus =
         entry.unitSapValidationStatus ??
         resolveUnitSapStatus(entry.unit[0]?.service_orders?.sap_integration_status, seriesSapStatuses);
+
+      if (!entry.prediagnostico && filters.verdict !== 'pendiente') continue;
 
       const s1 = String(entry.unit[0]?.serial_number || '').trim().toUpperCase();
       if (s1 && s1 !== '---' && s1.length >= 3) {
@@ -95,6 +99,11 @@ export class CacClassificationReportProvider implements IReportDataProvider {
         Tecnología: modelObj ? techMap.get(modelObj.technology_id || '') || '---' : '---',
         Marca: brandMap.get(entry.grp.brandId) || '---',
         Modelo: modelObj?.name || '---',
+        Clase: entry.prediagnostico?.shellClass || '—',
+        Dictamen: entry.prediagnostico?.verdict || 'Pendiente',
+        Observaciones: entry.prediagnostico?.notes || '',
+        'Usuario prediagnóstico': entry.prediagnostico?.updatedByName || '',
+        'Fecha prediagnóstico': entry.prediagnostico?.updatedAt || '',
         'Documento SAP': entry.unitSap,
         'Validación SAP': formatUnitSapValidationForExport(unitSapValidationStatus),
         'S-1': entry.unit[0]?.serial_number || '---',

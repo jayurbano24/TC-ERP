@@ -48,6 +48,11 @@ export type PxReceptionSessionStore = PxReceptionSessionCommands & {
   getState: () => PxReceptionSessionState;
 };
 
+function isAbortError(error: unknown): boolean {
+  if (error instanceof DOMException) return error.name === 'AbortError';
+  return error instanceof Error && error.name === 'AbortError';
+}
+
 export function createPxReceptionSessionStore(
   options: PxReceptionSessionStoreOptions
 ): PxReceptionSessionStore {
@@ -122,14 +127,14 @@ export function createPxReceptionSessionStore(
         includeEquipment: resolvedInclude,
         signal: controller.signal,
       })
-      .then((entry) => {
+      .then((entry): PxSnapshotCacheEntry | null => {
         if (activeGeneration !== generation) return entry;
         applyEntry(entry);
         return entry;
       })
-      .catch((error: unknown) => {
-        if (controller.signal.aborted) {
-          throw new DOMException('Aborted', 'AbortError');
+      .catch((error: unknown): PxSnapshotCacheEntry | null => {
+        if (controller.signal.aborted || isAbortError(error)) {
+          return null;
         }
         throw error;
       })
@@ -162,7 +167,7 @@ export function createPxReceptionSessionStore(
       patchState({ isLoadingResume: true });
       try {
         const entry = await fetchSnapshotCommand(receptionId, 'RESUME', true);
-        if (!isResumable(entry.snapshot.reception.status)) {
+        if (!entry || !isResumable(entry.snapshot.reception.status)) {
           resumeHydratedIds.delete(receptionId);
           return false;
         }

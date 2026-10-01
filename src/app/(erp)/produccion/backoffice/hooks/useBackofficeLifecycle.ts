@@ -36,7 +36,7 @@ export function useBackofficeLifecycle({
   useEffect(() => {
     const refetchOnReconnect = () => {
       void inbox.fetchPending({ silent: true });
-      if (activeTab === 'history') void fetchHistory({ silent: true });
+      if (activeTab === 'history' || activeTab === 'prediagnostico') void fetchHistory({ silent: true });
     };
     const onVisible = () => {
       if (document.visibilityState === 'visible') refetchOnReconnect();

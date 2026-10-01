@@ -222,7 +222,7 @@ export const PxDashboardView = (props: any) => {
               const totalExpected = meta?.declared_quantity ?? stats.totalExpected;
               const received = meta?.captured_count ?? stats.received;
               const rejected = meta?.rejected_count ?? 0;
-              const isEmpty = received === 0;
+              const isEmpty = Number(received) === 0;
               const isComplete = totalExpected > 0 && received >= totalExpected;
               const isClosed = useIncrementalCapture && meta
                 ? meta.status === 'cerrada' || meta.status === 'closed'
@@ -288,6 +288,16 @@ export const PxDashboardView = (props: any) => {
                             : 'Continuar armado'}{' '}
                       <ArrowRight className="w-3 h-3 ml-1" />
                     </Button>
+                    {isEmpty && !isClosed && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => handleDeleteBox(boxCode)}
+                        className="mt-2 h-8 w-full border-rose-200 text-[9px] font-black uppercase tracking-widest text-rose-600"
+                      >
+                        <Trash2 className="mr-1 h-3 w-3" /> Eliminar
+                      </Button>
+                    )}
                   </div>
                 </Card>
               );

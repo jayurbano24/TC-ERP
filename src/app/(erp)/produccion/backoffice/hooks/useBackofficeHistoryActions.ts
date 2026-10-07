@@ -24,7 +24,6 @@ type Params = {
   fetchPending: (opts?: { silent?: boolean }) => Promise<void>;
   fetchHistory: (opts?: { silent?: boolean }) => Promise<void>;
   currentUserFullName: string;
-  includePendingPrediagnostico?: boolean;
   shellClass?: string;
   verdict?: string;
 };
@@ -37,7 +36,6 @@ export function useBackofficeHistoryActions({
   fetchPending,
   fetchHistory,
   currentUserFullName,
-  includePendingPrediagnostico = false,
   shellClass,
   verdict,
 }: Params) {
@@ -67,14 +65,13 @@ export function useBackofficeHistoryActions({
         entries,
         catalogs,
         allData ? '' : dateFilterFrom,
-        allData ? '' : dateFilterTo,
-        { includePending: includePendingPrediagnostico }
+        allData ? '' : dateFilterTo
       );
     } catch (err) {
       console.error(err);
       notify.error(err instanceof Error ? err.message : 'Error al exportar el reporte.');
     }
-  }, [catalogs, dateFilterFrom, dateFilterTo, fetchExportEntries, includePendingPrediagnostico, shellClass, verdict]);
+  }, [catalogs, dateFilterFrom, dateFilterTo, fetchExportEntries, shellClass, verdict]);
 
   const handleReturnToPending = useCallback(
     async (receptionId: string) => {

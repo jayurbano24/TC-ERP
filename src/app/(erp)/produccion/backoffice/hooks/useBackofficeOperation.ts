@@ -125,7 +125,6 @@ export function useBackofficeOperation() {
     fetchPending: inbox.fetchPending,
     fetchHistory,
     currentUserFullName,
-    includePendingPrediagnostico: historyFilters.verdict === 'pendiente',
     shellClass: historyFilters.shellClass,
     verdict: historyFilters.verdict,
   });

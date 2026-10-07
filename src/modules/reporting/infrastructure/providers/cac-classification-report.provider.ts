@@ -74,8 +74,6 @@ export class CacClassificationReportProvider implements IReportDataProvider {
         entry.unitSapValidationStatus ??
         resolveUnitSapStatus(entry.unit[0]?.service_orders?.sap_integration_status, seriesSapStatuses);
 
-      if (!entry.prediagnostico && filters.verdict !== 'pendiente') continue;
-
       const s1 = String(entry.unit[0]?.serial_number || '').trim().toUpperCase();
       if (s1 && s1 !== '---' && s1.length >= 3) {
         const prev = s1Seen.get(s1);

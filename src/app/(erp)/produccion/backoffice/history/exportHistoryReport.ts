@@ -23,11 +23,8 @@ export async function exportHistoryReport(
   catalogs: ExportCatalogs,
   dateFilterFrom: string,
   dateFilterTo: string,
-  opts?: { includePending?: boolean }
 ): Promise<void> {
-  const exportEntries = opts?.includePending
-    ? trayEntries
-    : trayEntries.filter((entry) => entry.prediagnostico);
+  const exportEntries = trayEntries;
   if (exportEntries.length === 0) {
     notify.warning('Sin resultados para exportar', { description: 'No hay ingresos CAC con orden de servicio TC-XXX que coincidan con los filtros actuales.' });
     return;

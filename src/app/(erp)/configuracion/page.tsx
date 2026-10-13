@@ -1475,7 +1475,7 @@ export default function ConfiguracionPage() {
           )}
 
           {activeView === 'prediagnostico' && (
-            <PrediagnosticoCatalogPanel tecnologias={tecnologias} marcas={marcas} />
+            <PrediagnosticoCatalogPanel tecnologias={tecnologias} marcas={marcas} modelos={modelos} />
           )}
 
           {activeView === 'reacondicionado' && (

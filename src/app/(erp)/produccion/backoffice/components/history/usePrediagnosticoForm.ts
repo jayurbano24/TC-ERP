@@ -41,6 +41,7 @@ export function usePrediagnosticoForm(
   serviceOrderIds: string[],
   techId: string,
   brandId: string,
+  modelId: string,
   open: boolean
 ) {
   const [form, setForm] = useState<PrediagnosticoFormState>(EMPTY_FORM);
@@ -64,6 +65,7 @@ export function usePrediagnosticoForm(
     if (anchorId) params.set('serviceOrderId', anchorId);
     if (techId) params.set('techId', techId);
     if (brandId) params.set('brandId', brandId);
+    if (modelId) params.set('modelId', modelId);
 
     void apiFetch(`/api/v1/backoffice/prediagnostico?${params}`)
       .then(async (res) => {
@@ -104,7 +106,7 @@ export function usePrediagnosticoForm(
     return () => {
       cancelled = true;
     };
-  }, [open, idsKey, techId, brandId]);
+  }, [open, idsKey, techId, brandId, modelId]);
 
   const save = async () => {
     setSaving(true);

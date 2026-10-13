@@ -1,7 +1,17 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Badge, Button, Card, notify, confirmDialog, DataTable, type DataTableColumn } from '@/components/ui';
+import {
+  Badge,
+  Button,
+  Card,
+  notify,
+  confirmDialog,
+  DataTable,
+  TablePagination,
+  type DataTableColumn,
+} from '@/components/ui';
+import { useClientPagination } from '@/hooks/useClientPagination';
 import { Box, Eye, RefreshCw, Search, Trash2, X } from 'lucide-react';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { getAgenciaLabel } from '../backofficeHelpers';
@@ -68,6 +78,13 @@ export function SubBodegaTab({
       );
     });
   }, [allRows, search, CAC_AGENCIES]);
+
+  const pagination = useClientPagination(rows, 25, [
+    activeTab,
+    search,
+    dateFilterFrom,
+    dateFilterTo,
+  ]);
 
   const boxCount = countSubBodegaBoxes(allReceptions, activeTab, dateFilterFrom, dateFilterTo);
 
@@ -299,7 +316,7 @@ export function SubBodegaTab({
       <Card className="p-0 bg-white rounded-[2.5rem] shadow-2xl border-none overflow-hidden">
         <DataTable
           columns={columns}
-          data={rows}
+          data={pagination.slice}
           getRowId={(item) => item.id}
           onRowClick={(item) => onViewReception(item.reception)}
           rowHeight={72}
@@ -313,6 +330,18 @@ export function SubBodegaTab({
               : 'No hay cajas registradas en esta sub-bodega'
           }
         />
+        {rows.length > 0 ? (
+          <TablePagination
+            totalCount={pagination.totalCount}
+            page={pagination.page}
+            totalPages={pagination.totalPages}
+            startItem={pagination.startItem}
+            endItem={pagination.endItem}
+            pageSize={pagination.pageSize}
+            onPageChange={pagination.setPage}
+            itemLabel="cajas"
+          />
+        ) : null}
       </Card>
     </div>
   );

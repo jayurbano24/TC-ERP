@@ -23,6 +23,7 @@ type Props = {
   osLabels: string[];
   techId: string;
   brandId: string;
+  modelId: string;
   techName: string;
   modelName: string;
   onClose: () => void;
@@ -104,13 +105,14 @@ export function PrediagnosticoPanel({
   osLabels,
   techId,
   brandId,
+  modelId,
   techName,
   modelName,
   onClose,
   onSaved,
 }: Props) {
   const { form, setForm, items, canEdit, loading, saving, errors, savedLabel, save } =
-    usePrediagnosticoForm(serviceOrderIds, techId, brandId, serviceOrderIds.length > 0);
+    usePrediagnosticoForm(serviceOrderIds, techId, brandId, modelId, serviceOrderIds.length > 0);
   const cosmetics = items.filter((item) => item.kind === 'cosmetico');
   const functions = items.filter((item) => item.kind === 'funcionamiento');
   const classHelp = form.shellClass ? SHELL_CLASS_HELP[form.shellClass] : '';

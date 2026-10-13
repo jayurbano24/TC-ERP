@@ -1,10 +1,11 @@
 /** Marca horizontal TC + TECHCORP para impresión (fondo claro). */
-export function tcTechcorpLogoPrintHtml(): string {
+export function tcTechcorpLogoPrintHtml(maskId = 'tc-logo-mask-print'): string {
+  const safeId = maskId.replace(/[^a-zA-Z0-9_-]/g, '');
   return `
     <div class="brand-bar">
       <svg class="brand-logo" viewBox="0 0 565 280" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Techcorp">
         <defs>
-          <mask id="tc-logo-mask-print" maskUnits="userSpaceOnUse">
+          <mask id="${safeId}" maskUnits="userSpaceOnUse">
             <rect width="565" height="280" fill="black" />
             <circle cx="425" cy="140" r="140" fill="white" />
             <circle cx="425" cy="140" r="85" fill="black" />
@@ -16,7 +17,7 @@ export function tcTechcorpLogoPrintHtml(): string {
           <rect x="8" y="9" width="232" height="60" />
           <rect x="92" y="9" width="65" height="271" />
         </g>
-        <rect width="565" height="280" fill="#2e3165" mask="url(#tc-logo-mask-print)" />
+        <rect width="565" height="280" fill="#2e3165" mask="url(#${safeId})" />
       </svg>
       <span class="brand-name">TECHCORP</span>
     </div>`;

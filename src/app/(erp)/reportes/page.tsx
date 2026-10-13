@@ -3,7 +3,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Card, Button, Badge } from '@/components/ui';
 import { ModulePage } from '@/components/module-page';
-import { Download, FileSpreadsheet, Filter, Loader2 } from 'lucide-react';
+import Link from 'next/link';
+import { Download, FileSpreadsheet, Filter, FlaskConical, Loader2 } from 'lucide-react';
 import {
   downloadReportApi,
   fetchReportCatalogApi,
@@ -108,7 +109,7 @@ export default function ReportesPage() {
 
   if (!enabled) {
     return (
-      <ModulePage title="Portal de Reportes" subtitle="Centralización de exportaciones TC-ERP" category="Gestión">
+      <ModulePage title="Motor de Reportes ERP" subtitle="Centralización de exportaciones TC-ERP" category="Gestión">
         <Card className="p-8 text-center">
           <p className="text-[var(--muted)]">
             Activa <code className="text-sm bg-[var(--surface-hover)] px-2 py-1 rounded">USE_CENTRAL_REPORTING</code> en
@@ -121,7 +122,7 @@ export default function ReportesPage() {
 
   return (
     <ModulePage
-      title="Portal de Reportes"
+      title="Motor de Reportes ERP"
       subtitle="Catálogo unificado de exportaciones operativas — Excel y CSV con auditoría."
       category="Gestión"
       actions={
@@ -130,6 +131,24 @@ export default function ReportesPage() {
         </Badge>
       }
     >
+      <Card className="mb-6 p-4 border border-[var(--border)] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <FlaskConical className="h-8 w-8 text-[var(--accent)] shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-black text-[var(--heading)]">TEC-LAB DUT</p>
+            <p className="text-xs text-[var(--muted)] mt-0.5">
+              Consulte cada ONT RUN certificado: parámetros, DUT, RF y PDF de laboratorio (ont_runs).
+            </p>
+          </div>
+        </div>
+        <Link
+          href="/reportes/ont-runs"
+          className="inline-flex h-10 items-center justify-center rounded-xl bg-[var(--accent)] px-4 text-[10px] font-black uppercase tracking-wider text-[var(--accent-foreground)] hover:opacity-90"
+        >
+          Abrir TEC-LAB DUT
+        </Link>
+      </Card>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-1 overflow-hidden border border-[var(--border)] p-0 shadow-lg">
           <div className="border-b border-[var(--border)] bg-[var(--surface)] p-4">

@@ -864,6 +864,35 @@ export async function deletePrediagnosticoItem(id: string) {
   return { error };
 }
 
+export async function getPrediagnosticoModelItemIds(modelId: string): Promise<string[]> {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase || !modelId) return [];
+  const { data, error } = await supabase
+    .from('cat_prediagnostico_model_items')
+    .select('item_id')
+    .eq('model_id', modelId);
+  if (error) {
+    console.error('Error fetching prediagnostico model items:', error);
+    return [];
+  }
+  return (data || []).map((row) => String(row.item_id));
+}
+
+/** Reemplaza el perfil del modelo. itemIds vacío elimina el perfil (vuelve a reglas por tecnología/marca). */
+export async function savePrediagnosticoModelItems(modelId: string, itemIds: string[]) {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return { error: 'Supabase not configured' };
+  const { error: delError } = await supabase
+    .from('cat_prediagnostico_model_items')
+    .delete()
+    .eq('model_id', modelId);
+  if (delError) return { error: delError };
+  if (itemIds.length === 0) return { error: null };
+  const rows = itemIds.map((itemId) => ({ model_id: modelId, item_id: itemId }));
+  const { error: insError } = await supabase.from('cat_prediagnostico_model_items').insert(rows);
+  return { error: insError };
+}
+
 
 // --- USUARIOS ---
 

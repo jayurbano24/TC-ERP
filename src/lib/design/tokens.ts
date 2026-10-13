@@ -17,7 +17,7 @@ export const erpTypography = {
 
 export const erpLayout = {
   page: 'flex flex-col gap-6 lg:gap-8 w-full max-w-full min-w-0',
-  pageHeader: 'flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between min-w-0',
+  pageHeader: 'flex flex-col gap-4 min-w-0',
   cardGrid: 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4',
   statGrid: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4',
   formGrid: 'grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-6',

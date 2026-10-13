@@ -10,12 +10,13 @@ import {
 } from '@/shared/authz/roleGuard';
 import { savePrediagnostico } from '@/modules/backoffice/prediagnostico/prediagnosticoService';
 import { createPrediagnosticoStore } from '@/modules/backoffice/prediagnostico/supabasePrediagnosticoStore';
-import { itemAppliesToEquipment } from '@/modules/backoffice/prediagnostico/validatePrediagnostico';
+import { filterPrediagnosticoCatalogForEquipment } from '@/modules/backoffice/prediagnostico/resolvePrediagnosticoCatalog';
 
 const Query = z.object({
   serviceOrderId: z.string().uuid().optional(),
   techId: z.string().optional(),
   brandId: z.string().optional(),
+  modelId: z.string().uuid().optional(),
 });
 
 const Body = z.object({
@@ -65,16 +66,40 @@ export const GET = withErrorHandler(
 
     const techId = parsed.data.techId || '';
     const brandId = parsed.data.brandId || '';
-    const items = (catalog.data || [])
-      .map((row) => ({
-        id: String(row.id),
-        name: String(row.name),
-        kind: String(row.item_kind) as 'cosmetico' | 'funcionamiento',
-        technologyIds: (row.technology_ids as string[]) || [],
-        brandIds: (row.brand_ids as string[]) || [],
-        sortOrder: Number(row.sort_order) || 0,
-      }))
-      .filter((row) => itemAppliesToEquipment(row, techId, brandId));
+    const modelId = parsed.data.modelId || '';
+
+    let modelProfileItemIds: string[] | null = null;
+    if (modelId) {
+      const profile = await db
+        .from('cat_prediagnostico_model_items')
+        .select('item_id')
+        .eq('model_id', modelId);
+      if (profile.error) {
+        return NextResponse.json(
+          { error: 'Falta aplicar la migración 253_prediagnostico_model_items.sql en Supabase.' },
+          { status: 503 }
+        );
+      }
+      if ((profile.data || []).length > 0) {
+        modelProfileItemIds = (profile.data || []).map((row) => String(row.item_id));
+      }
+    }
+
+    const catalogRows = (catalog.data || []).map((row) => ({
+      id: String(row.id),
+      name: String(row.name),
+      kind: String(row.item_kind) as 'cosmetico' | 'funcionamiento',
+      technologyIds: (row.technology_ids as string[]) || [],
+      brandIds: (row.brand_ids as string[]) || [],
+      sortOrder: Number(row.sort_order) || 0,
+    }));
+
+    const items = filterPrediagnosticoCatalogForEquipment(
+      catalogRows,
+      techId,
+      brandId,
+      modelProfileItemIds
+    ).map(({ id, name, kind }) => ({ id, name, kind }));
 
     return NextResponse.json({ item, items, canEdit });
   },

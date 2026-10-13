@@ -1,11 +1,27 @@
-import React, { useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { TablePagination } from '@/components/ui/TablePagination';
 import { notify, confirmDialog, promptDialog } from '@/components/ui';
 import { useClientPagination } from '@/hooks/useClientPagination';
-import { Scan, Box, Pencil, Trash2, CheckCircle2, Plus, FileText, ArrowRight, ArrowLeft, Lock, LockOpen } from 'lucide-react';
+import {
+  Scan,
+  Box,
+  Pencil,
+  Trash2,
+  CheckCircle2,
+  Plus,
+  FileText,
+  ArrowRight,
+  ArrowLeft,
+  Lock,
+  LockOpen,
+  ClipboardList,
+} from 'lucide-react';
+import { apiFetch, readApiJson } from '@/lib/http/apiFetch';
+import { PREDIAGNOSTICO_BATCH_MAX } from '@/modules/backoffice/prediagnostico/batchSelection';
+import { PxBoxPrediagnosticoPanel, type PxPrediagnosticoBatch } from './PxBoxPrediagnosticoPanel';
 import {
   canClosePxBox,
   getPxActiveBoxCodes,
@@ -38,6 +54,201 @@ export const PxBoxDetailView = (props: any) => {
     useIncrementalCapture,
   } = props;
   const rejected = boxMeta?.rejected_count ?? 0;
+
+  const [prediagBatch, setPrediagBatch] = useState<PxPrediagnosticoBatch | null>(null);
+  const [prediagPick, setPrediagPick] = useState<Set<string>>(new Set());
+  const [savedPrediagEquipment, setSavedPrediagEquipment] = useState<Set<string>>(new Set());
+
+  const boxLotContext = useMemo(() => {
+    type MetaLot = {
+      brand_id?: string | null;
+      model_id?: string | null;
+      model_name?: string | null;
+      technology_name?: string | null;
+    };
+    type BoxMetaShape = {
+      brand_id?: string | null;
+      model_id?: string | null;
+      lots?: MetaLot[];
+    };
+    const meta = boxMeta as BoxMetaShape | null;
+    const metaLots = meta?.lots || [];
+    const metaLot = metaLots[metaLots.length - 1] || metaLots[0];
+
+    const manifestLots = (boxItems as { boxCode?: string; tecnologia?: string; modelo?: string }[]).filter(
+      (item) => item.boxCode === targetBox
+    );
+    const manifestLot = manifestLots[manifestLots.length - 1] || manifestLots[0];
+
+    const modelNameHint = (metaLot?.model_name || manifestLot?.modelo || '').trim();
+    const techNameHint = (metaLot?.technology_name || manifestLot?.tecnologia || '').trim();
+
+    let modelId = meta?.model_id || metaLot?.model_id || '';
+    let brandId = meta?.brand_id || metaLot?.brand_id || '';
+
+    let model = modelId
+      ? systemModels.find((m: { id: string }) => m.id === modelId)
+      : undefined;
+    if (!model && modelNameHint) {
+      const hint = modelNameHint.toLowerCase();
+      model = systemModels.find((m: { name?: string }) => {
+        const name = (m.name || '').toLowerCase();
+        return name === hint || name.includes(hint) || hint.includes(name);
+      });
+    }
+    if (model) {
+      modelId = modelId || model.id;
+      brandId = brandId || model.brand_id || '';
+    }
+
+    const tech =
+      systemTechnologies.find((t: { id: string }) => t.id === model?.technology_id) ||
+      systemTechnologies.find((t: { name?: string }) => t.name === techNameHint);
+    const techId = tech?.id || model?.technology_id || '';
+
+    return {
+      techId: techId || '',
+      brandId: brandId || '',
+      modelId: modelId || '',
+      techName: tech?.name || techNameHint,
+      modelName: model?.name || modelNameHint,
+    };
+  }, [boxItems, targetBox, systemModels, systemTechnologies, boxMeta]);
+
+  const equipmentIdsInBox = useMemo(
+    () =>
+      (boxScannedSeries as { equipmentId?: string }[])
+        .map((row) => row.equipmentId)
+        .filter((id): id is string => Boolean(id && !id.startsWith('pending-'))),
+    [boxScannedSeries]
+  );
+
+  const refreshSavedPrediag = useCallback(async () => {
+    if (!useIncrementalCapture || equipmentIdsInBox.length === 0) {
+      setSavedPrediagEquipment(new Set());
+      return;
+    }
+    const ctx = boxLotContext;
+    if (!ctx.modelId) return;
+    const params = new URLSearchParams({
+      equipmentIds: equipmentIdsInBox.slice(0, 200).join(','),
+    });
+    if (ctx.techId) params.set('techId', ctx.techId);
+    if (ctx.brandId) params.set('brandId', ctx.brandId);
+    params.set('modelId', ctx.modelId);
+    try {
+      const res = await apiFetch(`/api/v1/recepcion/px/prediagnostico?${params}`, { cache: 'no-store' });
+      const body = await readApiJson<{ savedEquipmentIds?: string[] }>(res);
+      if (!res.ok) return;
+      setSavedPrediagEquipment(new Set(body.savedEquipmentIds || []));
+    } catch {
+      setSavedPrediagEquipment(new Set());
+    }
+  }, [useIncrementalCapture, equipmentIdsInBox, boxLotContext]);
+
+  useEffect(() => {
+    void refreshSavedPrediag();
+  }, [refreshSavedPrediag]);
+
+  const canPrediagRow = (row: { equipmentId?: string }) =>
+    Boolean(useIncrementalCapture && row.equipmentId && !row.equipmentId.startsWith('pending-'));
+
+  const openPrediagnosticoForRows = (rows: { equipmentId?: string; sn?: string }[]) => {
+    const ctx = boxLotContext;
+    if (!ctx.modelId) {
+      notify.warning('No se pudo resolver el modelo del lote en esta caja.');
+      return;
+    }
+    const picked = rows.filter((row) => canPrediagRow(row));
+    if (picked.length === 0) {
+      notify.warning('Espere a que el servidor confirme el escaneo antes de pre-diagnosticar.');
+      return;
+    }
+    if (picked.length > PREDIAGNOSTICO_BATCH_MAX) {
+      notify.warning(`Máximo ${PREDIAGNOSTICO_BATCH_MAX} equipos por lote`);
+      return;
+    }
+    setPrediagBatch({
+      equipmentIds: picked.map((row) => row.equipmentId as string),
+      serialLabels: picked.map((row) => row.sn || row.equipmentId || ''),
+      techId: ctx.techId,
+      brandId: ctx.brandId,
+      modelId: ctx.modelId,
+      techName: ctx.techName,
+      modelName: ctx.modelName,
+    });
+    requestAnimationFrame(() => {
+      document.getElementById('px-prediagnostico-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
+  const togglePrediagPick = (equipmentId: string) => {
+    setPrediagPick((prev) => {
+      const next = new Set(prev);
+      if (next.has(equipmentId)) next.delete(equipmentId);
+      else next.add(equipmentId);
+      return next;
+    });
+  };
+
+  const prediagEligibleIds = useMemo(
+    () =>
+      (boxScannedSeries as { equipmentId?: string }[])
+        .filter((row) => canPrediagRow(row))
+        .map((row) => String(row.equipmentId)),
+    [boxScannedSeries, useIncrementalCapture]
+  );
+
+  const prediagEligibleOnPageIds = useMemo(
+    () =>
+      (boxSeriesPagination.slice as { equipmentId?: string }[])
+        .filter((row) => canPrediagRow(row))
+        .map((row) => String(row.equipmentId)),
+    [boxSeriesPagination.slice, useIncrementalCapture]
+  );
+
+  const allEligibleSelected =
+    prediagEligibleIds.length > 0 && prediagEligibleIds.every((id) => prediagPick.has(id));
+  const allPageEligibleSelected =
+    prediagEligibleOnPageIds.length > 0 &&
+    prediagEligibleOnPageIds.every((id) => prediagPick.has(id));
+  const somePageEligibleSelected = prediagEligibleOnPageIds.some((id) => prediagPick.has(id));
+
+  const selectAllPrediagInBox = () => {
+    if (!useIncrementalCapture || prediagEligibleIds.length === 0) return;
+    const capped = prediagEligibleIds.slice(0, PREDIAGNOSTICO_BATCH_MAX);
+    if (prediagEligibleIds.length > PREDIAGNOSTICO_BATCH_MAX) {
+      notify.warning(
+        `Hay ${prediagEligibleIds.length} equipos; solo se seleccionan ${PREDIAGNOSTICO_BATCH_MAX} (límite masivo).`
+      );
+    }
+    setPrediagPick(new Set(capped));
+  };
+
+  const clearPrediagPick = () => setPrediagPick(new Set());
+
+  const toggleSelectAllPrediagOnPage = () => {
+    if (!useIncrementalCapture || prediagEligibleOnPageIds.length === 0) return;
+    setPrediagPick((prev) => {
+      const next = new Set(prev);
+      if (allPageEligibleSelected) {
+        prediagEligibleOnPageIds.forEach((id) => next.delete(id));
+        return next;
+      }
+      let warned = false;
+      for (const id of prediagEligibleOnPageIds) {
+        if (next.size >= PREDIAGNOSTICO_BATCH_MAX && !next.has(id)) {
+          if (!warned) {
+            notify.warning(`Máximo ${PREDIAGNOSTICO_BATCH_MAX} equipos por pre-diagnóstico masivo.`);
+            warned = true;
+          }
+          break;
+        }
+        next.add(id);
+      }
+      return next;
+    });
+  };
 
   return (
     <div className="space-y-6 animate-rise-in">
@@ -515,11 +726,73 @@ export const PxBoxDetailView = (props: any) => {
             </div>
 
             {/* Tabla Series */}
-            <div className="lg:col-span-8 xl:col-span-8">
+            <div className="lg:col-span-8 xl:col-span-8 space-y-4">
+              {prediagBatch ? (
+                <PxBoxPrediagnosticoPanel
+                  batch={prediagBatch}
+                  onClose={() => setPrediagBatch(null)}
+                  onSaved={() => {
+                    setPrediagBatch(null);
+                    setPrediagPick(new Set());
+                    void refreshSavedPrediag();
+                  }}
+                />
+              ) : null}
               <Card padding="none" className="overflow-hidden h-full border-2 border-slate-100 shadow-xl shadow-slate-200/50 flex flex-col">
-                <div className="bg-white border-b border-slate-100 p-5 flex justify-between items-center">
+                <div className="bg-white border-b border-slate-100 p-5 flex flex-wrap justify-between items-center gap-3">
                   <div className="flex items-center gap-2">
                     <h3 className="text-[11px] font-black text-[var(--heading)] uppercase tracking-widest">Equipos Escaneados</h3>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={!useIncrementalCapture || prediagEligibleIds.length === 0 || allEligibleSelected}
+                      className="!text-[10px] font-black uppercase tracking-widest"
+                      onClick={selectAllPrediagInBox}
+                    >
+                      Seleccionar todas ({Math.min(prediagEligibleIds.length, PREDIAGNOSTICO_BATCH_MAX)})
+                    </Button>
+                    {prediagPick.size > 0 ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="!text-[10px] font-bold uppercase tracking-widest text-slate-500"
+                        onClick={clearPrediagPick}
+                      >
+                        Quitar selección
+                      </Button>
+                    ) : null}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={prediagPick.size === 0 || !useIncrementalCapture}
+                      className="!text-[10px] font-black uppercase tracking-widest"
+                      leftIcon={<ClipboardList className="h-3.5 w-3.5" />}
+                      onClick={() => {
+                        const rows = boxScannedSeries.filter(
+                          (row: { equipmentId?: string }) =>
+                            row.equipmentId && prediagPick.has(row.equipmentId)
+                        );
+                        openPrediagnosticoForRows(rows);
+                      }}
+                    >
+                      Pre-diag. masivo ({prediagPick.size})
+                    </Button>
+                    {prediagBatch ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="!text-[10px] font-bold text-slate-500"
+                        onClick={() => setPrediagBatch(null)}
+                      >
+                        Cerrar formulario
+                      </Button>
+                    ) : null}
                   </div>
                 </div>
                 <div className="overflow-x-auto flex-1 bg-white">
@@ -530,6 +803,25 @@ export const PxBoxDetailView = (props: any) => {
                       <table className="w-full text-left text-xs whitespace-nowrap">
                         <thead>
                           <tr className="bg-slate-50/80 border-b text-[10px] font-black uppercase text-slate-400">
+                            <th className="px-3 py-4 w-10 text-center">
+                              <input
+                                type="checkbox"
+                                className="h-3.5 w-3.5"
+                                disabled={
+                                  !useIncrementalCapture || prediagEligibleOnPageIds.length === 0
+                                }
+                                checked={allPageEligibleSelected}
+                                ref={(el) => {
+                                  if (el) {
+                                    el.indeterminate =
+                                      somePageEligibleSelected && !allPageEligibleSelected;
+                                  }
+                                }}
+                                onChange={toggleSelectAllPrediagOnPage}
+                                title="Seleccionar todas las series de esta página"
+                                aria-label="Seleccionar todas las series de esta página"
+                              />
+                            </th>
                             <th className="px-6 py-4">S-1</th>
                             {showMulti && (
                               <>
@@ -545,7 +837,7 @@ export const PxBoxDetailView = (props: any) => {
                         <tbody className="divide-y divide-slate-50">
                           {boxScannedSeries.length === 0 && (
                             <tr>
-                              <td colSpan={showMulti ? 6 : 3} className="px-6 py-20 text-center">
+                              <td colSpan={showMulti ? 7 : 4} className="px-6 py-20 text-center">
                                 <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
                                   <Scan className="w-8 h-8 text-slate-300" />
                                 </div>
@@ -556,11 +848,40 @@ export const PxBoxDetailView = (props: any) => {
                               </td>
                             </tr>
                           )}
-                          {boxSeriesPagination.slice.map((s: any, idx: number) => (
+                          {boxSeriesPagination.slice.map((s: any, idx: number) => {
+                            const equipmentId = String(s.equipmentId || '');
+                            const canPrediag = canPrediagRow(s);
+                            const hasPred = equipmentId ? savedPrediagEquipment.has(equipmentId) : false;
+                            return (
                             <tr key={`${s.sn}-${idx}`} className="hover:bg-slate-50/50 transition-colors">
+                              <td className="px-3 py-4 text-center">
+                                <input
+                                  type="checkbox"
+                                  className="h-3.5 w-3.5"
+                                  disabled={!canPrediag}
+                                  checked={equipmentId ? prediagPick.has(equipmentId) : false}
+                                  onChange={() => togglePrediagPick(equipmentId)}
+                                  title={
+                                    canPrediag
+                                      ? 'Incluir en pre-diagnóstico masivo'
+                                      : 'Espere confirmación del servidor tras escanear'
+                                  }
+                                />
+                              </td>
                               <td className="px-6 py-4 font-mono font-black text-[var(--heading)]">
                                 <div className="flex items-center gap-2">
-                                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                  <div
+                                    className={`w-1.5 h-1.5 rounded-full ${
+                                      hasPred ? 'bg-[var(--accent)]' : canPrediag ? 'bg-emerald-500' : 'bg-slate-300'
+                                    }`}
+                                    title={
+                                      hasPred
+                                        ? 'Pre-diagnóstico registrado'
+                                        : canPrediag
+                                          ? 'Listo para pre-diagnóstico'
+                                          : 'Pendiente de sync'
+                                    }
+                                  />
                                   {s.sn}
                                 </div>
                               </td>
@@ -583,20 +904,35 @@ export const PxBoxDetailView = (props: any) => {
                                 )}
                               </td>
                               <td className="px-6 py-4 text-right">
-                                {!isBoxClosed && (
                                 <div className="flex justify-end gap-1">
-                                  <button 
-                                    onClick={() => handleDeleteEquipment({ ...s, boxCode: targetBox })}
-                                    className="p-1.5 hover:bg-rose-50 rounded-lg group transition-colors"
-                                    title="Eliminar Equipo"
+                                  <button
+                                    type="button"
+                                    disabled={!canPrediag}
+                                    onClick={() => openPrediagnosticoForRows([s])}
+                                    className="p-1.5 hover:bg-[var(--accent)]/10 rounded-lg group transition-colors disabled:opacity-30"
+                                    title={
+                                      canPrediag
+                                        ? 'Pre-diagnóstico individual'
+                                        : 'Espere confirmación del servidor tras escanear'
+                                    }
                                   >
-                                    <Trash2 className="w-3.5 h-3.5 text-slate-300 group-hover:text-rose-500" />
+                                    <ClipboardList className="w-3.5 h-3.5 text-slate-300 group-hover:text-[var(--accent)]" />
                                   </button>
+                                  {!isBoxClosed ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteEquipment({ ...s, boxCode: targetBox })}
+                                      className="p-1.5 hover:bg-rose-50 rounded-lg group transition-colors"
+                                      title="Eliminar Equipo"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5 text-slate-300 group-hover:text-rose-500" />
+                                    </button>
+                                  ) : null}
                                 </div>
-                                )}
                               </td>
                             </tr>
-                          ))}
+                          );
+                          })}
                         </tbody>
                       </table>
                     );

@@ -27,7 +27,7 @@ export const ModulePage = ({
   return (
     <div className={`${erpLayout.page} py-4 sm:py-6`}>
       <header className={erpLayout.pageHeader}>
-        <div className="space-y-2 sm:space-y-3 min-w-0">
+        <div className="w-full min-w-0 shrink-0 space-y-2 sm:space-y-3">
           <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
             {backHref && (
               <Link
@@ -40,14 +40,16 @@ export const ModulePage = ({
             )}
             <Badge variant="purple">{category}</Badge>
           </div>
-          <h1 className={erpTypography.pageTitle}>{title}</h1>
+          <h1 className={`${erpTypography.pageTitle} text-pretty leading-tight`}>{title}</h1>
           {subtitle && (
             <p className="text-sm sm:text-base text-[var(--muted)] font-medium max-w-3xl leading-relaxed">{subtitle}</p>
           )}
         </div>
 
         {actions && (
-          <div className="flex flex-wrap items-center gap-2 sm:gap-3 shrink-0">{actions}</div>
+          <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:gap-3 lg:justify-end">
+            {actions}
+          </div>
         )}
       </header>
 

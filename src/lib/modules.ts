@@ -28,7 +28,8 @@ export const erpModules: ErpModule[] = [
   // DESPACHO
   { id: 10, categoria: 'Bodega', nombre: "Despacho Final", descripcion: "Masivo, individual y Master Box.", ruta: "/despacho" },
 
-  { id: 17, categoria: 'Gestión', nombre: "Portal de Reportes", descripcion: "Catálogo unificado de exportaciones Excel/CSV.", ruta: "/reportes" },
+  { id: 17, categoria: 'Gestión', nombre: "Motor de Reportes ERP", descripcion: "Catálogo unificado de exportaciones Excel/CSV del ERP.", ruta: "/reportes" },
+  { id: 23, categoria: 'Gestión', nombre: "TEC-LAB DUT", descripcion: "Detalle ONT RUN certificado (ont_runs) — parámetros, DUT y PDF de laboratorio.", ruta: "/reportes/ont-runs" },
   { id: 18, categoria: 'Gestión', nombre: "Autorizaciones", descripcion: "Bandeja del Gerente General para acciones pre-autorizadas.", ruta: "/autorizaciones" },
   { id: 11, categoria: 'Gestión', nombre: "Dashboard & BI", descripcion: "Productividad, KPIs y proyección de capacidad.", ruta: "/gestion/bi" },
   { id: 12, categoria: 'Gestión', nombre: "Costos & Rentabilidad", descripcion: "Costeo por equipo, técnico y proyecto.", ruta: "/gestion/costos" },
@@ -81,7 +82,8 @@ export const navigationGroups = [
     title: "Gestión & BI",
     items: [
       { label: "Autorizaciones", href: "/autorizaciones", descripcion: "Aprobaciones Gerente", icon: "ShieldCheck", permissionKey: "Autorizaciones" },
-      { label: "Reportes", href: "/reportes", descripcion: "Exportaciones centralizadas", icon: "FileSpreadsheet", permissionKey: "Reportes" },
+      { label: "Motor de Reportes ERP", href: "/reportes", descripcion: "Exportaciones Excel y CSV", icon: "FileSpreadsheet", permissionKey: "Reportes" },
+      { label: "TEC-LAB DUT", href: "/reportes/ont-runs", descripcion: "ONT RUN · detalle certificado", icon: "FlaskConical", permissionKey: "Reportes" },
       { label: "Recursos Humanos", href: "/rrhh", descripcion: "Asistencia y Planilla", icon: "Users" },
       { label: "Productividad", href: "/gestion/bi", descripcion: "Métricas y KPIs", icon: "TrendingUp" },
       { label: "Costos", href: "/gestion/costos", descripcion: "Análisis financiero", icon: "CircleDollarSign" },

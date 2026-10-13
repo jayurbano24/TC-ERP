@@ -40,6 +40,7 @@ import {
   PackageMinus,
   Trash2,
   PackageCheck,
+  FlaskConical,
 } from "lucide-react";
 import {
   ErpNavItem,
@@ -51,7 +52,7 @@ import {
 const ICON_MAP: Record<string, React.ElementType> = {
   LayoutDashboard, PackageSearch, Undo2, Laptop, Wrench, Warehouse, Truck,
   TrendingUp, CircleDollarSign, ShieldCheck, Activity, HeartPulse, Users,
-  FileSpreadsheet, Boxes, Database, PackageMinus, Trash2, PackageCheck,
+  FileSpreadsheet, Boxes, Database, PackageMinus, Trash2, PackageCheck, FlaskConical,
 };
 
 // Marcador de "usuario recurrente": permite no cerrar sesión ante errores

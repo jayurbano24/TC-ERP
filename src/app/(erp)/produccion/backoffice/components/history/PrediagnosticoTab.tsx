@@ -314,6 +314,7 @@ export function PrediagnosticoTab({
               osLabels={selected.map((row) => row.osLabel)}
               techId={anchor.techId}
               brandId={anchor.brandId}
+              modelId={anchor.modelId}
               techName={anchor.techName}
               modelName={anchor.modelName}
               onClose={() => setSelected([])}

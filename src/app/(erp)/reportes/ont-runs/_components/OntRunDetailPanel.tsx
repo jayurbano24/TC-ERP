@@ -12,6 +12,11 @@ import {
 import { isNotRunVerdict } from '@/modules/ont-runs/domain/ontRunVerdict';
 import { resolveOntRunBrandModel } from '@/modules/ont-runs/domain/resolveOntRunBrandModel';
 import { printOntRunReport } from '@/modules/ont-runs/client/printOntRunReport';
+import {
+  buildOntRunThroughputSummary,
+  tallyThroughputPass,
+  type ThroughputCheckItem,
+} from '@/modules/ont-runs/domain/ontRunThroughputSummary';
 
 type Props = {
   run: OntRun;
@@ -109,6 +114,107 @@ function KpiChip({
   );
 }
 
+function throughputPassBadge(item: ThroughputCheckItem) {
+  if (item.passed === true) {
+    return (
+      <Badge variant="green" className="!px-1.5 !py-0 text-[7px] font-black uppercase">
+        Pasa
+      </Badge>
+    );
+  }
+  if (item.passed === false) {
+    return (
+      <Badge variant="red" className="!px-1.5 !py-0 text-[7px] font-black uppercase">
+        Falla
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="slate" className="!px-1.5 !py-0 text-[7px] font-black uppercase">
+      Sin dato
+    </Badge>
+  );
+}
+
+function ThroughputSummaryTable({ items }: { items: ThroughputCheckItem[] }) {
+  const tally = tallyThroughputPass(items);
+  return (
+    <div>
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+        <p className="text-[8px] font-black uppercase tracking-widest text-[var(--muted)]">
+          Throughput · 4 LAN + Wi‑Fi 2.4 / 5 GHz
+        </p>
+        <p className="text-[8px] font-bold text-[var(--muted)] tabular-nums">
+          OK {tally.pass} · Falla {tally.fail} · Pend. {tally.pending}
+        </p>
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
+        <table className="w-full min-w-[520px] text-left text-[9px]">
+          <thead className="bg-[var(--surface)] text-[var(--muted)] uppercase">
+            <tr>
+              <th className="px-2 py-1 font-black">Prueba</th>
+              <th className="px-2 py-1 font-black text-right">Mbps medido</th>
+              <th className="px-2 py-1 font-black">Esperado</th>
+              <th className="px-2 py-1 font-black text-center">Resultado</th>
+              <th className="px-2 py-1 font-black text-center">Veredicto</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <tr key={item.key} className="border-t border-[var(--border)]">
+                <td className="px-2 py-1 font-bold">{item.label}</td>
+                <td className="px-2 py-1 text-right font-mono font-black">{item.readMbps}</td>
+                <td className="px-2 py-1 font-mono text-[var(--muted)]">{item.expected}</td>
+                <td className="px-2 py-1 text-center">{throughputPassBadge(item)}</td>
+                <td className="px-2 py-1 text-center text-[var(--muted)] font-bold uppercase">{item.verdict}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function FlowsDetailTable({ flows }: { flows: Record<string, unknown>[] }) {
+  if (flows.length === 0) return null;
+  return (
+    <div>
+      <p className="text-[8px] font-black uppercase tracking-widest text-[var(--muted)] mb-1.5">
+        Detalle iPerf / flujos ({flows.length})
+      </p>
+      <div className="overflow-x-auto rounded-lg border border-[var(--border)] max-h-[200px] overflow-y-auto">
+        <table className="w-full min-w-[640px] text-left text-[9px]">
+          <thead className="bg-[var(--surface)] text-[var(--muted)] uppercase sticky top-0">
+            <tr>
+              <th className="px-2 py-1 font-black">Caso</th>
+              <th className="px-2 py-1 font-black">Tipo</th>
+              <th className="px-2 py-1 font-black">Ruta</th>
+              <th className="px-2 py-1 font-black text-right">Avg Mbps</th>
+              <th className="px-2 py-1 font-black text-center">Vered.</th>
+            </tr>
+          </thead>
+          <tbody>
+            {flows.map((flow, idx) => (
+              <tr key={String(flow.case_id || idx)} className="border-t border-[var(--border)]">
+                <td className="px-2 py-0.5 font-mono">{String(flow.case_id || '—')}</td>
+                <td className="px-2 py-0.5">{String(flow.kind || '—')}</td>
+                <td className="px-2 py-0.5">
+                  {String(flow.source || '—')} → {String(flow.destination || '—')}
+                </td>
+                <td className="px-2 py-0.5 text-right font-mono font-bold">
+                  {flow.mbps_avg != null ? Number(flow.mbps_avg).toFixed(2) : '—'}
+                </td>
+                <td className="px-2 py-0.5 text-center">{String(flow.verdict || '—')}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function CertParamTable({ title, rows }: { title: string; rows: CertSheetParamRow[] }) {
   if (rows.length === 0) return null;
   return (
@@ -186,6 +292,12 @@ export function OntRunDetailPanel({ run }: Props) {
   const headline = certSheet ? certSheetStr(certSheet.headline) : '';
   const tallyText = certSheet ? certSheetStr(certSheet.tally) : '';
   const paramTally = tallyFromParamRows(paramRows);
+  const throughputSummary = buildOntRunThroughputSummary(run);
+  const throughputTally = tallyThroughputPass(throughputSummary);
+  const reportFlows =
+    run.reportJson && Array.isArray(run.reportJson.flows)
+      ? (run.reportJson.flows as Record<string, unknown>[])
+      : [];
 
   const opticalRx = dut && typeof dut.optical_rx === 'string' ? dut.optical_rx : run.rxOpticalPower;
   const opticalTx = dut && typeof dut.optical_tx === 'string' ? dut.optical_tx : run.txOpticalPower;
@@ -270,8 +382,21 @@ export function OntRunDetailPanel({ run }: Props) {
               <KpiChip label="Flujos" value={meta.flows} tone="neutral" />
             </>
           ) : null}
+          {throughputTally.pass + throughputTally.fail > 0 ? (
+            <KpiChip
+              label="Throughput OK"
+              value={`${throughputTally.pass}/${throughputTally.pass + throughputTally.fail}`}
+              tone={throughputTally.fail > 0 ? 'fail' : 'pass'}
+            />
+          ) : null}
         </div>
       ) : null}
+
+      {!isNotRunVerdict(run.verdict) ? (
+        <ThroughputSummaryTable items={throughputSummary} />
+      ) : null}
+
+      {reportFlows.length > 0 ? <FlowsDetailTable flows={reportFlows} /> : null}
 
       {tallyText ? (
         <p className="text-[9px] font-mono font-bold text-[var(--muted)] px-1">{tallyText}</p>
@@ -347,8 +472,9 @@ export function OntRunDetailPanel({ run }: Props) {
                 <tr>
                   <th className="px-2 py-1 font-black">Puerto</th>
                   <th className="px-2 py-1 font-black">Vered.</th>
-                  <th className="px-2 py-1 font-black text-right">RX</th>
-                  <th className="px-2 py-1 font-black text-right">TX</th>
+                  <th className="px-2 py-1 font-black text-right">RX Mbps</th>
+                  <th className="px-2 py-1 font-black text-right">TX Mbps</th>
+                  <th className="px-2 py-1 font-black text-center">iPerf</th>
                 </tr>
               </thead>
               <tbody>
@@ -361,6 +487,9 @@ export function OntRunDetailPanel({ run }: Props) {
                     </td>
                     <td className="px-2 py-0.5 text-right font-mono">
                       {port.tx_mbps != null ? Number(port.tx_mbps).toFixed(2) : '—'}
+                    </td>
+                    <td className="px-2 py-0.5 text-center font-bold uppercase">
+                      {String(port.iperf_state || '—')}
                     </td>
                   </tr>
                 ))}

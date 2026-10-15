@@ -19,6 +19,8 @@ export type ReportFilterParams = {
   agencyId?: string;
   shellClass?: string;
   verdict?: string;
+  /** Excluir filas con observaciones `[BACKFILL]` (CHG-015). */
+  excludeBackfill?: boolean;
   batchNumber?: string;
   batchId?: string;
   /** Filtros reporte matriz mensual (OPERACIONES_MENSUAL_TECNOLOGIA). */

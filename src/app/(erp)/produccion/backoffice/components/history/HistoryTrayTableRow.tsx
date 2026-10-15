@@ -7,6 +7,7 @@ import { resolveUnitSapStatus } from '@/lib/sap/sapValidationStatus';
 import { Clock, Eye, Printer, RefreshCw, RotateCcw } from 'lucide-react';
 import { formatAgencyLabel, getBackofficeClassifierName, type HistoryUnitEntry } from '../../historyTrayUtils';
 import type { CatalogAgency, CatalogBrand, CatalogModel, CatalogTech } from '../../types';
+import { PrediagnosticoMigrationBadge } from './PrediagnosticoMigrationBadge';
 
 export type HistoryTrayRowActions = {
   onSapBlockReturn: (entry: HistoryUnitEntry) => void;

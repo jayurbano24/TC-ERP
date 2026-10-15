@@ -45,6 +45,20 @@ describe('validatePrediagnostico', () => {
       })
     ).toEqual([]);
   });
+
+  it('exige observaciones cuando el dictamen es irreparable', () => {
+    const base = {
+      serviceOrderId: 'os-1',
+      shellClass: 'D',
+      cosmetics: { puertos: 'danado' },
+      functionChecks: { enciende: 'no' },
+      verdict: 'irreparable',
+      notes: '',
+    };
+    expect(validatePrediagnostico(base).length).toBeGreaterThan(0);
+    expect(validatePrediagnostico({ ...base, notes: '   ' }).length).toBeGreaterThan(0);
+    expect(validatePrediagnostico({ ...base, notes: 'Placa quemada, sin recuperación' })).toEqual([]);
+  });
 });
 
 describe('itemAppliesToEquipment', () => {

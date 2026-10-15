@@ -139,6 +139,15 @@ export function useBackofficeOperation() {
     setAgencia,
   });
 
+  useEffect(() => {
+    void getReturnReasons().then((rows) => {
+      const names = (rows || [])
+        .map((r: { name?: string; nombre?: string }) => String(r.name ?? r.nombre ?? '').trim())
+        .filter(Boolean);
+      setReturnReasonOptions(names);
+    });
+  }, []);
+
   const { completeCurrentGuides, handleConfirmReturn, onCompletedNextBox } = useMemo(
     () =>
       createCompleteFlowHandlers({
@@ -157,6 +166,7 @@ export function useBackofficeOperation() {
         selectedAgencyId,
         agencia,
         returnReason,
+        returnReasonOptions,
         returnTracking,
         returnCourier,
         accessoryPhotos,
@@ -193,6 +203,7 @@ export function useBackofficeOperation() {
       selectedAgencyId,
       agencia,
       returnReason,
+      returnReasonOptions,
       returnTracking,
       returnCourier,
       accessoryPhotos,
@@ -261,6 +272,7 @@ export function useBackofficeOperation() {
     setCategory,
     returnReason,
     setReturnReason,
+    returnReasonOptions,
     returnTracking,
     setReturnTracking,
     returnCourier,

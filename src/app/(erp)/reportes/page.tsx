@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Card, Button, Badge } from '@/components/ui';
 import { ModulePage } from '@/components/module-page';
 import Link from 'next/link';
@@ -30,7 +31,11 @@ function defaultDateRange() {
   };
 }
 
+const PREDIAG_REPORT_CODE = 'PREDIAGNOSTICO_EQUIPOS';
+
 export default function ReportesPage() {
+  const searchParams = useSearchParams();
+  const reportFromUrl = searchParams.get('code')?.trim().toUpperCase() || '';
   const enabled = isCentralReportingEnabledClient();
   const [reports, setReports] = useState<ReportDef[]>([]);
   const [loading, setLoading] = useState(true);
@@ -44,6 +49,8 @@ export default function ReportesPage() {
   const [month, setMonth] = useState('');
   const [country, setCountry] = useState('GT');
   const [technology, setTechnology] = useState('');
+  const [excludeBackfill, setExcludeBackfill] = useState(false);
+  const [exportAllData, setExportAllData] = useState(false);
 
   const isPeriodMatrixReport =
     selectedCode === 'OPERACIONES_MENSUAL_TECNOLOGIA' || selectedCode === 'CENAM_REFURBISHED';
@@ -57,11 +64,17 @@ export default function ReportesPage() {
     fetchReportCatalogApi()
       .then((list) => {
         setReports(list);
-        if (list.length > 0) setSelectedCode(list[0].code);
+        if (list.length > 0) {
+          const preferred =
+            reportFromUrl && list.some((r) => r.code === reportFromUrl)
+              ? reportFromUrl
+              : list[0].code;
+          setSelectedCode(preferred);
+        }
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Error al cargar reportes'))
       .finally(() => setLoading(false));
-  }, [enabled]);
+  }, [enabled, reportFromUrl]);
 
   const selected = useMemo(
     () => reports.find((r) => r.code === selectedCode) ?? null,
@@ -97,6 +110,8 @@ export default function ReportesPage() {
           month: isPeriodMatrixReport ? month || undefined : undefined,
           country: isPeriodMatrixReport ? country || undefined : undefined,
           technology: isPeriodMatrixReport ? technology || undefined : undefined,
+          excludeBackfill:
+            selected.code === PREDIAG_REPORT_CODE && excludeBackfill ? true : undefined,
         },
         format
       );
@@ -302,6 +317,20 @@ export default function ReportesPage() {
                       className="w-full p-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] text-sm font-bold"
                     />
                   </div>
+                )}
+
+                {selected.code === PREDIAG_REPORT_CODE && (
+                  <label className="flex items-center gap-2 md:col-span-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-3 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-[var(--border)] text-[var(--accent)]"
+                      checked={excludeBackfill}
+                      onChange={(e) => setExcludeBackfill(e.target.checked)}
+                    />
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--foreground)]">
+                      Excluir registros de migración CHG-015 ([BACKFILL])
+                    </span>
+                  </label>
                 )}
 
                 <div className="space-y-2">

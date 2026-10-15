@@ -36,7 +36,22 @@ export async function listOntRuns(
   const totalCount = count ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalCount / limit));
 
-  const summary = await summaryPromise;
+  let summary: Awaited<ReturnType<typeof fetchOntRunsVerdictSummary>>;
+  try {
+    summary = await summaryPromise;
+  } catch (summaryErr) {
+    console.warn('[ont-runs] verdict summary failed (list still returned):', summaryErr);
+    summary = {
+      total: count ?? 0,
+      pass: 0,
+      fail: 0,
+      notRun: 0,
+      todayPass: 0,
+      todayFail: 0,
+      todayCertified: 0,
+      daily: [],
+    };
+  }
   const mapped = (data || []).map((row) => mapOntRunRow(row as Parameters<typeof mapOntRunRow>[0]));
   const { rows, suppressed } = dedupeOntRunsWithStats(mapped);
 

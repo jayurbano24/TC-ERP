@@ -101,7 +101,10 @@ export class GenerateReportHandler {
         rowCount: data.rows.length,
       };
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Error al generar reporte';
+      let message = err instanceof Error ? err.message : 'Error al generar reporte';
+      if (/fetch failed|521|ECONNREFUSED|ETIMEDOUT/i.test(message)) {
+        message = `${message} — Supabase no respondió (status.supabase.com, red/VPN). Reintenta en unos minutos.`;
+      }
       await this.runRepo.recordRun({
         reportCode: params.reportCode,
         userId: params.userId,

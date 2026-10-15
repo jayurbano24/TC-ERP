@@ -864,18 +864,35 @@ export async function deletePrediagnosticoItem(id: string) {
   return { error };
 }
 
-export async function getPrediagnosticoModelItemIds(modelId: string): Promise<string[]> {
+export type PrediagnosticoModelItemsFetchResult =
+  | { ok: true; itemIds: string[] }
+  | { ok: false; code: string; message: string };
+
+export async function fetchPrediagnosticoModelItemIds(
+  modelId: string
+): Promise<PrediagnosticoModelItemsFetchResult> {
   const supabase = getSupabaseBrowserClient();
-  if (!supabase || !modelId) return [];
+  if (!supabase || !modelId) return { ok: true, itemIds: [] };
   const { data, error } = await supabase
     .from('cat_prediagnostico_model_items')
     .select('item_id')
     .eq('model_id', modelId);
   if (error) {
-    console.error('Error fetching prediagnostico model items:', error);
+    const code = error.code || 'UNKNOWN';
+    const message = error.message || 'Error al leer cat_prediagnostico_model_items';
+    return { ok: false, code, message };
+  }
+  return { ok: true, itemIds: (data || []).map((row) => String(row.item_id)) };
+}
+
+/** @deprecated Prefer fetchPrediagnosticoModelItemIds — no oculta errores de esquema/permisos. */
+export async function getPrediagnosticoModelItemIds(modelId: string): Promise<string[]> {
+  const res = await fetchPrediagnosticoModelItemIds(modelId);
+  if (!res.ok) {
+    console.error('Error fetching prediagnostico model items:', res.code, res.message);
     return [];
   }
-  return (data || []).map((row) => String(row.item_id));
+  return res.itemIds;
 }
 
 /** Reemplaza el perfil del modelo. itemIds vacío elimina el perfil (vuelve a reglas por tecnología/marca). */

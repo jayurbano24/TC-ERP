@@ -24,7 +24,7 @@ export type PrediagnosticoRecord = {
 };
 
 export type PrediagnosticoActor = {
-  userId: string;
+  userId: string | null;
   userName: string;
 };
 
@@ -65,6 +65,46 @@ export async function savePrediagnostico(
   };
 
   const saved = existing ? await store.update(existing.id, next) : await store.insert(next);
+  await store.insertRevision(saved);
+  return saved;
+}
+
+/**
+ * Inserta backfill histórico con timestamps de `recordedAt`.
+ * No actualiza registros existentes (retorna null si ya hay prediagnóstico).
+ */
+export async function insertPrediagnosticoBackfill(
+  store: PrediagnosticoStore,
+  actor: PrediagnosticoActor,
+  input: PrediagnosticoInput,
+  recordedAt: Date
+): Promise<PrediagnosticoRecord | null> {
+  const existing = await store.findByServiceOrder(input.serviceOrderId);
+  if (existing) return null;
+
+  const errors = validatePrediagnostico(input);
+  if (errors.length > 0) {
+    throw new ValidationException(errors[0], errors);
+  }
+
+  const stamp = recordedAt.toISOString();
+  const next: PrediagnosticoRecord = {
+    id: crypto.randomUUID(),
+    serviceOrderId: input.serviceOrderId,
+    shellClass: input.shellClass as ShellClass,
+    cosmetics: input.cosmetics,
+    functionChecks: input.functionChecks,
+    verdict: input.verdict as Verdict,
+    notes: input.notes.trim(),
+    createdBy: actor.userId,
+    createdByName: actor.userName,
+    createdAt: stamp,
+    updatedBy: actor.userId,
+    updatedByName: actor.userName,
+    updatedAt: stamp,
+  };
+
+  const saved = await store.insert(next);
   await store.insertRevision(saved);
   return saved;
 }

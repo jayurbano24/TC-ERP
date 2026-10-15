@@ -8,7 +8,8 @@ import { trayRowToHistoryEntry } from '@/lib/backoffice/trayRowAdapter';
 import type { CacTrayUnitRow } from '@/lib/backoffice/cacTrayTypes';
 import { batchSelectionError, PREDIAGNOSTICO_BATCH_MAX, type BatchEquipment } from '@/modules/backoffice/prediagnostico/batchSelection';
 import { parseWorkshopSearchTokens } from '@/modules/workshop/shared/workshopSearch';
-import { ChevronDown, Filter, RefreshCw, Search } from 'lucide-react';
+import Link from 'next/link';
+import { ChevronDown, Download, Filter, RefreshCw, Search } from 'lucide-react';
 import {
   HISTORY_TRAY_PAGE_SIZE,
   hasActiveHistoryTrayFilters,
@@ -19,6 +20,9 @@ import type { CatalogAgency, CatalogBrand, CatalogModel, CatalogTech } from '../
 import { HistoryFiltersPanel } from './HistoryFiltersPanel';
 import { HistoryTrayPagination } from './HistoryTrayPagination';
 import { PrediagnosticoPanel } from './PrediagnosticoPanel';
+import { PrediagnosticoBackfillOpsPanel } from './PrediagnosticoBackfillOpsPanel';
+import { usePrediagnosticoBackfillContext } from '@/hooks/usePrediagnosticoBackfillCutoff';
+import { isOperatorPrediagnosticoPending } from '@/modules/backoffice/prediagnostico/prediagnosticoBackfillMarkers';
 
 type SelectedOs = BatchEquipment & {
   osLabel: string;
@@ -105,7 +109,9 @@ export function PrediagnosticoTab({
   const catalogsRef = useRef({ techs: MASTER_TECNOLOGIAS, models: MASTER_MODELOS });
   catalogsRef.current = { techs: MASTER_TECNOLOGIAS, models: MASTER_MODELOS };
   const debouncedSeries = useDebouncedValue(seriesDraft, 400);
-  const trayEntries = getHistoryTrayEntries().filter((entry) => !entry.prediagnostico);
+  const { cutoff: backfillCutoff, canRunBackfill } = usePrediagnosticoBackfillContext();
+  const isPendingTrayRow = (entry: HistoryUnitEntry) => isOperatorPrediagnosticoPending(entry, backfillCutoff);
+  const trayEntries = getHistoryTrayEntries().filter(isPendingTrayRow);
   const visibleEntries = lookupEntries ?? trayEntries;
   const anchor = selected[0];
   const safePage = Math.min(historyPage, Math.max(totalPages, 1));
@@ -137,8 +143,8 @@ export function PrediagnosticoTab({
       .then((data) => {
         if (cancelled) return;
         const mapped = (data.rows || []).map((row, index) => trayRowToHistoryEntry(row, index));
-        const entries = mapped.filter((entry) => !entry.prediagnostico);
-        const alreadyDone = mapped.filter((entry) => entry.prediagnostico);
+        const entries = mapped.filter(isPendingTrayRow);
+        const alreadyDone = mapped.filter((entry) => !isPendingTrayRow(entry));
         setLookupEntries(entries);
         const next = [...selectedRef.current];
         let skipped = 0;
@@ -181,7 +187,7 @@ export function PrediagnosticoTab({
     return () => {
       cancelled = true;
     };
-  }, [debouncedSeries]);
+  }, [debouncedSeries, backfillCutoff]);
 
   const toggle = (entry: HistoryUnitEntry) => {
     const candidate = toSelected(entry, MASTER_TECNOLOGIAS, MASTER_MODELOS);
@@ -225,17 +231,37 @@ export function PrediagnosticoTab({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-1">
+      {canRunBackfill ? <PrediagnosticoBackfillOpsPanel /> : null}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-1 min-w-0">
         <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[var(--heading)]">Pre-diagnóstico</p>
         <p className="text-xs text-[var(--muted)]">
           Pega hasta {PREDIAGNOSTICO_BATCH_MAX} series u OS, como en taller. Se agregan a la selección si son del mismo modelo y tecnología.
+          {backfillCutoff
+            ? ` Solo aparecen pendientes con OS ≥ ${backfillCutoff.toLocaleDateString('es-GT')} (post-corte T0).`
+            : null}
         </p>
+        </div>
+        <Link
+          href="/reportes?code=PREDIAGNOSTICO_EQUIPOS"
+          className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border border-[var(--accent)]/40 bg-[var(--accent)]/10 px-4 text-[10px] font-black uppercase tracking-wider text-[var(--accent)] hover:bg-[var(--accent)]/20"
+        >
+          <Download size={14} />
+          Reporte en motor ERP
+        </Link>
       </div>
 
       {historyLoadError ? (
         <div className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs font-bold text-amber-800">{historyLoadError}</p>
-          <Button variant="outline" onClick={() => void fetchHistory()} className="shrink-0 text-[10px] font-black uppercase">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-amber-800">Error al cargar pendientes</p>
+            <p className="mt-1 text-xs font-bold text-amber-700">{historyLoadError}</p>
+          </div>
+          <Button
+            variant="outline"
+            onClick={() => void fetchHistory()}
+            className="shrink-0 border-amber-300 text-[10px] font-black uppercase text-amber-800 hover:bg-amber-100"
+          >
             <RefreshCw size={14} className="mr-2" /> Reintentar
           </Button>
         </div>

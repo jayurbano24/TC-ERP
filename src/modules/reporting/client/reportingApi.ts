@@ -21,11 +21,22 @@ export async function downloadReportApi(
   filters: ReportFilterParams,
   format: ExportFormat = 'XLSX'
 ) {
-  const res = await apiFetch(`/api/reports/${encodeURIComponent(code)}/export`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ format, filters }),
-  });
+  let res: Response;
+  try {
+    res = await apiFetch(`/api/reports/${encodeURIComponent(code)}/export`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ format, filters }),
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/fetch failed|failed to fetch|networkerror/i.test(msg)) {
+      throw new Error(
+        'No se pudo contactar al servidor (fetch failed). Comprueba que `npm run dev` está activo, recarga la página e intenta de nuevo. Si el reporte es «Todos» (~80k filas), espera 10–20 min o usa: npm run export:prediagnostico'
+      );
+    }
+    throw err;
+  }
 
   if (!res.ok) {
     const json = await res.json().catch(() => ({}));

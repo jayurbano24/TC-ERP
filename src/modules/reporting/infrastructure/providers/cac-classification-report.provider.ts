@@ -54,7 +54,10 @@ export class CacClassificationReportProvider implements IReportDataProvider {
       verdict: filters.verdict,
     });
 
-    const entries = trayRowsToHistoryEntries(rows);
+    let entries = trayRowsToHistoryEntries(rows);
+    if (filters.excludeBackfill) {
+      entries = filterHistoryEntriesExcludingBackfill(entries);
+    }
     const { techMap, brandMap, modelMap } = await loadCatalogMaps();
 
     // Integridad: una S-1 no puede aparecer en dos filas del reporte.

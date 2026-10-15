@@ -64,8 +64,9 @@ export async function restrictByPrediagnostico(
 
   const ids = (data || []).map((row) => String(row.service_order_id)).filter(Boolean);
   if (verdict === 'pendiente') {
-    if (ids.length === 0) return query;
-    return query.not('service_order_id', 'in', `(${ids.join(',')})`);
+    // No usar NOT IN masivo (81k+ filas CHG-015 rompe PostgREST → 500).
+    // La pestaña PRE-DIAGNÓSTICO filtra en cliente con isOperatorPrediagnosticoPending.
+    return query;
   }
   if (ids.length === 0) {
     return query.eq('service_order_id', '00000000-0000-0000-0000-000000000000');

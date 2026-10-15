@@ -8,6 +8,7 @@ import {
   VERDICTS,
   type ShellClass,
   type Verdict,
+  IRREPARABLE_NOTES_REQUIRED_MESSAGE,
 } from '@/modules/backoffice/prediagnostico/validatePrediagnostico';
 import { ChevronDown, CircleDot, ClipboardList } from 'lucide-react';
 import { usePxEquipmentPrediagnosticoForm } from './usePxEquipmentPrediagnosticoForm';

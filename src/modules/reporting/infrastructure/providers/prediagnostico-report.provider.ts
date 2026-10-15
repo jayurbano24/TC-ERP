@@ -8,6 +8,8 @@ import {
   formatPrediagnosticoDiagnostico,
   type PrediagnosticoCheckItem,
 } from './prediagnostico-report-format';
+import { isPrediagnosticoBackfillNotes } from '@/modules/backoffice/prediagnostico/prediagnosticoBackfillMarkers';
+import { fetchPrediagnosticoReportAllData } from './prediagnostico-report-all-data';
 
 const VERDICT_LABEL: Record<string, string> = {
   reacondicionado: 'Reacondicionado',
@@ -100,6 +102,17 @@ export class PrediagnosticoReportProvider implements IReportDataProvider {
   readonly code = 'PREDIAGNOSTICO_EQUIPOS';
 
   async fetch(filters: ReportFilterParams): Promise<ReportDataResult> {
+    const [items, catalogs] = await Promise.all([loadCheckItems(), loadCatalogMaps()]);
+
+    /** Backfill CHG-015 vive en `prediagnosticos`; la bandeja CAC activa no incluye OS históricas. */
+    const fromPrediagnosticosTable =
+      filters.allData === true || Boolean(filters.from?.trim() || filters.to?.trim());
+
+    if (fromPrediagnosticosTable) {
+      const all = await fetchPrediagnosticoReportAllData(filters, items, catalogs);
+      return { rows: all.rows, truncated: all.truncated };
+    }
+
     const rows = await queryCacTrayAllFiltered({
       from: filters.from,
       to: filters.to,
@@ -110,11 +123,12 @@ export class PrediagnosticoReportProvider implements IReportDataProvider {
       osLabel: filters.osLabel,
       sapDocument: filters.sapDocument,
     });
-    const entries = trayRowsToHistoryEntries(rows).filter((entry) => entry.serviceOrderId && entry.prediagnostico);
-    const [details, items, catalogs] = await Promise.all([
+    let entries = trayRowsToHistoryEntries(rows).filter((entry) => entry.serviceOrderId && entry.prediagnostico);
+    if (filters.excludeBackfill) {
+      entries = entries.filter((entry) => !isPrediagnosticoBackfillNotes(entry.prediagnostico?.notes));
+    }
+    const [details] = await Promise.all([
       loadDetails(entries.map((entry) => entry.serviceOrderId || '').filter(Boolean)),
-      loadCheckItems(),
-      loadCatalogMaps(),
     ]);
 
     const reportRows: ReportRow[] = [];

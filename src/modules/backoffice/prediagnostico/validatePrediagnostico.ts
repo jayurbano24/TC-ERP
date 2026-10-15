@@ -17,6 +17,9 @@ export type PrediagnosticoInput = {
   notes: string;
 };
 
+export const IRREPARABLE_NOTES_REQUIRED_MESSAGE =
+  'Indique las razones por las que se considera irreparable (observaciones obligatorias).';
+
 export const SHELL_CLASS_HELP: Record<ShellClass, string> = {
   A: 'Aspecto como nuevo, sin marcas.',
   B: 'Marcas leves, rayones superficiales.',

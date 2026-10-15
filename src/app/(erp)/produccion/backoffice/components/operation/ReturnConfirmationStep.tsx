@@ -3,6 +3,7 @@
 import React from 'react';
 import { Button, Card, notify } from '@/components/ui';
 import { Camera, ChevronLeft, FileText, X } from 'lucide-react';
+import { validateReturnMotivoAgainstCatalog } from '@/lib/database/returns';
 import type { OperationContext } from '../../operation/operationContext';
 import { getReceiverName } from '../../backofficeHelpers';
 
@@ -16,7 +17,7 @@ export function ReturnConfirmationStep({ ctx }: Props) {
     classificationSearch, setClassificationSearch, agencia, setAgencia,
     selectedAgencyId, setSelectedAgencyId, category, setCategory,
     guideItems, setGuideItems, manifestPanelOpen, setManifestPanelOpen,
-    returnReason, setReturnReason, returnTracking, setReturnTracking,
+    returnReason, setReturnReason, returnReasonOptions, returnTracking, setReturnTracking,
     returnCourier, setReturnCourier, sapTransferNumber, setSapTransferNumber,
     sapGroups, setSapGroups, activeSapGroupId, setActiveSapGroupId,
     newItem, setNewItem, selectedItemIdx, setSelectedItemIdx,
@@ -98,12 +99,27 @@ export function ReturnConfirmationStep({ ctx }: Props) {
               <div className="flex justify-between items-center ml-1">
                 <label className="text-[9px] font-black text-slate-400 uppercase">Motivo de la Devolución</label>
               </div>
-              <textarea 
-                className="w-full p-6 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-[var(--heading)] outline-none focus:ring-2 focus:ring-amber-500 min-h-[120px] transition-all"
-                placeholder="Ej. Material no corresponde al manifiesto / Daño físico detectado..."
-                value={returnReason}
-                onChange={(e) => setReturnReason(e.target.value)}
-              />
+              {returnReasonOptions.length > 0 ? (
+                <select
+                  className="w-full p-4 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-[var(--heading)] outline-none focus:ring-2 focus:ring-amber-500"
+                  value={returnReason}
+                  onChange={(e) => setReturnReason(e.target.value)}
+                >
+                  <option value="">Seleccione una razón...</option>
+                  {returnReasonOptions.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <textarea
+                  className="w-full p-6 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-[var(--heading)] outline-none focus:ring-2 focus:ring-amber-500 min-h-[120px] transition-all"
+                  placeholder="Ej. Material no corresponde al manifiesto / Daño físico detectado..."
+                  value={returnReason}
+                  onChange={(e) => setReturnReason(e.target.value)}
+                />
+              )}
             </div>
     
             <div className="mt-8 border-t border-slate-200 pt-8">
@@ -163,7 +179,11 @@ export function ReturnConfirmationStep({ ctx }: Props) {
             <Button 
               className={`flex-[2] h-16 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl shadow-xl shadow-amber-500/20 font-black uppercase text-xs ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
               onClick={handleConfirmReturn}
-              disabled={isSubmitting || !selectedAgencyId || !returnReason.trim()}
+              disabled={
+                isSubmitting ||
+                !selectedAgencyId ||
+                !validateReturnMotivoAgainstCatalog(returnReason, returnReasonOptions)
+              }
             >
               {isSubmitting ? 'Procesando...' : 'Confirmar y Enviar Notificación'}
             </Button>

@@ -5,7 +5,7 @@ import { Button, Card, notify } from '@/components/ui';
 import {
   deletePrediagnosticoItem,
   getPrediagnosticoItems,
-  getPrediagnosticoModelItemIds,
+  fetchPrediagnosticoModelItemIds,
   savePrediagnosticoItem,
   savePrediagnosticoModelItems,
 } from '@/lib/database/config';

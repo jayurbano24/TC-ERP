@@ -65,7 +65,8 @@ export function useBackofficeHistoryActions({
         entries,
         catalogs,
         allData ? '' : dateFilterFrom,
-        allData ? '' : dateFilterTo
+        allData ? '' : dateFilterTo,
+        { excludeBackfill }
       );
     } catch (err) {
       console.error(err);

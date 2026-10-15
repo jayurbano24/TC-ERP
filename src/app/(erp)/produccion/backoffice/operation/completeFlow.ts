@@ -94,22 +94,33 @@ export function createCompleteFlowHandlers(params: CompleteFlowParams) {
   };
 
   const handleConfirmReturn = async () => {
-    const motivo = params.returnReason?.trim() || '';
-    if (!motivo) {
-      notify.warning('Seleccione el motivo de la devolución.');
-      return;
-    }
-    if (!validateReturnMotivoAgainstCatalog(motivo, params.returnReasonOptions)) {
-      notify.warning('Motivo no válido', {
-        description: 'Debe elegir una opción del catálogo de razones de devolución.',
+    try {
+      const motivo = params.returnReason?.trim() || '';
+      if (!motivo) {
+        notify.warning('Seleccione el motivo de la devolución.');
+        return;
+      }
+      const options = params.returnReasonOptions ?? [];
+      if (!validateReturnMotivoAgainstCatalog(motivo, options)) {
+        notify.warning('Motivo no válido', {
+          description:
+            options.length > 0
+              ? 'Debe elegir una opción del catálogo de razones de devolución.'
+              : 'El motivo debe tener al menos 3 caracteres.',
+        });
+        return;
+      }
+      if (!params.selectedAgencyId) {
+        notify.warning('Debe seleccionar la agencia de destino antes de confirmar la devolución.');
+        return;
+      }
+      await completeCurrentGuides();
+    } catch (err) {
+      console.error('handleConfirmReturn:', err);
+      notify.error('No se pudo confirmar la devolución', {
+        description: err instanceof Error ? err.message : 'Error inesperado. Revise la consola.',
       });
-      return;
     }
-    if (!params.selectedAgencyId) {
-      notify.warning('Debe seleccionar la agencia de destino antes de confirmar la devolución.');
-      return;
-    }
-    await completeCurrentGuides();
   };
 
   const onCompletedNextBox = () => {

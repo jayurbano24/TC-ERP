@@ -8,6 +8,7 @@ import {
   VERDICTS,
   type ShellClass,
   type Verdict,
+  IRREPARABLE_NOTES_REQUIRED_MESSAGE,
 } from '@/modules/backoffice/prediagnostico/validatePrediagnostico';
 import { ChevronDown, CircleDot, ClipboardList } from 'lucide-react';
 import { usePrediagnosticoForm } from './usePrediagnosticoForm';
@@ -218,13 +219,34 @@ export function PrediagnosticoPanel({
           </section>
 
           <label className="block space-y-1.5">
-            <span className="text-sm text-[var(--muted)]">Observaciones</span>
+            <span className="text-sm text-[var(--muted)]">
+              Observaciones
+              {form.verdict === 'irreparable' ? (
+                <span className="text-rose-600 dark:text-rose-400 font-semibold"> *</span>
+              ) : null}
+            </span>
+            {form.verdict === 'irreparable' ? (
+              <p className="text-xs font-medium text-amber-800 dark:text-amber-300">
+                {IRREPARABLE_NOTES_REQUIRED_MESSAGE}
+              </p>
+            ) : null}
             <textarea
               value={form.notes}
               disabled={!canEdit}
+              required={form.verdict === 'irreparable'}
+              aria-required={form.verdict === 'irreparable'}
+              placeholder={
+                form.verdict === 'irreparable'
+                  ? 'Ej.: carcasa rota, placa quemada, sin señal óptica, puertos dañados…'
+                  : 'Opcional'
+              }
               onChange={(event) => setForm((prev) => ({ ...prev, notes: event.target.value }))}
-              rows={2}
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--heading)]"
+              rows={3}
+              className={`w-full rounded-lg border bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--heading)] ${
+                form.verdict === 'irreparable' && !form.notes.trim()
+                  ? 'border-rose-300 dark:border-rose-800'
+                  : 'border-[var(--border)]'
+              }`}
             />
           </label>
 

@@ -9,7 +9,7 @@ import {
   type OperationalRole,
 } from '@/shared/authz/roleGuard';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
-import { mapOntRunRow } from '@/modules/ont-runs/server/mapOntRunRow';
+import { fetchOntRunByRunId } from '@/modules/ont-runs/server/fetchOntRunByRunId';
 
 const ROLES_ONT_RUNS_READ: OperationalRole[] = [
   ...new Set<OperationalRole>([...ROLES_PRODUCCION, ...ROLES_TALLER, ...ROLES_BODEGA_DESPACHO]),

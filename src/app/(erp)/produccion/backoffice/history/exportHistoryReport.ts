@@ -10,7 +10,6 @@ import {
 } from '@/lib/backoffice/trayRowAdapter';
 import { resolveUnitSapStatus } from '@/lib/sap/sapValidationStatus';
 import type { CatalogAgency, CatalogBrand, CatalogModel, CatalogTech } from '../types';
-
 type ExportCatalogs = {
   CAC_AGENCIES: CatalogAgency[];
   MASTER_TECNOLOGIAS: CatalogTech[];
@@ -22,7 +21,7 @@ export async function exportHistoryReport(
   trayEntries: HistoryUnitEntry[],
   catalogs: ExportCatalogs,
   dateFilterFrom: string,
-  dateFilterTo: string,
+  dateFilterTo: string
 ): Promise<void> {
   const exportEntries = trayEntries;
   if (exportEntries.length === 0) {
@@ -67,16 +66,6 @@ export async function exportHistoryReport(
       Tecnología: techObj?.nombre || '---',
       Marca: brandObj?.nombre || '---',
       Modelo: modelObj?.nombre || '---',
-      Clase: entry.prediagnostico?.shellClass || '—',
-      Dictamen: entry.prediagnostico?.verdict || 'Pendiente',
-      Observaciones: entry.prediagnostico?.notes || '',
-      'Usuario prediagnóstico': entry.prediagnostico?.updatedByName || '',
-      'Fecha prediagnóstico': entry.prediagnostico?.updatedAt
-        ? new Date(entry.prediagnostico.updatedAt).toLocaleString('es-GT')
-        : '',
-      'Documento SAP': entry.unitSap,
-      'Validación SAP': formatUnitSapValidationForExport(unitSapValidationStatus),
-      'S-1': unit[0]?.serial_number || '---',
       'S-1 Validación SAP': unit[0] ? formatSeriesSapStatusLabel(unit[0].sap_status) : '---',
       'S-2': unit[1]?.serial_number || '---',
       'S-2 Validación SAP': unit[1] ? formatSeriesSapStatusLabel(unit[1].sap_status) : '---',

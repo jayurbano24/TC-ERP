@@ -1,4 +1,5 @@
 import type { OntRun } from '../domain/types';
+import { prepareRunForCertificatePrint } from '../domain/enrichCertificateSheetForPrint';
 import { renderCertificateSheetHtml } from './certificateSheetHtml';
 
 export function escapeHtml(text: string): string {
@@ -447,17 +448,23 @@ function renderContextGrid(report: ReportDoc, run: OntRun, dut: Record<string, u
     </div>`;
 }
 
-/** HTML de certificación (layout ONT vs EMTA) desde report_json del certificador. */
+/** HTML de certificación — diseño único certificate_sheet (documento LAB TECHCORP). */
 export function renderCertifierReportHtml(run: OntRun): string {
-  const labSheetHtml = renderCertificateSheetHtml(run);
+  let prepared = run;
+  try {
+    prepared = prepareRunForCertificatePrint(run);
+  } catch (err) {
+    console.warn('[certifier-report] prepareRunForCertificatePrint:', err);
+  }
+  const labSheetHtml = renderCertificateSheetHtml(prepared);
   if (labSheetHtml) return labSheetHtml;
 
-  const report = run.reportJson;
+  const report = prepared.reportJson;
   if (!report || !isPlainObject(report)) return '';
 
-  const profile = resolveCertifierProfile(run);
+  const profile = resolveCertifierProfile(prepared);
   const dut = isPlainObject(report.dut) ? report.dut : undefined;
-  const globalVerdict = displayScalar(report.global_verdict || run.verdict);
+  const globalVerdict = displayScalar(report.global_verdict || prepared.verdict);
 
   const body =
     profile === 'ont'
@@ -478,11 +485,11 @@ export function renderCertifierReportHtml(run: OntRun): string {
       ])
     : '';
 
-  return `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"/><title>${escapeHtml(displayScalar(report.title))} ${escapeHtml(run.runId)}</title><style>${REPORT_STYLES}</style></head><body>
-    ${renderHeader(report, run, profile)}
+  return `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"/><title>${escapeHtml(displayScalar(report.title))} ${escapeHtml(prepared.runId)}</title><style>${REPORT_STYLES}</style></head><body>
+    ${renderHeader(report, prepared, profile)}
     ${renderVerdictStrip(globalVerdict)}
     <div class="content">
-      ${renderContextGrid(report, run, dut)}
+      ${renderContextGrid(report, prepared, dut)}
       ${body}
       ${hostBlock}
       ${report.disclaimer ? `<div class="disclaimer">${escapeHtml(displayScalar(report.disclaimer))}</div>` : ''}

@@ -24,6 +24,7 @@ export function HistoryToolbar({
   onOpenMassTransfer,
 }: Props) {
   const [exportAllData, setExportAllData] = useState(false);
+  const [excludeBackfill, setExcludeBackfill] = useState(false);
 
   return (
     <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 px-1 mb-4">
@@ -77,9 +78,21 @@ export function HistoryToolbar({
           </span>
         </label>
 
+        <label className="flex items-center gap-2 h-11 px-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] cursor-pointer select-none shadow-sm">
+          <input
+            type="checkbox"
+            className="h-3.5 w-3.5 rounded border-[var(--border)] text-[var(--accent)] focus:ring-[var(--accent)]"
+            checked={excludeBackfill}
+            onChange={(e) => setExcludeBackfill(e.target.checked)}
+          />
+          <span className="text-[9px] font-medium uppercase tracking-wider whitespace-nowrap">
+            Excluir migración
+          </span>
+        </label>
+
         <button
           type="button"
-          onClick={() => onExportReport({ allData: exportAllData })}
+          onClick={() => onExportReport({ allData: exportAllData, excludeBackfill })}
           className="flex h-11 items-center gap-2 rounded-2xl bg-[var(--accent)] px-4 text-[9px] font-semibold tracking-wider text-[var(--accent-foreground)] uppercase shadow-md transition-all hover:opacity-90 active:scale-95"
         >
           <Download size={14} /> Generar Reporte

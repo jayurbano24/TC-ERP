@@ -1,5 +1,6 @@
 import type { OntRun } from '../domain/types';
 import { tcTechcorpLogoPrintHtml } from '@/lib/brand/tcTechcorpLogoPrintHtml';
+import { renderOntCertificateAnexoFromReport } from './certificateAnexoHtml';
 
 function escapeHtml(text: string): string {
   return text
@@ -56,6 +57,10 @@ function resolveSheetProfile(run: OntRun, sheet: CertificateSheet): SheetProfile
   const kind = (run.kind || str(sheet.dut_profile)).toLowerCase();
   if (kind.includes('emta') || kind.includes('docsis')) return 'emta';
   if (kind.includes('ont') || kind.includes('gpon')) return 'ont';
+  const deviceType = (run.deviceType || '').toLowerCase();
+  if (deviceType.includes('ont') || deviceType.includes('gpon') || /^hg|^eg|^f670/i.test(run.model || '')) {
+    return 'ont';
+  }
   if (Array.isArray(sheet.cpe_rows) && sheet.cpe_rows.length > 0) return 'ont';
   return 'emta';
 }
@@ -460,6 +465,11 @@ function renderEmtaCertificate(run: OntRun, sheet: CertificateSheet, report: Rec
         <div class="stamp ${approved ? '' : 'fail'}">${escapeHtml(stamp)}</div>
       </section>
       ${renderParamsTable(paramRows, tally)}
+      ${
+        paramRows.length <= 3 && !hasAnexo
+          ? `<p class="disclaimer" style="margin-top:12px;font-size:9px;color:#64748b;">Sync incompleto desde estación <strong>${escapeHtml(run.station || '—')}</strong>: faltan <code>certificate_sheet.rows</code> con criterios esperados y bloques RF (<code>ds_rows</code>/<code>us_rows</code>). El ERP no puede inventar canales DOCSIS — actualice el certificador al mismo build que LAB-002 y re-envíe la corrida.</p>`
+          : ''
+      }
       <div class="page-tag">Hoja 1/${pageCount}</div>
     </div>`;
 
@@ -484,7 +494,13 @@ function renderEmtaCertificate(run: OntRun, sheet: CertificateSheet, report: Rec
   return page1 + page2;
 }
 
-function renderOntCertificate(run: OntRun, sheet: CertificateSheet): string {
+function ontCpeParamRows(sheet: CertificateSheet): SheetRow[] {
+  const cpe = parseRows(sheet.cpe_rows);
+  if (cpe.length > 0) return cpe;
+  return parseRows(sheet.rows);
+}
+
+function renderOntCertificate(run: OntRun, sheet: CertificateSheet, report: Record<string, unknown>): string {
   const order = str(sheet.order) || run.runId;
   const serial = str(sheet.serial) || run.serial;
   const longDate = str(sheet.long_date);
@@ -493,12 +509,13 @@ function renderOntCertificate(run: OntRun, sheet: CertificateSheet): string {
   const stamp = str(sheet.stamp) || (approved ? 'OK!' : '—');
   const headlineCls = headlineClass(headline, approved);
 
-  const paramRows = parseRows(sheet.cpe_rows);
+  const paramRows = ontCpeParamRows(sheet);
   const tally = str(sheet.tally) || (paramRows.length ? computeTallyFromRows(paramRows) : '');
 
   const physicalRows = parsePhysicalRows(sheet.physical_rows);
   const opticalChart = embedChartHtml(sheet.optical_chart);
-  const hasAnexo = opticalChart || physicalRows.length > 0;
+  const reportAnexo = renderOntCertificateAnexoFromReport(report);
+  const hasAnexo = Boolean(opticalChart || physicalRows.length > 0 || reportAnexo.trim());
 
   const summaryParts = [str(sheet.short_stamp), str(sheet.summary)].filter(Boolean).join(' · ');
 
@@ -534,6 +551,7 @@ function renderOntCertificate(run: OntRun, sheet: CertificateSheet): string {
         <p>Orden: ${escapeHtml(order)} · Hoja 2/2</p>
       </div>
       ${opticalChart}
+      ${reportAnexo}
       ${renderPhysicalTable(physicalRows)}
       <footer class="doc-footer">
         Documento generado por TECHCORP · © ${new Date().getFullYear()} TECHCORP · Todos los derechos reservados · www.techcorpca.com · Hoja 2/2
@@ -552,9 +570,10 @@ export function renderCertificateSheetHtml(run: OntRun): string {
   if (!sheet || !isPlainObject(sheet)) return '';
 
   const profile = resolveSheetProfile(run, sheet);
+  const ontRows = ontCpeParamRows(sheet);
   const hasContent =
     (profile === 'emta' && Array.isArray(sheet.rows) && sheet.rows.length > 0) ||
-    (profile === 'ont' && Array.isArray(sheet.cpe_rows) && sheet.cpe_rows.length > 0) ||
+    (profile === 'ont' && ontRows.length > 0) ||
     (Array.isArray(sheet.physical_rows) && sheet.physical_rows.length > 0) ||
     str(sheet.rf_chart) ||
     str(sheet.optical_chart) ||
@@ -563,7 +582,9 @@ export function renderCertificateSheetHtml(run: OntRun): string {
   if (!hasContent) return '';
 
   const body =
-    profile === 'ont' ? renderOntCertificate(run, sheet) : renderEmtaCertificate(run, sheet, report);
+    profile === 'ont'
+      ? renderOntCertificate(run, sheet, report)
+      : renderEmtaCertificate(run, sheet, report);
 
   return `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"/>
     <title>${escapeHtml(str(sheet.order) || run.runId)} — TECHCORP LAB</title>

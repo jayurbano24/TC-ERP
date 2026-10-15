@@ -50,6 +50,8 @@ export function parseReportFilters(body: Record<string, unknown>): ReportFilterP
     month: str('month'),
     country: str('country'),
     technology: str('technology'),
+    excludeBackfill:
+      body.excludeBackfill === true || body.excludeBackfill === 'true' || body.excludeBackfill === 1,
   };
 }
 

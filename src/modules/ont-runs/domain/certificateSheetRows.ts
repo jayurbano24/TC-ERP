@@ -61,6 +61,10 @@ export function resolveCertSheetProfile(run: OntRun, sheet: Record<string, unkno
   const kind = (run.kind || certSheetStr(sheet.dut_profile)).toLowerCase();
   if (kind.includes('emta') || kind.includes('docsis')) return 'emta';
   if (kind.includes('ont') || kind.includes('gpon')) return 'ont';
+  const deviceType = (run.deviceType || '').toLowerCase();
+  if (deviceType.includes('ont') || deviceType.includes('gpon') || /^hg|^eg|^f670/i.test(run.model || '')) {
+    return 'ont';
+  }
   if (Array.isArray(sheet.cpe_rows) && sheet.cpe_rows.length > 0) return 'ont';
   return 'emta';
 }
@@ -71,7 +75,9 @@ export function certParamRowsFromSheet(
 ): CertSheetParamRow[] {
   const profile = resolveCertSheetProfile(run, sheet);
   if (profile === 'ont') {
-    return parseCertParamRows(sheet.cpe_rows);
+    const cpe = parseCertParamRows(sheet.cpe_rows);
+    if (cpe.length > 0) return cpe;
+    return parseCertParamRows(sheet.rows);
   }
   return parseCertParamRows(sheet.rows);
 }

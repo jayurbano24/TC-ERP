@@ -8,6 +8,7 @@ import {
   canClassifyToAccesorios,
   canClassifyToTelefonos,
 } from '../../operation/canClassifyAccesorios';
+import { validateReturnMotivoAgainstCatalog } from '@/lib/database/returns';
 import type { OperationContext } from '../../operation/operationContext';
 import type { OperationCategory } from '../../types';
 
@@ -34,6 +35,7 @@ export function BulkClassifyStep({ ctx }: Props) {
     category,
     returnReason,
     setReturnReason,
+    returnReasonOptions,
     returnTracking,
     setReturnTracking,
     returnCourier,
@@ -52,8 +54,10 @@ export function BulkClassifyStep({ ctx }: Props) {
   const isSubBodega = cat === 'Accesorio' || cat === 'Teléfono';
   const count = scannedGuides.length;
   const hasAgency = Boolean(selectedAgencyId && agencyDetails);
-  const hasReason = Boolean(returnReason.trim());
+  const motivoValid = validateReturnMotivoAgainstCatalog(returnReason, returnReasonOptions);
+  const hasReason = motivoValid;
   const canConfirm = isDevolucion ? hasAgency && hasReason : true;
+  const useMotivoCatalog = isDevolucion && returnReasonOptions.length > 0;
 
   useEffect(() => {
     if (cat === 'Accesorio' && !allowAccesorios) {
@@ -100,9 +104,12 @@ export function BulkClassifyStep({ ctx }: Props) {
         setShowAgencyModal(true);
         return;
       }
-      if (!returnReason.trim()) {
-        notify.warning('Motivo obligatorio', {
-          description: 'Ingrese el motivo de la devolución.',
+      if (!validateReturnMotivoAgainstCatalog(returnReason, returnReasonOptions)) {
+        notify.warning('Motivo no válido', {
+          description:
+            returnReasonOptions.length > 0
+              ? 'Seleccione una razón del catálogo (Configuración → Razones de devolución).'
+              : 'Ingrese el motivo de la devolución (mínimo 3 caracteres).',
         });
         return;
       }
@@ -232,21 +239,39 @@ export function BulkClassifyStep({ ctx }: Props) {
 
         <div className="space-y-2">
           <label className="text-[9px] font-black text-slate-400 uppercase">
-            Comentarios{isDevolucion ? ' / Motivo' : ''}
+            {useMotivoCatalog ? 'Motivo de devolución' : 'Comentarios'}
+            {isDevolucion && !useMotivoCatalog ? ' / Motivo' : ''}
             {isDevolucion && <span className="text-rose-500 ml-1">*</span>}
           </label>
-          <textarea
-            className={`w-full p-3 bg-white border rounded-xl font-bold text-sm text-[var(--heading)] outline-none focus:ring-2 focus:ring-[var(--accent)] min-h-[80px] ${
-              isDevolucion && !hasReason ? 'border-rose-200' : 'border-slate-200'
-            }`}
-            placeholder={
-              isDevolucion
-                ? 'Motivo de la devolución...'
-                : 'Comentarios opcionales sobre la clasificación...'
-            }
-            value={returnReason}
-            onChange={(e) => setReturnReason(e.target.value)}
-          />
+          {useMotivoCatalog ? (
+            <select
+              className={`w-full p-3 bg-white border rounded-xl font-bold text-sm text-[var(--heading)] outline-none focus:ring-2 focus:ring-rose-400 ${
+                !hasReason ? 'border-rose-200' : 'border-slate-200'
+              }`}
+              value={returnReason}
+              onChange={(e) => setReturnReason(e.target.value)}
+            >
+              <option value="">Seleccione una razón...</option>
+              {returnReasonOptions.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <textarea
+              className={`w-full p-3 bg-white border rounded-xl font-bold text-sm text-[var(--heading)] outline-none focus:ring-2 focus:ring-[var(--accent)] min-h-[80px] ${
+                isDevolucion && !hasReason ? 'border-rose-200' : 'border-slate-200'
+              }`}
+              placeholder={
+                isDevolucion
+                  ? 'Motivo de la devolución (mín. 3 caracteres)...'
+                  : 'Comentarios opcionales sobre la clasificación...'
+              }
+              value={returnReason}
+              onChange={(e) => setReturnReason(e.target.value)}
+            />
+          )}
         </div>
 
         <div className="flex gap-3 mt-5">
@@ -271,7 +296,9 @@ export function BulkClassifyStep({ ctx }: Props) {
               isDevolucion && !hasAgency
                 ? 'Seleccione la agencia destino para continuar'
                 : isDevolucion && !hasReason
-                  ? 'Ingrese el motivo de la devolución'
+                  ? useMotivoCatalog
+                    ? 'Seleccione una razón del catálogo'
+                    : 'Ingrese el motivo de la devolución'
                   : undefined
             }
           >

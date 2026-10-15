@@ -43,12 +43,13 @@ export function isMissingReturnMotivo(value: string | null | undefined): boolean
 
 export function validateReturnMotivoAgainstCatalog(
   motivo: string,
-  catalogNames: string[],
+  catalogNames: string[] | null | undefined,
 ): boolean {
   const trimmed = motivo.trim();
   if (!trimmed) return false;
-  if (catalogNames.length === 0) return trimmed.length >= 3;
-  return catalogNames.some((name) => name.trim().toLowerCase() === trimmed.toLowerCase());
+  const options = catalogNames ?? [];
+  if (options.length === 0) return trimmed.length >= 3;
+  return options.some((name) => name.trim().toLowerCase() === trimmed.toLowerCase());
 }
 
 function extractGuideBlockFromNotes(notes: string, guideNumber: string): string | null {

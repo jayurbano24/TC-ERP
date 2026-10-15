@@ -48,6 +48,19 @@ describe('savePrediagnostico', () => {
     expect(store.revisions).toHaveLength(0);
   });
 
+  it('no guarda irreparable sin razones en observaciones', async () => {
+    const store = memoryStore();
+    await expect(
+      savePrediagnostico(store, actor, {
+        ...valid,
+        shellClass: 'D',
+        verdict: 'irreparable',
+        notes: '',
+      })
+    ).rejects.toBeInstanceOf(ValidationException);
+    expect(store.revisions).toHaveLength(0);
+  });
+
   it('crea el registro y deja una revisión con usuario y fecha', async () => {
     const store = memoryStore();
     const now = new Date('2026-09-30T17:00:00.000Z');

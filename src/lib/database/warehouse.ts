@@ -4,6 +4,11 @@ import { v5 as uuidv5 } from "uuid";
 import { BATCH_LIMITS } from "@/shared/constants/batchLimits";
 import { isWarehouseTransferApiEnabled } from "@/shared/feature-flags/clientFlags";
 import { transferBoxesToWorkshopViaApi } from "@/lib/api/warehouseTransfer";
+import { formatWarrantyProfileRequiredError } from "@/modules/warranty/domain/warrantyPolicy";
+
+function mapWarehouseRpcError(message: string): string {
+  return formatWarrantyProfileRequiredError(message);
+}
 
 /** Namespace fijo para claves idempotentes determinísticas (caja + acción + destino). */
 const WAREHOUSE_IDEMPOTENCY_NS = "a3f2c8e1-9b4d-4e7a-8c1f-2d6e9a0b5c3d";
@@ -1203,7 +1208,7 @@ export async function dispatchBoxFromWarehouse(
     p_dispatch_batch_id: asUuidOrNull(dispatchBatchId),
   });
 
-  if (error) return { error: error.message };
+  if (error) return { error: mapWarehouseRpcError(error.message) };
 
   const stale = await assertBoxLeftWarehouseInventory(supabase, boxId);
   if (stale) return { error: stale };

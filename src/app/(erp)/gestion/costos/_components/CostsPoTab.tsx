@@ -622,17 +622,22 @@ export function CostsPoTab() {
             Cargando PO...
           </div>
         ) : (
-          <DataTable
-            columns={columns}
-            data={filtered}
-            getRowId={(r) => r.id}
-            rowHeight={52}
-            maxBodyHeight={560}
-            minWidth={1280}
-            headerClassName="bg-slate-700"
-            headerTextClassName="text-white"
-            emptyMessage="No hay líneas de PO registradas"
-          />
+          <div
+            className="w-full max-w-full overflow-x-auto overflow-y-visible custom-scrollbar"
+            aria-label="Desplazamiento horizontal de la tabla PO"
+          >
+            <DataTable
+              columns={columns}
+              data={filtered}
+              getRowId={(r) => r.id}
+              rowHeight={52}
+              maxBodyHeight={560}
+              minWidth={1420}
+              headerClassName="bg-slate-700"
+              headerTextClassName="text-white"
+              emptyMessage="No hay líneas de PO registradas"
+            />
+          </div>
         )}
       </Card>
 

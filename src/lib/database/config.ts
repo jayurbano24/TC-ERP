@@ -252,6 +252,10 @@ export async function saveModel(model: any) {
   const name = normalizeCatalogLabel(rawName);
   const brandId = payload.brand_id || payload.marcaId;
 
+  const vigenciaRaw = payload.vigenciaPortafolio ?? payload.portfolio_vigencia ?? 'vigente';
+  const portfolio_vigencia =
+    String(vigenciaRaw).trim().toLowerCase() === 'obsoleto' ? 'obsoleto' : 'vigente';
+
   const dbModel = {
     brand_id: brandId,
     code: normalizeCatalogName(name).replace(/\s+/g, '-'),
@@ -259,6 +263,7 @@ export async function saveModel(model: any) {
     technology_id: payload.tecnologiaId,
     series_count: payload.seriesCount,
     digits_per_series: payload.digitsPerSeries,
+    portfolio_vigencia,
   };
 
   if (!dbModel.brand_id) {

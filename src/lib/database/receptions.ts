@@ -302,9 +302,36 @@ export async function previewEquipmentReentry(serials: string[]): Promise<number
   return nextReentryCountForSerials(supabase, serials);
 }
 
-export function formatIngresoLabel(reentryCount: number | null | undefined): string {
+export function formatIngresoLabel(
+  reentryCount: number | null | undefined,
+  ingressKind?: 'normal' | 'garantia' | string | null
+): string {
   const n = Number(reentryCount) || 1;
-  return `${Math.max(1, n)}° Ingreso`;
+  const base = `${Math.max(1, n)}° Ingreso`;
+  if (String(ingressKind ?? '').toLowerCase() === 'garantia') {
+    return `${base} · Garantía`;
+  }
+  return base;
+}
+
+export async function previewIngressWarranty(serials: string[]): Promise<{
+  reentryCount: number;
+  isGarantia: boolean;
+  warrantyProfile: 'listo' | 'bueno' | null;
+}> {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return { reentryCount: 1, isGarantia: false, warrantyProfile: null };
+
+  const { resolveIngressWarrantyFields } = await import(
+    '@/modules/warranty/server/warrantyEligibilityService'
+  );
+  const reentryCount = await nextReentryCountForSerials(supabase, serials);
+  const fields = await resolveIngressWarrantyFields(supabase, serials, reentryCount);
+  return {
+    reentryCount,
+    isGarantia: fields.ingress_kind === 'garantia',
+    warrantyProfile: fields.warranty_profile,
+  };
 }
 
 function collectPxEquipmentSerials(
@@ -556,10 +583,12 @@ export async function fixMissingOS(receptionId: string, unit: { main_serial: str
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: "Supabase not configured" };
 
-  const reentryCount = await nextReentryCountForSerials(supabase, [
-    unit.main_serial,
-    ...(unit.all_series || []),
-  ]);
+  const serials = [unit.main_serial, ...(unit.all_series || [])];
+  const reentryCount = await nextReentryCountForSerials(supabase, serials);
+  const { resolveIngressWarrantyFields } = await import(
+    '@/modules/warranty/server/warrantyEligibilityService'
+  );
+  const warrantyFields = await resolveIngressWarrantyFields(supabase, serials, reentryCount);
 
   const { data: osData, error: osError } = await supabase.from('service_orders').insert([{
     reception_id: receptionId,
@@ -567,7 +596,11 @@ export async function fixMissingOS(receptionId: string, unit: { main_serial: str
     brand_id: unit.brand_id,
     main_serial: unit.main_serial,
     reentry_count: reentryCount,
-    status: 'INGRESADO'
+    status: 'INGRESADO',
+    ingress_kind: warrantyFields.ingress_kind,
+    warranty_basis_dispatch_at: warrantyFields.warranty_basis_dispatch_at,
+    warranty_basis_os_id: warrantyFields.warranty_basis_os_id,
+    warranty_profile: warrantyFields.warranty_profile,
   }]).select().single();
 
   if (osError) return { error: osError.message };
@@ -602,10 +635,12 @@ export async function createServiceOrders(
   
   for (const unit of units) {
     // 1. Verificar cuántas veces ha ingresado esta serie (re-entry por S1–S4)
-    const reentryCount = await nextReentryCountForSerials(supabase, [
-      unit.main_serial,
-      ...(unit.all_series || []),
-    ]);
+    const serials = [unit.main_serial, ...(unit.all_series || [])];
+    const reentryCount = await nextReentryCountForSerials(supabase, serials);
+    const { resolveIngressWarrantyFields } = await import(
+      '@/modules/warranty/server/warrantyEligibilityService'
+    );
+    const warrantyFields = await resolveIngressWarrantyFields(supabase, serials, reentryCount);
 
     // 2. Crear la Orden de Servicio (OS)
     const { data: osData, error: osError } = await supabase
@@ -618,7 +653,11 @@ export async function createServiceOrders(
         brand_id: unit.brand_id,
         main_serial: unit.main_serial,
         reentry_count: reentryCount,
-        status: 'INGRESADO'
+        status: 'INGRESADO',
+        ingress_kind: warrantyFields.ingress_kind,
+        warranty_basis_dispatch_at: warrantyFields.warranty_basis_dispatch_at,
+        warranty_basis_os_id: warrantyFields.warranty_basis_os_id,
+        warranty_profile: warrantyFields.warranty_profile,
       }])
       .select()
       .single();

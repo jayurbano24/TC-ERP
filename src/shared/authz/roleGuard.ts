@@ -39,6 +39,11 @@ export const ROLES_PREDIAG_BACKFILL: OperationalRole[] = ['admin', 'supervisor']
 const TTL_MS = 30_000;
 const cache = new Map<string, { roles: string[]; ts: number }>();
 
+/** Tras sync ERP→enum (269), invalidar caché de roles operacionales. */
+export function invalidateOperationalRolesCache(userId: string): void {
+  cache.delete(userId);
+}
+
 /** Mapea nombres de puesto RRHH (TECNICO JUNIOR, …) a roles operacionales enum. */
 export function expandOperationalRoles(rawRoles: string[]): string[] {
   const out = new Set(rawRoles.filter(Boolean));

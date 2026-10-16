@@ -91,7 +91,15 @@ export default function BodegaGestionV2({
     isAdmin ||
     (snapshot.operationalRoles ?? []).some((r) =>
       ['admin', 'supervisor', 'bodega'].includes(r)
-    );
+    ) ||
+    can(AUTHZ_MODULE.BODEGA, 'edit') ||
+    can(AUTHZ_MODULE.BODEGA, 'create') ||
+    can(AUTHZ_MODULE.BODEGA, 'delete') ||
+    can(AUTHZ_MODULE.BODEGA, 'approve') ||
+    can(AUTHZ_MODULE.DESPACHO, 'edit') ||
+    can(AUTHZ_MODULE.DESPACHO, 'create') ||
+    can(AUTHZ_MODULE.DESPACHO, 'delete') ||
+    can(AUTHZ_MODULE.DESPACHO, 'approve');
   const bodegaWriteBlocked = erpBodegaWrite && !rpcBodegaWriteAllowed;
   const {
     technologies: catTecnologias,

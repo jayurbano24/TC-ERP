@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { canDo, canView, type UserAuthz, type ModulePermission } from './canDo';
+import {
+  canDo,
+  canView,
+  hasErpBodegaDespachoWrite,
+  type UserAuthz,
+  type ModulePermission,
+} from './canDo';
 
 function perm(module: string, over: Partial<ModulePermission> = {}): ModulePermission {
   return {
@@ -37,5 +43,13 @@ describe('canDo (núcleo puro)', () => {
 
   it('admin via canView', () => {
     expect(canView(authz({ isAdmin: true }), 'Loquesea')).toBe(true);
+  });
+
+  it('BACKOFFICES: edit Bodega sin CREAR habilita RPC vía puente ERP', () => {
+    const a = authz({
+      perms: [perm('Bodega', { can_view: true, can_edit: true })],
+    });
+    expect(hasErpBodegaDespachoWrite(a)).toBe(true);
+    expect(canDo(a, 'Bodega', 'create')).toBe(false);
   });
 });

@@ -58,3 +58,21 @@ export function canDo(authz: UserAuthz | null | undefined, module: string, actio
 export function canView(authz: UserAuthz | null | undefined, module: string): boolean {
   return canDo(authz, module, 'view');
 }
+
+const BODEGA_DESPACHO_ERP_MODULES = ['Bodega', 'Despacho'] as const;
+const BODEGA_DESPACHO_WRITE_ACTIONS: PermAction[] = ['create', 'edit', 'delete', 'approve'];
+
+/**
+ * Misma regla que `app_has_bodega_despacho_erp_write()` (migr. 269):
+ * escritura ERP en Bodega o Despacho habilita RPC de pistoleo aunque falte enum `bodega`.
+ */
+export function hasErpBodegaDespachoWrite(authz: UserAuthz | null | undefined): boolean {
+  if (!authz) return false;
+  if (authz.isAdmin) return true;
+  for (const module of BODEGA_DESPACHO_ERP_MODULES) {
+    for (const action of BODEGA_DESPACHO_WRITE_ACTIONS) {
+      if (canDo(authz, module, action)) return true;
+    }
+  }
+  return false;
+}

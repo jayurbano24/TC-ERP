@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Search, Loader2, Package, MapPin, Calendar, Clock, User, Activity, AlertCircle, CheckCircle, XCircle, Eraser, History, BookOpen } from "lucide-react";
+import { Search, Loader2, Package, MapPin, Calendar, Clock, User, Activity, AlertCircle, CheckCircle, XCircle, Eraser, History, BookOpen, ClipboardList } from "lucide-react";
+import { loadConsultaPrediagnosticoTrace, type ConsultaPrediagnosticoRow } from "@/modules/traceability/client/consultaPrediagnostico";
+import { ConsultaPrediagnosticoTab } from "./_components/ConsultaPrediagnosticoTab";
 import { searchSeriesDetailed } from "@/modules/traceability/client/series";
 import {
   fetchCacTrayContext,
@@ -34,8 +36,10 @@ export default function ConsultaPage() {
   const [siblingSeries, setSiblingSeries] = useState<any[]>([]);
   const [history, setHistory] = useState<TraceabilityEvent[]>([]);
   const [ingresoHistory, setIngresoHistory] = useState<IngresoCycle[]>([]);
-  const [detailTab, setDetailTab] = useState<'bitacora' | 'ingresos'>('bitacora');
+  const [detailTab, setDetailTab] = useState<'bitacora' | 'ingresos' | 'prediagnostico'>('bitacora');
   const [bitacoraIngresoId, setBitacoraIngresoId] = useState<string | null>(null);
+  const [prediagnosticoByOs, setPrediagnosticoByOs] = useState<Record<string, ConsultaPrediagnosticoRow>>({});
+  const [prediagOsId, setPrediagOsId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const loadIngresoHistory = async (
@@ -294,6 +298,8 @@ export default function ConsultaPage() {
     setHistory([]);
     setIngresoHistory([]);
     setBitacoraIngresoId(null);
+    setPrediagnosticoByOs({});
+    setPrediagOsId(null);
     setDetailTab('bitacora');
 
     try {
@@ -432,6 +438,17 @@ export default function ConsultaPage() {
                 : siblings.map((s) => s.serial_number).filter(Boolean),
           }));
           setIngresoHistory(withSerials);
+
+          const prediagTrace = await loadConsultaPrediagnosticoTrace(
+            supabase,
+            withSerials.map((c) => c.id)
+          );
+          setPrediagnosticoByOs(prediagTrace.byOs);
+          const defaultPrediagOs =
+            exactMatch.service_order_id && prediagTrace.byOs[exactMatch.service_order_id]
+              ? exactMatch.service_order_id
+              : withSerials.find((c) => prediagTrace.byOs[c.id])?.id ?? null;
+          setPrediagOsId(defaultPrediagOs);
 
           // Conduce de salida (despacho) del equipo / OS completo
           if (siblingIds.length > 0) {
@@ -1008,10 +1025,36 @@ export default function ConsultaPage() {
                     </span>
                   )}
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setDetailTab('prediagnostico')}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold uppercase tracking-wide transition-colors ${
+                    detailTab === 'prediagnostico'
+                      ? 'bg-[var(--surface)] text-violet-400'
+                      : 'text-[var(--muted)] hover:text-[var(--foreground)]'
+                  }`}
+                >
+                  <ClipboardList className="h-4 w-4" />
+                  Pre-Diagnóstico
+                  {Object.keys(prediagnosticoByOs).length > 0 && (
+                    <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/20 text-violet-300">
+                      {Object.keys(prediagnosticoByOs).length}
+                    </span>
+                  )}
+                </button>
               </div>
               
               <div className="flex-1 overflow-auto p-4">
-                {detailTab === 'bitacora' ? (
+                {detailTab === 'prediagnostico' ? (
+                  <ConsultaPrediagnosticoTab
+                    ingresoHistory={ingresoHistory}
+                    prediagnosticoByOs={prediagnosticoByOs}
+                    selectedOsId={prediagOsId}
+                    onSelectOsId={setPrediagOsId}
+                    formatDate={formatDate}
+                    formatTime={formatTime}
+                  />
+                ) : detailTab === 'bitacora' ? (
                   <>
                     {bitacoraCycle && (
                       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  displayPrediagnosticoObservaciones,
   filterHistoryEntriesExcludingBackfill,
   isOperatorPrediagnosticoPending,
   isPrediagnosticoBackfillNotes,
@@ -22,6 +23,18 @@ describe('prediagnosticoBackfillMarkers', () => {
     expect(
       isOperatorPrediagnosticoPending({ prediagnostico: { notes: 'x' }, classifiedAtIso: '2026-03-15T12:00:00-06:00' }, cutoff)
     ).toBe(false);
+  });
+
+  it('muestra comentarios del operador en consulta', () => {
+    expect(displayPrediagnosticoObservaciones('Puerto LAN dañado')).toBe('Puerto LAN dañado');
+    expect(
+      displayPrediagnosticoObservaciones(
+        '[BACKFILL] Pre-diagnóstico sintético — reacondicionado.\nCliente reporta humedad en gabinete.'
+      )
+    ).toBe('Cliente reporta humedad en gabinete.');
+    expect(
+      displayPrediagnosticoObservaciones('[BACKFILL] Pre-diagnóstico sintético — reacondicionado.')
+    ).toBe('');
   });
 
   it('excluye backfill del export', () => {

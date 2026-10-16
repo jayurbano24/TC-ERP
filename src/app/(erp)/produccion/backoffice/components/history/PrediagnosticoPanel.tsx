@@ -10,14 +10,11 @@ import {
   type Verdict,
   IRREPARABLE_NOTES_REQUIRED_MESSAGE,
 } from '@/modules/backoffice/prediagnostico/validatePrediagnostico';
+import { PREDIAGNOSTICO_DICTAMEN_LABELS } from '@/shared/catalogs/prediagnosticoDictamenLabels';
 import { ChevronDown, CircleDot, ClipboardList } from 'lucide-react';
 import { usePrediagnosticoForm } from './usePrediagnosticoForm';
 
-const VERDICT_LABEL: Record<Verdict, string> = {
-  reacondicionado: 'Reacondicionado',
-  reparado: 'Reparado',
-  irreparable: 'Irreparable',
-};
+const VERDICT_LABEL = PREDIAGNOSTICO_DICTAMEN_LABELS;
 
 type Props = {
   serviceOrderIds: string[];

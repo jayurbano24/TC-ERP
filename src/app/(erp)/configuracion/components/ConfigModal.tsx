@@ -204,6 +204,27 @@ export const ConfigModal = memo(function ConfigModal({
                     onChange={e => setFormData({...formData, nombre: e.target.value})}
                   />
                 </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase text-slate-400">
+                    Vigencia portafolio Claro
+                  </label>
+                  <select
+                    className="w-full bg-slate-50 p-4 rounded-xl border border-slate-100 font-bold"
+                    value={formData.vigenciaPortafolio || 'vigente'}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        vigenciaPortafolio: e.target.value === 'obsoleto' ? 'obsoleto' : 'vigente',
+                      })
+                    }
+                  >
+                    <option value="vigente">Vigente</option>
+                    <option value="obsoleto">Obsoleto</option>
+                  </select>
+                  <p className="text-[9px] text-slate-400 font-medium">
+                    Usado en reporte contractual de pre-diagnóstico (columna Vigencia).
+                  </p>
+                </div>
 
                 <div className="pt-4 border-t border-slate-100 mt-4 space-y-4">
                    <div className="space-y-2">

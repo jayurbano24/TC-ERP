@@ -70,9 +70,17 @@ export class GenerateReportHandler {
         };
       }
 
+      const exportColumns =
+        data.exportColumns?.length
+          ? [...data.exportColumns]
+          : definition.columns?.length
+            ? [...definition.columns]
+            : undefined;
+
       const exported = await exporter.export(data.rows, definition.name, {
         xlsxLayout: data.xlsxLayout,
         detailSheets: data.detailSheets,
+        columns: exportColumns,
       });
       const dateSuffix = params.filters.allData
         ? '_todos'

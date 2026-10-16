@@ -12,7 +12,8 @@ export const CAC_TRAY_UNIT_SELECT =
 
 export const TECHNOLOGY_SELECT = 'id, name, series_count, digits_per_series';
 export const BRAND_SELECT = 'id, name, code';
-export const MODEL_SELECT = 'id, name, code, brand_id, technology_id, series_count, digits_per_series';
+export const MODEL_SELECT =
+  'id, name, code, brand_id, technology_id, series_count, digits_per_series, portfolio_vigencia';
 export const AGENCY_SELECT = 'id, code, name, client_id, manager, email, phone, address';
 export const CARRIER_SELECT = 'id, name, code';
 export const RETURN_REASON_SELECT = 'id, name, active';

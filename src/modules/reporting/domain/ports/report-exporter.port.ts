@@ -3,6 +3,8 @@ import type { ExportFormat, ReportDetailSheet, ReportRow, ReportXlsxLayout } fro
 export type ReportExportOptions = {
   xlsxLayout?: ReportXlsxLayout;
   detailSheets?: ReportDetailSheet[];
+  /** Orden fijo de columnas (una celda por campo en Excel/CSV). */
+  columns?: string[];
 };
 
 export interface IReportExporter {

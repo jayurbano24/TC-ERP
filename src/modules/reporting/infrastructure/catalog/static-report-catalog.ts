@@ -25,11 +25,29 @@ export const STATIC_REPORT_CATALOG = [
     name: 'Equipos prediagnosticados',
     category: 'CAC / Recepción',
     description:
-      'Única exportación oficial de pre-diagnóstico CAC (DIAGNÓSTICO, ACCIÓN, dictamen). Use Motor de Reportes — no el histórico de clasificación.',
+      'Formato contractual SCA: datos de ingreso + columnas dinámicas según catálogo pre-diagnóstico (Configuración) + Clase + Observaciones.',
     columns: [
-      'OS', 'FE', 'S1', 'S2', 'DESCRIPCIÓN SAP', 'MARCA', 'MODELO', 'TECNOLOGÍA',
-      'TRATAMIENTO', 'CANAL DE RECUPERACIÓN', 'DIAGNÓSTICO', 'ACCIÓN', 'SAP',
-      'CLASE', 'DICTAMEN', 'OBSERVACIONES',
+      'N.º',
+      'Número de ingreso al SCA',
+      'Procedencia',
+      'Agencia, Central o Aliado de recuperación',
+      'Marca',
+      'Modelo',
+      'SKU',
+      'Número de traslado SAP',
+      'Serie',
+      'MAC',
+      'S1',
+      'S2',
+      'S3',
+      'S4',
+      'Tecnología',
+      'Vigencia',
+      'Fecha de ingreso',
+      'Dictamen',
+      '(ítems del catálogo pre-diagnóstico…)',
+      'Clase',
+      'Observaciones',
     ],
     requiresDateRange: true,
   },
@@ -55,6 +73,28 @@ export const STATIC_REPORT_CATALOG = [
     category: 'Despacho',
     description: 'Movimientos OUT sin lote de salida',
     columns: ['Fecha', 'Accesorio', 'Condición', 'Cantidad', 'Destino', 'Usuario'],
+    requiresDateRange: true,
+  },
+  {
+    code: 'REINGRESO_GARANTIA',
+    name: 'Reingreso por garantía',
+    category: 'Despacho',
+    description:
+      'Equipos que reingresaron marcados como Garantía (ventana de 90 días tras despacho Equipo Listo o carcasa Bueno).',
+    columns: [
+      'Fecha ingreso',
+      'Orden de Servicio',
+      'N° Ingreso',
+      'Serie',
+      'Marca',
+      'Modelo',
+      'Tipo ingreso',
+      'Perfil despacho',
+      'OS despacho anterior',
+      'Fecha despacho anterior',
+      'Días desde despacho',
+      'Vencimiento garantía',
+    ],
     requiresDateRange: true,
   },
   {
@@ -108,3 +148,12 @@ export const STATIC_REPORT_CATALOG = [
     requiresDateRange: false,
   },
 ];
+
+/** Alinea columnas de export con el código cuando la fila en DB quedó desactualizada (ej. 252 vs SCA). */
+export function resolveReportDefinitionColumns(code: string, dbColumns: string[]): string[] {
+  const staticEntry = STATIC_REPORT_CATALOG.find((r) => r.code === code);
+  if (code === 'PREDIAGNOSTICO_EQUIPOS' && staticEntry?.columns?.length) {
+    return [...staticEntry.columns];
+  }
+  return dbColumns.length > 0 ? dbColumns : staticEntry?.columns ? [...staticEntry.columns] : [];
+}

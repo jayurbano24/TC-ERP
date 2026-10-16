@@ -29,24 +29,10 @@ describe('export prediagnostico all', () => {
       }
       if (err.includes('No hay datos')) {
         const XLSX = await import('xlsx');
-        const headers = [
-          'OS',
-          'FE',
-          'S1',
-          'S2',
-          'DESCRIPCIÓN SAP',
-          'MARCA',
-          'MODELO',
-          'TECNOLOGÍA',
-          'TRATAMIENTO',
-          'CANAL DE RECUPERACIÓN',
-          'DIAGNÓSTICO',
-          'ACCIÓN',
-          'SAP',
-          'CLASE',
-          'DICTAMEN',
-          'OBSERVACIONES',
-        ];
+        const { buildPrediagnosticoExportColumns } = await import(
+          '@/modules/reporting/infrastructure/providers/prediagnostico-export-catalog'
+        );
+        const headers = buildPrediagnosticoExportColumns([]);
         const ws = XLSX.utils.aoa_to_sheet([headers]);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, 'Equipos prediagnosticados');

@@ -4,7 +4,11 @@ import type {
   IReportRunRepository,
 } from '../../domain/ports/report-run.repository.port';
 import type { ExportFormat, ReportFilterParams } from '../../domain/types/report.types';
-import { STATIC_REPORT_CATALOG } from '../catalog/static-report-catalog';
+import {
+  STATIC_REPORT_CATALOG,
+  resolveReportDefinitionColumns,
+} from '../catalog/static-report-catalog';
+import { fetchPrediagnosticoLiveExportColumns } from '../providers/prediagnostico-live-columns';
 
 export class SupabaseReportRunRepository implements IReportRunRepository {
   async recordRun(input: {
@@ -35,6 +39,24 @@ export class SupabaseReportRunRepository implements IReportRunRepository {
   }
 }
 
+async function enrichPrediagnosticoCatalogColumns<
+  T extends { code: string; columns: string[]; description: string | null },
+>(reports: T[]): Promise<T[]> {
+  const live = await fetchPrediagnosticoLiveExportColumns().catch(() => null);
+  if (!live?.length) return reports;
+  return reports.map((r) =>
+    r.code === 'PREDIAGNOSTICO_EQUIPOS'
+      ? {
+          ...r,
+          columns: live,
+          description:
+            r.description ||
+            'Formato SCA: columnas fijas + checks del catálogo activo + Clase + Observaciones (+ Número traslado SAP).',
+        }
+      : r
+  );
+}
+
 export class SupabaseReportCatalogRepository implements IReportCatalogRepository {
   async listActive() {
     try {
@@ -46,23 +68,29 @@ export class SupabaseReportCatalogRepository implements IReportCatalogRepository
         .order('category')
         .order('name');
 
-      if (error || !data?.length) return STATIC_REPORT_CATALOG;
+      if (error || !data?.length) {
+        return enrichPrediagnosticoCatalogColumns([...STATIC_REPORT_CATALOG]);
+      }
 
       const fromDb = data.map((row) => ({
         code: row.code,
         name: row.name,
         category: row.category,
         description: row.description,
-        columns: Array.isArray(row.columns) ? (row.columns as string[]) : [],
+        columns: resolveReportDefinitionColumns(
+          row.code,
+          Array.isArray(row.columns) ? (row.columns as string[]) : []
+        ),
         requiresDateRange: Boolean(row.requires_date_range),
       }));
 
       // Incluir códigos del fallback estático aún no sembrados en DB (ej. migraciones pendientes).
       const codes = new Set(fromDb.map((r) => r.code));
       const missing = STATIC_REPORT_CATALOG.filter((r) => !codes.has(r.code));
-      return [...fromDb, ...missing];
+      const merged = [...fromDb, ...missing];
+      return enrichPrediagnosticoCatalogColumns(merged);
     } catch {
-      return STATIC_REPORT_CATALOG;
+      return enrichPrediagnosticoCatalogColumns([...STATIC_REPORT_CATALOG]);
     }
   }
 

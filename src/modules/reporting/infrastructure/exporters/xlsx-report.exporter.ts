@@ -542,7 +542,27 @@ export class XlsxReportExporter implements IReportExporter {
       return buildOpsMonthlyTechMatrixSheet(rows, sheetName, options.detailSheets);
     }
 
-    const ws = XLSX.utils.json_to_sheet(rows);
+    const headers =
+      options?.columns?.length ? options.columns : rows.length > 0 ? Object.keys(rows[0]) : [];
+    const aoa: (string | number)[][] =
+      headers.length > 0
+        ? [
+            headers,
+            ...rows.map((row) =>
+              headers.map((h) => {
+                const v = row[h];
+                if (v === null || v === undefined) return '';
+                return typeof v === 'number' ? v : String(v);
+              })
+            ),
+          ]
+        : [];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    if (headers.length > 0) {
+      ws['!cols'] = headers.map((h) => ({
+        wch: Math.min(48, Math.max(10, h.length + 2)),
+      }));
+    }
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
     const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;

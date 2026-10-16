@@ -1576,6 +1576,17 @@ export async function finalizePxReceptionPromoteStep(input: {
   const promoted = (data?.promoted_this_batch as number | undefined) ?? 0;
 
   if (data?.phase === 'done') {
+    try {
+      const supabase = getSupabaseServerClient();
+      if (supabase) {
+        const { syncWarrantyIngressForReception } = await import(
+          '@/modules/warranty/server/syncReceptionWarrantyIngress'
+        );
+        await syncWarrantyIngressForReception(supabase, input.receptionId);
+      }
+    } catch {
+      /* no bloquear finalize PX */
+    }
     const summary = await loadPxReceptionFinalizeSummary(input.receptionId);
     return {
       success: true,

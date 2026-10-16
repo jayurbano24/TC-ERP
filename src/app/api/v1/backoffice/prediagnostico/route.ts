@@ -10,7 +10,7 @@ import {
 } from '@/shared/authz/roleGuard';
 import { savePrediagnostico } from '@/modules/backoffice/prediagnostico/prediagnosticoService';
 import { createPrediagnosticoStore } from '@/modules/backoffice/prediagnostico/supabasePrediagnosticoStore';
-import { filterPrediagnosticoCatalogForEquipment } from '@/modules/backoffice/prediagnostico/resolvePrediagnosticoCatalog';
+import { loadPrediagnosticoMotorCatalog } from '@/modules/backoffice/prediagnostico/loadPrediagnosticoMotorCatalog';
 
 const Query = z.object({
   serviceOrderId: z.string().uuid().optional(),
@@ -47,61 +47,17 @@ export const GET = withErrorHandler(
 
     const db = getSupabaseServerClient();
     const store = createPrediagnosticoStore(db);
-    const [item, catalog, canEdit] = await Promise.all([
-      parsed.data.serviceOrderId ? store.findByServiceOrder(parsed.data.serviceOrderId) : Promise.resolve(null),
-      db
-        .from('cat_prediagnostico_items')
-        .select('id, name, item_kind, technology_ids, brand_ids, sort_order')
-        .eq('active', true)
-        .order('sort_order'),
-      userHasAnyOperationalRole(auth.user.id, ROLES_PREDIAGNOSTICO_WRITE),
-    ]);
-
-    if (catalog.error) {
-      return NextResponse.json(
-        { error: 'Falta aplicar la migración 251_prediagnostico.sql en Supabase.' },
-        { status: 503 }
-      );
-    }
-
     const techId = parsed.data.techId || '';
     const brandId = parsed.data.brandId || '';
     const modelId = parsed.data.modelId || '';
 
-    let modelProfileItemIds: string[] | null = null;
-    if (modelId) {
-      const profile = await db
-        .from('cat_prediagnostico_model_items')
-        .select('item_id')
-        .eq('model_id', modelId);
-      if (profile.error) {
-        return NextResponse.json(
-          { error: 'Falta aplicar la migración 253_prediagnostico_model_items.sql en Supabase.' },
-          { status: 503 }
-        );
-      }
-      if ((profile.data || []).length > 0) {
-        modelProfileItemIds = (profile.data || []).map((row) => String(row.item_id));
-      }
-    }
+    const [item, motorCatalog, canEdit] = await Promise.all([
+      parsed.data.serviceOrderId ? store.findByServiceOrder(parsed.data.serviceOrderId) : Promise.resolve(null),
+      loadPrediagnosticoMotorCatalog(db, { techId, brandId, modelId }),
+      userHasAnyOperationalRole(auth.user.id, ROLES_PREDIAGNOSTICO_WRITE),
+    ]);
 
-    const catalogRows = (catalog.data || []).map((row) => ({
-      id: String(row.id),
-      name: String(row.name),
-      kind: String(row.item_kind) as 'cosmetico' | 'funcionamiento',
-      technologyIds: (row.technology_ids as string[]) || [],
-      brandIds: (row.brand_ids as string[]) || [],
-      sortOrder: Number(row.sort_order) || 0,
-    }));
-
-    const items = filterPrediagnosticoCatalogForEquipment(
-      catalogRows,
-      techId,
-      brandId,
-      modelProfileItemIds
-    ).map(({ id, name, kind }) => ({ id, name, kind }));
-
-    return NextResponse.json({ item, items, canEdit });
+    return NextResponse.json({ item, items: motorCatalog.items, canEdit });
   },
   { module: 'backoffice', action: 'prediagnostico.read', roles: ROLES_RECEPCION }
 );

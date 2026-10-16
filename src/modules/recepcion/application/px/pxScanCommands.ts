@@ -100,11 +100,12 @@ export function attachReentryCountToSeries(
   series: PxScannedSeries[],
   equipmentId: string,
   pendingId: string,
-  count: number
+  count: number,
+  ingressWarranty?: boolean
 ): PxScannedSeries[] {
   return series.map((s) =>
     s.equipmentId === equipmentId || s.equipmentId === pendingId
-      ? { ...s, reentryCount: count }
+      ? { ...s, reentryCount: count, ingressWarranty: ingressWarranty ?? s.ingressWarranty }
       : s
   );
 }

@@ -39,6 +39,8 @@ export interface PxScannedSeries {
   equipmentId?: string;
   /** 1 = primer ingreso; ≥2 = reingreso detectado al escanear */
   reentryCount?: number;
+  /** Reingreso dentro de ventana de garantía (90 días post-despacho Listo/Bueno). */
+  ingressWarranty?: boolean;
 }
 
 export interface SystemConfig {

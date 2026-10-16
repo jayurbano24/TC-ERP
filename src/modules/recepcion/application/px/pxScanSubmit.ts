@@ -2,6 +2,7 @@ import { startTransition } from 'react';
 import { notify } from '@/components/ui';
 import {
   previewEquipmentReentry,
+  previewIngressWarranty,
   formatIngresoLabel,
 } from '@/modules/recepcion/client/receptions';
 import {
@@ -274,18 +275,26 @@ export async function executePxScanSubmit(ctx: PxScanSubmitContext): Promise<voi
         scanPayload.serialS3,
         scanPayload.serialS4,
       ].filter(Boolean) as string[];
-      const count = await previewEquipmentReentry(serials);
+      const warrantyPreview = await previewIngressWarranty(serials);
+      const count = warrantyPreview.reentryCount;
       if (count <= 1) return;
       const patched = attachReentryCountToSeries(
         ctx.scannedSeriesRef.current,
         equipmentId,
         patch.pendingId,
-        count
+        count,
+        warrantyPreview.isGarantia
       );
       ctx.scannedSeriesRef.current = patched;
       startTransition(() => ctx.mutators.setScannedSeries(patched));
-      notify.info(`${formatIngresoLabel(count)} detectado (PX)`, {
-        description: `La serie ${serials[0]} ya estuvo en el sistema y vuelve a ingresar.`,
+      const ingresoLabel = formatIngresoLabel(
+        count,
+        warrantyPreview.isGarantia ? 'garantia' : 'normal'
+      );
+      notify.info(`${ingresoLabel} detectado (PX)`, {
+        description: warrantyPreview.isGarantia
+          ? `Reingreso en ventana de garantía (${warrantyPreview.warrantyProfile === 'bueno' ? 'Bueno' : 'Equipo Listo'}).`
+          : `La serie ${serials[0]} ya estuvo en el sistema y vuelve a ingresar.`,
       });
     } catch {
       /* preview opcional */

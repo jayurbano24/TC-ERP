@@ -2,6 +2,7 @@ export type PrediagnosticoCheckItem = {
   id: string;
   name: string;
   kind: 'cosmetico' | 'funcionamiento';
+  sortOrder: number;
 };
 
 function labelFor(name: string, value: 'si' | 'no'): string {

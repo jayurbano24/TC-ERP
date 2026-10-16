@@ -112,6 +112,8 @@ export default function ReportesPage() {
           technology: isPeriodMatrixReport ? technology || undefined : undefined,
           excludeBackfill:
             selected.code === PREDIAG_REPORT_CODE && excludeBackfill ? true : undefined,
+          allData:
+            selected.code === PREDIAG_REPORT_CODE && exportAllData ? true : undefined,
         },
         format
       );
@@ -223,8 +225,9 @@ export default function ReportesPage() {
                       <input
                         type="date"
                         value={from}
+                        disabled={selected.code === PREDIAG_REPORT_CODE && exportAllData}
                         onChange={(e) => setDateRange((d) => ({ ...d, from: e.target.value }))}
-                        className="w-full p-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] text-sm font-bold"
+                        className="w-full p-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] text-sm font-bold disabled:opacity-50"
                       />
                     </div>
                     <div className="space-y-2">
@@ -232,8 +235,9 @@ export default function ReportesPage() {
                       <input
                         type="date"
                         value={to}
+                        disabled={selected.code === PREDIAG_REPORT_CODE && exportAllData}
                         onChange={(e) => setDateRange((d) => ({ ...d, to: e.target.value }))}
-                        className="w-full p-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] text-sm font-bold"
+                        className="w-full p-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] text-sm font-bold disabled:opacity-50"
                       />
                     </div>
                   </>
@@ -320,17 +324,38 @@ export default function ReportesPage() {
                 )}
 
                 {selected.code === PREDIAG_REPORT_CODE && (
-                  <label className="flex items-center gap-2 md:col-span-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-3 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 rounded border-[var(--border)] text-[var(--accent)]"
-                      checked={excludeBackfill}
-                      onChange={(e) => setExcludeBackfill(e.target.checked)}
-                    />
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--foreground)]">
-                      Excluir registros de migración CHG-015 ([BACKFILL])
-                    </span>
-                  </label>
+                  <>
+                    <div className="md:col-span-2 rounded-xl border border-[var(--accent)]/30 bg-[var(--accent)]/10 p-3 text-xs text-[var(--foreground)] leading-relaxed">
+                      <p className="font-bold">Formato SCA (nuevo)</p>
+                      <p className="text-[var(--muted)] mt-1">
+                        El Excel incluye columnas fijas de ingreso, <strong>Número de traslado SAP</strong>, checks del
+                        catálogo activo (Configuración), Clase y Observaciones. Misma plantilla que el motor de
+                        pre-diagnóstico.
+                      </p>
+                    </div>
+                    <label className="flex items-center gap-2 md:col-span-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-3 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-[var(--border)] text-[var(--accent)]"
+                        checked={exportAllData}
+                        onChange={(e) => setExportAllData(e.target.checked)}
+                      />
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--foreground)]">
+                        Todos los pre-diagnósticos (sin filtro de fechas; puede tardar 10–20 min)
+                      </span>
+                    </label>
+                    <label className="flex items-center gap-2 md:col-span-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-3 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-[var(--border)] text-[var(--accent)]"
+                        checked={excludeBackfill}
+                        onChange={(e) => setExcludeBackfill(e.target.checked)}
+                      />
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--foreground)]">
+                        Excluir registros de migración CHG-015 ([BACKFILL])
+                      </span>
+                    </label>
+                  </>
                 )}
 
                 <div className="space-y-2">

@@ -894,8 +894,16 @@ export const PxBoxDetailView = (props: any) => {
                               )}
                               <td className="px-6 py-4">
                                 {Number(s.reentryCount) > 1 ? (
-                                  <span className="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
-                                    {s.reentryCount}° Ingreso
+                                  <span
+                                    className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-full border ${
+                                      s.ingressWarranty
+                                        ? 'bg-violet-50 text-violet-700 border-violet-200'
+                                        : 'bg-amber-50 text-amber-700 border border-amber-200'
+                                    }`}
+                                  >
+                                    {s.ingressWarranty
+                                      ? `${s.reentryCount}° · Garantía`
+                                      : `${s.reentryCount}° Ingreso`}
                                   </span>
                                 ) : (
                                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">

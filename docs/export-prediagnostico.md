@@ -46,6 +46,12 @@ Pasos:
 4. **No** marcar «Excluir CHG-015» (dejaría el Excel vacío)
 5. Formato Excel → **Descargar** y esperar **10–20 min** sin cerrar la pestaña
 
+### Excel con encabezados pero filas vacías (OS, FE, S1…)
+
+La definición del reporte en Supabase quedó con columnas viejas. Ejecuta la migración **`259_prediagnostico_report_contract_columns.sql`** en el SQL Editor (o despliega el código reciente, que fuerza las 13 columnas SCA al exportar).
+
+Si el catálogo en pantalla aún muestra OS/FE/S1, aplica la migración 259 y recarga `/reportes`.
+
 Si aparece «Activa USE_CENTRAL_REPORTING», agrega en `.env.local`:
 
 ```env
@@ -74,3 +80,28 @@ Reinicia `npm run dev`.
 SELECT count(*) FROM public.prediagnosticos;
 -- Esperado: ~81584 tras CHG-015
 ```
+
+---
+
+## Formato contractual SCA (columnas del Excel)
+
+| Columna en Excel | Qué registra TC-ERP |
+|------------------|---------------------|
+| Número de ingreso al SCA | OS (`service_orders.os_label`, ej. TC-20891) |
+| Procedencia | **Planta Externa** (PX), **Aliados Bodega Central Zona N** (CAC), etc. — canal de ingreso, no el nombre de agencia |
+| Agencia, Central o Aliado de recuperación | `sap_transfer_documents.agency` → guía CAC → notas `Backoffice_Agency`; en PX sin agencia, **Zona N** de las notas |
+| Marca / Modelo / SKU | `series.material` o última fila **G985** (`sap_validation_details`, coincidencia) |
+| Número de traslado SAP | `sap_transfer_documents.sap_document_number` → recepción |
+| Serie / MAC | S1 y MAC en S2–S4 |
+| Tecnología / Vigencia | Modelo + catálogo Vigente/Obsoleto |
+| Fecha de ingreso | `series.created_at` (recepción en bodega) |
+| Dictamen + **columnas por ítem del catálogo** (`cat_prediagnostico_items`, orden `sort_order`) + Clase + Observaciones | Cada ítem = columna **Si/No**; si hay perfil en `cat_prediagnostico_model_items`, export masivo usa la **unión** por modelos presentes |
+
+### Muestra de 100 casos (validación contrato)
+
+```powershell
+cd c:\Users\Usuario01\TC-ERP\web
+npm run export:prediagnostico:sample100
+```
+
+Salida: `web\dist\PREDIAGNOSTICO_EQUIPOS_muestra_100.xlsx`

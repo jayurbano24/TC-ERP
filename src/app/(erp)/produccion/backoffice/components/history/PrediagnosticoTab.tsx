@@ -23,6 +23,7 @@ import { PrediagnosticoPanel } from './PrediagnosticoPanel';
 import { PrediagnosticoBackfillOpsPanel } from './PrediagnosticoBackfillOpsPanel';
 import { usePrediagnosticoBackfillContext } from '@/hooks/usePrediagnosticoBackfillCutoff';
 import { isOperatorPrediagnosticoPending } from '@/modules/backoffice/prediagnostico/prediagnosticoBackfillMarkers';
+import { PREDIAGNOSTICO_DICTAMEN_LABELS } from '@/shared/catalogs/prediagnosticoDictamenLabels';
 
 type SelectedOs = BatchEquipment & {
   osLabel: string;
@@ -57,9 +58,7 @@ type Props = {
 
 const VERDICT_LABEL: Record<string, string> = {
   pendiente: 'Pendiente',
-  reacondicionado: 'Reacondicionado',
-  reparado: 'Reparado',
-  irreparable: 'Irreparable',
+  ...PREDIAGNOSTICO_DICTAMEN_LABELS,
 };
 
 function toSelected(entry: HistoryUnitEntry, techs: CatalogTech[], models: CatalogModel[]): SelectedOs | null {
@@ -237,6 +236,9 @@ export function PrediagnosticoTab({
         <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[var(--heading)]">Pre-diagnóstico</p>
         <p className="text-xs text-[var(--muted)]">
           Pega hasta {PREDIAGNOSTICO_BATCH_MAX} series u OS, como en taller. Se agregan a la selección si son del mismo modelo y tecnología.
+          Los checks del formulario son los mismos que el reporte{' '}
+          <strong className="text-[var(--foreground)]">Equipos prediagnosticados</strong> (catálogo + perfil por
+          modelo en Configuración).
           {backfillCutoff
             ? ` Solo aparecen pendientes con OS ≥ ${backfillCutoff.toLocaleDateString('es-GT')} (post-corte T0).`
             : null}
@@ -247,7 +249,7 @@ export function PrediagnosticoTab({
           className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border border-[var(--accent)]/40 bg-[var(--accent)]/10 px-4 text-[10px] font-black uppercase tracking-wider text-[var(--accent)] hover:bg-[var(--accent)]/20"
         >
           <Download size={14} />
-          Reporte en motor ERP
+          Descargar reporte SCA
         </Link>
       </div>
 

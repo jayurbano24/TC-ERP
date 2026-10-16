@@ -9,7 +9,7 @@ import {
   userHasAnyOperationalRole,
   type OperationalRole,
 } from '@/shared/authz/roleGuard';
-import { filterPrediagnosticoCatalogForEquipment } from '@/modules/backoffice/prediagnostico/resolvePrediagnosticoCatalog';
+import { loadPrediagnosticoMotorCatalog } from '@/modules/backoffice/prediagnostico/loadPrediagnosticoMotorCatalog';
 import {
   listPxEquipmentPrediagnosticoFlags,
   loadPxEquipmentPrediagnostico,
@@ -63,45 +63,8 @@ export const GET = withErrorHandler(
     const brandId = parsed.data.brandId || '';
     const modelId = parsed.data.modelId || '';
 
-    let modelProfileItemIds: string[] | null = null;
-    if (modelId) {
-      const profile = await db
-        .from('cat_prediagnostico_model_items')
-        .select('item_id')
-        .eq('model_id', modelId);
-      if ((profile.data || []).length > 0) {
-        modelProfileItemIds = (profile.data || []).map((row) => String(row.item_id));
-      }
-    }
-
-    const catalog = await db
-      .from('cat_prediagnostico_items')
-      .select('id, name, item_kind, technology_ids, brand_ids, sort_order')
-      .eq('active', true)
-      .order('sort_order');
-
-    if (catalog.error) {
-      return NextResponse.json(
-        { error: 'Falta aplicar migraciones de pre-diagnóstico en Supabase.' },
-        { status: 503 }
-      );
-    }
-
-    const catalogRows = (catalog.data || []).map((row) => ({
-      id: String(row.id),
-      name: String(row.name),
-      kind: String(row.item_kind) as 'cosmetico' | 'funcionamiento',
-      technologyIds: (row.technology_ids as string[]) || [],
-      brandIds: (row.brand_ids as string[]) || [],
-      sortOrder: Number(row.sort_order) || 0,
-    }));
-
-    const items = filterPrediagnosticoCatalogForEquipment(
-      catalogRows,
-      techId,
-      brandId,
-      modelProfileItemIds
-    ).map(({ id, name, kind }) => ({ id, name, kind }));
+    const motorCatalog = await loadPrediagnosticoMotorCatalog(db, { techId, brandId, modelId });
+    const items = motorCatalog.items;
 
     const anchorId = parsed.data.anchorEquipmentId || equipmentIds[0] || '';
     const item = anchorId ? await loadPxEquipmentPrediagnostico(db, anchorId) : null;

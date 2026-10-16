@@ -11,13 +11,10 @@ import {
   IRREPARABLE_NOTES_REQUIRED_MESSAGE,
 } from '@/modules/backoffice/prediagnostico/validatePrediagnostico';
 import { ChevronDown, CircleDot, ClipboardList } from 'lucide-react';
+import { PREDIAGNOSTICO_DICTAMEN_LABELS } from '@/shared/catalogs/prediagnosticoDictamenLabels';
 import { usePxEquipmentPrediagnosticoForm } from './usePxEquipmentPrediagnosticoForm';
 
-const VERDICT_LABEL: Record<Verdict, string> = {
-  reacondicionado: 'Reacondicionado',
-  reparado: 'Reparado',
-  irreparable: 'Irreparable',
-};
+const VERDICT_LABEL = PREDIAGNOSTICO_DICTAMEN_LABELS;
 
 type Props = {
   equipmentIds: string[];

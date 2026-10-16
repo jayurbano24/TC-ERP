@@ -85,7 +85,29 @@ type Modelo = {
   tecnologiaId: string;
   seriesCount: number;
   digitsPerSeries: number[]; // Array para longitud independiente por serie
+  vigenciaPortafolio: 'vigente' | 'obsoleto';
 };
+
+function mapModeloFromDb(x: {
+  id: string;
+  name: string;
+  brand_id: string;
+  technology_id: string;
+  series_count: number;
+  digits_per_series: number[];
+  portfolio_vigencia?: string | null;
+}): Modelo {
+  const v = String(x.portfolio_vigencia ?? 'vigente').toLowerCase();
+  return {
+    ...x,
+    nombre: x.name,
+    marcaId: x.brand_id,
+    tecnologiaId: x.technology_id,
+    seriesCount: x.series_count,
+    digitsPerSeries: x.digits_per_series,
+    vigenciaPortafolio: v === 'obsoleto' ? 'obsoleto' : 'vigente',
+  };
+}
 type Tecnologia = { 
   id: string; 
   nombre: string; 
@@ -194,14 +216,7 @@ export default function ConfiguracionPage() {
       setTecnologias(t.map((x: any) => ({ ...x, nombre: x.name, seriesCount: x.series_count, digitsPerSeries: x.digits_per_series })));
       setTransportes(c.map((x: any) => ({ dbId: x.id, id: x.code, nombre: x.name })));
       setMarcas(b.map((x: any) => ({ ...x, nombre: x.name })));
-      setModelos(m.map((x: any) => ({ 
-        ...x, 
-        nombre: x.name, 
-        marcaId: x.brand_id, 
-        tecnologiaId: x.technology_id,
-        seriesCount: x.series_count,
-        digitsPerSeries: x.digits_per_series
-      })));
+      setModelos(m.map((x: any) => mapModeloFromDb(x)));
       setDiagnosticos(d);
       setReparaciones(r.map((x: any) => ({ id: x.id, nombre: x.name })));
       setReacondicionadoTests(rt.map((x: any) => ({ id: x.id, nombre: x.name, technologyIds: x.technology_ids || [], modelIds: x.model_ids || [] })));
@@ -240,7 +255,7 @@ export default function ConfiguracionPage() {
         type === 'tecnologia'
           ? { seriesCount: 1, digitsPerSeries: [12] }
           : type === 'modelo'
-            ? { seriesCount: 2, digitsPerSeries: [12, 12] }
+            ? { seriesCount: 2, digitsPerSeries: [12, 12], vigenciaPortafolio: 'vigente' }
             : type === 'diagnostico'
               ? { reparacionesIds: [], technologyIds: [] }
               : {},
@@ -266,7 +281,7 @@ export default function ConfiguracionPage() {
         const { error } = await saveModel({ ...editingItem, ...formData });
         if (!error) {
           const m = await getModels();
-          setModelos(m.map((x: any) => ({ ...x, nombre: x.name, marcaId: x.brand_id, tecnologiaId: x.technology_id, seriesCount: x.series_count, digitsPerSeries: x.digits_per_series })));
+          setModelos(m.map((x: any) => mapModeloFromDb(x)));
         } else {
           const errMsg = typeof error === 'string' ? error : (error as any)?.message;
           notify.error('Error al guardar modelo', { description: errMsg || 'Nombre duplicado para esta marca' });
@@ -410,14 +425,7 @@ export default function ConfiguracionPage() {
         const { error } = await saveModel(item);
         if (!error) {
           const m = await getModels();
-          setModelos(m.map((x: any) => ({
-            ...x,
-            nombre: x.name,
-            marcaId: x.brand_id,
-            tecnologiaId: x.technology_id,
-            seriesCount: x.series_count,
-            digitsPerSeries: x.digits_per_series,
-          })));
+          setModelos(m.map((x: any) => mapModeloFromDb(x)));
           notify.success('Modelo guardado');
         } else {
           notify.error('Error al guardar modelo', {
@@ -1337,6 +1345,20 @@ export default function ConfiguracionPage() {
                                 </div>
                     );
                   },
+                },
+                {
+                  header: 'Vigencia',
+                  cell: (mod) => (
+                    <Badge
+                      className={`border-none px-1.5 py-0 text-[9px] font-black uppercase ${
+                        mod.vigenciaPortafolio === 'obsoleto'
+                          ? 'bg-rose-100 text-rose-700'
+                          : 'bg-emerald-100 text-emerald-800'
+                      }`}
+                    >
+                      {mod.vigenciaPortafolio === 'obsoleto' ? 'Obsoleto' : 'Vigente'}
+                    </Badge>
+                  ),
                 },
                 {
                   header: 'Reglas (S/D)',

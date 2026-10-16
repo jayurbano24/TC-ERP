@@ -21,6 +21,8 @@ export type ReportFilterParams = {
   verdict?: string;
   /** Excluir filas con observaciones `[BACKFILL]` (CHG-015). */
   excludeBackfill?: boolean;
+  /** Tope de filas (p. ej. muestra contractual de 100 casos). */
+  maxRows?: number;
   batchNumber?: string;
   batchId?: string;
   /** Filtros reporte matriz mensual (OPERACIONES_MENSUAL_TECNOLOGIA). */
@@ -60,6 +62,8 @@ export type ReportDetailSheet = {
 export type ReportDataResult = {
   rows: ReportRow[];
   truncated?: boolean;
+  /** Encabezados exactos del Excel cuando el provider los calcula (p. ej. catálogo dinámico). */
+  exportColumns?: string[];
   xlsxLayout?: ReportXlsxLayout;
   detailSheets?: ReportDetailSheet[];
 };

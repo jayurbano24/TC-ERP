@@ -6,7 +6,7 @@ import { Edit3, Plus, Table, Trash2, X } from 'lucide-react';
 import type { OperationContext } from '../../operation/operationContext';
 import type { GuideItem } from '../../types';
 import {
-  previewEquipmentReentry,
+  previewIngressWarranty,
   formatIngresoLabel,
 } from '@/modules/recepcion/client/receptions';
 import {
@@ -23,15 +23,21 @@ async function attachUnitReentry(target: GuideItem, unitIdx: number) {
   const unit = target.series[unitIdx];
   if (!unit || unit.length < target.seriesPerUnit) return;
   try {
-    const count = await previewEquipmentReentry(unit);
+    const preview = await previewIngressWarranty(unit);
+    const count = preview.reentryCount;
     const counts = [...(target.unitReentryCounts || [])];
     while (counts.length < target.series.length) counts.push(1);
     counts[unitIdx] = count;
     target.unitReentryCounts = counts;
     if (count > 1) {
-      notify.info(`${formatIngresoLabel(count)} detectado (CAC)`, {
-        description: `La serie ${unit[0]} ya estuvo en el sistema y vuelve a ingresar.`,
-      });
+      notify.info(
+        formatIngresoLabel(count, preview.isGarantia ? 'garantia' : 'normal') + ' detectado (CAC)',
+        {
+          description: preview.isGarantia
+            ? 'Reingreso en ventana de garantía (90 días).'
+            : `La serie ${unit[0]} ya estuvo en el sistema y vuelve a ingresar.`,
+        }
+      );
     }
   } catch {
     /* preview opcional */

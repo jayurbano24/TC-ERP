@@ -257,8 +257,12 @@ export async function adjustPartsInventory(opts: {
   sourceType?: StockSourceType;
   notes?: string;
   userId?: string | null;
-  movementType?: 'IN_ADJUST' | 'OUT_ADJUST' | 'IN_PURCHASE';
+  movementType?: 'IN_ADJUST' | 'OUT_ADJUST' | 'IN_PURCHASE' | 'IN_HARVEST';
   unitCost?: number;
+  serviceOrderId?: string | null;
+  seriesId?: string | null;
+  refType?: string | null;
+  refId?: string | null;
 }, db?: SupabaseClient) {
   const admin = adminClient(db);
   if (!opts.catalogId || !Number.isFinite(opts.qtyDelta) || opts.qtyDelta === 0) {
@@ -315,7 +319,10 @@ export async function adjustPartsInventory(opts: {
     unit_cost: opts.unitCost ?? 0,
     notes: opts.notes,
     created_by: opts.userId,
-    ref_type: 'manual_adjust',
+    service_order_id: opts.serviceOrderId ?? null,
+    series_id: opts.seriesId ?? null,
+    ref_type: opts.refType ?? 'manual_adjust',
+    ref_id: opts.refId ?? null,
   });
   return { catalog_id: opts.catalogId, qty_on_hand: next, qty_reserved: nextReserved };
 }

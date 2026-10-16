@@ -47,6 +47,7 @@ import {
   updatePartsLocationApi,
 } from '@/lib/api/parts';
 import { getBrands, getModels } from '@/shared/catalogs/catalogs';
+import { PartsHarvestingTab } from './_components/PartsHarvestingTab';
 
 type TabId =
   | 'inventario'
@@ -57,6 +58,7 @@ type TabId =
   | 'analisis'
   | 'catalogo'
   | 'historial'
+  | 'harvesting'
   | 'alertas';
 
 const TABS: { id: TabId; label: string }[] = [
@@ -68,6 +70,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'historial', label: 'Historial' },
   { id: 'analisis', label: 'Análisis' },
   { id: 'catalogo', label: 'Catálogo' },
+  { id: 'harvesting', label: 'Harvesting' },
   { id: 'alertas', label: 'Alertas' },
 ];
 
@@ -82,6 +85,7 @@ const MOVEMENT_LABELS: Record<string, string> = {
   RETURN_BAD: 'Retorno mala',
   SCRAP: 'Scrap',
   VENDOR_RETURN: 'Dev. proveedor',
+  IN_HARVEST: 'Harvesting (scrap)',
 };
 
 function movementTone(type: string): 'green' | 'red' | 'yellow' | 'slate' | 'blue' {
@@ -1920,6 +1924,8 @@ export default function BodegaPartesPage() {
             />
           </Card>
         )}
+
+        {tab === 'harvesting' && <PartsHarvestingTab />}
 
         {tab === 'alertas' && (
           <div className="space-y-2">

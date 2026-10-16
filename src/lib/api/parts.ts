@@ -42,6 +42,51 @@ export async function fetchPartsInventory() {
   return data.items ?? [];
 }
 
+export type HarvestDonorApi = {
+  series_id: string;
+  serial_number: string;
+  service_order_id: string;
+  os_label: string | null;
+  current_status: string;
+  rack_location: string | null;
+  model_name: string | null;
+};
+
+export async function fetchHarvestDonors(q: string): Promise<HarvestDonorApi[]> {
+  const sp = new URLSearchParams();
+  if (q.trim()) sp.set('q', q.trim());
+  const res = await apiFetch(`/api/v1/parts/harvest/donors?${sp}`, { credentials: 'include' });
+  const data = await readJson<{ items: HarvestDonorApi[] }>(res);
+  return data.items ?? [];
+}
+
+export async function fetchHarvestHistory() {
+  const res = await apiFetch('/api/v1/parts/harvest', { credentials: 'include' });
+  const data = await readJson<{ items: unknown[] }>(res);
+  return data.items ?? [];
+}
+
+export async function fetchHarvestUsage(sessionId: string) {
+  const sp = new URLSearchParams({ sessionId });
+  const res = await apiFetch(`/api/v1/parts/harvest?${sp}`, { credentials: 'include' });
+  const data = await readJson<{ usage: unknown[] }>(res);
+  return data.usage ?? [];
+}
+
+export async function createPartHarvestApi(body: {
+  seriesId: string;
+  sessionNotes?: string | null;
+  lines: Array<{ catalogId: string; qty: number; notes?: string | null }>;
+}) {
+  const res = await apiFetch('/api/v1/parts/harvest', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return readJson(res);
+}
+
 export async function adjustPartsStock(body: {
   catalogId: string;
   qtyDelta: number;

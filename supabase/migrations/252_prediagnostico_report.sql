@@ -6,9 +6,9 @@ VALUES (
   'PREDIAGNOSTICO_EQUIPOS',
   'Equipos prediagnosticados',
   'CAC / Recepción',
-  'Detalle de prediagnóstico CAC: series, descripción SAP, diagnóstico, acción y dictamen',
+  'Formato contractual SCA: ingreso, procedencia, agencia, marca/modelo/SKU, serie, MAC, tecnología, vigencia, fecha de ingreso y prediagnóstico.',
   true,
-  '["OS","FE","S1","S2","DESCRIPCIÓN SAP","MARCA","MODELO","TECNOLOGÍA","TRATAMIENTO","CANAL DE RECUPERACIÓN","DIAGNÓSTICO","ACCIÓN","SAP","CLASE","DICTAMEN","OBSERVACIONES"]'::jsonb
+  '["N.º","Número de ingreso al SCA","Procedencia","Agencia, Central o Aliado de recuperación","Marca","Modelo","SKU","Serie","MAC","Tecnología","Vigencia","Fecha de ingreso","Prediagnóstico"]'::jsonb
 )
 ON CONFLICT (code) DO UPDATE SET
   name = EXCLUDED.name,

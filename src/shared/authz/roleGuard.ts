@@ -60,6 +60,11 @@ export function expandOperationalRoles(rawRoles: string[]): string[] {
   return [...out];
 }
 
+/** Roles operacionales enum (`user_roles.role`) para enforcement server-side. */
+export async function loadOperationalEnumRoles(userId: string): Promise<string[]> {
+  return loadEnumRoles(userId);
+}
+
 async function loadEnumRoles(userId: string): Promise<string[]> {
   const cached = cache.get(userId);
   if (cached && Date.now() - cached.ts < TTL_MS) return cached.roles;

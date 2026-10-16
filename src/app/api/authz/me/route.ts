@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server';
 import { requireApiUser } from '@/shared/infrastructure/http/requireApiUser';
 import { loadUserAuthz } from '@/shared/authz/permissions';
+import {
+  loadOperationalEnumRoles,
+  ROLES_BODEGA_DESPACHO,
+  userHasAnyOperationalRole,
+} from '@/shared/authz/roleGuard';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,8 +22,19 @@ export async function GET(req: Request) {
   if (auth instanceof NextResponse) return auth;
 
   const authz = await loadUserAuthz(auth.user.id);
+  const operationalRoles = await loadOperationalEnumRoles(auth.user.id);
+  const canBodegaDespachoRpc = await userHasAnyOperationalRole(
+    auth.user.id,
+    ROLES_BODEGA_DESPACHO
+  );
   return NextResponse.json(
-    { ...authz, email: auth.user.email ?? null },
+    {
+      ...authz,
+      email: auth.user.email ?? null,
+      operationalRoles,
+      /** Alineado a app_assert_any_role(admin|supervisor|bodega) + permisos ERP tras migración 269. */
+      canBodegaDespachoRpc,
+    },
     {
       headers: { 'Cache-Control': 'private, max-age=0, must-revalidate' },
     }

@@ -281,6 +281,7 @@ export async function middleware(req: NextRequest) {
           msg.includes('session missing') ||
           msg.includes('refresh token not found') ||
           msg.includes('invalid refresh token') ||
+          msg.includes('jwt failed verification') ||
           msg.includes('user from sub claim in jwt does not exist');
         if (definitive) {
           clearSupabaseAuthCookies(req, response);

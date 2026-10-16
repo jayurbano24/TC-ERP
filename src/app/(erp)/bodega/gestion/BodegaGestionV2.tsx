@@ -44,6 +44,7 @@ import { apiFetch, haltForLoginRedirect, isApiAuthFailure, readApiJson } from '@
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useReferenceCatalogs } from '@/hooks/useReferenceCatalogs';
 import { useAuthz } from '@/components/authz/AuthzProvider';
+import { AUTHZ_MODULE } from '@/shared/authz/modules';
 import { PrintBoxModal } from './components/PrintBoxModal';
 import { RackModal } from './components/RackModal';
 import { TimelineModal } from './components/TimelineModal';
@@ -82,7 +83,16 @@ export default function BodegaGestionV2({
 }) {
   const pathname = usePathname();
   const queryClient = useQueryClient();
-  const { isAdmin } = useAuthz();
+  const { isAdmin, snapshot, can } = useAuthz();
+  const erpBodegaWrite =
+    isAdmin || can(AUTHZ_MODULE.BODEGA, 'edit') || can(AUTHZ_MODULE.BODEGA, 'create');
+  const rpcBodegaWriteAllowed =
+    snapshot.canBodegaDespachoRpc === true ||
+    isAdmin ||
+    (snapshot.operationalRoles ?? []).some((r) =>
+      ['admin', 'supervisor', 'bodega'].includes(r)
+    );
+  const bodegaWriteBlocked = erpBodegaWrite && !rpcBodegaWriteAllowed;
   const {
     technologies: catTecnologias,
     brands: catMarcas,
@@ -1118,6 +1128,14 @@ export default function BodegaGestionV2({
       return;
     }
 
+    if (bodegaWriteBlocked) {
+      notify.error('Sin permiso operacional de bodega', {
+        description:
+          'Su puesto tiene acceso al módulo, pero falta el rol operacional (bodega/supervisor/admin). Contacte a Seguridad o RRHH.',
+      });
+      return;
+    }
+
     const persist = await startOrAppendBodegaScan({
       boxId: draftBoxId,
       receptionId: info.reception_id,
@@ -1128,7 +1146,11 @@ export default function BodegaGestionV2({
     });
 
     if (persist.error) {
-      notify.error('No se pudo guardar el escaneo en servidor', { description: persist.error });
+      const desc = persist.error;
+      const permanent =
+        /FORBIDDEN|insufficient role|42501|not authorized/i.test(desc);
+      notify.error('No se pudo guardar el escaneo en servidor', { description: desc });
+      if (permanent) return;
       return;
     }
 
@@ -1966,6 +1988,21 @@ export default function BodegaGestionV2({
       }
     >
       <div className="space-y-8">
+        {bodegaWriteBlocked ? (
+          <Card className="border-l-4 border-l-amber-500 p-4 flex gap-3 items-start">
+            <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-bold text-[var(--heading)]">
+                Acceso de lectura solamente — escrituras bloqueadas
+              </p>
+              <p className="text-xs text-slate-600 mt-1">
+                Tiene permiso ERP en Bodega, pero su cuenta no tiene rol operacional
+                (bodega, supervisor o admin) requerido por el servidor. Las operaciones de pistoleo,
+                traslado y despacho directo fallarán hasta que Seguridad sincronice su rol.
+              </p>
+            </div>
+          </Card>
+        ) : null}
         <BoxDeletionApprovalsPanel enabled={isAdmin} />
         {useOutboundDispatchHex && (
           <DispatchBatchSelector

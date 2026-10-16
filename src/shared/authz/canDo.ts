@@ -30,6 +30,10 @@ export interface UserAuthz {
   perms: ModulePermission[];
   /** Email de la sesión (UX: p. ej. gate Tema/Colores). No usar como seguridad. */
   email?: string | null;
+  /** Enum operacional (`user_roles.role`) — GET /api/authz/me */
+  operationalRoles?: string[];
+  /** Coherente con RPC bodega/despacho tras sync + assert SQL. */
+  canBodegaDespachoRpc?: boolean;
 }
 
 export const ACTION_COLUMN: Record<PermAction, keyof ModulePermission> = {

@@ -162,6 +162,9 @@ async function assignRoleToUser(
   await supabaseAdmin.rpc('app_sync_operational_role_from_position', {
     p_user_id: userId,
   });
+  await supabaseAdmin.rpc('app_sync_operational_role_from_erp_modules', {
+    p_user_id: userId,
+  });
 }
 
 /**

@@ -7,6 +7,7 @@ import { CenamRefurbishedReportProvider } from './cenam-refurbished-report.provi
 import { OpsMonthlyTechReportProvider } from './ops-monthly-tech-report.provider';
 import { PrediagnosticoReportProvider } from './prediagnostico-report.provider';
 import { ReceptionCacReportProvider } from './reception-cac-report.provider';
+import { WarrantyReentryReportProvider } from './warranty-reentry-report.provider';
 
 const providers: IReportDataProvider[] = [
   new CacClassificationReportProvider(),
@@ -17,6 +18,7 @@ const providers: IReportDataProvider[] = [
   new AccessoryDirectDispatchReportProvider(),
   new OpsMonthlyTechReportProvider(),
   new CenamRefurbishedReportProvider(),
+  new WarrantyReentryReportProvider(),
 ];
 
 const byCode = new Map(providers.map((p) => [p.code, p]));

@@ -85,7 +85,14 @@ export async function POST(
 
   if (error) {
     console.error('[dispatch-partial]', error.message);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const { formatWarrantyProfileRequiredError } = await import(
+      '@/modules/warranty/domain/warrantyPolicy'
+    );
+    const status = /WARRANTY_PROFILE_REQUIRED/i.test(error.message) ? 422 : 500;
+    return NextResponse.json(
+      { error: formatWarrantyProfileRequiredError(error.message) },
+      { status }
+    );
   }
 
   const payload = data as {

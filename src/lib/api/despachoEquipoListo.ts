@@ -55,15 +55,31 @@ export async function fetchDespachoEquipoListoPage(opts?: {
   const res = await apiFetch(`/api/v1/despacho/equipo-listo?${params}`, {
     credentials: 'include',
   });
-  const data = await res.json();
+  const data = await parseEquipoListoJson(res);
   if (!res.ok) {
-    throw new Error(data.error ?? data.detail ?? `HTTP ${res.status}`);
+    throw new Error(
+      typeof data === 'object' && data && 'error' in data
+        ? String((data as { error?: string }).error)
+        : typeof data === 'object' && data && 'detail' in data
+          ? String((data as { detail?: string }).detail)
+          : `HTTP ${res.status}`,
+    );
   }
 
   return {
     items: (data.items ?? []) as DespachoEquipoListoRow[],
-    nextCursor: data.nextCursor ?? null,
-    totalOs: data.totalOs ?? null,
+    nextCursor:
+      typeof data.nextCursor === 'string'
+        ? data.nextCursor
+        : data.nextCursor == null
+          ? null
+          : String(data.nextCursor),
+    totalOs:
+      typeof data.totalOs === 'number'
+        ? data.totalOs
+        : data.totalOs == null
+          ? null
+          : Number(data.totalOs),
     byTechnology: Array.isArray(data.byTechnology)
       ? (data.byTechnology as DespachoEquipoListoTechStat[])
       : [],
@@ -71,14 +87,48 @@ export async function fetchDespachoEquipoListoPage(opts?: {
   };
 }
 
-/** Descarga toda la cola Equipo Listo (no la primera página de 200). */
-export async function fetchAllDespachoEquipoListo(): Promise<DespachoEquipoListoRow[]> {
-  const res = await apiFetch('/api/v1/despacho/equipo-listo?all=1', {
-    credentials: 'include',
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error ?? data.detail ?? `HTTP ${res.status}`);
+async function parseEquipoListoJson(res: Response): Promise<Record<string, unknown>> {
+  const text = await res.text();
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+    throw new Error('Respuesta JSON inesperada del servidor.');
+  } catch (err) {
+    if (err instanceof Error && err.message === 'Respuesta JSON inesperada del servidor.') throw err;
+    const snippet = text.replace(/\s+/g, ' ').trim().slice(0, 160);
+    if (!res.ok) {
+      throw new Error(
+        snippet.startsWith('<')
+          ? `El servidor devolvió un error (${res.status}). La cola es muy grande para una sola petición; use exportación por páginas.`
+          : snippet || `HTTP ${res.status}`,
+      );
+    }
+    throw new Error('No se pudo leer la respuesta del servidor (JSON inválido).');
   }
-  return (data.items ?? []) as DespachoEquipoListoRow[];
+}
+
+/** Descarga toda la cola Equipo Listo paginando (evita ?all=1 y respuestas > límite Vercel). */
+export async function fetchAllDespachoEquipoListo(): Promise<DespachoEquipoListoRow[]> {
+  const seen = new Set<string>();
+  const items: DespachoEquipoListoRow[] = [];
+  let cursor: string | null = null;
+
+  for (let page = 0; page < 250; page++) {
+    const chunk = await fetchDespachoEquipoListoPage({
+      cursor,
+      limit: BATCH_LIMITS.API_PAGE_MAX,
+    });
+    for (const row of chunk.items) {
+      const key = String(row.service_order_id || row.id);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      items.push(row);
+    }
+    if (!chunk.nextCursor || chunk.items.length === 0) break;
+    cursor = chunk.nextCursor;
+  }
+
+  return items;
 }

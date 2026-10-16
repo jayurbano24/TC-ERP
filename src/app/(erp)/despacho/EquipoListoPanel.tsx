@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState, startTransition } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import * as XLSX from 'xlsx';
 import {
   Card,
@@ -118,6 +118,15 @@ function matchesExcelFilters(row: ListoRow, filters: ExcelFilters, except?: Filt
   return true;
 }
 
+function matchesSearchTokens(row: ListoRow, searchText: string): boolean {
+  const needle = searchText.trim().toLowerCase();
+  if (!needle) return true;
+  const blob = [row.os, row.s1, row.s2, row.s3, row.s4, row.tech, row.brand, row.model]
+    .join(' ')
+    .toLowerCase();
+  return needle.split(/\s+/).every((token) => blob.includes(token));
+}
+
 async function fetchEquipoListoRest(startCursor: string): Promise<DespachoEquipoListoRow[]> {
   const items: DespachoEquipoListoRow[] = [];
   let cursor: string | null = startCursor;
@@ -163,6 +172,9 @@ export function EquipoListoPanel() {
   });
 
   const searchText = debouncedSearch.trim();
+  const queueFullyLoaded = Boolean(query.data) && (!restCursor || restQuery.isSuccess);
+  const useClientSearch = searchText.length > 0 && queueFullyLoaded;
+
   const searchQuery = useQuery({
     queryKey: ['despacho-equipo-listo-search', searchText],
     queryFn: () =>
@@ -170,8 +182,9 @@ export function EquipoListoPanel() {
         search: searchText,
         limit: BATCH_LIMITS.API_PAGE_MAX,
       }),
-    enabled: searchText.length > 0,
+    enabled: searchText.length > 0 && !queueFullyLoaded,
     staleTime: 15_000,
+    placeholderData: keepPreviousData,
   });
 
   const catalogsQuery = useQuery({
@@ -196,7 +209,11 @@ export function EquipoListoPanel() {
     () => (searchQuery.data?.items ?? []).map(adaptRow),
     [searchQuery.data?.items]
   );
-  const datasetRows = searchText ? searchRows : allRows;
+  const clientSearchRows = useMemo(() => {
+    if (!useClientSearch) return null;
+    return allRows.filter((r) => matchesSearchTokens(r, searchText));
+  }, [allRows, searchText, useClientSearch]);
+  const datasetRows = useClientSearch ? (clientSearchRows ?? []) : searchText ? searchRows : allRows;
 
   const setColFilter = useCallback((col: FilterCol, next: ExcelFilterSelection) => {
     setExcelFilters((prev) => ({ ...prev, [col]: next }));
@@ -318,11 +335,14 @@ export function EquipoListoPanel() {
 
   const totalOs =
     query.data?.totalOs ??
-    (searchText ? searchQuery.data?.totalOs : null) ??
+    (searchText && !useClientSearch ? searchQuery.data?.totalOs : null) ??
     allRows.length;
-  const listLoading = searchText ? searchQuery.isLoading : query.isLoading;
-  const listFailed = searchText ? searchQuery.isError : query.isError;
-  const listError = searchText ? searchQuery.error : query.error;
+  const listLoading =
+    searchText && !useClientSearch
+      ? searchQuery.isLoading && searchQuery.fetchStatus === 'fetching' && !searchQuery.data
+      : query.isLoading && !query.data;
+  const listFailed = searchText && !useClientSearch ? searchQuery.isError : query.isError;
+  const listError = searchText && !useClientSearch ? searchQuery.error : query.error;
 
   const applyTechCard = (techName: string) => {
     const current = excelFilters.tech;
@@ -338,7 +358,15 @@ export function EquipoListoPanel() {
     if (exporting) return;
     setExporting(scope);
     try {
-      const full = (await fetchAllDespachoEquipoListo()).map(adaptRow);
+      let full: ListoRow[];
+      if (queueFullyLoaded && allRows.length > 0) {
+        full = allRows;
+      } else {
+        notify.info('Preparando exportación…', {
+          description: 'Descargando la cola completa por páginas (puede tardar unos segundos).',
+        });
+        full = (await fetchAllDespachoEquipoListo()).map(adaptRow);
+      }
       const searchNeedle = debouncedSearch.trim().toLowerCase();
       const source =
         scope === 'all'
@@ -528,6 +556,7 @@ export function EquipoListoPanel() {
                 }}
                 placeholder="Buscar OS o serie…"
                 className={`${erpFieldClass} pl-8 h-9 text-xs`}
+                aria-busy={Boolean(searchText && !useClientSearch && searchQuery.isFetching)}
               />
             </div>
             {hasActiveFilters ? (

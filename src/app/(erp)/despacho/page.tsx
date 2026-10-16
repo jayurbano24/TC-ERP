@@ -73,6 +73,7 @@ import { fetchReferenceCatalogsViaApi } from '@/lib/api/referenceCatalogs';
 import { requestBoxDeletion } from '@/modules/inventario/client/warehouseBoxes';
 import { DespachoSalidaModal } from './DespachoSalidaModal';
 import { EquipoListoPanel } from './EquipoListoPanel';
+import { WarrantyPackPanel } from './WarrantyPackPanel';
 import { printOutboundLabel, printOutboundLabels } from './printOutboundLabel';
 import { printOutboundDetalle } from './printOutboundDetalle';
 import {
@@ -369,12 +370,17 @@ async function fetchDespachoData(): Promise<{ history: any[]; dispatches: Dispat
 export default function DespachoPage() {
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
-  type DespachoTabId = 'equipo_listo' | 'operacion' | 'historial';
+  type DespachoTabId = 'equipo_listo' | 'warranty_pack' | 'operacion' | 'historial';
   const [activeTab, setActiveTab] = useState<DespachoTabId>('equipo_listo');
 
   useEffect(() => {
     const tab = searchParams.get('tab');
-    if (tab === 'historial' || tab === 'operacion' || tab === 'equipo_listo') {
+    if (
+      tab === 'historial' ||
+      tab === 'operacion' ||
+      tab === 'equipo_listo' ||
+      tab === 'warranty_pack'
+    ) {
       setActiveTab(tab);
     }
   }, [searchParams]);
@@ -2248,6 +2254,7 @@ export default function DespachoPage() {
           {(
             [
               { id: 'equipo_listo' as const, label: 'Equipo Listo', icon: CheckCircle2 },
+              { id: 'warranty_pack' as const, label: 'Warranty Pack', icon: null },
               { id: 'operacion' as const, label: 'Gestión de Outbound', icon: null },
               { id: 'historial' as const, label: 'Historial de Despachos', icon: null },
             ] satisfies Array<{ id: DespachoTabId; label: string; icon: typeof CheckCircle2 | null }>
@@ -2274,6 +2281,8 @@ export default function DespachoPage() {
 
         {activeTab === 'equipo_listo' ? (
           <EquipoListoPanel />
+        ) : activeTab === 'warranty_pack' ? (
+          <WarrantyPackPanel />
         ) : activeTab === 'operacion' ? (
           <div className="space-y-4 animate-in fade-in">
         

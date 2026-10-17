@@ -17,7 +17,7 @@ import {
 } from '@/components/ui';
 import { erpTab, erpTableHeader, erpTableHeaderText, erpFieldClass, erpLabelClass } from '@/lib/design/tokens';
 import { apiFetch } from '@/lib/http/apiFetch';
-import { sapValidationReader, getSapStatusMeta, type SapValidationState } from '@/modules/sap-integration';
+import { sapValidationReader, getSapStatusMeta } from '@/modules/sap-integration';
 import * as XLSX from 'xlsx';
 import { ModulePage, ModuleToolbar } from '@/components/module-page';
 import {
@@ -29,6 +29,12 @@ import {
   uniqueMaterials,
   valuationsForMaterial,
 } from '@/lib/api/despachoSapMatLot';
+import {
+  checkOutboundScanMaterialValuation,
+  isIptvTechnologyName,
+  materialsConflictForOutbound,
+  normMatLot,
+} from '@/modules/despacho/outboundMaterialValuationPolicy';
 import { 
   Truck, 
   Package, 
@@ -148,114 +154,6 @@ function getJoinedServiceOrder(
   if (!so) return null;
   if (Array.isArray(so)) return so[0] ?? null;
   return so;
-}
-
-/** Vacío/null no cuenta como valor. Comparación case-insensitive. */
-function normMatLot(value: unknown): string | null {
-  const s = String(value ?? '').trim();
-  return s ? s.toUpperCase() : null;
-}
-
-/** Conflicto si ambos lados tienen valor y difieren. */
-function materialsConflict(
-  aMat: unknown,
-  aLot: unknown,
-  bMat: unknown,
-  bLot: unknown
-): boolean {
-  const am = normMatLot(aMat);
-  const al = normMatLot(aLot);
-  const bm = normMatLot(bMat);
-  const bl = normMatLot(bLot);
-  if (am && bm && am !== bm) return true;
-  if (al && bl && al !== bl) return true;
-  return false;
-}
-
-type OutboundScanMatValContext = {
-  serial?: string | null;
-  osLabel?: string | null;
-};
-
-/**
- * Material/Valoración vs caja. Si faltan en serie, el caso habitual es
- * «equipo no validado en Integración SAP» (no un error genérico de Material).
- */
-function checkOutboundScanMaterialValuation(
-  eqMaterial: unknown,
-  eqValuation: unknown,
-  boxMat: unknown,
-  boxVal: unknown,
-  sapUnitStatus: SapValidationState,
-  ctx: OutboundScanMatValContext = {}
-): { ok: true } | { ok: false; title: string; description: string } {
-  const sm = normMatLot(eqMaterial);
-  const sv = normMatLot(eqValuation);
-  const bm = normMatLot(boxMat);
-  const bv = normMatLot(boxVal);
-  const sapLabel = getSapStatusMeta(sapUnitStatus).label;
-  const who = [ctx.osLabel, ctx.serial].filter(Boolean).join(' · ') || 'Este equipo';
-  const notValidated = sapUnitStatus !== 'Validado SAP';
-
-  if (bm) {
-    if (!sm) {
-      if (notValidated) {
-        return {
-          ok: false,
-          title: 'Equipo no validado en Integración SAP',
-          description:
-            `${who} está en estado «${sapLabel}», por eso no tiene Material SAP y no puede entrar a esta Outbound (Material requerido: ${bm}). ` +
-            `Vaya a Integración SAP → cargue/valide el Excel G985 (match) hasta «Validado SAP», luego vuelva a pistolear.`,
-        };
-      }
-      return {
-        ok: false,
-        title: 'Sin Material SAP tras validación',
-        description:
-          `${who} figura «${sapLabel}» pero no trae Material en BD (la caja exige ${bm}). ` +
-          `Re-sincronice en Integración SAP o corrija Material en la serie y reintente.`,
-      };
-    }
-    if (sm !== bm) {
-      return {
-        ok: false,
-        title: 'Material distinto al de la caja',
-        description:
-          `${who}: Material de la serie [${sm}] no coincide con el de la Outbound [${bm}]. ` +
-          `No se pueden mezclar materiales en la misma caja.`,
-      };
-    }
-  }
-  if (bv) {
-    if (!sv) {
-      if (notValidated) {
-        return {
-          ok: false,
-          title: 'Equipo no validado en Integración SAP',
-          description:
-            `${who} está en estado «${sapLabel}», por eso no tiene Valoración (lote) SAP y no puede entrar a esta Outbound (Valoración requerida: ${bv}). ` +
-            `Vaya a Integración SAP → valide el Excel G985 hasta «Validado SAP», luego vuelva a pistolear.`,
-        };
-      }
-      return {
-        ok: false,
-        title: 'Sin Valoración SAP tras validación',
-        description:
-          `${who} figura «${sapLabel}» pero no trae Valoración en BD (la caja exige ${bv}). ` +
-          `Re-sincronice en Integración SAP o corrija el lote y reintente.`,
-      };
-    }
-    if (sv !== bv) {
-      return {
-        ok: false,
-        title: 'Valoración distinta a la de la caja',
-        description:
-          `${who}: Valoración de la serie [${sv}] no coincide con la de la Outbound [${bv}]. ` +
-          `No se pueden mezclar lotes en la misma caja.`,
-      };
-    }
-  }
-  return { ok: true };
 }
 
 async function fetchDespachoData(): Promise<{ history: any[]; dispatches: DispatchItem[] }> {
@@ -461,6 +359,10 @@ export default function DespachoPage() {
   const dbBrands: any[] = catalogsQuery.data?.brands ?? EMPTY_LIST;
   const dbModels: any[] = catalogsQuery.data?.models ?? EMPTY_LIST;
   const dbTechs: any[] = catalogsQuery.data?.techs ?? EMPTY_LIST;
+  const isIptvCreate = useMemo(() => {
+    const name = dbTechs.find((t) => t.id === boxTech)?.name;
+    return isIptvTechnologyName(name);
+  }, [boxTech, dbTechs]);
   const [editBoxId, setEditBoxId] = useState<string | null>(null);
   const [creatingBoxes, setCreatingBoxes] = useState(false);
 
@@ -488,15 +390,17 @@ export default function DespachoPage() {
     return list;
   }, [sapMatLotPairs, boxMaterial]);
   const sapValuationOptions = useMemo(() => {
-    const list = valuationsForMaterial(sapMatLotPairs, boxMaterial);
+    const matKey = isIptvCreate && !boxMaterial ? '' : boxMaterial;
+    const list = valuationsForMaterial(sapMatLotPairs, matKey);
     if (boxValuation && !list.some((v) => v.toUpperCase() === boxValuation.toUpperCase())) {
       return [boxValuation, ...list];
     }
     return list;
-  }, [sapMatLotPairs, boxMaterial, boxValuation]);
+  }, [sapMatLotPairs, boxMaterial, boxValuation, isIptvCreate]);
 
   useEffect(() => {
     if (!showCreateBoxModal || !boxBrand || !boxModel) return;
+    if (isIptvCreate) return;
     if (sapMatLotQuery.isLoading || sapMatLotQuery.isFetching) return;
     const mats = uniqueMaterials(sapMatLotPairs);
     if (mats.length === 1 && !boxMaterial) {
@@ -506,6 +410,7 @@ export default function DespachoPage() {
     showCreateBoxModal,
     boxBrand,
     boxModel,
+    isIptvCreate,
     sapMatLotPairs,
     sapMatLotQuery.isLoading,
     sapMatLotQuery.isFetching,
@@ -513,9 +418,12 @@ export default function DespachoPage() {
   ]);
 
   useEffect(() => {
-    if (!showCreateBoxModal || !boxMaterial) return;
+    if (!showCreateBoxModal || (!boxMaterial && !isIptvCreate)) return;
     if (sapMatLotQuery.isLoading || sapMatLotQuery.isFetching) return;
-    const vals = valuationsForMaterial(sapMatLotPairs, boxMaterial);
+    const vals = valuationsForMaterial(
+      sapMatLotPairs,
+      isIptvCreate && !boxMaterial ? '' : boxMaterial
+    );
     if (vals.length === 1 && boxValuation.toUpperCase() !== vals[0].toUpperCase()) {
       setBoxValuation(vals[0]);
     } else if (
@@ -528,6 +436,7 @@ export default function DespachoPage() {
   }, [
     showCreateBoxModal,
     boxMaterial,
+    isIptvCreate,
     sapMatLotPairs,
     sapMatLotQuery.isLoading,
     sapMatLotQuery.isFetching,
@@ -1024,6 +933,9 @@ export default function DespachoPage() {
     ]);
     const boxMatRef = selectedBox.material || (boxItems[0]?.material ?? '');
     const boxLotRef = selectedBox.valuation || (boxItems[0]?.valuation ?? '');
+    const scanModel = dbModels.find((m) => m.id === selectedBox.model_id);
+    const scanTechName = dbTechs.find((t) => t.id === scanModel?.technology_id)?.name;
+    const allowMultiMaterial = isIptvTechnologyName(scanTechName);
 
     const matVal = checkOutboundScanMaterialValuation(
       eqMaterial,
@@ -1034,7 +946,9 @@ export default function DespachoPage() {
       {
         serial: sn,
         osLabel: scanServiceOrder?.os_label ?? null,
-      }
+      },
+      getSapStatusMeta,
+      { allowMultiMaterial }
     );
     if (!matVal.ok) {
       notify.error(matVal.title, {
@@ -1043,13 +957,24 @@ export default function DespachoPage() {
       });
       return;
     }
-    // Refuerzo vs ítems ya en caja (por si la caja no tenía declarado y el contenido sí)
-    if (boxItems.length > 0 && materialsConflict(eqMaterial, eqValuation, boxItems[0].material, boxItems[0].valuation)) {
-      notify.error('No se pueden mezclar Material/Valoración', {
-        description: `Equipo: Material [${normMatLot(eqMaterial) || '—'}] Valoración [${normMatLot(eqValuation) || '—'}] · En caja: Material [${normMatLot(boxItems[0].material) || '—'}] Valoración [${normMatLot(boxItems[0].valuation) || '—'}].`,
-        duration: 0,
-      });
-      return;
+    for (const item of boxItems) {
+      if (
+        materialsConflictForOutbound(
+          eqMaterial,
+          eqValuation,
+          item.material,
+          item.valuation,
+          { allowMultiMaterial }
+        )
+      ) {
+        notify.error('No se pueden mezclar Material/Valoración', {
+          description: `Equipo: Material [${normMatLot(eqMaterial) || '—'}] Valoración [${normMatLot(eqValuation) || '—'}] · En caja: Material [${normMatLot(item.material) || '—'}] Valoración [${normMatLot(item.valuation) || '—'}].${
+            allowMultiMaterial ? ' IPTV: solo debe coincidir Valorado vs No valorado.' : ''
+          }`,
+          duration: 0,
+        });
+        return;
+      }
     }
 
     if (boxItems.length >= selectedBox.unidades) {
@@ -1099,6 +1024,17 @@ export default function DespachoPage() {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
 
+    const techName = dbTechs.find((t) => t.id === boxTech)?.name;
+    const iptv = isIptvTechnologyName(techName);
+    if (!boxValuation.trim()) {
+      notify.warning('Indique valoración SAP (Valorado o No valorado).');
+      return;
+    }
+    if (!iptv && !boxMaterial.trim()) {
+      notify.warning('Indique material SAP para esta Outbound.');
+      return;
+    }
+
     const unitsPerBox = Number(boxQty);
     if (!Number.isFinite(unitsPerBox) || unitsPerBox <= 0) {
       notify.warning('Indique equipos por caja mayor a 0.');
@@ -1124,7 +1060,7 @@ export default function DespachoPage() {
           brand_id: boxBrand,
           model_id: boxModel,
           capacity: unitsPerBox,
-          material: boxMaterial.trim() || null,
+          material: iptv && !boxMaterial.trim() ? null : boxMaterial.trim() || null,
           valuation: boxValuation.trim() || null,
         }).eq('id', editBoxId);
 
@@ -1163,7 +1099,7 @@ export default function DespachoPage() {
             brand_id: boxBrand,
             model_id: boxModel,
             capacity: unitsPerBox,
-            material: boxMaterial.trim() || null,
+            material: iptv && !boxMaterial.trim() ? null : boxMaterial.trim() || null,
             valuation: boxValuation.trim() || null,
             status: 'open',
             rack_location: 'OUTBOUND',
@@ -2428,13 +2364,17 @@ export default function DespachoPage() {
                         }
                       />
                       <p className="text-[11px] text-[var(--muted)] font-medium">
-                        Misma tecnología, marca, modelo, material y valoración en cada outbound (máx. 50).
+                        {isIptvCreate
+                          ? 'IPTV: misma valoración (Valorado o No valorado) por caja; puede mezclar varios materiales SAP al pistoleo (máx. 50 cajas).'
+                          : 'Misma tecnología, marca, modelo, material y valoración en cada outbound (máx. 50).'}
                       </p>
                     </div>
                   ) : null}
 
                   <div className="space-y-1.5">
-                    <label className={erpLabelClass}>Material</label>
+                    <label className={erpLabelClass}>
+                      Material{isIptvCreate ? ' (opcional en IPTV)' : ''}
+                    </label>
                     <select
                       className={`${erpFieldClass} font-mono`}
                       value={boxMaterial}
@@ -2449,9 +2389,11 @@ export default function DespachoPage() {
                           ? 'Modelo primero'
                           : sapMatLotQuery.isLoading
                             ? 'Cargando SAP...'
-                            : sapMaterialOptions.length === 0
-                              ? 'Sin material SAP para este modelo'
-                              : 'Seleccione material SAP...'}
+                            : isIptvCreate
+                              ? 'Varios materiales (dejar vacío)…'
+                              : sapMaterialOptions.length === 0
+                                ? 'Sin material SAP para este modelo'
+                                : 'Seleccione material SAP...'}
                       </option>
                       {sapMaterialOptions.map((m) => (
                         <option key={m} value={m}>{m}</option>
@@ -2464,11 +2406,15 @@ export default function DespachoPage() {
                     <select
                       className={`${erpFieldClass} font-mono`}
                       value={boxValuation}
-                      disabled={!boxMaterial || sapMatLotQuery.isLoading}
+                      disabled={
+                        (!boxMaterial && !isIptvCreate) || sapMatLotQuery.isLoading || !boxModel
+                      }
                       onChange={(e) => setBoxValuation(e.target.value)}
                     >
                       <option value="">
-                        {!boxMaterial
+                        {!boxModel
+                          ? 'Modelo primero'
+                          : !boxMaterial && !isIptvCreate
                           ? 'Material primero'
                           : sapMatLotQuery.isLoading
                             ? 'Cargando SAP...'
@@ -2508,6 +2454,8 @@ export default function DespachoPage() {
                     !boxModel ||
                     !boxQty ||
                     !boxTech ||
+                    !boxValuation ||
+                    (!isIptvCreate && !boxMaterial) ||
                     (!editBoxId && (Number(boxCount) < 1 || Number(boxCount) > 50))
                   }
                 >

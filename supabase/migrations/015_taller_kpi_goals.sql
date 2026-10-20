@@ -3,8 +3,8 @@ CREATE TABLE IF NOT EXISTS taller_kpi_goals (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
   stage text NOT NULL, -- Ej: 'diagnostico', 'reparacion', 'reacondicionado', 'qc'
-  technology_id uuid REFERENCES technologies(id) ON DELETE CASCADE,
-  model_id uuid REFERENCES models(id) ON DELETE CASCADE,
+  technology_id uuid REFERENCES public.technologies(id) ON DELETE CASCADE,
+  model_id uuid REFERENCES public.models(id) ON DELETE CASCADE,
   daily_goal integer NOT NULL DEFAULT 0,
   weekly_goal integer NOT NULL DEFAULT 0,
   created_at timestamp with time zone DEFAULT now(),

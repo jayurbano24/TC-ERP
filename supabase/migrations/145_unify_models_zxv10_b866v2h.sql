@@ -38,7 +38,8 @@ BEGIN
   LIMIT 1;
 
   IF v_brand IS NULL OR v_tech IS NULL THEN
-    RAISE EXCEPTION 'No se pudo resolver brand/technology para ZXV10 B866V2-H.';
+    RAISE NOTICE 'Skip 145: sin modelos origen ni catálogo base (fresh install).';
+    RETURN;
   END IF;
 
   SELECT id INTO v_target

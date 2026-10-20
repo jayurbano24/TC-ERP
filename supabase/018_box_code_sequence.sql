@@ -7,28 +7,37 @@ CREATE SEQUENCE IF NOT EXISTS public.box_code_seq
   INCREMENT BY 1
   NO CYCLE;
 
--- Inicializar la secuencia con el máximo actual para no repetir existentes
-SELECT setval(
-  'public.box_code_seq',
-  COALESCE(
-    (SELECT MAX(CAST(regexp_replace(box_code, '[^0-9]', '', 'g') AS integer))
-     FROM public.boxes
-     WHERE box_code ~ '^BOX-[0-9]+$'),
+-- Alinear secuencia: tablas vacías → primer nextval = 1; con datos → max+1 sin duplicar.
+DO $$
+DECLARE
+  v_max integer;
+BEGIN
+  SELECT COALESCE(
+    MAX(NULLIF(regexp_replace(box_code, '[^0-9]', '', 'g'), '')::integer),
     0
   )
-);
+  INTO v_max
+  FROM public.boxes
+  WHERE box_code ~* '^BOX-[0-9]+$';
+
+  IF v_max <= 0 THEN
+    PERFORM setval('public.box_code_seq', 1, false);
+  ELSE
+    PERFORM setval('public.box_code_seq', v_max, true);
+  END IF;
+END $$;
 
 -- Función RPC para obtener el siguiente código único (atómica, usa SECURITY DEFINER)
+-- Nota: migraciones 124/125 redefinen formato sin LPAD truncante; aquí bootstrap coherente con BOX-{n}.
 CREATE OR REPLACE FUNCTION public.next_box_code()
 RETURNS text
 LANGUAGE sql
 SECURITY DEFINER
 SET search_path = public
 AS $$
-  SELECT 'BOX-' || LPAD(nextval('public.box_code_seq')::text, 2, '0');
+  SELECT 'BOX-' || nextval('public.box_code_seq')::text;
 $$;
 
--- Permiso de ejecución para usuarios autenticados
 GRANT EXECUTE ON FUNCTION public.next_box_code() TO authenticated;
 
 NOTIFY pgrst, 'reload schema';

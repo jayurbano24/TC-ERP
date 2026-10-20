@@ -11,7 +11,9 @@ COMMENT ON COLUMN public.px_capture_metrics.validation_ms IS
 COMMENT ON COLUMN public.px_capture_metrics.lock_section_ms IS
   'Sub-span RPC: sección crítica post lock (INSERT + UPDATE).';
 
-CREATE OR REPLACE VIEW public.px_capture_slo_daily AS
+DROP VIEW IF EXISTS public.px_capture_slo_daily;
+
+CREATE VIEW public.px_capture_slo_daily AS
 SELECT
   date_trunc('day', created_at AT TIME ZONE 'America/Guatemala') AS day_gt,
   outcome,

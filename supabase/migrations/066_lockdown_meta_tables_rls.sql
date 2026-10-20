@@ -32,6 +32,8 @@ alter table public.erp_role_permissions enable row level security;
 
 drop policy if exists "Permitir full access permisos" on public.erp_role_permissions;
 drop policy if exists "Permitir select permisos"      on public.erp_role_permissions;
+drop policy if exists erp_role_permissions_read       on public.erp_role_permissions;
+drop policy if exists erp_role_permissions_write      on public.erp_role_permissions;
 
 create policy erp_role_permissions_read
   on public.erp_role_permissions for select to authenticated
@@ -82,6 +84,7 @@ drop policy if exists "Permitir escritura a usuarios"             on public.hr_p
 drop policy if exists "Permitir escritura a usuarios autenticados" on public.hr_positions;
 drop policy if exists "Permitir lectura a usuarios"               on public.hr_positions;
 drop policy if exists "Permitir lectura a usuarios autenticados"   on public.hr_positions;
+drop policy if exists hr_positions_read                             on public.hr_positions;
 
 create policy hr_positions_read
   on public.hr_positions for select to authenticated

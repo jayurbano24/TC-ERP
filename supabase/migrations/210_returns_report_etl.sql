@@ -21,6 +21,9 @@ CREATE INDEX IF NOT EXISTS idx_returns_report_etl_agency
 CREATE INDEX IF NOT EXISTS idx_returns_report_etl_motivo
   ON public.returns_report_etl (motivo);
 
+CREATE INDEX IF NOT EXISTS idx_returns_report_etl_event_at
+  ON public.returns_report_etl (event_at);
+
 ALTER TABLE public.returns_report_etl ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS returns_report_etl_select ON public.returns_report_etl;

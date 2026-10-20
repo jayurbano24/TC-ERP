@@ -334,21 +334,25 @@ BEGIN
   recup AS (
     SELECT public.normalize_report_tech_name(t.name) AS tech, ing.canal, count(DISTINCT ing.os_id) AS cnt
     FROM (
-      SELECT DISTINCT ON (ctu.service_order_id) ctu.service_order_id AS os_id, 'cac'::text AS canal
-      FROM public.cac_tray_units ctu
-      WHERE ctu.is_active AND ctu.service_order_id IS NOT NULL
-        AND ctu.classified_at >= v_start AND ctu.classified_at <= v_end
-      ORDER BY ctu.service_order_id, ctu.classified_at ASC
+      (
+        SELECT DISTINCT ON (ctu.service_order_id) ctu.service_order_id AS os_id, 'cac'::text AS canal
+        FROM public.cac_tray_units ctu
+        WHERE ctu.is_active AND ctu.service_order_id IS NOT NULL
+          AND ctu.classified_at >= v_start AND ctu.classified_at <= v_end
+        ORDER BY ctu.service_order_id, ctu.classified_at ASC
+      )
       UNION ALL
-      SELECT DISTINCT ON (so.id) so.id, 'px'::text
-      FROM public.receptions r
-      JOIN public.service_orders so ON so.reception_id = r.id
-      WHERE lower(r.source) = 'px' AND so.created_at >= v_start AND so.created_at <= v_end
-        AND NOT EXISTS (
-          SELECT 1 FROM public.cac_tray_units c
-          WHERE c.service_order_id = so.id AND c.is_active = true
-        )
-      ORDER BY so.id, so.created_at ASC
+      (
+        SELECT DISTINCT ON (so.id) so.id, 'px'::text
+        FROM public.receptions r
+        JOIN public.service_orders so ON so.reception_id = r.id
+        WHERE lower(r.source) = 'px' AND so.created_at >= v_start AND so.created_at <= v_end
+          AND NOT EXISTS (
+            SELECT 1 FROM public.cac_tray_units c
+            WHERE c.service_order_id = so.id AND c.is_active = true
+          )
+        ORDER BY so.id, so.created_at ASC
+      )
     ) ing
     LEFT JOIN LATERAL (
       SELECT s2.model_id FROM public.series s2

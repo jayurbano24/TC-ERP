@@ -36,7 +36,8 @@ BEGIN
   LIMIT 1;
 
   IF v_os_id IS NULL THEN
-    RAISE EXCEPTION 'No se encontró serie %', v_sn;
+    RAISE NOTICE 'Skip 203: serie % no presente (instalación limpia).', v_sn;
+    RETURN;
   END IF;
 
   -- Marca KAON

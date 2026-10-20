@@ -24,7 +24,8 @@ BEGIN
   LIMIT 1;
 
   IF v_os_id IS NULL THEN
-    RAISE EXCEPTION 'No se encontró OS TC-05102 ni serie BS10084053008747';
+    RAISE NOTICE 'Skip 190: OS TC-05102 / serie BS10084053008747 no presente (instalación limpia).';
+    RETURN;
   END IF;
 
   SELECT m.id INTO v_target

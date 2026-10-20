@@ -24,7 +24,8 @@ BEGIN
   LIMIT 1;
 
   IF v_target IS NULL THEN
-    RAISE EXCEPTION '216: no se encontró modelo CG-3000 en catálogo';
+    RAISE NOTICE 'Skip 216: sin modelo CG-3000 en catálogo (instalación limpia).';
+    RETURN;
   END IF;
 
   FOR v_box IN
@@ -91,7 +92,7 @@ BEGIN
   END LOOP;
 
   IF v_found = 0 THEN
-    RAISE EXCEPTION '216: no se encontró BOX-1741';
+    RAISE NOTICE 'Skip 216: BOX-1741 no presente (instalación limpia).';
   END IF;
 END;
 $$;

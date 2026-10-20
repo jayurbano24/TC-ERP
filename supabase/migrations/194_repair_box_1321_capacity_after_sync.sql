@@ -18,7 +18,8 @@ BEGIN
   LIMIT 1;
 
   IF v_box_id IS NULL THEN
-    RAISE EXCEPTION '194: no se encontró BOX-1321';
+    RAISE NOTICE 'Skip 194: BOX-1321 no presente (instalación limpia).';
+    RETURN;
   END IF;
 
   SELECT count(DISTINCT coalesce(s.service_order_id, s.id))::integer

@@ -22,7 +22,8 @@ BEGIN
   LIMIT 1;
 
   IF v_os_id IS NULL THEN
-    RAISE EXCEPTION 'No se encontró serie 9877E71EAB4D';
+    RAISE NOTICE 'Skip 204: serie 9877E71EAB4D no presente (instalación limpia).';
+    RETURN;
   END IF;
 
   SELECT m.id INTO v_target

@@ -159,12 +159,24 @@ $$;
 REVOKE ALL ON FUNCTION public.reassign_os_model_by_seed_serial(text, text, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.reassign_os_model_by_seed_serial(text, text, text) TO service_role, authenticated;
 
--- Reparación reportada
-SELECT public.reassign_os_model_by_seed_serial(
-  'BS10084053008747'::text,
-  'CG-3000'::text,
-  'CG-2200'::text
-) AS repair_bs10084053008747;
+-- Reparación reportada (solo si la serie existe; fresh install → skip)
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM public.series s
+    WHERE upper(btrim(s.serial_number)) = 'BS10084053008747'
+       OR coalesce(s.serial_normalized, '') = 'BS10084053008747'
+  ) THEN
+    PERFORM public.reassign_os_model_by_seed_serial(
+      'BS10084053008747'::text,
+      'CG-3000'::text,
+      'CG-2200'::text
+    );
+  ELSE
+    RAISE NOTICE 'Skip 189: serie BS10084053008747 no presente (instalación limpia o ya corregida).';
+  END IF;
+END $$;
 
 -- Otra serie mal clasificada (sustituir SN real; requiere haber ejecutado este archivo antes):
 -- SELECT public.reassign_os_model_by_seed_serial(

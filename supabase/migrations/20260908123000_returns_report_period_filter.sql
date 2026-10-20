@@ -3,8 +3,16 @@
 -- Filtra sobre returns_report_etl.event_at sin re-ejecutar el ETL completo.
 -- =============================================================================
 
-CREATE INDEX IF NOT EXISTS idx_returns_report_etl_event_at
-  ON public.returns_report_etl (event_at);
+-- Orden lex: este archivo corre antes de 210_returns_report_etl; el índice se crea en 210.
+DO $$
+BEGIN
+  IF to_regclass('public.returns_report_etl') IS NOT NULL THEN
+    CREATE INDEX IF NOT EXISTS idx_returns_report_etl_event_at
+      ON public.returns_report_etl (event_at);
+  ELSE
+    RAISE NOTICE '20260908123000: defer idx_returns_report_etl_event_at (returns_report_etl en 210).';
+  END IF;
+END $$;
 
 CREATE OR REPLACE FUNCTION public.get_returns_report_stats(
   p_start timestamptz DEFAULT NULL,

@@ -32,7 +32,7 @@ INNER JOIN public.receptions r ON r.id = s.current_reception_id
 INNER JOIN public.boxes b ON b.id = s.current_box_id AND b.reception_id = r.id
 WHERE r.source = 'px'
   AND r.status NOT IN ('ELIMINADO', 'ELIMINADO POR BODEGA', 'ARCHIVADO', 'DEVUELTO')
-  AND s.current_status = 'RECEPCIONADO_BODEGA_GENERAL'
+  AND s.current_status::text = 'RECEPCIONADO_BODEGA_GENERAL'
   AND s.current_box_id IS NOT NULL
   AND COALESCE(b.rack_location, 'BODEGA_CENTRAL') NOT IN ('ELIMINADO', 'DESPACHO');
 
@@ -64,7 +64,7 @@ BEGIN
   INNER JOIN public.boxes b ON b.id = s.current_box_id AND b.reception_id = r.id
   WHERE r.source = 'px'
     AND r.status NOT IN ('ELIMINADO', 'ELIMINADO POR BODEGA', 'ARCHIVADO', 'DEVUELTO')
-    AND s.current_status = 'RECEPCIONADO_BODEGA_GENERAL'
+    AND s.current_status::text = 'RECEPCIONADO_BODEGA_GENERAL'
     AND s.current_box_id IS NOT NULL
     AND COALESCE(b.rack_location, 'BODEGA_CENTRAL') NOT IN ('ELIMINADO', 'DESPACHO');
 
@@ -97,7 +97,7 @@ BEGIN
     AND s.current_reception_id = r.id
     AND s.current_box_id = b.id
     AND b.reception_id = r.id
-    AND s.current_status = 'RECEPCIONADO_BODEGA_GENERAL';
+    AND s.current_status::text = 'RECEPCIONADO_BODEGA_GENERAL';
 
   BEGIN
     INSERT INTO public.erp_audit_logs (

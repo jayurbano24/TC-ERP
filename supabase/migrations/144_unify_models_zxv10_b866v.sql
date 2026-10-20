@@ -25,7 +25,8 @@ BEGIN
   LIMIT 1;
 
   IF v_target IS NULL THEN
-    RAISE EXCEPTION 'Modelo canónico ZXV10 B866V no encontrado.';
+    RAISE NOTICE 'Skip 144: modelo canónico ZXV10 B866V no existe (catálogo vacío / fresh install).';
+    RETURN;
   END IF;
 
   SELECT COALESCE(array_agg(id), ARRAY[]::uuid[])

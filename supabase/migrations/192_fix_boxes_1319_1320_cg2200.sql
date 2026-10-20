@@ -28,7 +28,8 @@ BEGIN
   LIMIT 1;
 
   IF v_target IS NULL THEN
-    RAISE EXCEPTION '192: no se encontró modelo CG-2200 en catálogo';
+    RAISE NOTICE 'Skip 192: sin modelo CG-2200 en catálogo (instalación limpia).';
+    RETURN;
   END IF;
 
   FOR v_box IN
@@ -92,7 +93,7 @@ BEGIN
   END LOOP;
 
   IF v_found = 0 THEN
-    RAISE EXCEPTION '192: no se encontraron cajas BOX-1319 ni BOX-1320';
+    RAISE NOTICE 'Skip 192: cajas BOX-1319 / BOX-1320 no presentes (instalación limpia).';
   END IF;
 END;
 $$;

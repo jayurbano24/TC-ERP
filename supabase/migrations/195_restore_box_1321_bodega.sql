@@ -16,7 +16,8 @@ BEGIN
   LIMIT 1;
 
   IF v_box_id IS NULL THEN
-    RAISE EXCEPTION '195: no se encontró BOX-1321';
+    RAISE NOTICE 'Skip 195: BOX-1321 no presente (instalación limpia).';
+    RETURN;
   END IF;
 
   UPDATE public.boxes

@@ -1,0 +1,11 @@
+{
+  "description": "Anomalías ya presentes en before; compare no debe tratarlas como regresión nueva",
+  "registeredAtUtc": "YYYY-MM-DDTHH:mm:ssZ",
+  "anomalies": [
+    {
+      "code": "EXAMPLE_shared_serial_legacy",
+      "fingerprintKey": "identity_fingerprint",
+      "notes": "Documentar casos acordados con operaciones; gate 09 sigue fallando si empeora"
+    }
+  ]
+}

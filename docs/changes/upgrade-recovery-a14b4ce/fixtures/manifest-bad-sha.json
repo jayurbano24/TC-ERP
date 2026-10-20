@@ -1,0 +1,11 @@
+{
+  "artifactId": "fixture-bad",
+  "targetGitCommit": "a14b4ce22a6d53514fd69392c3b32e7016d00e5e",
+  "files": [
+    {
+      "path": "docs/changes/upgrade-recovery-a14b4ce/fixtures/sample.dump",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "bytes": 30
+    }
+  ]
+}

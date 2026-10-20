@@ -25,8 +25,9 @@ Cadena verificada localmente hasta **`275_classify_serial_cycle_close_normalize.
 
 ### Actualización desde base existente
 
-- **BLOQUEADA** en este entorno: no hay copia anonimizada representativa con historial `supabase_migrations.schema_migrations` + datos centinela acordados.
-- Criterio de aceptación pendiente: restaurar dump autorizado → `migration up` → verificar centinelas + classify sin fusión por serie secundaria.
+- **Procedimiento Codex:** `docs/changes/VALIDATION-upgrade-recovery-a14b4ce.md` (target `a14b4ce`, stack **upgrade** 54342).
+- **Estado:** preparado; **bloqueado** hasta copia anonimizada (`upgrade-recovery-a14b4ce/COPY-SPEC-and-anonymization.md`).
+- Criterio de aceptación: restaurar dump → `npm run supabase:upgrade:migrate` (incremental, **no** `db reset`) → checks antes/después → `supabase:upgrade:test` → drill de recuperación por restore del dump pre-upgrade.
 - **No** usar el esquema mínimo de pruebas classify como sustituto de esta validación.
 
 ## Huecos de esquema resueltos (fuentes versionadas)

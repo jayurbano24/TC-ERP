@@ -1,0 +1,11 @@
+{
+  "artifactId": "fixture-valid",
+  "targetGitCommit": "a14b4ce22a6d53514fd69392c3b32e7016d00e5e",
+  "files": [
+    {
+      "path": "docs/changes/upgrade-recovery-a14b4ce/fixtures/sample.dump",
+      "sha256": "e4c16e1453051a981925e8b380a2e0bc6e46d6d8b8197b0e202c0a4014c43cbd",
+      "bytes": 30
+    }
+  ]
+}

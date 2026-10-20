@@ -47,6 +47,12 @@ next-env.d.ts
 /public/onnx/
 /.tmp-insightface/
 
+# upgrade/recovery validation (dumps never committed)
+/.supabase-isolated-upgrade-work/
+/artifacts/upgrade-recovery-a14b4ce/
+*.dump
+!docs/changes/upgrade-recovery-a14b4ce/fixtures/*.dump
+
 # agent/dev scratch files (one-off scripts, transcripts, extractions)
 /scratch/
 /.npm-cache/

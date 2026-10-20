@@ -1,0 +1,90 @@
+{
+  "$schema": "tc-erp-upgrade-migration-decisions-v1",
+  "decisionTypes": {
+    "apply": "Ejecutar via migration up si pendiente en historial restaurado",
+    "skip_equivalent": "Objeto ya equivalente en base restaurada; no aplicar",
+    "skip_accept_existing": "Versión en schema_migrations con SQL distinto en Git; aceptar objeto existente + compensatoria si aplica",
+    "compensatory_manual": "Requiere script/runbook fuera de migration up",
+    "block": "Detener upgrade hasta decisión humana"
+  },
+  "migrations": {
+    "014": {
+      "file": "014_erp_legacy_bootstrap.sql",
+      "decision": "block",
+      "defaultUntilCopyReviewed": true,
+      "notes": "Bootstrap legacy. En operativa con OS/series reales usar skip_equivalent tras verificar esquema 010+; nunca forzar schema_migrations."
+    },
+    "10990000000000": {
+      "file": "10990000000000_hr_legacy_attendance_bootstrap.sql",
+      "decision": "block",
+      "defaultUntilCopyReviewed": true,
+      "notes": "Bootstrap HR. Aplicar solo si faltan employees/time_logs y manifest lo autoriza."
+    },
+    "01600000000000": { "file": "01600000000000_activity_costs.sql", "decision": "apply" },
+    "01600000000001": { "file": "01600000000001_profiles_avatar_storage.sql", "decision": "apply" },
+    "023": { "file": "023_reception_guides.sql", "decision": "apply" },
+    "02850000000000": {
+      "file": "02850000000000_series_status_recepcionado_bodega_general.sql",
+      "decision": "apply"
+    },
+    "034": { "file": "034_erp_audit_logs.sql", "decision": "apply" },
+    "05390000000000": { "file": "05390000000000_erp_rbac_hr_positions.sql", "decision": "apply" },
+    "09960000000000": { "file": "09960000000000_series_material_sap_columns.sql", "decision": "apply" },
+    "10690000000000": { "file": "10690000000000_profiles_email.sql", "decision": "apply" },
+    "11990000000000": { "file": "11990000000000_service_orders_closed_at.sql", "decision": "apply" },
+    "16290000000000": { "file": "16290000000000_platform_user_sessions.sql", "decision": "apply" },
+    "20261020001356": {
+      "file": "20261020001356_classify_exact_serial_set_retry.sql",
+      "decision": "apply"
+    },
+    "272": { "file": "272_classify_exact_equipment_identity.sql", "decision": "apply" },
+    "273": { "file": "273_classify_equipment_batch_identity_final.sql", "decision": "apply" },
+    "274": { "file": "274_classify_equipment_batch_tx_canonical_reapply.sql", "decision": "apply" },
+    "275": { "file": "275_classify_serial_cycle_close_normalize.sql", "decision": "apply" }
+  },
+  "contentChangedWhenAlreadyApplied": {
+    "015_taller_kpi_goals.sql": {
+      "decision": "skip_accept_existing",
+      "compensatory": null
+    },
+    "032_migrate_px_historical_bodega.sql": { "decision": "skip_accept_existing", "compensatory": null },
+    "066_lockdown_meta_tables_rls.sql": { "decision": "skip_accept_existing", "compensatory": null },
+    "106_rpc_assert_warehouse_revoke_helpers.sql": { "decision": "skip_accept_existing", "compensatory": null },
+    "108_rpc_assert_px_reception.sql": { "decision": "skip_accept_existing", "compensatory": null },
+    "144_unify_models_zxv10_b866v.sql": { "decision": "skip_accept_existing", "compensatory": null },
+    "145_unify_models_zxv10_b866v2h.sql": { "decision": "skip_accept_existing", "compensatory": null },
+    "189_reassign_serial_cg3000_to_cg2200_bs10084053008747.sql": {
+      "decision": "skip_accept_existing",
+      "compensatory": "Datos SN específicos; NOTICE skip en fresh install"
+    },
+    "190_fix_tc_05102_cg3000_to_cg2200.sql": { "decision": "skip_accept_existing", "compensatory": null },
+    "192_fix_boxes_1319_1320_cg2200.sql": { "decision": "skip_accept_existing", "compensatory": null },
+    "193_fix_box_1321_capacity_20.sql": { "decision": "skip_accept_existing", "compensatory": null },
+    "194_repair_box_1321_capacity_after_sync.sql": { "decision": "skip_accept_existing", "compensatory": null },
+    "195_restore_box_1321_bodega.sql": { "decision": "skip_accept_existing", "compensatory": null },
+    "20260908123000_returns_report_period_filter.sql": { "decision": "skip_accept_existing", "compensatory": null },
+    "20260909163000_px_capture_metrics_slo_safe.sql": { "decision": "skip_accept_existing", "compensatory": null },
+    "202_fix_bs1008851c003241_cg2200_to_cg3000.sql": { "decision": "skip_accept_existing", "compensatory": null },
+    "203_fix_8401120c2b95_kaon_cg2200_emta.sql": { "decision": "skip_accept_existing", "compensatory": null },
+    "204_fix_9877e71eab4d_cg3000_to_cg2200.sql": { "decision": "skip_accept_existing", "compensatory": null },
+    "210_returns_report_etl.sql": { "decision": "skip_accept_existing", "compensatory": null },
+    "216_fix_box_1741_cg2200_to_cg3000.sql": { "decision": "skip_accept_existing", "compensatory": null },
+    "239_workshop_catalog_diagnostic_repair_links.sql": { "decision": "skip_accept_existing", "compensatory": null },
+    "243_cenam_report_etl.sql": { "decision": "skip_accept_existing", "compensatory": null },
+    "244_cenam_report_sap_fields.sql": { "decision": "skip_accept_existing", "compensatory": null }
+  },
+  "legacyObjectsOutsideCli": {
+    "supabase/scripts/diagnostics/191b_diagnose_70dff79e_broad.sql": {
+      "decision": "skip_equivalent",
+      "notes": "No migración CLI"
+    },
+    "supabase/scripts/repair/201b_repair_tc_03226_siblings_to_workshop.sql": {
+      "decision": "compensatory_manual",
+      "notes": "Solo bajo runbook puntual"
+    },
+    "supabase/scripts/legacy_sql/create_erp_roles_permissions.sql": {
+      "decision": "skip_equivalent",
+      "notes": "Promovido a 05390000000000 cuando aplique"
+    }
+  }
+}

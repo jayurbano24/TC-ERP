@@ -1,7 +1,8 @@
 # SNAPSHOT Codex — entrega autocontenida (2026-10-20)
 
 **Identificador:** `codex-isolated-bootstrap-2026-10-20`  
-**Base Git:** `17de3d4fa8aa35612902fb5d5540894c966b09e6` (sin commit en esta entrega)  
+**Base Git:** `17de3d4fa8aa35612902fb5d5540894c966b09e6`  
+**Commit aprobado:** `a14b4ce22a6d53514fd69392c3b32e7016d00e5e`  
 **Alcance:** solo stack **aislado**; **no** se modificó `tc-erp-local` (54322) ni bases remotas.
 
 ---
@@ -98,10 +99,10 @@ npx vitest run --maxWorkers 1 `
 
 ---
 
-## 7. Bloqueados (sin artefacto autorizado)
+## 7. Upgrade / recuperación (paquete separado)
 
-- **Upgrade** desde copia prod-like con historial `schema_migrations` + datos anonimizados.
-- **Recuperación / centinela upgrade.**
+- **Instalación limpia + classify + auth:** aprobadas en este snapshot (§6).
+- **Upgrade y recuperación hacia `a14b4ce`:** paquete **PREPARADO**, ejecución **BLOQUEADA** hasta copia anonimizada autorizada → ver `docs/changes/VALIDATION-upgrade-recovery-a14b4ce.md`.
 
 ---
 

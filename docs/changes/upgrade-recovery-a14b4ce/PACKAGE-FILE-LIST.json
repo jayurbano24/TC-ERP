@@ -1,0 +1,29 @@
+{
+  "description": "Alcance del manifiesto SHA-256 del paquete de validación (sin autorreferencia al manifiesto generado)",
+  "validationPackageVersion": "2.1.0-codex",
+  "paths": [
+    "docs/changes/VALIDATION-upgrade-recovery-a14b4ce.md",
+    "docs/changes/upgrade-recovery-a14b4ce/validation-package-meta.json",
+    "docs/changes/upgrade-recovery-a14b4ce/migration-delta-manifest.json",
+    "docs/changes/upgrade-recovery-a14b4ce/migration-decisions.json",
+    "docs/changes/upgrade-recovery-a14b4ce/expected-after-deltas.json",
+    "docs/changes/upgrade-recovery-a14b4ce/COPY-SPEC-and-anonymization.md",
+    "docs/changes/upgrade-recovery-a14b4ce/copy-manifest.template.json",
+    "docs/changes/upgrade-recovery-a14b4ce/PACKAGE-FILE-LIST.json",
+    "docs/changes/upgrade-recovery-a14b4ce/pre-existing-anomalies.template.json",
+    "docs/changes/upgrade-recovery-a14b4ce/fixtures",
+    "scripts/validate-upgrade-package-from-git-index.ps1",
+    "supabase/isolated-upgrade/config.toml",
+    "supabase/scripts/upgrade_validation",
+    "scripts/assert-isolated-upgrade-target.ps1",
+    "scripts/supabase-isolated-upgrade-init.ps1",
+    "scripts/supabase-isolated-upgrade-wipe.ps1",
+    "scripts/supabase-isolated-upgrade-restore.ps1",
+    "scripts/supabase-isolated-upgrade-migrate.ps1",
+    "scripts/run-upgrade-validation-checks.ps1",
+    "scripts/run-classify-upgrade-stack.ps1",
+    "scripts/supabase-isolated-upgrade-recovery-drill.ps1",
+    "scripts/upgrade",
+    "vitest.config.ts"
+  ]
+}

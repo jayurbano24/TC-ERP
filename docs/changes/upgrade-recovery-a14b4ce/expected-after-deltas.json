@@ -1,0 +1,22 @@
+{
+  "description": "Cambios permitidos en fingerprints after vs before tras migration up a14b4ce",
+  "allowedFingerprintKeys": [
+    "classify_routines",
+    "grants_classify",
+    "rls_policies"
+  ],
+  "countsKeyToComparePartially": "counts",
+  "explicitChanges": {
+    "counts": {
+      "notes": "schema_migrations row count increases; domain_events may grow during tests",
+      "allowedIncrements": {
+        "schema_migrations": "via separate migration inventory gate"
+      }
+    }
+  },
+  "forbiddenAfterChanges": [
+    "identity_fingerprint",
+    "cycle_fingerprint",
+    "fk_orphans"
+  ]
+}

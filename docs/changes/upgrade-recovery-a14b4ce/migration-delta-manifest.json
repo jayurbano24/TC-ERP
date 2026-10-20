@@ -1,0 +1,81 @@
+{
+  "packageId": "validation-upgrade-recovery-a14b4ce",
+  "validationPackageVersion": "2.1.0-codex",
+  "targetCommit": "a14b4ce22a6d53514fd69392c3b32e7016d00e5e",
+  "baselineCommitGit": "17de3d4fa8aa35612902fb5d5540894c966b09e6",
+  "approvedEvidenceSeparate": {
+    "cleanInstallClassifyAuth": "docs/changes/SNAPSHOT-CODEX-2026-10-20.md",
+    "note": "Instalación limpia, classify y HTTP auth aprobadas en stack verify (54332). No mezclar con este paquete."
+  },
+  "upgradeMethod": "supabase migration up (incremental)",
+  "forbiddenSubstitutes": [
+    "supabase db reset",
+    "revertir solo funciones classify sin restaurar filas",
+    "aplicar 014/109900 en base operativa con datos reales sin criterio explícito"
+  ],
+  "pendingMigrationsIfBaselineIs17de3d4": [
+    "014_erp_legacy_bootstrap.sql",
+    "01600000000000_activity_costs.sql",
+    "01600000000001_profiles_avatar_storage.sql",
+    "023_reception_guides.sql",
+    "02850000000000_series_status_recepcionado_bodega_general.sql",
+    "034_erp_audit_logs.sql",
+    "05390000000000_erp_rbac_hr_positions.sql",
+    "09960000000000_series_material_sap_columns.sql",
+    "10690000000000_profiles_email.sql",
+    "10990000000000_hr_legacy_attendance_bootstrap.sql",
+    "11990000000000_service_orders_closed_at.sql",
+    "16290000000000_platform_user_sessions.sql",
+    "20261020001356_classify_exact_serial_set_retry.sql",
+    "272_classify_exact_equipment_identity.sql",
+    "273_classify_equipment_batch_identity_final.sql",
+    "274_classify_equipment_batch_tx_canonical_reapply.sql",
+    "275_classify_serial_cycle_close_normalize.sql"
+  ],
+  "bootstrapMigrationsRequireDecision": [
+    "014_erp_legacy_bootstrap.sql",
+    "10990000000000_hr_legacy_attendance_bootstrap.sql"
+  ],
+  "removedFromMigrationsFolderNotCliApplied": [
+    "191b_diagnose_70dff79e_broad.sql",
+    "201b_repair_tc_03226_siblings_to_workshop.sql",
+    "add_emta_sap_columns.sql",
+    "create_activity_costs_table.sql",
+    "create_avatars_storage.sql",
+    "create_erp_audit_logs.sql",
+    "create_erp_roles_permissions.sql"
+  ],
+  "contentChangedAlreadyAppliedOnProd": [
+    "015_taller_kpi_goals.sql",
+    "032_migrate_px_historical_bodega.sql",
+    "066_lockdown_meta_tables_rls.sql",
+    "106_rpc_assert_warehouse_revoke_helpers.sql",
+    "108_rpc_assert_px_reception.sql",
+    "144_unify_models_zxv10_b866v.sql",
+    "145_unify_models_zxv10_b866v2h.sql",
+    "189_reassign_serial_cg3000_to_cg2200_bs10084053008747.sql",
+    "190_fix_tc_05102_cg3000_to_cg2200.sql",
+    "192_fix_boxes_1319_1320_cg2200.sql",
+    "193_fix_box_1321_capacity_20.sql",
+    "194_repair_box_1321_capacity_after_sync.sql",
+    "195_restore_box_1321_bodega.sql",
+    "20260908123000_returns_report_period_filter.sql",
+    "20260909163000_px_capture_metrics_slo_safe.sql",
+    "202_fix_bs1008851c003241_cg2200_to_cg3000.sql",
+    "203_fix_8401120c2b95_kaon_cg2200_emta.sql",
+    "204_fix_9877e71eab4d_cg3000_to_cg2200.sql",
+    "210_returns_report_etl.sql",
+    "216_fix_box_1741_cg2200_to_cg3000.sql",
+    "239_workshop_catalog_diagnostic_repair_links.sql",
+    "243_cenam_report_etl.sql",
+    "244_cenam_report_sap_fields.sql"
+  ],
+  "classifyUpgradeCriticalOrder": [
+    "177_restore_classify_active_os_guards.sql",
+    "20261020001356_classify_exact_serial_set_retry.sql",
+    "272_classify_exact_equipment_identity.sql",
+    "273_classify_equipment_batch_identity_final.sql",
+    "274_classify_equipment_batch_tx_canonical_reapply.sql",
+    "275_classify_serial_cycle_close_normalize.sql"
+  ]
+}

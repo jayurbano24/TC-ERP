@@ -1,0 +1,9 @@
+{
+  "description": "Historial representativo pre-a14b4ce (sin migraciones nuevas del snapshot)",
+  "versions": [
+    "015",
+    "016",
+    "177",
+    "271"
+  ]
+}

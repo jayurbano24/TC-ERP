@@ -1,0 +1,28 @@
+{
+  "validationPackageVersion": "2.1.0-codex",
+  "targetApplicationCommit": "a14b4ce22a6d53514fd69392c3b32e7016d00e5e",
+  "baselineReferenceCommit": "17de3d4fa8aa35612902fb5d5540894c966b09e6",
+  "upgradeStackProjectId": "tc-erp-isolated-upgrade",
+  "expectedDbPort": 54342,
+  "expectedApiPort": 54341,
+  "expectedStudioPort": 54343,
+  "expectedInbucketPort": 54344,
+  "expectedShadowPort": 54340,
+  "forbiddenDbPorts": [54322, 54332],
+  "evidencePhases": ["before", "after", "recovered"],
+  "ephemeralTestsExcludedFrom54342Evidence": [
+    "classifyEquipmentRepairPath.integration.test.ts",
+    "codeSequenceBootstrap.integration.test.ts",
+    "classify-equipment-batch.rpc.adapter.test.ts"
+  ],
+  "upgradeStackIntegrationTests54342": [
+    "classifyEquipmentHttpAuth.integration.test.ts",
+    "classifyEquipmentSharedSerial.integration.test.ts"
+  ],
+  "executionStatus": {
+    "restore": "blocked",
+    "migrate": "blocked",
+    "recovery": "blocked",
+    "upgradeSignoff": "blocked"
+  }
+}

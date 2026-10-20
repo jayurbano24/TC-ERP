@@ -1,0 +1,209 @@
+{
+  "validationPackageVersion": "2.1.0-codex",
+  "targetApplicationCommit": "a14b4ce22a6d53514fd69392c3b32e7016d00e5e",
+  "generatedAtUtc": "2026-10-20T21:57:54.383Z",
+  "scopeDefinitionFile": "docs/changes/upgrade-recovery-a14b4ce/PACKAGE-FILE-LIST.json",
+  "fileCount": 40,
+  "files": [
+    {
+      "path": "docs/changes/VALIDATION-upgrade-recovery-a14b4ce.md",
+      "sha256": "e313086c4a6fd7fc1208c4abf311a2654441ee45315e46236ecd5459844a4b92",
+      "bytes": 5224
+    },
+    {
+      "path": "docs/changes/upgrade-recovery-a14b4ce/COPY-SPEC-and-anonymization.md",
+      "sha256": "2a8f58137b2b629f322d09d82e7b680f8900dd307949562cceddce03f53924f7",
+      "bytes": 4168
+    },
+    {
+      "path": "docs/changes/upgrade-recovery-a14b4ce/PACKAGE-FILE-LIST.json",
+      "sha256": "0bef3dee50432bc7e4c7b4d52c3beeeb245b6b9781907ac6e8a7168182e67b2f",
+      "bytes": 1496
+    },
+    {
+      "path": "docs/changes/upgrade-recovery-a14b4ce/copy-manifest.template.json",
+      "sha256": "622f2e712435a49046f82c60e3aed97893d67e4868e38a649e22823eed71c2ee",
+      "bytes": 937
+    },
+    {
+      "path": "docs/changes/upgrade-recovery-a14b4ce/expected-after-deltas.json",
+      "sha256": "bd72502e56afd61a07789d941bb4ab63f619499ee688b84de63d76601a6139bd",
+      "bytes": 598
+    },
+    {
+      "path": "docs/changes/upgrade-recovery-a14b4ce/fixtures/manifest-bad-sha.json",
+      "sha256": "adc9cb676090c5076427c0d087cb811fdb1f8e27e64802909fd12459290e01e2",
+      "bytes": 307
+    },
+    {
+      "path": "docs/changes/upgrade-recovery-a14b4ce/fixtures/manifest-placeholder.json",
+      "sha256": "5b83d7e60d972a92f00bf326f2207b0dcf5195cdd7d1011af3f1ffcfa4e58c1b",
+      "bytes": 268
+    },
+    {
+      "path": "docs/changes/upgrade-recovery-a14b4ce/fixtures/manifest-valid.json",
+      "sha256": "ddd214901a3150cf084990d367694888f19b172b902b70af8c6ef338e8cea6f5",
+      "bytes": 309
+    },
+    {
+      "path": "docs/changes/upgrade-recovery-a14b4ce/fixtures/restored-history-pre-a14b4ce.json",
+      "sha256": "d987a0f03f4830fc52f5dc122f38bd8e612e95650687b24f28278f9ed28dc955",
+      "bytes": 162
+    },
+    {
+      "path": "docs/changes/upgrade-recovery-a14b4ce/fixtures/sample.dump",
+      "sha256": "e4c16e1453051a981925e8b380a2e0bc6e46d6d8b8197b0e202c0a4014c43cbd",
+      "bytes": 30
+    },
+    {
+      "path": "docs/changes/upgrade-recovery-a14b4ce/migration-decisions.json",
+      "sha256": "442d18f14cdd82abd2240134058e379264351dc9f378e6d260a21fecd474aa2c",
+      "bytes": 5663
+    },
+    {
+      "path": "docs/changes/upgrade-recovery-a14b4ce/migration-delta-manifest.json",
+      "sha256": "796e3ec7d9fb567e248b4bd2ae1909586b9d5e925916b88618b33932e6d6b888",
+      "bytes": 3515
+    },
+    {
+      "path": "docs/changes/upgrade-recovery-a14b4ce/pre-existing-anomalies.template.json",
+      "sha256": "85199fc078908f3b748260039b9d7acfa6285a7017780c2a9443cc4230855c44",
+      "bytes": 374
+    },
+    {
+      "path": "docs/changes/upgrade-recovery-a14b4ce/validation-package-meta.json",
+      "sha256": "abbe2ccaaca81277d7da6bd05a6c38a70bee62ece111e7b3d011d7c76dac391b",
+      "bytes": 991
+    },
+    {
+      "path": "scripts/assert-isolated-upgrade-target.ps1",
+      "sha256": "f6fe8f678d13733772fe8dabe3c0713eef9d99d84ad31b23cc2a8f518dc1d732",
+      "bytes": 1718
+    },
+    {
+      "path": "scripts/run-classify-upgrade-stack.ps1",
+      "sha256": "db7723d7e148cfb6589b8bae80aa781f003c42b1a6e70229f42ae80185dee881",
+      "bytes": 885
+    },
+    {
+      "path": "scripts/run-upgrade-validation-checks.ps1",
+      "sha256": "85e500669824dc826098693faa0356a5fdf811b6e1242a70d074d075ba2b4290",
+      "bytes": 1798
+    },
+    {
+      "path": "scripts/supabase-isolated-upgrade-init.ps1",
+      "sha256": "4c04a719110afa25a7aca0c17cd19609650dd830338a3e952bbda0fffd16566e",
+      "bytes": 1219
+    },
+    {
+      "path": "scripts/supabase-isolated-upgrade-migrate.ps1",
+      "sha256": "117090f09f23a2eb51ae1c697af3eead7b479ab1432eaf400d30b067b78d8298",
+      "bytes": 1414
+    },
+    {
+      "path": "scripts/supabase-isolated-upgrade-recovery-drill.ps1",
+      "sha256": "d2ae15d77b903252d7e851bdb3c09b63648a1d8bf12bcd0283673283ba821bb0",
+      "bytes": 980
+    },
+    {
+      "path": "scripts/supabase-isolated-upgrade-restore.ps1",
+      "sha256": "e1fc0776c1a441022675edd5c84220d0963e40a7b0408ed2fb95c10a1563edaa",
+      "bytes": 1669
+    },
+    {
+      "path": "scripts/supabase-isolated-upgrade-wipe.ps1",
+      "sha256": "8e04382cca7d3b5c53f43f4a7481dc5ecef650f2d390361f6f5d25abac900c01",
+      "bytes": 702
+    },
+    {
+      "path": "scripts/upgrade/compare-evidence.mjs",
+      "sha256": "4ebe6f4c38345d440625ba34621794f4500c0c440e9de5d4904a15fa68b71104",
+      "bytes": 2737
+    },
+    {
+      "path": "scripts/upgrade/compute-migration-plan.mjs",
+      "sha256": "b85b1764109b4aeb7941cebc45a7ef35fd35584080a895e2f89f03cc45b5fb76",
+      "bytes": 3113
+    },
+    {
+      "path": "scripts/upgrade/export-evidence.mjs",
+      "sha256": "f8980d074f564f45f9b4ffb5c327c20b79bdff80de47cda970a13f24b8599a10",
+      "bytes": 5105
+    },
+    {
+      "path": "scripts/upgrade/generate-package-manifest.mjs",
+      "sha256": "b24e728526bb2542b73577de4bbde881b8965465e91696ea845f0610d157808e",
+      "bytes": 2386
+    },
+    {
+      "path": "scripts/upgrade/migration-version.mjs",
+      "sha256": "8fa5afde4dc45b1fef337d8a47cc9ffa0e3c46345b968bca4f727728db3911d4",
+      "bytes": 576
+    },
+    {
+      "path": "scripts/upgrade/resolve-upgrade-target.ps1",
+      "sha256": "a2afafdf4625b0c585b25f9b54043de41a2bb7899cf2735e1a45777df0c1979f",
+      "bytes": 5177
+    },
+    {
+      "path": "scripts/upgrade/upgrade-validation-package.test.mjs",
+      "sha256": "1b7e848f07ee76187b06a6ec365999e31a761d18fd39e7c1e1f735fd8e54ffac",
+      "bytes": 4011
+    },
+    {
+      "path": "scripts/upgrade/validate-backup-artifact.mjs",
+      "sha256": "32440985948bdfdc055ef52b00d3ac131e172bff2d89051ee02a81fa388dc87a",
+      "bytes": 2161
+    },
+    {
+      "path": "scripts/validate-upgrade-package-from-git-index.ps1",
+      "sha256": "8939e788a08495e8c276f2ab1488d1be08bb9c0b34d6a9963f1f7af33452b5aa",
+      "bytes": 2323
+    },
+    {
+      "path": "supabase/isolated-upgrade/config.toml",
+      "sha256": "31e4a1011c533ea09d1e47cbb7b899b6d699bd4cb680a79106e5dbeff58f4b47",
+      "bytes": 806
+    },
+    {
+      "path": "supabase/scripts/upgrade_validation/01_schema_migrations_inventory.sql",
+      "sha256": "e9992651c4833ea660c6e273eecfd99d569f050b6d496dd581ab6b7cd5833b17",
+      "bytes": 1062
+    },
+    {
+      "path": "supabase/scripts/upgrade_validation/02_counts_and_relationships.sql",
+      "sha256": "ea9dfda615bf01cf1a929d094365394901101cb6617cd053d5f695cc6d8a30a3",
+      "bytes": 1201
+    },
+    {
+      "path": "supabase/scripts/upgrade_validation/03_constraints_routines_permissions.sql",
+      "sha256": "cf1c69f5527f5d95bf72e5cc223b78882f5f0db41923d05280e8cf637bc70fd3",
+      "bytes": 1545
+    },
+    {
+      "path": "supabase/scripts/upgrade_validation/04_classify_sentinel_queries.sql",
+      "sha256": "93a9b796027c7321cfbecae229c1c05098b9a589054e213cfe3c127a246e0f75",
+      "bytes": 839
+    },
+    {
+      "path": "supabase/scripts/upgrade_validation/05_auth_rbac_inventory.sql",
+      "sha256": "f6688377955a492b8973c124cc7fa903ed308e39c860c000635837f60f062ae4",
+      "bytes": 590
+    },
+    {
+      "path": "supabase/scripts/upgrade_validation/09_gates_invariants.sql",
+      "sha256": "bbdf4dd15ef407e2ba29ef78711d9cea15abb57624a9e230b17a6d3650d14272",
+      "bytes": 1616
+    },
+    {
+      "path": "supabase/scripts/upgrade_validation/10_residual_objects_after_recovery.sql",
+      "sha256": "f1f0248eae57e6802f304236ef530713c337434b9c3c062662ae3d0279e01a64",
+      "bytes": 864
+    },
+    {
+      "path": "vitest.config.ts",
+      "sha256": "3e51727d878602e08cff54a933cca1ab46f42c26fefc47e6add21a8f2a033141",
+      "bytes": 616
+    }
+  ]
+}

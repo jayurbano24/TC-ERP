@@ -18,7 +18,7 @@ type SeriesRow = {
 
 /**
  * Equipos (OS) con sap_integration_status = Pendiente Revisión:
- * mismo equipo cruzó el G985 con 2+ materiales distintos en sus series.
+ * mismo equipo cruzó el G985 con 3+ materiales SAP distintos en series cruzadas.
  */
 export async function GET(request: Request) {
   const auth = await requireApiUser(request);

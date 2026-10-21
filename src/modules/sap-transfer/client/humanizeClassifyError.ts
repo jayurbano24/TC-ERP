@@ -21,6 +21,9 @@ function isDuplicateClassifyError(raw: string): boolean {
     msg.includes('ya tienen orden') ||
     msg.includes('está repetida') ||
     msg.includes('serie duplicada') ||
+    msg.includes('no se puede fusionar') ||
+    msg.includes('pertenece al equipo') ||
+    msg.includes('reclamada por otro equipo') ||
     msg.includes('no se pudieron ingresar')
   );
 }

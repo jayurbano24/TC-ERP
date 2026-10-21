@@ -19,13 +19,59 @@ const BatchSchema = z.object({
 const MAX_SERIAL_LEN = 80;
 const IN_CHUNK = 200; // .in() de Supabase se comporta mejor en chunks chicos
 
+type SeriesRow = {
+  id: string;
+  serial_number: string;
+  service_order_id: string;
+  s2: string | null;
+  s3: string | null;
+  s4: string | null;
+};
+
 type MatchRow = {
   id: string;
   serial_number: string;
   service_order_id: string;
   material: string | null;
   valuation: string | null;
+  /** Norma SAP que produjo el match (puede ser S2/S3/S4, no solo serie principal). */
+  matched_norm: string;
 };
+
+const SERIES_SELECT =
+  'id, serial_number, service_order_id, s2, s3, s4';
+
+function normsOnRow(row: SeriesRow, chunkSet: Set<string>): string[] {
+  const out: string[] = [];
+  for (const raw of [row.serial_number, row.s2, row.s3, row.s4]) {
+    const n = normalizeSerial(raw);
+    if (n && chunkSet.has(n)) out.push(n);
+  }
+  return [...new Set(out)];
+}
+
+function pushRowMatches(
+  row: SeriesRow,
+  chunkSet: Set<string>,
+  materialByNorm: Map<string, string>,
+  valuationByNorm: Map<string, string>,
+  seenPair: Set<string>,
+  matches: MatchRow[]
+) {
+  for (const norm of normsOnRow(row, chunkSet)) {
+    const pairKey = `${row.id}|${norm}`;
+    if (seenPair.has(pairKey)) continue;
+    seenPair.add(pairKey);
+    matches.push({
+      id: row.id,
+      serial_number: row.serial_number,
+      service_order_id: row.service_order_id,
+      material: materialByNorm.get(norm) ?? null,
+      valuation: valuationByNorm.get(norm) ?? null,
+      matched_norm: norm,
+    });
+  }
+}
 
 /**
  * Cruce paulativo: recibe hasta 3000 series SAP y consulta TC con IN.
@@ -63,17 +109,20 @@ export const POST = withErrorHandler(async (request: Request) => {
   }
 
   const matches: MatchRow[] = [];
+  const seenPair = new Set<string>();
   let queries = 0;
 
   for (let i = 0; i < norms.length; i += IN_CHUNK) {
     const chunk = norms.slice(i, i + IN_CHUNK);
+    const chunkSet = new Set(chunk);
 
-    let data: { id: string; serial_number: string; service_order_id: string }[] | null = null;
-    let error: { message?: string; code?: string } | null = null;
+    const mergeRows = (rows: SeriesRow[] | null) => {
+      for (const row of rows || []) pushRowMatches(row, chunkSet, materialByNorm, valuationByNorm, seenPair, matches);
+    };
 
     const byCol = await supabase
       .from('series')
-      .select('id, serial_number, service_order_id')
+      .select(SERIES_SELECT)
       .not('service_order_id', 'is', null)
       .in('serial_normalized', chunk);
     queries += 1;
@@ -81,28 +130,26 @@ export const POST = withErrorHandler(async (request: Request) => {
     if (byCol.error && /serial_normalized|column/i.test(byCol.error.message || '')) {
       const byExact = await supabase
         .from('series')
-        .select('id, serial_number, service_order_id')
+        .select(SERIES_SELECT)
         .not('service_order_id', 'is', null)
         .in('serial_number', chunk);
       queries += 1;
-      data = byExact.data;
-      error = byExact.error;
+      if (byExact.error) throw byExact.error;
+      mergeRows(byExact.data as SeriesRow[] | null);
     } else {
-      data = byCol.data;
-      error = byCol.error;
+      if (byCol.error) throw byCol.error;
+      mergeRows(byCol.data as SeriesRow[] | null);
     }
 
-    if (error) throw error;
-
-    for (const row of data || []) {
-      const norm = normalizeSerial(row.serial_number);
-      matches.push({
-        id: row.id,
-        serial_number: row.serial_number,
-        service_order_id: row.service_order_id,
-        material: materialByNorm.get(norm) ?? null,
-        valuation: valuationByNorm.get(norm) ?? null,
-      });
+    for (const col of ['s2', 's3', 's4'] as const) {
+      const bySlot = await supabase
+        .from('series')
+        .select(SERIES_SELECT)
+        .not('service_order_id', 'is', null)
+        .in(col, chunk);
+      queries += 1;
+      if (bySlot.error) throw bySlot.error;
+      mergeRows(bySlot.data as SeriesRow[] | null);
     }
   }
 

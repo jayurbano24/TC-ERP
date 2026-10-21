@@ -42,7 +42,7 @@ export const SAP_DASHBOARD_STATES: SapDashboardStateConfig[] = [
     status: 'Pendiente Revisión',
     kpiKey: 'inconsistentes',
     title: 'Pendiente Revisión',
-    description: 'OS en planta con 2+ materiales distintos en el G985.',
+    description: 'OS en planta con 3+ materiales SAP distintos en series cruzadas (detalle expandible).',
     accent: 'warning',
   },
   {

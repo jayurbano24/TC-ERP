@@ -225,6 +225,21 @@ export async function runPrediagnosticoBackfillAll(
   };
 }
 
+/** True si el catálogo del modelo/tecnología permite sintetizar CHG-015. */
+export function prediagnosticoBackfillCandidateHasCatalog(
+  candidate: PrediagnosticoBackfillCandidate,
+  catalogCtx: PrediagnosticoBackfillCatalogContext,
+): boolean {
+  return (
+    catalogItemsForEquipment(
+      catalogCtx,
+      candidate.techId,
+      candidate.brandId,
+      candidate.modelId,
+    ).length > 0
+  );
+}
+
 function processCandidate(
   candidate: PrediagnosticoBackfillCandidate,
   catalogCtx: PrediagnosticoBackfillCatalogContext,

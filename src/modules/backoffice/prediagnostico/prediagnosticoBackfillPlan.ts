@@ -5,7 +5,7 @@
  * alineados al catálogo filtrado por tecnología/marca/modelo.
  *
  * Mezcla carcasa (sobre población asignada): A 11.5%, B 45%, C 25%, D 18%.
- * Dictamen (sobre no-scrap): reacondicionado 65%, reparado 35%; scrap → irreparable.
+ * Dictamen (sobre no-scrap): RC reacondicionado 60%, RP reparado 40%; scrap → irreparable.
  *
  * Reparados: marcar ítems cosméticos/funcionamiento del catálogo del modelo
  * según temas (puertos oxidados, antena rota, etc.) solo si el ítem existe en perfil.
@@ -25,8 +25,8 @@ export const SHELL_CLASS_WEIGHTS: ReadonlyArray<{ shell: ShellClass; weight: num
   { shell: 'D', weight: 180 },
 ];
 
-export const VERDICT_REACONDICIONADO_WEIGHT = 650;
-export const VERDICT_REPARADO_WEIGHT = 350;
+export const VERDICT_REACONDICIONADO_WEIGHT = 600;
+export const VERDICT_REPARADO_WEIGHT = 400;
 export const VERDICT_WEIGHT_BASIS = 1000;
 
 /** 80% pre-diagnóstico entre día 3 y 5 post-ingreso; 20% después del día 5. */

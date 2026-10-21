@@ -17,11 +17,11 @@ describe('prediagnosticoBackfillService helpers', () => {
       skippedExisting: 0,
       skippedNoCatalog: 0,
       errors: 0,
-      verdict: { reacondicionado: 65, reparado: 35 },
+      verdict: { reacondicionado: 60, reparado: 40 },
       shell: { B: 45, A: 12 },
       timing: { within_3_5_days: 80, after_5_days: 20 },
     });
-    expect(rates.verdict.reacondicionado).toBeCloseTo(0.65, 2);
+    expect(rates.verdict.reacondicionado).toBeCloseTo(0.6, 2);
     expect(rates.timing.within_3_5_days).toBeCloseTo(0.8, 2);
   });
 

@@ -26,12 +26,12 @@ describe('prediagnosticoBackfillPlan', () => {
     expect(counts.D / n).toBeCloseTo(0.18, 1);
   });
 
-  it('dictamen reparación ~65/35', () => {
+  it('dictamen RC/RP ~60/40 (reacondicionado / reparado)', () => {
     let reac = 0;
     for (let i = 0; i < 1000; i += 1) {
       if (repairVerdictForSlot(i) === 'reacondicionado') reac += 1;
     }
-    expect(reac).toBe(650);
+    expect(reac).toBe(600);
   });
 
   it('fechas: ~80% entre 3-5 días post-ingreso y ~20% después de 5 días', () => {

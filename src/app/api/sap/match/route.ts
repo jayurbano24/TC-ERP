@@ -154,7 +154,7 @@ export const POST = withErrorHandler(async (request: Request) => {
 
     let eqStatus = 'Sin Coincidencia';
     if (matchCount > 0) {
-      if (foundMaterials.size > 1) {
+      if (foundMaterials.size > 2) {
         eqStatus = 'Pendiente Revisión';
         inconsistencias++;
       } else {

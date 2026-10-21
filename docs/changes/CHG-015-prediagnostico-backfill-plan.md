@@ -50,8 +50,8 @@
 
 | Dictamen | % sobre resto |
 |----------|----------------|
-| `reacondicionado` | **65 %** |
-| `reparado` | **35 %** |
+| `reacondicionado` (RC) | **60 %** |
+| `reparado` (RP) | **40 %** |
 
 Asignación determinística: `stableSlot(serial)` → slot 0..999.
 

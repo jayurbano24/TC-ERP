@@ -3,7 +3,7 @@
 import React, { useState, useRef } from 'react';
 import { 
   Database, UploadCloud, Activity, LayoutDashboard, History, Settings, FileSpreadsheet, 
-  Search, ArrowRightLeft, FileWarning, CheckCircle2, AlertTriangle, Loader2
+  Search, ArrowRightLeft, FileWarning, CheckCircle2, AlertTriangle, Loader2, Warehouse, Download
 } from 'lucide-react';
 import { Card, Button, Badge, DataTable, TablePagination, type DataTableColumn, notify } from '@/components/ui';
 import { erpTab, erpSoftStat, erpInputClass } from '@/lib/design/tokens';
@@ -21,6 +21,7 @@ import {
   SAP_DASHBOARD_STATES,
 } from '@/lib/sap/sapDashboardStates';
 import { downloadSapUnmatchedExcel } from '@/lib/sap/downloadSapUnmatchedExport';
+import { downloadSapEnPlantaSeriesExcel } from '@/lib/sap/downloadSapEnPlantaSeriesExport';
 import type { SapValidationState } from '@/modules/sap-integration/domain/sap-validation-status';
 import { DEFAULT_PAGE_SIZE, useClientPagination } from '@/hooks/useClientPagination';
 
@@ -247,7 +248,7 @@ async function runSapMatchingPipeline(
       eqMatches.map((m) => m.material).filter((x): x is string => Boolean(x))
     );
     let status = 'Validado SAP';
-    if (materialsFound.size > 1) {
+    if (materialsFound.size > 2) {
       status = 'Pendiente Revisión';
       inconsistencias++;
     } else {
@@ -271,8 +272,9 @@ async function runSapMatchingPipeline(
     }
   }
 
+  const seriesMatchRows = allMatches.length;
   logProcess(
-    `Resumen: ${matchedSeries.length} series validadas · ${validados} equipos OK · ${inconsistencias} inconsistentes · queries=${totalQueries} · ${totalElapsed}ms`
+    `Resumen cruce: ${seriesMatchRows} filas SAP↔TC (${matchedSeries.length} series TC únicas) · ${validados} equipos Validado SAP · ${inconsistencias} equipos Pendiente Revisión (3+ materiales) · queries=${totalQueries} · ${totalElapsed}ms`
   );
   if (matchedSeries.length > validationDetails.length) {
     logProcess(
@@ -365,6 +367,7 @@ function IntegracionSapPage() {
   const isLoadingDashboard = dashboardQuery.isLoading;
 
   const [exportingUnmatched, setExportingUnmatched] = useState(false);
+  const [exportingEnPlanta, setExportingEnPlanta] = useState(false);
 
   const openStatusDetail = (status: SapValidationState) => {
     setDetailSapStatus(status);
@@ -380,6 +383,39 @@ function IntegracionSapPage() {
       notify.error(err instanceof Error ? err.message : 'Error al exportar');
     } finally {
       setExportingUnmatched(false);
+    }
+  };
+
+  const handleCopyEnPlantaEtl = async () => {
+    const cmd = 'npm run export:sap:en-planta';
+    try {
+      await navigator.clipboard.writeText(cmd);
+      notify.success('Comando ETL copiado', {
+        description:
+          'En PowerShell: cd web → pegue el comando. CSV en web/dist/ (~80k OS, sin timeout del navegador). Ver docs/export-sap-en-planta.md',
+        duration: 14_000,
+      });
+    } catch {
+      notify.info('ETL local (recomendado)', {
+        description: `PowerShell en carpeta web: ${cmd} → dist/SAP_EN_PLANTA_*.csv`,
+        duration: 14_000,
+      });
+    }
+  };
+
+  const handleExportEnPlantaSeries = async () => {
+    setExportingEnPlanta(true);
+    try {
+      notify.warning('Descarga web limitada', {
+        description: 'Para ~80k OS use ETL: npm run export:sap:en-planta (botón ETL).',
+        duration: 8_000,
+      });
+      await downloadSapEnPlantaSeriesExcel();
+      notify.success('Excel En planta descargado');
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : 'Error al exportar En planta');
+    } finally {
+      setExportingEnPlanta(false);
     }
   };
 
@@ -576,19 +612,74 @@ function IntegracionSapPage() {
 
     return (
       <div className="space-y-6">
-        <Card className="p-5 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)]">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="text-[10px] font-black text-[var(--muted)] uppercase tracking-widest mb-1">
-                Universo TC (histórico)
-              </p>
-              <h3 className="text-3xl font-black text-[var(--heading)]">{(kpis?.totalTC ?? 0).toLocaleString()}</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Card className="p-5 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)]">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-black text-[var(--muted)] uppercase tracking-widest mb-1">
+                  Universo TC (histórico)
+                </p>
+                <h3 className="text-3xl font-black text-[var(--heading)]">
+                  {(kpis?.totalTC ?? 0).toLocaleString()}
+                </h3>
+                <p className="text-[10px] font-bold text-[var(--muted)] mt-2 leading-snug">
+                  Todas las OS registradas en TC (incluye fuera de planta).
+                </p>
+              </div>
+              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${erpSoftStat.accent}`}>
+                <Database className="w-6 h-6" />
+              </div>
             </div>
-            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${erpSoftStat.accent}`}>
-              <Database className="w-6 h-6" />
+          </Card>
+
+          <Card className="p-5 border border-[var(--border)] shadow-sm rounded-3xl bg-[var(--surface)]">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <p className="text-[10px] font-black text-[var(--muted)] uppercase tracking-widest mb-1">
+                  En planta
+                </p>
+                <h3 className="text-3xl font-black text-[var(--heading)]">
+                  {enPlantaSap.toLocaleString()}
+                </h3>
+                <p className="text-[10px] font-bold text-[var(--muted)] mt-2 leading-snug">
+                  Histórico − despachadas − devueltas. Base de las tarjetas SAP y los %.
+                </p>
+              </div>
+              <div className="flex flex-col items-end gap-2 shrink-0">
+                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${erpSoftStat.success}`}>
+                  <Warehouse className="w-6 h-6" />
+                </div>
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  className="h-8 text-[9px] font-black uppercase tracking-wider gap-1.5"
+                  disabled={enPlantaSap <= 0}
+                  onClick={() => void handleCopyEnPlantaEtl()}
+                >
+                  <Database className="w-3 h-3" />
+                  ETL CSV
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-[9px] font-black uppercase tracking-wider gap-1.5"
+                  disabled={exportingEnPlanta || enPlantaSap <= 0}
+                  onClick={() => void handleExportEnPlantaSeries()}
+                  title="Solo volúmenes pequeños; preferir ETL CSV"
+                >
+                  {exportingEnPlanta ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <Download className="w-3 h-3" />
+                  )}
+                  Excel web
+                </Button>
+              </div>
             </div>
-          </div>
-        </Card>
+          </Card>
+        </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
           {SAP_DASHBOARD_STATES.map((cfg) => {

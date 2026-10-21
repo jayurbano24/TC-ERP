@@ -1,4 +1,4 @@
-# Restaura copia autorizada en volumen upgrade vacío. Sin pg_restore --clean.
+# Restaura copia autorizada. Init sin migrations/ hasta post-restore.
 param(
   [Parameter(Mandatory = $true)]
   [string]$ManifestPath,
@@ -17,8 +17,18 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $workdir = Join-Path $root '.supabase-isolated-upgrade-work'
 
 $manifest = Get-Content $ManifestPath -Raw | ConvertFrom-Json
-$dumpPath = $manifest.files[0].path
-if (-not (Test-Path $dumpPath)) { throw "Dump missing: $dumpPath" }
+$files = @($manifest.files)
+if ($files.Count -gt 1) {
+  if (-not $manifest.restoreOrder) { throw 'Multi-file backup requires restoreOrder[]' }
+  $order = @($manifest.restoreOrder)
+  $files = @(
+    foreach ($orderedPath in $order) {
+      $entry = $manifest.files | Where-Object { $_.path -eq $orderedPath }
+      if (-not $entry) { throw "restoreOrder references missing path: $orderedPath" }
+      $entry
+    }
+  )
+}
 
 $prevEap = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
@@ -31,14 +41,26 @@ $target = Get-UpgradeTargetFromWorkdir -Root $root -Workdir $workdir
 Set-UpgradeEnvironmentVariables -Target $target
 Assert-UpgradeEnvironmentPresent
 
-Write-Host "Restoring (no --clean) into $($target.DbUrl) ..."
+node (Join-Path $PSScriptRoot 'upgrade\assert-pre-restore-database.mjs') $env:UPGRADE_DATABASE_URL
+if ($LASTEXITCODE -ne 0) {
+  Clear-UpgradeEnvironmentVariables
+  $ErrorActionPreference = $prevEap
+  exit $LASTEXITCODE
+}
 
-# Preserva roles/extensiones del contenedor; restaura esquemas/datos del dump.
-pg_restore --dbname=$env:UPGRADE_DATABASE_URL --no-owner --role=postgres --exit-on-error $dumpPath
-$code = $LASTEXITCODE
+foreach ($entry in $files) {
+  $dumpPath = $entry.path
+  if (-not (Test-Path $dumpPath)) { throw "Dump missing: $dumpPath" }
+  Write-Host "Restoring (no --clean) $dumpPath into $($target.DbUrl) ..."
+  pg_restore --dbname=$env:UPGRADE_DATABASE_URL --no-owner --role=postgres --exit-on-error $dumpPath
+  if ($LASTEXITCODE -ne 0) {
+    Clear-UpgradeEnvironmentVariables
+    $ErrorActionPreference = $prevEap
+    throw "pg_restore exited with $LASTEXITCODE"
+  }
+}
+
 Clear-UpgradeEnvironmentVariables
 $ErrorActionPreference = $prevEap
 
-if ($code -ne 0) { throw "pg_restore exited with $code" }
-
-Write-Host 'Restore complete. Export before evidence next (immutable).'
+Write-Host 'Restore complete. Extract schema_migrations + before evidence next (still no app migrations junction).'

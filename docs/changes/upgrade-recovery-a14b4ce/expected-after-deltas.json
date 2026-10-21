@@ -1,22 +1,10 @@
 {
-  "description": "Cambios permitidos en fingerprints after vs before tras migration up a14b4ce",
-  "allowedFingerprintKeys": [
-    "classify_routines",
-    "grants_classify",
-    "rls_policies"
-  ],
-  "countsKeyToComparePartially": "counts",
-  "explicitChanges": {
-    "counts": {
-      "notes": "schema_migrations row count increases; domain_events may grow during tests",
-      "allowedIncrements": {
-        "schema_migrations": "via separate migration inventory gate"
-      }
-    }
-  },
-  "forbiddenAfterChanges": [
-    "identity_fingerprint",
-    "cycle_fingerprint",
-    "fk_orphans"
-  ]
+  "description": "Claves que PUEDEN cambiar tras migration up a14b4ce. Cualquier otra diferencia falla.",
+  "allowedChangedKeys": ["rls_policies", "sequences", "routines_public", "table_owners"],
+  "explicitNotes": {
+    "serviceOrderIds": "Debe ser idéntico salvo migración de datos documentada (no aprobada por defecto)",
+    "seriesIds": "Debe ser idéntico salvo migración de datos documentada",
+    "identity": "Debe ser idéntico — regresión classify",
+    "cycles": "Puede cambiar solo si delta documentado en acta (vacío = no cambio)"
+  }
 }

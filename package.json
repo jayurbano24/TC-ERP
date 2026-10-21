@@ -31,6 +31,8 @@
     "supabase:upgrade:wipe": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/supabase-isolated-upgrade-wipe.ps1",
     "supabase:upgrade:migrate": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/supabase-isolated-upgrade-migrate.ps1",
     "supabase:upgrade:plan": "node scripts/upgrade/compute-migration-plan.mjs",
+    "supabase:upgrade:sync-migration-index": "node scripts/upgrade/sync-target-migration-index.mjs",
+    "supabase:upgrade:prepare-manifest": "node scripts/upgrade/sync-target-migration-index.mjs && node scripts/upgrade/prepare-package-manifest.mjs",
     "supabase:upgrade:manifest": "node scripts/upgrade/generate-package-manifest.mjs",
     "supabase:upgrade:validate-package-index": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate-upgrade-package-from-git-index.ps1",
     "test:upgrade:package": "vitest run scripts/upgrade/upgrade-validation-package.test.mjs",

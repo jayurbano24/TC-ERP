@@ -1,0 +1,1190 @@
+{
+  "targetApplicationCommit": "a14b4ce22a6d53514fd69392c3b32e7016d00e5e",
+  "generatedAtUtc": "2026-10-20T22:15:18.218Z",
+  "files": [
+    {
+      "name": "014_erp_legacy_bootstrap.sql",
+      "version": "014"
+    },
+    {
+      "name": "015_taller_kpi_goals.sql",
+      "version": "015"
+    },
+    {
+      "name": "016_bodega_accesorios.sql",
+      "version": "016"
+    },
+    {
+      "name": "01600000000000_activity_costs.sql",
+      "version": "01600000000000"
+    },
+    {
+      "name": "01600000000001_profiles_avatar_storage.sql",
+      "version": "01600000000001"
+    },
+    {
+      "name": "017_accessory_boxes.sql",
+      "version": "017"
+    },
+    {
+      "name": "018_accessory_fields.sql",
+      "version": "018"
+    },
+    {
+      "name": "019_accessory_box_seq.sql",
+      "version": "019"
+    },
+    {
+      "name": "020_accessory_box_location.sql",
+      "version": "020"
+    },
+    {
+      "name": "021_accessory_boxes_delete.sql",
+      "version": "021"
+    },
+    {
+      "name": "022_sap_integration.sql",
+      "version": "022"
+    },
+    {
+      "name": "023_reception_guides.sql",
+      "version": "023"
+    },
+    {
+      "name": "024_sap_transfer_documents.sql",
+      "version": "024"
+    },
+    {
+      "name": "025_sap_transfer_documents_rls.sql",
+      "version": "025"
+    },
+    {
+      "name": "026_series_rls_backoffice.sql",
+      "version": "026"
+    },
+    {
+      "name": "027_sap_transfer_rls_fix.sql",
+      "version": "027"
+    },
+    {
+      "name": "028_series_notes.sql",
+      "version": "028"
+    },
+    {
+      "name": "02850000000000_series_status_recepcionado_bodega_general.sql",
+      "version": "02850000000000"
+    },
+    {
+      "name": "029_classify_equipment_batch_tx.sql",
+      "version": "029"
+    },
+    {
+      "name": "030_block_return_by_sap_transfer_tx.sql",
+      "version": "030"
+    },
+    {
+      "name": "031_full_reception_return_tx.sql",
+      "version": "031"
+    },
+    {
+      "name": "032_migrate_px_historical_bodega.sql",
+      "version": "032"
+    },
+    {
+      "name": "033_cac_tray_units.sql",
+      "version": "033"
+    },
+    {
+      "name": "034_erp_audit_logs.sql",
+      "version": "034"
+    },
+    {
+      "name": "035_digital_twin_operational_model.sql",
+      "version": "035"
+    },
+    {
+      "name": "036_stage_summary_refresh_v2.sql",
+      "version": "036"
+    },
+    {
+      "name": "037_performance_indexes.sql",
+      "version": "037"
+    },
+    {
+      "name": "038_reception_tablet_rls_fix.sql",
+      "version": "038"
+    },
+    {
+      "name": "039_px_incremental_capture.sql",
+      "version": "039"
+    },
+    {
+      "name": "040_box_code_global_unique.sql",
+      "version": "040"
+    },
+    {
+      "name": "041_bodega_box_atomic.sql",
+      "version": "041"
+    },
+    {
+      "name": "046_warehouse_phase2.sql",
+      "version": "046"
+    },
+    {
+      "name": "047_warehouse_phase3.sql",
+      "version": "047"
+    },
+    {
+      "name": "048_warehouse_phase4_dispatch_batches.sql",
+      "version": "048"
+    },
+    {
+      "name": "049_px_void_equipment_delete_box.sql",
+      "version": "049"
+    },
+    {
+      "name": "050_platform_events_phase_a.sql",
+      "version": "050"
+    },
+    {
+      "name": "051_production_orders.sql",
+      "version": "051"
+    },
+    {
+      "name": "052_accessories_dispatch_batches.sql",
+      "version": "052"
+    },
+    {
+      "name": "053_report_definitions.sql",
+      "version": "053"
+    },
+    {
+      "name": "05390000000000_erp_rbac_hr_positions.sql",
+      "version": "05390000000000"
+    },
+    {
+      "name": "054_nav_reportes_permissions.sql",
+      "version": "054"
+    },
+    {
+      "name": "055_warehouse_sap_sync_chg002.sql",
+      "version": "055"
+    },
+    {
+      "name": "056_cac_tray_backoffice_status_label.sql",
+      "version": "056"
+    },
+    {
+      "name": "057_reception_received_by.sql",
+      "version": "057"
+    },
+    {
+      "name": "058_classify_domain_event_dual_write.sql",
+      "version": "058"
+    },
+    {
+      "name": "059_fix_app_has_role_recursion.sql",
+      "version": "059"
+    },
+    {
+      "name": "060_sap_sync_tx.sql",
+      "version": "060"
+    },
+    {
+      "name": "061_create_recepcion_tx.sql",
+      "version": "061"
+    },
+    {
+      "name": "062_zk_ingest_attlog_tx.sql",
+      "version": "062"
+    },
+    {
+      "name": "063_return_reasons.sql",
+      "version": "063"
+    },
+    {
+      "name": "064_series_box_index.sql",
+      "version": "064"
+    },
+    {
+      "name": "065_authz_helpers.sql",
+      "version": "065"
+    },
+    {
+      "name": "066_lockdown_meta_tables_rls.sql",
+      "version": "066"
+    },
+    {
+      "name": "067_warehouse_box_summary.sql",
+      "version": "067"
+    },
+    {
+      "name": "068_boxes_legacy_label.sql",
+      "version": "068"
+    },
+    {
+      "name": "069_warehouse_box_summary_perf.sql",
+      "version": "069"
+    },
+    {
+      "name": "070_warehouse_stats_perf.sql",
+      "version": "070"
+    },
+    {
+      "name": "071_finalize_px_perf.sql",
+      "version": "071"
+    },
+    {
+      "name": "072_finalize_px_setbased.sql",
+      "version": "072"
+    },
+    {
+      "name": "073_kpi_views_security_invoker.sql",
+      "version": "073"
+    },
+    {
+      "name": "074_revoke_anon_rpc_execute.sql",
+      "version": "074"
+    },
+    {
+      "name": "075_finalize_px_batch.sql",
+      "version": "075"
+    },
+    {
+      "name": "076_finalize_px_prep_only.sql",
+      "version": "076"
+    },
+    {
+      "name": "077_finalize_px_prep_one_box.sql",
+      "version": "077"
+    },
+    {
+      "name": "078_finalize_px_prep_perf.sql",
+      "version": "078"
+    },
+    {
+      "name": "079_finalize_px_prep_no_advisory_lock.sql",
+      "version": "079"
+    },
+    {
+      "name": "080_boxes_reception_id_index.sql",
+      "version": "080"
+    },
+    {
+      "name": "081_finalize_px_prep_seq_sync.sql",
+      "version": "081"
+    },
+    {
+      "name": "082_warehouse_tx_fix_for_update_agg.sql",
+      "version": "082"
+    },
+    {
+      "name": "083_warehouse_movements_dispersion_constraint.sql",
+      "version": "083"
+    },
+    {
+      "name": "084_warehouse_operator_profile_guard.sql",
+      "version": "084"
+    },
+    {
+      "name": "085_warehouse_tx_idempotency.sql",
+      "version": "085"
+    },
+    {
+      "name": "086_warehouse_idempotency_unique_index.sql",
+      "version": "086"
+    },
+    {
+      "name": "087_bodega_taller_zero_trust.sql",
+      "version": "087"
+    },
+    {
+      "name": "088_enterprise_summary_views.sql",
+      "version": "088"
+    },
+    {
+      "name": "089_fix_workshop_rpc_enum_cast.sql",
+      "version": "089"
+    },
+    {
+      "name": "090_workshop_listo_os_count.sql",
+      "version": "090"
+    },
+    {
+      "name": "091_px_reception_box_limit_default.sql",
+      "version": "091"
+    },
+    {
+      "name": "092_dashboard_indexes_and_mvs.sql",
+      "version": "092"
+    },
+    {
+      "name": "093_refresh_mv_safe.sql",
+      "version": "093"
+    },
+    {
+      "name": "094_kpi_sync_engine.sql",
+      "version": "094"
+    },
+    {
+      "name": "095_warehouse_log_movement_unique.sql",
+      "version": "095"
+    },
+    {
+      "name": "096_next_box_code_strict.sql",
+      "version": "096"
+    },
+    {
+      "name": "097_series_serial_normalized.sql",
+      "version": "097"
+    },
+    {
+      "name": "098_sap_sync_matches_tx.sql",
+      "version": "098"
+    },
+    {
+      "name": "099_warehouse_dashboard_kpis_os.sql",
+      "version": "099"
+    },
+    {
+      "name": "09960000000000_series_material_sap_columns.sql",
+      "version": "09960000000000"
+    },
+    {
+      "name": "100_sap_sync_material_valuation.sql",
+      "version": "100"
+    },
+    {
+      "name": "101_backfill_series_material_valuation.sql",
+      "version": "101"
+    },
+    {
+      "name": "102_security_hygiene_extensions_anon_avatars.sql",
+      "version": "102"
+    },
+    {
+      "name": "103_rls_phase_a_critical_writes.sql",
+      "version": "103"
+    },
+    {
+      "name": "104_rpc_assert_roles_returns.sql",
+      "version": "104"
+    },
+    {
+      "name": "105_rls_phase_b_remaining_tables.sql",
+      "version": "105"
+    },
+    {
+      "name": "106_rpc_assert_warehouse_revoke_helpers.sql",
+      "version": "106"
+    },
+    {
+      "name": "10690000000000_profiles_email.sql",
+      "version": "10690000000000"
+    },
+    {
+      "name": "107_user_roles_operational_sync.sql",
+      "version": "107"
+    },
+    {
+      "name": "108_rpc_assert_px_reception.sql",
+      "version": "108"
+    },
+    {
+      "name": "109_rls_read_cac_tray_reports.sql",
+      "version": "109"
+    },
+    {
+      "name": "10990000000000_hr_legacy_attendance_bootstrap.sql",
+      "version": "10990000000000"
+    },
+    {
+      "name": "110_rls_cleanup_legacy_policies.sql",
+      "version": "110"
+    },
+    {
+      "name": "111_view_authz_gaps_security_invoker.sql",
+      "version": "111"
+    },
+    {
+      "name": "112_rls_read_user_facing_tables.sql",
+      "version": "112"
+    },
+    {
+      "name": "113_workshop_listo_os_page.sql",
+      "version": "113"
+    },
+    {
+      "name": "114_boxes_material_valuation.sql",
+      "version": "114"
+    },
+    {
+      "name": "115_outbound_code_seq.sql",
+      "version": "115"
+    },
+    {
+      "name": "116_salida_code_seq.sql",
+      "version": "116"
+    },
+    {
+      "name": "117_warehouse_salida_close_box.sql",
+      "version": "117"
+    },
+    {
+      "name": "118_warehouse_salida_sync_os_siblings.sql",
+      "version": "118"
+    },
+    {
+      "name": "119_reingreso_dispatched_series.sql",
+      "version": "119"
+    },
+    {
+      "name": "11990000000000_service_orders_closed_at.sql",
+      "version": "11990000000000"
+    },
+    {
+      "name": "120_os_closed_at_on_dispatch.sql",
+      "version": "120"
+    },
+    {
+      "name": "121_optimize_reentry_count_classify.sql",
+      "version": "121"
+    },
+    {
+      "name": "122_classify_reentry_setbased_timeout.sql",
+      "version": "122"
+    },
+    {
+      "name": "123_fix_next_box_code.sql",
+      "version": "123"
+    },
+    {
+      "name": "124_fix_next_box_code_lpad_truncate.sql",
+      "version": "124"
+    },
+    {
+      "name": "125_box_code_global_irrepetible.sql",
+      "version": "125"
+    },
+    {
+      "name": "126_accessories_characteristics_comments.sql",
+      "version": "126"
+    },
+    {
+      "name": "127_catalog_write_backoffice_roles.sql",
+      "version": "127"
+    },
+    {
+      "name": "128_repair_workshop_split_equipment.sql",
+      "version": "128"
+    },
+    {
+      "name": "129_warehouse_list_boxes_fill_status.sql",
+      "version": "129"
+    },
+    {
+      "name": "130_bodega_scan_session_persist.sql",
+      "version": "130"
+    },
+    {
+      "name": "131_box_deletion_approval_workflow.sql",
+      "version": "131"
+    },
+    {
+      "name": "132_autorizaciones_module_notification_link.sql",
+      "version": "132"
+    },
+    {
+      "name": "133_box_ingreso_operator_name.sql",
+      "version": "133"
+    },
+    {
+      "name": "134_exclude_taller_boxes_from_bodega.sql",
+      "version": "134"
+    },
+    {
+      "name": "135_box_ingreso_operator_backfill.sql",
+      "version": "135"
+    },
+    {
+      "name": "136_warehouse_list_boxes_by_fecha.sql",
+      "version": "136"
+    },
+    {
+      "name": "137_warehouse_movements_operator_compat.sql",
+      "version": "137"
+    },
+    {
+      "name": "138_warehouse_schema_repair.sql",
+      "version": "138"
+    },
+    {
+      "name": "139_security_advisor_bodega_rpc.sql",
+      "version": "139"
+    },
+    {
+      "name": "140_os_serial_reentry_domain_rules.sql",
+      "version": "140"
+    },
+    {
+      "name": "141_delete_duplicate_cancelled_os.sql",
+      "version": "141"
+    },
+    {
+      "name": "142_block_return_by_sap_base.sql",
+      "version": "142"
+    },
+    {
+      "name": "143_sync_reentry_count_os_tray.sql",
+      "version": "143"
+    },
+    {
+      "name": "144_unify_models_zxv10_b866v.sql",
+      "version": "144"
+    },
+    {
+      "name": "145_unify_models_zxv10_b866v2h.sql",
+      "version": "145"
+    },
+    {
+      "name": "146_employee_face_embeddings.sql",
+      "version": "146"
+    },
+    {
+      "name": "147_biometric_rls_harden.sql",
+      "version": "147"
+    },
+    {
+      "name": "148_security_definer_execute_hygiene.sql",
+      "version": "148"
+    },
+    {
+      "name": "149_revoke_authenticated_internal_rpcs.sql",
+      "version": "149"
+    },
+    {
+      "name": "150_internal_schema_p0_rpcs.sql",
+      "version": "150"
+    },
+    {
+      "name": "151_definer_authenticated_allowlist_only.sql",
+      "version": "151"
+    },
+    {
+      "name": "152_hr_policies_versions_columns.sql",
+      "version": "152"
+    },
+    {
+      "name": "153_kiosk_insert_time_log.sql",
+      "version": "153"
+    },
+    {
+      "name": "154_employee_current_status.sql",
+      "version": "154"
+    },
+    {
+      "name": "155_report_ops_monthly_tech.sql",
+      "version": "155"
+    },
+    {
+      "name": "156_report_ops_monthly_tech_drop_mora.sql",
+      "version": "156"
+    },
+    {
+      "name": "157_report_ops_monthly_tech_taller.sql",
+      "version": "157"
+    },
+    {
+      "name": "158_report_ops_monthly_tech_align_matrix.sql",
+      "version": "158"
+    },
+    {
+      "name": "159_series_entry_source.sql",
+      "version": "159"
+    },
+    {
+      "name": "160_report_ops_monthly_tech_series_taller.sql",
+      "version": "160"
+    },
+    {
+      "name": "161_restore_create_or_get_sap_transfer_grant.sql",
+      "version": "161"
+    },
+    {
+      "name": "162_cron_heartbeat_process_config.sql",
+      "version": "162"
+    },
+    {
+      "name": "16290000000000_platform_user_sessions.sql",
+      "version": "16290000000000"
+    },
+    {
+      "name": "163_user_sessions_last_seen_idle.sql",
+      "version": "163"
+    },
+    {
+      "name": "164_health_metric_samples.sql",
+      "version": "164"
+    },
+    {
+      "name": "165_health_postgres_stats_http.sql",
+      "version": "165"
+    },
+    {
+      "name": "166_public_wrappers_internal_rpcs.sql",
+      "version": "166"
+    },
+    {
+      "name": "167_count_os_inventory_detail_rpc.sql",
+      "version": "167"
+    },
+    {
+      "name": "168_cac_tray_classifier_not_receiver.sql",
+      "version": "168"
+    },
+    {
+      "name": "169_fix_reentry_count_rank.sql",
+      "version": "169"
+    },
+    {
+      "name": "170_fix_attendance_close_open_evento.sql",
+      "version": "170"
+    },
+    {
+      "name": "171_sync_tecnico_operational_roles.sql",
+      "version": "171"
+    },
+    {
+      "name": "172_cac_tray_hide_ingresado_bodega.sql",
+      "version": "172"
+    },
+    {
+      "name": "173_normalize_model_names_dedupe.sql",
+      "version": "173"
+    },
+    {
+      "name": "174_unify_near_duplicate_models.sql",
+      "version": "174"
+    },
+    {
+      "name": "176_strip_brand_suffix_from_models.sql",
+      "version": "176"
+    },
+    {
+      "name": "177_restore_classify_active_os_guards.sql",
+      "version": "177"
+    },
+    {
+      "name": "178_exclude_outbound_from_bodega.sql",
+      "version": "178"
+    },
+    {
+      "name": "179_exclude_scrap_prefix_from_bodega.sql",
+      "version": "179"
+    },
+    {
+      "name": "180_warehouse_salida_parcial_os_siblings.sql",
+      "version": "180"
+    },
+    {
+      "name": "181_repair_incomplete_partial_dispatch_tc_inv_100.sql",
+      "version": "181"
+    },
+    {
+      "name": "182_warehouse_salida_parcial_shrink_capacity.sql",
+      "version": "182"
+    },
+    {
+      "name": "183_force_shrink_capacity_box_1142.sql",
+      "version": "183"
+    },
+    {
+      "name": "184_sap_sync_matches_chunked.sql",
+      "version": "184"
+    },
+    {
+      "name": "185_sap_unmatched_only_unmatched_os.sql",
+      "version": "185"
+    },
+    {
+      "name": "186_warehouse_salida_parcial_resync_capacity.sql",
+      "version": "186"
+    },
+    {
+      "name": "187_unify_models_cg2000_to_cg2200.sql",
+      "version": "187"
+    },
+    {
+      "name": "188_cg2000_residual_series_os.sql",
+      "version": "188"
+    },
+    {
+      "name": "189_reassign_serial_cg3000_to_cg2200_bs10084053008747.sql",
+      "version": "189"
+    },
+    {
+      "name": "190_fix_tc_05102_cg3000_to_cg2200.sql",
+      "version": "190"
+    },
+    {
+      "name": "191_diagnose_serial_70dff79e39a1.sql",
+      "version": "191"
+    },
+    {
+      "name": "192_fix_boxes_1319_1320_cg2200.sql",
+      "version": "192"
+    },
+    {
+      "name": "193_fix_box_1321_capacity_20.sql",
+      "version": "193"
+    },
+    {
+      "name": "194_repair_box_1321_capacity_after_sync.sql",
+      "version": "194"
+    },
+    {
+      "name": "195_restore_box_1321_bodega.sql",
+      "version": "195"
+    },
+    {
+      "name": "196_align_box_capacity_overflow_bodega.sql",
+      "version": "196"
+    },
+    {
+      "name": "197_fix_bodega_operational_rack_exclude_outbound.sql",
+      "version": "197"
+    },
+    {
+      "name": "198_fix_dispersion_stale_idempotency.sql",
+      "version": "198"
+    },
+    {
+      "name": "199_bodega_in_progress_only_partial_and_sync_capacity.sql",
+      "version": "199"
+    },
+    {
+      "name": "200_workshop_scraps_exclude_boxed.sql",
+      "version": "200"
+    },
+    {
+      "name": "201_traslado_parcial_os_siblings.sql",
+      "version": "201"
+    },
+    {
+      "name": "202_fix_bs1008851c003241_cg2200_to_cg3000.sql",
+      "version": "202"
+    },
+    {
+      "name": "20260904040632_px_duplicate_open_os_guard.sql",
+      "version": "20260904040632"
+    },
+    {
+      "name": "20260904041747_px_received_units_transactional_sync.sql",
+      "version": "20260904041747"
+    },
+    {
+      "name": "20260904043500_px_rescan_deleted_serial.sql",
+      "version": "20260904043500"
+    },
+    {
+      "name": "20260904190000_px_finalize_guard_set_based.sql",
+      "version": "20260904190000"
+    },
+    {
+      "name": "20260904232533_box_deletion_manager_authorization.sql",
+      "version": "20260904232533"
+    },
+    {
+      "name": "20260905004105_add_dispatch_warehouse_series_status.sql",
+      "version": "20260905004105"
+    },
+    {
+      "name": "20260905004109_enforce_dispatch_warehouse_location.sql",
+      "version": "20260905004109"
+    },
+    {
+      "name": "20260905010828_exclude_dispatched_from_sap_validation.sql",
+      "version": "20260905010828"
+    },
+    {
+      "name": "20260905013507_os_storage_kpis.sql",
+      "version": "20260905013507"
+    },
+    {
+      "name": "20260905020000_os_modules_bodega_despacho.sql",
+      "version": "20260905020000"
+    },
+    {
+      "name": "20260905181246_allow_operational_box_eliminado.sql",
+      "version": "20260905181246"
+    },
+    {
+      "name": "20260908123000_returns_report_period_filter.sql",
+      "version": "20260908123000"
+    },
+    {
+      "name": "20260908144500_os_modules_exclusive_bodega_listo.sql",
+      "version": "20260908144500"
+    },
+    {
+      "name": "20260908150000_sap_dashboard_kpis_en_planta.sql",
+      "version": "20260908150000"
+    },
+    {
+      "name": "20260908152000_os_despachado_status_ssot.sql",
+      "version": "20260908152000"
+    },
+    {
+      "name": "20260908153000_fix_despachado_ssot_performance.sql",
+      "version": "20260908153000"
+    },
+    {
+      "name": "20260908154000_os_modules_close_sin_ubicacion_gap.sql",
+      "version": "20260908154000"
+    },
+    {
+      "name": "20260908155000_fix_pendiente_bodega_dedup.sql",
+      "version": "20260908155000"
+    },
+    {
+      "name": "20260908156000_os_devuelto_fuera_planta.sql",
+      "version": "20260908156000"
+    },
+    {
+      "name": "20260908157000_os_inventory_historico_cuadre.sql",
+      "version": "20260908157000"
+    },
+    {
+      "name": "20260908158000_os_inventory_fuera_planta_perf.sql",
+      "version": "20260908158000"
+    },
+    {
+      "name": "20260908159000_dedupe_models_by_brand_name.sql",
+      "version": "20260908159000"
+    },
+    {
+      "name": "20260909101500_px_capture_concurrency_and_metrics.sql",
+      "version": "20260909101500"
+    },
+    {
+      "name": "20260909143000_px_capture_request_id.sql",
+      "version": "20260909143000"
+    },
+    {
+      "name": "20260909150000_px_capture_fine_metrics.sql",
+      "version": "20260909150000"
+    },
+    {
+      "name": "20260909153000_px_capture_monitoring.sql",
+      "version": "20260909153000"
+    },
+    {
+      "name": "20260909160000_px_capture_contention_fix.sql",
+      "version": "20260909160000"
+    },
+    {
+      "name": "20260909161000_px_capture_serial_busy.sql",
+      "version": "20260909161000"
+    },
+    {
+      "name": "20260909162000_px_capture_validation_perf.sql",
+      "version": "20260909162000"
+    },
+    {
+      "name": "20260909163000_px_capture_metrics_slo_safe.sql",
+      "version": "20260909163000"
+    },
+    {
+      "name": "20261020001356_classify_exact_serial_set_retry.sql",
+      "version": "20261020001356"
+    },
+    {
+      "name": "203_fix_8401120c2b95_kaon_cg2200_emta.sql",
+      "version": "203"
+    },
+    {
+      "name": "204_fix_9877e71eab4d_cg3000_to_cg2200.sql",
+      "version": "204"
+    },
+    {
+      "name": "205_next_scrap_box_code.sql",
+      "version": "205"
+    },
+    {
+      "name": "206_series_updated_at_ignore_sap.sql",
+      "version": "206"
+    },
+    {
+      "name": "207_next_scrap_salida_code.sql",
+      "version": "207"
+    },
+    {
+      "name": "208_employees_prevent_duplicate_name.sql",
+      "version": "208"
+    },
+    {
+      "name": "209_cleanup_duplicate_employee_names.sql",
+      "version": "209"
+    },
+    {
+      "name": "210_returns_report_etl.sql",
+      "version": "210"
+    },
+    {
+      "name": "211_cost_purchase_orders.sql",
+      "version": "211"
+    },
+    {
+      "name": "212_cost_po_action_type.sql",
+      "version": "212"
+    },
+    {
+      "name": "213_workshop_scraps_queue_unboxed_only.sql",
+      "version": "213"
+    },
+    {
+      "name": "214_workshop_scraps_exclude_bodega_boxed.sql",
+      "version": "214"
+    },
+    {
+      "name": "215_fix_histron_duplicated_series.sql",
+      "version": "215"
+    },
+    {
+      "name": "216_fix_box_1741_cg2200_to_cg3000.sql",
+      "version": "216"
+    },
+    {
+      "name": "217_cac_tray_keep_historial_real.sql",
+      "version": "217"
+    },
+    {
+      "name": "218_cac_tray_deactivate_left_queue.sql",
+      "version": "218"
+    },
+    {
+      "name": "219_warehouse_dashboard_kpis_fast.sql",
+      "version": "219"
+    },
+    {
+      "name": "220_zkteco_adms_schema.sql",
+      "version": "220"
+    },
+    {
+      "name": "221_scrap_boxes_assigned_operator.sql",
+      "version": "221"
+    },
+    {
+      "name": "222_count_os_inventory_modules.sql",
+      "version": "222"
+    },
+    {
+      "name": "223_os_modules_equipo_listo_historial_bo.sql",
+      "version": "223"
+    },
+    {
+      "name": "224_os_modules_etl_lightweight.sql",
+      "version": "224"
+    },
+    {
+      "name": "225_os_modules_hide_loose_stock.sql",
+      "version": "225"
+    },
+    {
+      "name": "226_os_modules_activas_sum_buckets.sql",
+      "version": "226"
+    },
+    {
+      "name": "227_workshop_scraps_exclude_os_in_scrap_box.sql",
+      "version": "227"
+    },
+    {
+      "name": "228_os_inventory_reality_detail.sql",
+      "version": "228"
+    },
+    {
+      "name": "229_px_capture_block_serial_other_guide.sql",
+      "version": "229"
+    },
+    {
+      "name": "230_equipo_listo_by_technology.sql",
+      "version": "230"
+    },
+    {
+      "name": "231_bodega_partes.sql",
+      "version": "231"
+    },
+    {
+      "name": "232_part_deletion_requests.sql",
+      "version": "232"
+    },
+    {
+      "name": "233_parts_stock_new_vs_recovered.sql",
+      "version": "233"
+    },
+    {
+      "name": "234_part_request_batches.sql",
+      "version": "234"
+    },
+    {
+      "name": "235_part_requests_series_arrays.sql",
+      "version": "235"
+    },
+    {
+      "name": "236_part_dispatch_receipt.sql",
+      "version": "236"
+    },
+    {
+      "name": "237_part_unused_good_return.sql",
+      "version": "237"
+    },
+    {
+      "name": "239_workshop_catalog_diagnostic_repair_links.sql",
+      "version": "239"
+    },
+    {
+      "name": "240_workshop_led_diagnostic_repair_links.sql",
+      "version": "240"
+    },
+    {
+      "name": "241_cat_diagnostic_technologies.sql",
+      "version": "241"
+    },
+    {
+      "name": "242_cenam_refurbished_report.sql",
+      "version": "242"
+    },
+    {
+      "name": "243_cenam_report_etl.sql",
+      "version": "243"
+    },
+    {
+      "name": "244_cenam_report_sap_fields.sql",
+      "version": "244"
+    },
+    {
+      "name": "245_series_current_repairs.sql",
+      "version": "245"
+    },
+    {
+      "name": "246_receptions_updated_at.sql",
+      "version": "246"
+    },
+    {
+      "name": "247_return_prev_status.sql",
+      "version": "247"
+    },
+    {
+      "name": "248_workshop_list_listo_page_sync.sql",
+      "version": "248"
+    },
+    {
+      "name": "249_workshop_list_listo_page_keyset.sql",
+      "version": "249"
+    },
+    {
+      "name": "250_protect_dispersed_workshop_status.sql",
+      "version": "250"
+    },
+    {
+      "name": "251_prediagnostico.sql",
+      "version": "251"
+    },
+    {
+      "name": "252_prediagnostico_report.sql",
+      "version": "252"
+    },
+    {
+      "name": "253_prediagnostico_model_items.sql",
+      "version": "253"
+    },
+    {
+      "name": "254_px_equipment_prediagnostico.sql",
+      "version": "254"
+    },
+    {
+      "name": "255_prediagnostico_backfill_candidates.sql",
+      "version": "255"
+    },
+    {
+      "name": "256_kpi_event_ledger_composite_pk.sql",
+      "version": "256"
+    },
+    {
+      "name": "257_count_workshop_os_security_definer.sql",
+      "version": "257"
+    },
+    {
+      "name": "258_models_portfolio_vigencia.sql",
+      "version": "258"
+    },
+    {
+      "name": "259_prediagnostico_report_contract_columns.sql",
+      "version": "259"
+    },
+    {
+      "name": "260_prediagnostico_report_split_columns.sql",
+      "version": "260"
+    },
+    {
+      "name": "261_prediagnostico_report_matrix_columns.sql",
+      "version": "261"
+    },
+    {
+      "name": "262_prediagnostico_report_dynamic_catalog_columns.sql",
+      "version": "262"
+    },
+    {
+      "name": "263_prediagnostico_report_sap_traslado.sql",
+      "version": "263"
+    },
+    {
+      "name": "264_service_orders_warranty_ingress.sql",
+      "version": "264"
+    },
+    {
+      "name": "265_warranty_pack_etl.sql",
+      "version": "265"
+    },
+    {
+      "name": "266_warranty_pack_charts.sql",
+      "version": "266"
+    },
+    {
+      "name": "267_warranty_pack_dispatch_date_fix.sql",
+      "version": "267"
+    },
+    {
+      "name": "268_warranty_profile_mandatory_dispatch.sql",
+      "version": "268"
+    },
+    {
+      "name": "269_authz_rpc_enforce_and_erp_sync.sql",
+      "version": "269"
+    },
+    {
+      "name": "270_mv_dashboard_grants_authenticated.sql",
+      "version": "270"
+    },
+    {
+      "name": "271_part_harvest_from_scrap.sql",
+      "version": "271"
+    },
+    {
+      "name": "272_classify_exact_equipment_identity.sql",
+      "version": "272"
+    },
+    {
+      "name": "273_classify_equipment_batch_identity_final.sql",
+      "version": "273"
+    },
+    {
+      "name": "274_classify_equipment_batch_tx_canonical_reapply.sql",
+      "version": "274"
+    },
+    {
+      "name": "275_classify_serial_cycle_close_normalize.sql",
+      "version": "275"
+    }
+  ]
+}

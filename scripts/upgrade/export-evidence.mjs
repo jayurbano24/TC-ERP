@@ -1,7 +1,7 @@
 /**
- * Exporta fingerprint JSON inmutable por fase (before|after|recovered).
- * Requiere UPGRADE_DATABASE_URL validado (54342).
+ * Fingerprints completos (sin LIMIT silencioso) + conjuntos de IDs.
  */
+import crypto from 'crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,83 +9,142 @@ import pg from 'pg';
 
 const { Client } = pg;
 
-const QUERIES = {
-  counts: `
-    SELECT json_build_object(
-      'service_orders', (SELECT COUNT(*) FROM public.service_orders),
-      'service_orders_open', (SELECT COUNT(*) FROM public.service_orders WHERE closed_at IS NULL),
-      'service_orders_closed', (SELECT COUNT(*) FROM public.service_orders WHERE closed_at IS NOT NULL),
-      'series', (SELECT COUNT(*) FROM public.series),
-      'cycles_total', (SELECT COUNT(*) FROM public.service_order_serial_cycles),
-      'cycles_open', (SELECT COUNT(*) FROM public.service_order_serial_cycles WHERE unlinked_at IS NULL),
-      'cycles_closed', (SELECT COUNT(*) FROM public.service_order_serial_cycles WHERE unlinked_at IS NOT NULL)
-    ) AS v;
-  `,
-  identity_fingerprint: `
-    SELECT md5(string_agg(row_sig, '|' ORDER BY row_sig)) AS fp
-    FROM (
-      SELECT md5(concat_ws(':',
-        so.id::text, so.main_serial, so.status,
-        coalesce(so.closed_at::text, ''),
-        s.id::text, s.serial_number, s.status
-      )) AS row_sig
-      FROM public.service_orders so
-      JOIN public.series s ON s.service_order_id = so.id
-      WHERE so.closed_at IS NULL
-      LIMIT 5000
-    ) t;
-  `,
-  cycle_fingerprint: `
-    SELECT md5(string_agg(row_sig, '|' ORDER BY row_sig)) AS fp
-    FROM (
-      SELECT md5(concat_ws(':',
-        serial_number, service_order_id::text, cycle_no::text,
-        coalesce(linked_at::text,''), coalesce(unlinked_at::text,'')
-      )) AS row_sig
-      FROM public.service_order_serial_cycles
-      LIMIT 10000
-    ) t;
-  `,
-  fk_orphans: `
-    SELECT json_build_object(
-      'series_without_os', (SELECT COUNT(*) FROM public.series s WHERE s.service_order_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.service_orders so WHERE so.id = s.service_order_id)),
-      'cycles_without_os', (SELECT COUNT(*) FROM public.service_order_serial_cycles c WHERE NOT EXISTS (SELECT 1 FROM public.service_orders so WHERE so.id = c.service_order_id))
-    ) AS v;
-  `,
-  classify_routines: `
-    SELECT json_agg(json_build_object(
-      'name', p.proname,
-      'args', pg_get_function_identity_arguments(p.oid),
-      'secdef', p.prosecdef
-    ) ORDER BY p.proname, pg_get_function_identity_arguments(p.oid)) AS v
-    FROM pg_proc p
-    JOIN pg_namespace n ON n.oid = p.pronamespace
-    WHERE n.nspname = 'public' AND p.proname IN (
-      'classify_equipment_batch_tx','normalize_equipment_serial','series_active_service_order'
-    );
-  `,
-  rls_policies: `
-    SELECT md5(string_agg(line, E'\\n' ORDER BY line)) AS fp
-    FROM (
-      SELECT concat(schemaname,'.',tablename,'|',policyname,'|',cmd,'|',coalesce(qual,''),'|',coalesce(with_check,'')) AS line
-      FROM pg_policies
-      WHERE schemaname = 'public'
-        AND tablename IN ('series','service_orders','activity_costs','domain_events','service_order_serial_cycles')
-    ) t;
-  `,
-  grants_classify: `
-    SELECT json_agg(json_build_object(
-      'grantee', grantee, 'privilege', privilege_type
-    ) ORDER BY grantee, privilege_type) AS v
-    FROM information_schema.role_routine_grants
-    WHERE routine_schema = 'public' AND routine_name = 'classify_equipment_batch_tx';
-  `,
-};
-
-function assertUpgradeDbUrl(url) {
+export function assertUpgradeDbUrl(url) {
   if (!url) throw new Error('UPGRADE_DATABASE_URL required');
   if (/54322|54332/.test(url)) throw new Error('Forbidden port in UPGRADE_DATABASE_URL');
   if (!/54342/.test(url)) throw new Error('UPGRADE_DATABASE_URL must use port 54342');
+}
+
+const BLOCK_SIZE = 4096;
+
+/** Lectura completa por bloques (sin LIMIT global silencioso). */
+async function hashRowsBlocked(client, orderedSubquerySql, mapRow) {
+  const hash = crypto.createHash('sha256');
+  const sigs = [];
+  let offset = 0;
+  while (true) {
+    const { rows } = await client.query(
+      `SELECT * FROM (${orderedSubquerySql}) AS _ev LIMIT $1 OFFSET $2`,
+      [BLOCK_SIZE, offset]
+    );
+    if (rows.length === 0) break;
+    for (const row of rows) sigs.push(mapRow(row));
+    offset += rows.length;
+    if (rows.length < BLOCK_SIZE) break;
+  }
+  sigs.sort();
+  for (const s of sigs) hash.update(s);
+  hash.update(`|count=${sigs.length}`);
+  return { fingerprint: hash.digest('hex'), count: sigs.length, ids: sigs };
+}
+
+async function hashLines(client, sql, lineFn) {
+  const hash = crypto.createHash('sha256');
+  const { rows } = await client.query(sql);
+  const lines = rows.map(lineFn);
+  lines.sort();
+  for (const line of lines) hash.update(`${line}\n`);
+  hash.update(`|count=${lines.length}`);
+  return { fingerprint: hash.digest('hex'), count: lines.length };
+}
+
+export async function collectEvidence(client) {
+  const counts = (
+    await client.query(`
+      SELECT json_build_object(
+        'service_orders', (SELECT COUNT(*)::bigint FROM public.service_orders),
+        'series', (SELECT COUNT(*)::bigint FROM public.series),
+        'cycles', (SELECT COUNT(*)::bigint FROM public.service_order_serial_cycles)
+      ) AS v
+    `)
+  ).rows[0].v;
+
+  const serviceOrderIds = await hashRowsBlocked(
+    client,
+    `SELECT id::text AS id FROM public.service_orders ORDER BY id`,
+    (r) => r.id
+  );
+  const seriesIds = await hashRowsBlocked(
+    client,
+    `SELECT id::text AS id FROM public.series ORDER BY id`,
+    (r) => r.id
+  );
+
+  const identity = await hashRowsBlocked(
+    client,
+    `SELECT so.id::text AS so_id, s.id::text AS series_id
+     FROM public.service_orders so
+     JOIN public.series s ON s.service_order_id = so.id
+     ORDER BY so.id, s.id`,
+    (r) => `${r.so_id}:${r.series_id}`
+  );
+
+  const cycles = await hashRowsBlocked(
+    client,
+    `SELECT serial_number, service_order_id::text AS service_order_id, cycle_no::text AS cycle_no,
+            coalesce(linked_at::text,'') AS linked_at, coalesce(unlinked_at::text,'') AS unlinked_at
+     FROM public.service_order_serial_cycles
+     ORDER BY serial_number, service_order_id, cycle_no`,
+    (r) => `${r.serial_number}|${r.service_order_id}|${r.cycle_no}|${r.linked_at}|${r.unlinked_at}`
+  );
+
+  const { rows: rlsRows } = await client.query(`
+    SELECT schemaname, tablename, policyname, cmd, coalesce(qual,'') AS qual, coalesce(with_check,'') AS wc
+    FROM pg_policies WHERE schemaname = 'public'
+    ORDER BY tablename, policyname
+  `);
+  const rlsHash = crypto.createHash('sha256');
+  for (const r of rlsRows) {
+    rlsHash.update(`${r.schemaname}.${r.tablename}|${r.policyname}|${r.cmd}|${r.qual}|${r.wc}\n`);
+  }
+
+  const { rows: grantRows } = await client.query(`
+    SELECT grantee, privilege_type
+    FROM information_schema.role_routine_grants
+    WHERE routine_schema = 'public' AND routine_name = 'classify_equipment_batch_tx'
+    ORDER BY grantee, privilege_type
+  `);
+  const grantsHash = crypto.createHash('sha256');
+  for (const g of grantRows) grantsHash.update(`${g.grantee}:${g.privilege_type}\n`);
+
+  const sequences = await hashLines(
+    client,
+    `SELECT sequence_name, start_value, minimum_value, maximum_value, increment, last_value
+     FROM information_schema.sequences WHERE sequence_schema = 'public'
+     ORDER BY sequence_name`,
+    (r) =>
+      `${r.sequence_name}|${r.start_value}|${r.minimum_value}|${r.maximum_value}|${r.increment}|${r.last_value}`
+  );
+
+  const routines_public = await hashLines(
+    client,
+    `SELECT p.proname, pg_get_function_identity_arguments(p.oid) AS args, r.rolname AS owner
+     FROM pg_proc p
+     JOIN pg_namespace n ON n.oid = p.pronamespace
+     JOIN pg_roles r ON r.oid = p.proowner
+     WHERE n.nspname = 'public'
+     ORDER BY p.proname, args`,
+    (r) => `${r.proname}(${r.args})|${r.owner}`
+  );
+
+  const table_owners = await hashLines(
+    client,
+    `SELECT tablename, tableowner FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename`,
+    (r) => `${r.tablename}|${r.tableowner}`
+  );
+
+  return {
+    counts,
+    serviceOrderIds,
+    seriesIds,
+    identity,
+    cycles,
+    rls_policies: { fingerprint: rlsHash.digest('hex'), count: rlsRows.length },
+    grants_classify: { fingerprint: grantsHash.digest('hex'), count: grantRows.length },
+    sequences,
+    routines_public,
+    table_owners,
+  };
 }
 
 export async function exportEvidencePhase(phase, outDir) {
@@ -98,12 +157,8 @@ export async function exportEvidencePhase(phase, outDir) {
       phase,
       capturedAtUtc: new Date().toISOString(),
       dbUrlRedacted: dbUrl.replace(/:[^:@]+@/, ':***@'),
-      fingerprints: {},
+      evidence: await collectEvidence(client),
     };
-    for (const [key, sql] of Object.entries(QUERIES)) {
-      const { rows } = await client.query(sql);
-      payload.fingerprints[key] = rows[0]?.v ?? rows[0]?.fp ?? null;
-    }
     fs.mkdirSync(outDir, { recursive: true });
     const outPath = path.join(outDir, `${phase}.json`);
     const tmp = `${outPath}.tmp`;
@@ -121,7 +176,7 @@ if (isMain) {
   const phase = process.argv[2];
   const outDir = process.argv[3];
   if (!phase || !outDir) {
-    console.error('Usage: node export-evidence.mjs <before|after|recovered> <outDir>');
+    console.error('Usage: node export-evidence.mjs <phase> <outDir>');
     process.exit(2);
   }
   exportEvidencePhase(phase, outDir)

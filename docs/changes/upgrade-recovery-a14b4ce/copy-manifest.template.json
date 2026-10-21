@@ -4,23 +4,35 @@
   "sourceEnvironment": "REPLICA_OR_BACKUP_ID",
   "postgresVersionSource": "15.x",
   "exportedAtUtc": "YYYY-MM-DDTHH:mm:ssZ",
-  "authorizedBy": "NAME / ROLE",
   "files": [
     {
       "path": "tc-erp-pre-a14b4ce-base.dump",
+      "format": "pg_custom",
       "sha256": "FILL_AFTER_EXPORT",
       "bytes": 0
     }
   ],
-  "schemaMigrations": {
+  "restoreOrder": null,
+  "schemaMigrationsSnapshot": {
     "lastVersion": "FILL_FROM_01_schema_migrations_inventory.sql",
     "lastName": "FILL",
     "rowCount": 0
   },
-  "bootstrapDecision": {
+  "bootstrapDecisions": {
     "apply014": false,
     "apply109900": false,
     "rationale": "Base operativa con esquema 010+ / HR ya presente"
+  },
+  "responsiblePartyAttestation": {
+    "name": "NAME / ROLE",
+    "datedUtc": "YYYY-MM-DDTHH:mm:ssZ",
+    "anonymizationReviewCompleted": true,
+    "notes": "Humano confirma anonimización; no sustituye controles automáticos"
+  },
+  "automatedChecks": {
+    "sha256Verified": true,
+    "pgRestoreListVerified": true,
+    "anonymizationVerified": false
   },
   "sentinelCases": [
     {
@@ -29,7 +41,5 @@
       "serialNumbers": [],
       "notes": "Centinela anti-fusión 177/272"
     }
-  ],
-  "anonymizationCompleted": true,
-  "piiReviewSignoff": "NAME / DATE"
+  ]
 }

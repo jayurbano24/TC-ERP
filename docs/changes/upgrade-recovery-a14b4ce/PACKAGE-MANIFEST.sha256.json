@@ -1,209 +1,382 @@
 {
-  "validationPackageVersion": "2.1.0-codex",
+  "validationPackageVersion": "2.2.0-codex",
+  "validationPackageCommit": "7d428aebf6ba06a02a906273bfedf54674ddea33",
   "targetApplicationCommit": "a14b4ce22a6d53514fd69392c3b32e7016d00e5e",
-  "generatedAtUtc": "2026-10-20T21:57:54.383Z",
+  "hashPolicy": "docs/changes/upgrade-recovery-a14b4ce/HASH-POLICY.md",
   "scopeDefinitionFile": "docs/changes/upgrade-recovery-a14b4ce/PACKAGE-FILE-LIST.json",
-  "fileCount": 40,
+  "fileCount": 62,
   "files": [
     {
       "path": "docs/changes/VALIDATION-upgrade-recovery-a14b4ce.md",
       "sha256": "e313086c4a6fd7fc1208c4abf311a2654441ee45315e46236ecd5459844a4b92",
-      "bytes": 5224
+      "bytes": 5224,
+      "hashSource": "git-index"
+    },
+    {
+      "path": "docs/changes/upgrade-recovery-a14b4ce/CODEX-FINDINGS-MATRIX.md",
+      "sha256": "407cb29f735e93d2821caeadacc353bac75227bc71b40749fcb131db2d087fcd",
+      "bytes": 5376,
+      "hashSource": "git-index"
     },
     {
       "path": "docs/changes/upgrade-recovery-a14b4ce/COPY-SPEC-and-anonymization.md",
       "sha256": "2a8f58137b2b629f322d09d82e7b680f8900dd307949562cceddce03f53924f7",
-      "bytes": 4168
+      "bytes": 4168,
+      "hashSource": "git-index"
+    },
+    {
+      "path": "docs/changes/upgrade-recovery-a14b4ce/HASH-POLICY.md",
+      "sha256": "efdbd271689e7b1dbc5590ab0c4c715ef4ad5c006a06f9d2ce0201ae81e93504",
+      "bytes": 1059,
+      "hashSource": "git-index"
     },
     {
       "path": "docs/changes/upgrade-recovery-a14b4ce/PACKAGE-FILE-LIST.json",
-      "sha256": "0bef3dee50432bc7e4c7b4d52c3beeeb245b6b9781907ac6e8a7168182e67b2f",
-      "bytes": 1496
+      "sha256": "638511698122cd6e08ecccb14c248cd09e4e430253feacf158443c29a13fae65",
+      "bytes": 1899,
+      "hashSource": "git-index"
+    },
+    {
+      "path": "docs/changes/upgrade-recovery-a14b4ce/RUNBOOK.md",
+      "sha256": "4a40deac917aba8dc2f6ac662857e392c29fbe56ccc14153b6e439310524454c",
+      "bytes": 2753,
+      "hashSource": "git-index"
     },
     {
       "path": "docs/changes/upgrade-recovery-a14b4ce/copy-manifest.template.json",
-      "sha256": "622f2e712435a49046f82c60e3aed97893d67e4868e38a649e22823eed71c2ee",
-      "bytes": 937
+      "sha256": "a9e8df654b88b7aad7838a7f915fc717da18326f52a33947810bd74684b59f3a",
+      "bytes": 1253,
+      "hashSource": "git-index"
     },
     {
       "path": "docs/changes/upgrade-recovery-a14b4ce/expected-after-deltas.json",
-      "sha256": "bd72502e56afd61a07789d941bb4ab63f619499ee688b84de63d76601a6139bd",
-      "bytes": 598
+      "sha256": "5f2a20a2fb138e898847c394b69f72adb27ab17d80df850d66fa39428e6023cd",
+      "bytes": 558,
+      "hashSource": "git-index"
     },
     {
       "path": "docs/changes/upgrade-recovery-a14b4ce/fixtures/manifest-bad-sha.json",
-      "sha256": "adc9cb676090c5076427c0d087cb811fdb1f8e27e64802909fd12459290e01e2",
-      "bytes": 307
+      "sha256": "ff2c3bb89bf28e1d495c34656f90bcfbc3b88397c69f0f7b95208059c98007c2",
+      "bytes": 681,
+      "hashSource": "git-index"
+    },
+    {
+      "path": "docs/changes/upgrade-recovery-a14b4ce/fixtures/manifest-incomplete.json",
+      "sha256": "87bf71ba6ba27449cfd3c1d3545261187e53e02a61752a22809c7632a5768c46",
+      "bytes": 121,
+      "hashSource": "git-index"
+    },
+    {
+      "path": "docs/changes/upgrade-recovery-a14b4ce/fixtures/manifest-multi-no-order.json",
+      "sha256": "ffdce4f21a10058e494f05733d7159ee3eebcdcf9b0ea7357f24ecc91d20fcb2",
+      "bytes": 912,
+      "hashSource": "git-index"
     },
     {
       "path": "docs/changes/upgrade-recovery-a14b4ce/fixtures/manifest-placeholder.json",
-      "sha256": "5b83d7e60d972a92f00bf326f2207b0dcf5195cdd7d1011af3f1ffcfa4e58c1b",
-      "bytes": 268
+      "sha256": "4acfbd6a816de6438f9cc1db1487b590d1c18b91e665444591dc96e5b7294208",
+      "bytes": 642,
+      "hashSource": "git-index"
     },
     {
       "path": "docs/changes/upgrade-recovery-a14b4ce/fixtures/manifest-valid.json",
-      "sha256": "ddd214901a3150cf084990d367694888f19b172b902b70af8c6ef338e8cea6f5",
-      "bytes": 309
+      "sha256": "45f6ba20df83b391d6b3bfe04b372f4fea7ffc46af46d031eb2b8da7740187df",
+      "bytes": 806,
+      "hashSource": "git-index"
     },
     {
       "path": "docs/changes/upgrade-recovery-a14b4ce/fixtures/restored-history-pre-a14b4ce.json",
       "sha256": "d987a0f03f4830fc52f5dc122f38bd8e612e95650687b24f28278f9ed28dc955",
-      "bytes": 162
+      "bytes": 162,
+      "hashSource": "git-index"
+    },
+    {
+      "path": "docs/changes/upgrade-recovery-a14b4ce/fixtures/restored-history-skip-equivalent.json",
+      "sha256": "1aa719fc5a9168b8d1276ff4577bd6ac16298388af47b6b0935dd5c28b07293d",
+      "bytes": 122,
+      "hashSource": "git-index"
     },
     {
       "path": "docs/changes/upgrade-recovery-a14b4ce/fixtures/sample.dump",
       "sha256": "e4c16e1453051a981925e8b380a2e0bc6e46d6d8b8197b0e202c0a4014c43cbd",
-      "bytes": 30
+      "bytes": 30,
+      "hashSource": "git-index"
     },
     {
       "path": "docs/changes/upgrade-recovery-a14b4ce/migration-decisions.json",
       "sha256": "442d18f14cdd82abd2240134058e379264351dc9f378e6d260a21fecd474aa2c",
-      "bytes": 5663
+      "bytes": 5663,
+      "hashSource": "git-index"
     },
     {
       "path": "docs/changes/upgrade-recovery-a14b4ce/migration-delta-manifest.json",
-      "sha256": "796e3ec7d9fb567e248b4bd2ae1909586b9d5e925916b88618b33932e6d6b888",
-      "bytes": 3515
+      "sha256": "5dd9175d75c4deb3ae2b8710b255dfe5bb8b21ccb6fb9933ef2b607be18adf72",
+      "bytes": 3515,
+      "hashSource": "git-index"
     },
     {
       "path": "docs/changes/upgrade-recovery-a14b4ce/pre-existing-anomalies.template.json",
       "sha256": "85199fc078908f3b748260039b9d7acfa6285a7017780c2a9443cc4230855c44",
-      "bytes": 374
+      "bytes": 374,
+      "hashSource": "git-index"
+    },
+    {
+      "path": "docs/changes/upgrade-recovery-a14b4ce/target-migration-index.json",
+      "sha256": "c6577e52c7259c3608c1720e8ef0336e8c099a86902aaa24d048ba96aa2bb5c2",
+      "bytes": 27323,
+      "hashSource": "git-index"
     },
     {
       "path": "docs/changes/upgrade-recovery-a14b4ce/validation-package-meta.json",
-      "sha256": "abbe2ccaaca81277d7da6bd05a6c38a70bee62ece111e7b3d011d7c76dac391b",
-      "bytes": 991
+      "sha256": "304ebf4c5b9fd31479093dd55a66afa74eca32cecf4c51a4c18b5a9a4ce07a40",
+      "bytes": 1056,
+      "hashSource": "git-index"
+    },
+    {
+      "path": "package-lock.json",
+      "sha256": "8767ab0532a1653412238ff15ade6c8b853c5b9fd090fad2c167fd224fe65739",
+      "bytes": 417597,
+      "hashSource": "git-index"
+    },
+    {
+      "path": "package.json",
+      "sha256": "1d6b0f7cac3bb5b45fc9358cae7263c8a19c39f9e9b0c963c6658826f754711b",
+      "bytes": 4932,
+      "hashSource": "git-index"
     },
     {
       "path": "scripts/assert-isolated-upgrade-target.ps1",
       "sha256": "f6fe8f678d13733772fe8dabe3c0713eef9d99d84ad31b23cc2a8f518dc1d732",
-      "bytes": 1718
+      "bytes": 1718,
+      "hashSource": "git-index"
+    },
+    {
+      "path": "scripts/export-git-index-package.ps1",
+      "sha256": "3f6d8639d3c8c821b0898941189e5e84bcd1f7d439dd984f104e659b30dfc175",
+      "bytes": 771,
+      "hashSource": "git-index"
+    },
+    {
+      "path": "scripts/link-upgrade-application-migrations.ps1",
+      "sha256": "78f1cdc0e33e862f04bf1c278530c3c875f0654fc77c85be1a9a2741267432e5",
+      "bytes": 807,
+      "hashSource": "git-index"
     },
     {
       "path": "scripts/run-classify-upgrade-stack.ps1",
       "sha256": "db7723d7e148cfb6589b8bae80aa781f003c42b1a6e70229f42ae80185dee881",
-      "bytes": 885
+      "bytes": 885,
+      "hashSource": "git-index"
     },
     {
       "path": "scripts/run-upgrade-validation-checks.ps1",
       "sha256": "85e500669824dc826098693faa0356a5fdf811b6e1242a70d074d075ba2b4290",
-      "bytes": 1798
+      "bytes": 1798,
+      "hashSource": "git-index"
     },
     {
       "path": "scripts/supabase-isolated-upgrade-init.ps1",
-      "sha256": "4c04a719110afa25a7aca0c17cd19609650dd830338a3e952bbda0fffd16566e",
-      "bytes": 1219
+      "sha256": "483bc3019cfd0b31521a4f8c79f50cb9a43d6938c7fc1fe05750fedc82f89639",
+      "bytes": 1741,
+      "hashSource": "git-index"
     },
     {
       "path": "scripts/supabase-isolated-upgrade-migrate.ps1",
-      "sha256": "117090f09f23a2eb51ae1c697af3eead7b479ab1432eaf400d30b067b78d8298",
-      "bytes": 1414
+      "sha256": "1340722c6bcffb0f1d12441bbb1c2c412b2965975ab03f2b20bf093a5a170c74",
+      "bytes": 1772,
+      "hashSource": "git-index"
     },
     {
       "path": "scripts/supabase-isolated-upgrade-recovery-drill.ps1",
       "sha256": "d2ae15d77b903252d7e851bdb3c09b63648a1d8bf12bcd0283673283ba821bb0",
-      "bytes": 980
+      "bytes": 980,
+      "hashSource": "git-index"
     },
     {
       "path": "scripts/supabase-isolated-upgrade-restore.ps1",
-      "sha256": "e1fc0776c1a441022675edd5c84220d0963e40a7b0408ed2fb95c10a1563edaa",
-      "bytes": 1669
+      "sha256": "bdcd870db0be2f2b8c429f59be1610267755b5d24966cba8f15e229a0184ae29",
+      "bytes": 2380,
+      "hashSource": "git-index"
     },
     {
       "path": "scripts/supabase-isolated-upgrade-wipe.ps1",
       "sha256": "8e04382cca7d3b5c53f43f4a7481dc5ecef650f2d390361f6f5d25abac900c01",
-      "bytes": 702
+      "bytes": 702,
+      "hashSource": "git-index"
+    },
+    {
+      "path": "scripts/upgrade/assert-pre-restore-database.mjs",
+      "sha256": "b4c15c3af26c08fbf26dd4e160dab6f8de84833e85515132e6a458e31d5e40bf",
+      "bytes": 1784,
+      "hashSource": "git-index"
     },
     {
       "path": "scripts/upgrade/compare-evidence.mjs",
-      "sha256": "4ebe6f4c38345d440625ba34621794f4500c0c440e9de5d4904a15fa68b71104",
-      "bytes": 2737
+      "sha256": "15cfcd7e634072c20df42d7918147f6662c98936f0f9eadeca966867b87ae7d8",
+      "bytes": 4398,
+      "hashSource": "git-index"
+    },
+    {
+      "path": "scripts/upgrade/compare-object-inventory.mjs",
+      "sha256": "a9e811b9248de5da1ba9ebc399c63fa7fb14c4a2b2dc0b35c41c031f59fbda74",
+      "bytes": 647,
+      "hashSource": "git-index"
     },
     {
       "path": "scripts/upgrade/compute-migration-plan.mjs",
-      "sha256": "b85b1764109b4aeb7941cebc45a7ef35fd35584080a895e2f89f03cc45b5fb76",
-      "bytes": 3113
+      "sha256": "1840c9a4dbcec75f77ae2187e61a7fdd1643d8a541016a81dd53007aa3de1d46",
+      "bytes": 4192,
+      "hashSource": "git-index"
     },
     {
       "path": "scripts/upgrade/export-evidence.mjs",
-      "sha256": "f8980d074f564f45f9b4ffb5c327c20b79bdff80de47cda970a13f24b8599a10",
-      "bytes": 5105
+      "sha256": "ef741cd4282ce6438f6899d553bb9c4121f149ebcd247d0812b441e4368e3053",
+      "bytes": 6392,
+      "hashSource": "git-index"
+    },
+    {
+      "path": "scripts/upgrade/extract-schema-migrations.mjs",
+      "sha256": "c286f7606148e55b548dc6aef074bf97582f81194494fa4071a4203820d9dbf4",
+      "bytes": 951,
+      "hashSource": "git-index"
     },
     {
       "path": "scripts/upgrade/generate-package-manifest.mjs",
-      "sha256": "b24e728526bb2542b73577de4bbde881b8965465e91696ea845f0610d157808e",
-      "bytes": 2386
+      "sha256": "394367d48acd0ee5785ea2a5ad9fde100483241fb79795573c7b4aee9b9150ba",
+      "bytes": 473,
+      "hashSource": "git-index"
+    },
+    {
+      "path": "scripts/upgrade/git-index-bytes.mjs",
+      "sha256": "a49ccc79a1a9f78f7de500510dd6d3691d7712f1eb64f7cce0af36cb319dfc89",
+      "bytes": 976,
+      "hashSource": "git-index"
+    },
+    {
+      "path": "scripts/upgrade/materialize-git-index-export.mjs",
+      "sha256": "833d64d702311afcd3e36410274672d8a4802c5b07c95e5aa22402ebc5139463",
+      "bytes": 2021,
+      "hashSource": "git-index"
     },
     {
       "path": "scripts/upgrade/migration-version.mjs",
-      "sha256": "8fa5afde4dc45b1fef337d8a47cc9ffa0e3c46345b968bca4f727728db3911d4",
-      "bytes": 576
+      "sha256": "06f1f9339546d98092dd24318e36aad55a883029b02d5c2fe84dc0d94bf5e83f",
+      "bytes": 1619,
+      "hashSource": "git-index"
+    },
+    {
+      "path": "scripts/upgrade/object-inventory.mjs",
+      "sha256": "5cdedfde8fae93c25d4f757cd426fd69e24418c1a36bd284f2677caa71e6ee65",
+      "bytes": 2331,
+      "hashSource": "git-index"
+    },
+    {
+      "path": "scripts/upgrade/prepare-package-manifest.mjs",
+      "sha256": "cc78d3628c90e34e64a0608a22dcf3bcfda2666f2487ab7010849fc8763d2bba",
+      "bytes": 2583,
+      "hashSource": "git-index"
     },
     {
       "path": "scripts/upgrade/resolve-upgrade-target.ps1",
       "sha256": "a2afafdf4625b0c585b25f9b54043de41a2bb7899cf2735e1a45777df0c1979f",
-      "bytes": 5177
+      "bytes": 5177,
+      "hashSource": "git-index"
+    },
+    {
+      "path": "scripts/upgrade/run-approved-migrations.mjs",
+      "sha256": "83d45c0b6b4f3232e9b77781c44dd362008a05db74896e5369c4f74e27ad03e3",
+      "bytes": 2183,
+      "hashSource": "git-index"
+    },
+    {
+      "path": "scripts/upgrade/sync-target-migration-index.mjs",
+      "sha256": "b0361ae6c16f9a4de630f86188f1da1b4ac366fff8923490d60daee814eabcd6",
+      "bytes": 2064,
+      "hashSource": "git-index"
     },
     {
       "path": "scripts/upgrade/upgrade-validation-package.test.mjs",
-      "sha256": "1b7e848f07ee76187b06a6ec365999e31a761d18fd39e7c1e1f735fd8e54ffac",
-      "bytes": 4011
+      "sha256": "676a93dea68a020e8fc60ac35a07a612da918866ed24127c17ff06edaa2e393b",
+      "bytes": 10929,
+      "hashSource": "git-index"
     },
     {
       "path": "scripts/upgrade/validate-backup-artifact.mjs",
-      "sha256": "32440985948bdfdc055ef52b00d3ac131e172bff2d89051ee02a81fa388dc87a",
-      "bytes": 2161
+      "sha256": "32ea811bd7b4aeb448f298475f58c8c4165a46e09b580bea5ba936a13468ebc5",
+      "bytes": 3943,
+      "hashSource": "git-index"
+    },
+    {
+      "path": "scripts/upgrade/validate-plan-before-migrate.mjs",
+      "sha256": "602b19a0f8ee166e4e3c9a3cbb09f9a362e2db785cbe890dabb115f36a0730da",
+      "bytes": 2517,
+      "hashSource": "git-index"
+    },
+    {
+      "path": "scripts/upgrade/verify-package-manifest.mjs",
+      "sha256": "3b8fa0c8b348a8d926c5c726e9bb549a75dbc02f492de6d9d966c3e8e6df3d9e",
+      "bytes": 1832,
+      "hashSource": "git-index"
     },
     {
       "path": "scripts/validate-upgrade-package-from-git-index.ps1",
-      "sha256": "8939e788a08495e8c276f2ab1488d1be08bb9c0b34d6a9963f1f7af33452b5aa",
-      "bytes": 2323
+      "sha256": "36c0dc817f4203b719db4ea443f9dcddc35cc793d8a3d4097052bfb7d72fe515",
+      "bytes": 650,
+      "hashSource": "git-index"
     },
     {
       "path": "supabase/isolated-upgrade/config.toml",
       "sha256": "31e4a1011c533ea09d1e47cbb7b899b6d699bd4cb680a79106e5dbeff58f4b47",
-      "bytes": 806
+      "bytes": 806,
+      "hashSource": "git-index"
     },
     {
       "path": "supabase/scripts/upgrade_validation/01_schema_migrations_inventory.sql",
       "sha256": "e9992651c4833ea660c6e273eecfd99d569f050b6d496dd581ab6b7cd5833b17",
-      "bytes": 1062
+      "bytes": 1062,
+      "hashSource": "git-index"
     },
     {
       "path": "supabase/scripts/upgrade_validation/02_counts_and_relationships.sql",
       "sha256": "ea9dfda615bf01cf1a929d094365394901101cb6617cd053d5f695cc6d8a30a3",
-      "bytes": 1201
+      "bytes": 1201,
+      "hashSource": "git-index"
     },
     {
       "path": "supabase/scripts/upgrade_validation/03_constraints_routines_permissions.sql",
       "sha256": "cf1c69f5527f5d95bf72e5cc223b78882f5f0db41923d05280e8cf637bc70fd3",
-      "bytes": 1545
+      "bytes": 1545,
+      "hashSource": "git-index"
     },
     {
       "path": "supabase/scripts/upgrade_validation/04_classify_sentinel_queries.sql",
       "sha256": "93a9b796027c7321cfbecae229c1c05098b9a589054e213cfe3c127a246e0f75",
-      "bytes": 839
+      "bytes": 839,
+      "hashSource": "git-index"
     },
     {
       "path": "supabase/scripts/upgrade_validation/05_auth_rbac_inventory.sql",
       "sha256": "f6688377955a492b8973c124cc7fa903ed308e39c860c000635837f60f062ae4",
-      "bytes": 590
+      "bytes": 590,
+      "hashSource": "git-index"
     },
     {
       "path": "supabase/scripts/upgrade_validation/09_gates_invariants.sql",
       "sha256": "bbdf4dd15ef407e2ba29ef78711d9cea15abb57624a9e230b17a6d3650d14272",
-      "bytes": 1616
+      "bytes": 1616,
+      "hashSource": "git-index"
     },
     {
       "path": "supabase/scripts/upgrade_validation/10_residual_objects_after_recovery.sql",
       "sha256": "f1f0248eae57e6802f304236ef530713c337434b9c3c062662ae3d0279e01a64",
-      "bytes": 864
+      "bytes": 864,
+      "hashSource": "git-index"
     },
     {
       "path": "vitest.config.ts",
       "sha256": "3e51727d878602e08cff54a933cca1ab46f42c26fefc47e6add21a8f2a033141",
-      "bytes": 616
+      "bytes": 616,
+      "hashSource": "git-index"
     }
   ]
 }

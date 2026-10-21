@@ -1,17 +1,23 @@
-# migration up incremental; requiere plan aprobado + historial restaurado exportado.
+# Aplica solo migraciones del plan aprobado (staging + revalidación).
 param(
   [Parameter(Mandatory = $true)]
-  [string]$RestoredMigrationHistoryJson
+  [string]$RestoredMigrationHistoryJson,
+  [Parameter(Mandatory = $true)]
+  [string]$ApprovedPlanPath
 )
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'upgrade\resolve-upgrade-target.ps1')
 
-node (Join-Path $PSScriptRoot 'upgrade\compute-migration-plan.mjs') $RestoredMigrationHistoryJson
+node (Join-Path $PSScriptRoot 'upgrade\validate-plan-before-migrate.mjs') $RestoredMigrationHistoryJson $ApprovedPlanPath
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-& (Join-Path $PSScriptRoot 'supabase-isolated-upgrade-init.ps1') | Out-Null
+$staging = Join-Path $root '.upgrade-migrations-staging'
+node (Join-Path $PSScriptRoot 'upgrade\run-approved-migrations.mjs') $RestoredMigrationHistoryJson $ApprovedPlanPath $staging
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+& (Join-Path $PSScriptRoot 'supabase-isolated-upgrade-init.ps1') -LinkApplicationMigrations -MigrationsSource $staging | Out-Null
 $workdir = Join-Path $root '.supabase-isolated-upgrade-work'
 
 $target = Get-UpgradeTargetFromWorkdir -Root $root -Workdir $workdir

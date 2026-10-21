@@ -11,9 +11,9 @@ describe('classify-equipment-batch-chunk', () => {
     expect(chunkClassifyUnits(units, 2)).toEqual([[1, 2], [3, 4], [5]]);
   });
 
-  it('default chunk size es 2', () => {
-    expect(CLASSIFY_EQUIPMENT_RPC_CHUNK_SIZE).toBe(2);
-    expect(chunkClassifyUnits([1, 2, 3])).toEqual([[1, 2], [3]]);
+  it('default chunk size es 1 (1 equipo por RPC)', () => {
+    expect(CLASSIFY_EQUIPMENT_RPC_CHUNK_SIZE).toBe(1);
+    expect(chunkClassifyUnits([1, 2, 3])).toEqual([[1], [2], [3]]);
   });
 
   it('detecta upstream timeout', () => {

@@ -1,5 +1,5 @@
-/** Máximo de equipos por llamada RPC (evita upstream timeout de PostgREST ~120s). */
-export const CLASSIFY_EQUIPMENT_RPC_CHUNK_SIZE = 2;
+/** 1 equipo por RPC (IPTV multi-serie puede superar timeout PostgREST con 2+). */
+export const CLASSIFY_EQUIPMENT_RPC_CHUNK_SIZE = 1;
 
 export function chunkClassifyUnits<T>(units: T[], chunkSize = CLASSIFY_EQUIPMENT_RPC_CHUNK_SIZE): T[][] {
   const size = Math.max(1, chunkSize);

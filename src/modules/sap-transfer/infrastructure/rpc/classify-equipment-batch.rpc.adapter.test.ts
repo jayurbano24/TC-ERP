@@ -1,121 +1,55 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClassifyEquipmentBatchRpcAdapter } from './classify-equipment-batch.rpc.adapter';
 
-const rpcMock = vi.fn();
+const apiFetchMock = vi.fn();
 
-vi.mock('@/lib/supabase/client', () => ({
-  getSupabaseBrowserClient: () => ({ rpc: rpcMock }),
+vi.mock('@/lib/http/apiFetch', () => ({
+  apiFetch: (...args: unknown[]) => apiFetchMock(...args),
+  readApiJson: async (res: Response) => res.json(),
 }));
 
 describe('ClassifyEquipmentBatchRpcAdapter', () => {
   const adapter = new ClassifyEquipmentBatchRpcAdapter();
 
   beforeEach(() => {
-    rpcMock.mockReset();
+    apiFetchMock.mockReset();
   });
 
-  it('maps total failure from RPC exception to human error', async () => {
-    rpcMock.mockResolvedValue({
-      data: null,
-      error: { message: 'No hay equipos para clasificar. La identidad S1-S4 no coincide.' },
-    });
-
-    const result = await adapter.classifyBatch({
-      receptionId: 'rec-1',
-      sapTransferId: 'sap-1',
-      units: [{ main_serial: 'A1X', all_series: ['A1X'] }],
-      registeredBy: 'op',
-    });
-
-    expect(result.error).toMatch(/identidad|clasificar/i);
-    expect(result.data).toBeUndefined();
-  });
-
-  it('maps partial success with structured preflight codes', async () => {
-    rpcMock.mockResolvedValue({
-      data: {
-        service_orders: [{ id: 'os-a' }],
-        series_ids: ['s1'],
-        units_processed: 1,
-        units_skipped: 1,
-        errors: [
-          {
-            code: 'BATCH_SERIAL_CROSS_EQUIPMENT',
-            main_serial: 'B1X',
-            serial: 'SHARED',
-            error: 'La serie SHARED ya fue reclamada por otro equipo en este mismo lote.',
-          },
-        ],
-      },
-      error: null,
-    });
-
-    const result = await adapter.classifyBatch({
-      receptionId: 'rec-1',
-      sapTransferId: 'sap-1',
-      units: [
-        { main_serial: 'A1X', all_series: ['A1X', 'SHARED'] },
-        { main_serial: 'B1X', all_series: ['B1X', 'SHARED'] },
-      ],
-      registeredBy: 'op',
-    });
-
-    expect(result.data).toHaveLength(1);
-    expect(result.unitsProcessed).toBe(1);
-    expect(result.unitsSkipped).toBe(1);
-    expect(result.skippedErrors?.[0]?.code).toBe('BATCH_SERIAL_CROSS_EQUIPMENT');
-    expect(result.error).toMatch(/SHARED|duplicad|lote/i);
-  });
-
-  it('divide lotes grandes en varias llamadas RPC', async () => {
-    rpcMock.mockResolvedValue({
-      data: {
-        service_orders: [{ id: 'os-a' }],
-        series_ids: ['s1'],
-        units_processed: 1,
-        units_skipped: 0,
-      },
-      error: null,
-    });
-
-    const units = [
-      { main_serial: 'U1', all_series: ['U1'] },
-      { main_serial: 'U2', all_series: ['U2'] },
-      { main_serial: 'U3', all_series: ['U3'] },
-    ];
-
-    const result = await adapter.classifyBatch({
-      receptionId: 'rec-1',
-      sapTransferId: 'sap-1',
-      units,
-      registeredBy: 'op',
-    });
-
-    const classifyCalls = rpcMock.mock.calls.filter(
-      (call) => call[0] === 'classify_equipment_batch_tx',
+  it('delega classify a la API backoffice', async () => {
+    apiFetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [{ id: 'os-a' }],
+          unitsProcessed: 1,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
     );
-    expect(classifyCalls).toHaveLength(2);
-    expect(result.data).toHaveLength(2);
-    expect(classifyCalls[0][1].p_units).toHaveLength(2);
-    expect(classifyCalls[1][1].p_units).toHaveLength(1);
-  });
-
-  it('surfaces PARTIAL_SERIAL_MATCH without treating as full success', async () => {
-    rpcMock.mockResolvedValue({
-      data: null,
-      error: {
-        message:
-          'No hay equipos para clasificar. La serie SHARED pertenece a otra identidad de equipo activa.',
-      },
-    });
 
     const result = await adapter.classifyBatch({
       receptionId: 'rec-1',
       sapTransferId: 'sap-1',
-      units: [{ main_serial: 'B1X', all_series: ['B1X', 'SHARED'] }],
+      units: [{ main_serial: 'A1X', all_series: ['A1X'], model_id: 'm', brand_id: 'b' }],
       registeredBy: 'op',
     });
 
-    expect(result.error).toMatch(/identidad|SHARED|duplicad/i);
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      '/api/v1/backoffice/classify-equipment-batch',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(result.data).toHaveLength(1);
+  });
+
+  it('humaniza error de red/API', async () => {
+    apiFetchMock.mockRejectedValue(new Error('upstream request timeout'));
+
+    const result = await adapter.classifyBatch({
+      receptionId: 'rec-1',
+      sapTransferId: 'sap-1',
+      units: [{ main_serial: 'A1X', all_series: ['A1X'], model_id: 'm', brand_id: 'b' }],
+      registeredBy: 'op',
+    });
+
+    expect(result.error).toMatch(/tardó demasiado|timeout/i);
   });
 });

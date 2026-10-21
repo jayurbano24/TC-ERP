@@ -91,6 +91,15 @@ export function humanizeClassifyEquipmentError(raw: string | null | undefined): 
     };
   }
 
+  if (/upstream request timeout|request timeout|timed out|timeout/i.test(text)) {
+    return {
+      title: 'Tiempo de espera agotado',
+      description:
+        'El servidor tardó demasiado en guardar los equipos. Espere un momento y pulse Finalizar de nuevo; si persiste, avise a soporte (Logs Supabase · classify).',
+      isDuplicate: false,
+    };
+  }
+
   return {
     title: 'No se pudo clasificar',
     description: text,

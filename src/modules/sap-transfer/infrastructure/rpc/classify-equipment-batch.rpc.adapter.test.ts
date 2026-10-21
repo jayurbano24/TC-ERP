@@ -67,6 +67,39 @@ describe('ClassifyEquipmentBatchRpcAdapter', () => {
     expect(result.error).toMatch(/SHARED|duplicad|lote/i);
   });
 
+  it('divide lotes grandes en varias llamadas RPC', async () => {
+    rpcMock.mockResolvedValue({
+      data: {
+        service_orders: [{ id: 'os-a' }],
+        series_ids: ['s1'],
+        units_processed: 1,
+        units_skipped: 0,
+      },
+      error: null,
+    });
+
+    const units = [
+      { main_serial: 'U1', all_series: ['U1'] },
+      { main_serial: 'U2', all_series: ['U2'] },
+      { main_serial: 'U3', all_series: ['U3'] },
+    ];
+
+    const result = await adapter.classifyBatch({
+      receptionId: 'rec-1',
+      sapTransferId: 'sap-1',
+      units,
+      registeredBy: 'op',
+    });
+
+    const classifyCalls = rpcMock.mock.calls.filter(
+      (call) => call[0] === 'classify_equipment_batch_tx',
+    );
+    expect(classifyCalls).toHaveLength(2);
+    expect(result.data).toHaveLength(2);
+    expect(classifyCalls[0][1].p_units).toHaveLength(2);
+    expect(classifyCalls[1][1].p_units).toHaveLength(1);
+  });
+
   it('surfaces PARTIAL_SERIAL_MATCH without treating as full success', async () => {
     rpcMock.mockResolvedValue({
       data: null,

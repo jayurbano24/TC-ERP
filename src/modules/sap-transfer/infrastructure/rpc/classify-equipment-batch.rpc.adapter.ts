@@ -7,6 +7,10 @@ import type {
   ClassifyUnitSkipError,
 } from '../../domain/types/equipment-unit.types';
 import { auditClassifiedSeries, auditClassifyBatchCompleted } from '../audit';
+import {
+  chunkClassifyUnits,
+  isClassifyUpstreamTimeout,
+} from './classify-equipment-batch-chunk';
 
 function formatSkippedError(err: ClassifyUnitSkipError): string {
   const serial = String(err.main_serial || err.serial || '').trim();
@@ -25,8 +29,97 @@ function formatSkippedError(err: ClassifyUnitSkipError): string {
   return humanizeClassifyEquipmentError('Serie duplicada: una serie del lote ya está registrada.').description;
 }
 
+function mergeClassifyResults(
+  params: ClassifyBatchParams,
+  parts: ClassifyBatchResult[],
+): ClassifyBatchResult {
+  const serviceOrders: unknown[] = [];
+  const skippedErrors: ClassifyUnitSkipError[] = [];
+  let unitsProcessed = 0;
+  let unitsSkipped = 0;
+  const fatalErrors: string[] = [];
+
+  for (const part of parts) {
+    if (part.data?.length) {
+      serviceOrders.push(...part.data);
+    }
+    if (part.skippedErrors?.length) {
+      skippedErrors.push(...part.skippedErrors);
+    }
+    unitsProcessed += Number(part.unitsProcessed ?? part.data?.length ?? 0);
+    unitsSkipped += Number(part.unitsSkipped ?? part.skippedErrors?.length ?? 0);
+    if (part.error && !part.data?.length) {
+      fatalErrors.push(part.error);
+    } else if (part.error) {
+      fatalErrors.push(part.error);
+    }
+  }
+
+  const partialError =
+    skippedErrors.length > 0
+      ? formatSkippedError(skippedErrors[0])
+      : unitsSkipped > 0 && serviceOrders.length < params.units.length
+        ? `Serie duplicada: ${params.units.length - serviceOrders.length} equipo(s) no se pudieron ingresar. Revise duplicados en el lote o series ya registradas en TC.`
+        : fatalErrors.length > 0 && serviceOrders.length === 0
+          ? fatalErrors[0]
+          : fatalErrors.length > 0
+            ? fatalErrors[fatalErrors.length - 1]
+            : undefined;
+
+  return {
+    data: serviceOrders.length > 0 ? serviceOrders : undefined,
+    error: partialError,
+    skippedErrors: skippedErrors.length > 0 ? skippedErrors : undefined,
+    unitsProcessed,
+    unitsSkipped,
+  };
+}
+
 export class ClassifyEquipmentBatchRpcAdapter implements IClassifyBatchGateway {
   async classifyBatch(params: ClassifyBatchParams): Promise<ClassifyBatchResult> {
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase) return { error: 'Supabase not configured' };
+
+    const chunks = chunkClassifyUnits(params.units);
+    if (chunks.length <= 1) {
+      return this.classifyBatchOnce(params);
+    }
+
+    const parts: ClassifyBatchResult[] = [];
+    const baseCorrelation = params.correlationId ?? params.receptionId;
+
+    for (let index = 0; index < chunks.length; index += 1) {
+      const chunkUnits = chunks[index];
+      let part = await this.classifyBatchOnce({
+        ...params,
+        units: chunkUnits,
+        correlationId: `${baseCorrelation}:c${index + 1}`,
+      });
+
+      if (
+        part.error &&
+        !part.data?.length &&
+        isClassifyUpstreamTimeout(part.error)
+      ) {
+        await new Promise((r) => setTimeout(r, 1500));
+        part = await this.classifyBatchOnce({
+          ...params,
+          units: chunkUnits,
+          correlationId: `${baseCorrelation}:c${index + 1}:retry`,
+        });
+      }
+
+      parts.push(part);
+
+      if (part.error && !part.data?.length) {
+        break;
+      }
+    }
+
+    return mergeClassifyResults(params, parts);
+  }
+
+  private async classifyBatchOnce(params: ClassifyBatchParams): Promise<ClassifyBatchResult> {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return { error: 'Supabase not configured' };
 
@@ -46,6 +139,14 @@ export class ClassifyEquipmentBatchRpcAdapter implements IClassifyBatchGateway {
       return { error: human.description };
     }
 
+    return this.mapRpcPayload(params, data, correlationId);
+  }
+
+  private async mapRpcPayload(
+    params: ClassifyBatchParams,
+    data: unknown,
+    correlationId: string,
+  ): Promise<ClassifyBatchResult> {
     const payload = data as {
       service_orders?: unknown[];
       series_ids?: string[];
@@ -87,7 +188,6 @@ export class ClassifyEquipmentBatchRpcAdapter implements IClassifyBatchGateway {
       });
     }
 
-    // Éxito parcial: el RPC no lanza excepción si procesó ≥1, pero trae `errors`.
     const partialError =
       skippedErrors.length > 0
         ? formatSkippedError(skippedErrors[0])
@@ -96,9 +196,9 @@ export class ClassifyEquipmentBatchRpcAdapter implements IClassifyBatchGateway {
           : undefined;
 
     return {
-      data: serviceOrders,
+      data: serviceOrders.length > 0 ? serviceOrders : undefined,
       error: partialError,
-      skippedErrors,
+      skippedErrors: skippedErrors.length > 0 ? skippedErrors : undefined,
       unitsProcessed,
       unitsSkipped,
     };

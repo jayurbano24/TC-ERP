@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   chunkClassifyUnits,
   CLASSIFY_EQUIPMENT_RPC_CHUNK_SIZE,
+  getClassifyRetryDelayMs,
   isClassifyUpstreamTimeout,
 } from './classify-equipment-batch-chunk';
 
@@ -16,8 +17,25 @@ describe('classify-equipment-batch-chunk', () => {
     expect(chunkClassifyUnits([1, 2, 3])).toEqual([[1], [2], [3]]);
   });
 
-  it('detecta upstream timeout', () => {
+  it('detecta timeouts técnicos', () => {
     expect(isClassifyUpstreamTimeout('upstream request timeout')).toBe(true);
+    expect(isClassifyUpstreamTimeout('request timeout')).toBe(true);
+    expect(isClassifyUpstreamTimeout('Gateway timed out')).toBe(true);
+    expect(isClassifyUpstreamTimeout('ETIMEDOUT timeout')).toBe(true);
     expect(isClassifyUpstreamTimeout('Serie duplicada')).toBe(false);
+  });
+
+  it('delays de reintento: 0ms, 2s, 4s', () => {
+    expect(getClassifyRetryDelayMs(0)).toBe(0);
+    expect(getClassifyRetryDelayMs(1)).toBe(2000);
+    expect(getClassifyRetryDelayMs(2)).toBe(4000);
+  });
+
+  it('detecta el timeout después de humanizar el error del RPC', () => {
+    expect(
+      isClassifyUpstreamTimeout(
+        'El servidor tardó demasiado en guardar los equipos. Espere un momento y pulse Finalizar de nuevo.',
+      ),
+    ).toBe(true);
   });
 });

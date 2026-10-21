@@ -8,12 +8,12 @@ import type {
 import { auditClassifiedSeries, auditClassifyBatchCompleted } from '../audit';
 import {
   chunkClassifyUnits,
+  getClassifyRetryDelayMs,
   isClassifyUpstreamTimeout,
 } from './classify-equipment-batch-chunk';
 import { formatSkippedClassifyError, mergeClassifyBatchResults } from './classify-equipment-batch-merge';
 
-const CLASSIFY_RETRY_ATTEMPTS = 3;
-const CLASSIFY_RETRY_DELAY_MS = 2000;
+export const CLASSIFY_RETRY_ATTEMPTS = 3;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -110,13 +110,16 @@ async function classifyWithRetries(
 ): Promise<ClassifyBatchResult> {
   let last: ClassifyBatchResult = { error: 'Sin respuesta de classify.' };
 
+  const baseId = params.correlationId ?? params.receptionId;
+
   for (let attempt = 0; attempt < CLASSIFY_RETRY_ATTEMPTS; attempt += 1) {
-    if (attempt > 0) {
-      await sleep(CLASSIFY_RETRY_DELAY_MS * attempt);
+    const delayMs = getClassifyRetryDelayMs(attempt);
+    if (delayMs > 0) {
+      await sleep(delayMs);
     }
     last = await classifyEquipmentBatchOnce(supabase, {
       ...params,
-      correlationId: `${params.correlationId ?? params.receptionId}:a${attempt + 1}`,
+      correlationId: `${baseId}:try${attempt + 1}`,
     });
 
     if (!last.error || last.data?.length) {

@@ -10,6 +10,15 @@ export function chunkClassifyUnits<T>(units: T[], chunkSize = CLASSIFY_EQUIPMENT
   return chunks;
 }
 
+/** Segundo intento: 2s; tercer intento: 4s (attemptIndex 1 y 2). */
+export function getClassifyRetryDelayMs(attemptIndex: number): number {
+  if (attemptIndex <= 0) return 0;
+  return 2000 * attemptIndex;
+}
+
 export function isClassifyUpstreamTimeout(message: string): boolean {
-  return /upstream request timeout|request timeout|timed out|timeout/i.test(message);
+  const text = String(message || '').trim();
+  if (!text) return false;
+  if (/tard[oó] demasiado/i.test(text)) return true;
+  return /upstream request timeout|request timeout|timed out|timeout/i.test(text);
 }

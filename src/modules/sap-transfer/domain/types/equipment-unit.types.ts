@@ -32,6 +32,8 @@ export type ClassifyUnitSkipError = {
 export type ClassifyBatchResult = {
   data?: unknown[];
   error?: string;
+  /** Código PostgREST/Postgres del último RPC (diagnóstico interno). */
+  rpcCode?: string;
   /** Unidades omitidas por el RPC (p. ej. serie duplicada / OS activa). */
   skippedErrors?: ClassifyUnitSkipError[];
   unitsProcessed?: number;

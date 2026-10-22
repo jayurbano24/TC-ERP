@@ -6,18 +6,15 @@ import type {
   ClassifyUnitSkipError,
 } from '../../domain/types/equipment-unit.types';
 import { auditClassifiedSeries, auditClassifyBatchCompleted } from '../audit';
+import { chunkClassifyUnits } from './classify-equipment-batch-chunk';
 import {
-  chunkClassifyUnits,
-  getClassifyRetryDelayMs,
-  isClassifyUpstreamTimeout,
-} from './classify-equipment-batch-chunk';
+  CLASSIFY_TIMEOUT_SAFE_MESSAGE,
+  findReconciledOpenServiceOrder,
+  isClassifyLockTimeout,
+  isClassifyRpcTimeout,
+  reconciledClassifyResult,
+} from './classify-batch-reconcile';
 import { formatSkippedClassifyError, mergeClassifyBatchResults } from './classify-equipment-batch-merge';
-
-export const CLASSIFY_RETRY_ATTEMPTS = 3;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 export async function mapClassifyRpcPayload(
   params: ClassifyBatchParams,
@@ -97,37 +94,47 @@ export async function classifyEquipmentBatchOnce(
 
   if (error) {
     console.error('classify_equipment_batch_tx:', error);
+    if (isClassifyLockTimeout(error.message, error.code)) {
+      return {
+        error: 'Conflicto de bloqueo al clasificar. Espere un momento e intente de nuevo.',
+        rpcCode: error.code,
+      };
+    }
     const human = humanizeClassifyEquipmentError(error.message);
-    return { error: human.description };
+    return { error: human.description, rpcCode: error.code };
   }
 
   return mapClassifyRpcPayload(params, data, correlationId);
 }
 
-async function classifyWithRetries(
+async function classifyUnitWithReconcile(
   supabase: SupabaseClient,
   params: ClassifyBatchParams,
 ): Promise<ClassifyBatchResult> {
-  let last: ClassifyBatchResult = { error: 'Sin respuesta de classify.' };
+  const mainSerial = params.units[0]?.main_serial ?? '';
+  const last = await classifyEquipmentBatchOnce(supabase, params);
 
-  const baseId = params.correlationId ?? params.receptionId;
+  if (!last.error || last.data?.length) {
+    return last;
+  }
 
-  for (let attempt = 0; attempt < CLASSIFY_RETRY_ATTEMPTS; attempt += 1) {
-    const delayMs = getClassifyRetryDelayMs(attempt);
-    if (delayMs > 0) {
-      await sleep(delayMs);
-    }
-    last = await classifyEquipmentBatchOnce(supabase, {
-      ...params,
-      correlationId: `${baseId}:try${attempt + 1}`,
+  if (isClassifyLockTimeout(last.error ?? '', last.rpcCode)) {
+    return {
+      error: last.error ?? 'Conflicto de bloqueo al clasificar. Espere e intente de nuevo.',
+      rpcCode: last.rpcCode,
+    };
+  }
+
+  if (isClassifyRpcTimeout(last.error ?? '', last.rpcCode)) {
+    const reconciled = await findReconciledOpenServiceOrder(supabase, {
+      receptionId: params.receptionId,
+      sapTransferId: params.sapTransferId,
+      mainSerial,
     });
-
-    if (!last.error || last.data?.length) {
-      return last;
+    if (reconciled) {
+      return reconciledClassifyResult(reconciled);
     }
-    if (!isClassifyUpstreamTimeout(last.error)) {
-      return last;
-    }
+    return { error: CLASSIFY_TIMEOUT_SAFE_MESSAGE, rpcCode: last.rpcCode };
   }
 
   return last;
@@ -148,7 +155,7 @@ export async function runClassifyEquipmentBatchChunked(
 
   for (let index = 0; index < chunks.length; index += 1) {
     const chunkUnits = chunks[index];
-    const part = await classifyWithRetries(supabase, {
+    const part = await classifyUnitWithReconcile(supabase, {
       ...params,
       units: chunkUnits,
       correlationId: `${baseCorrelation}:u${index + 1}`,

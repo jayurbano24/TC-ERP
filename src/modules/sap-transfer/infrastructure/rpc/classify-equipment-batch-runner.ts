@@ -10,11 +10,14 @@ import { chunkClassifyUnits } from './classify-equipment-batch-chunk';
 import {
   CLASSIFY_TIMEOUT_SAFE_MESSAGE,
   findReconciledOpenServiceOrder,
+  isClassifyIdentityMismatch,
   isClassifyLockTimeout,
   isClassifyRpcTimeout,
   reconciledClassifyResult,
 } from './classify-batch-reconcile';
 import { formatSkippedClassifyError, mergeClassifyBatchResults } from './classify-equipment-batch-merge';
+
+const CLASSIFY_MAX_CONCURRENCY = 3;
 
 export async function mapClassifyRpcPayload(
   params: ClassifyBatchParams,
@@ -137,6 +140,25 @@ async function classifyUnitWithReconcile(
     return { error: CLASSIFY_TIMEOUT_SAFE_MESSAGE, rpcCode: last.rpcCode };
   }
 
+  const identityHint =
+    last.skippedErrors?.find(
+      (skip) =>
+        isClassifyIdentityMismatch(String(skip.error || '')) ||
+        /EQUIPMENT_IDENTITY_MISMATCH|ACTIVE_OS_CONTEXT_MISMATCH/i.test(String(skip.code || '')),
+    )?.error ?? last.error ?? '';
+
+  if (isClassifyIdentityMismatch(identityHint)) {
+    const reconciled = await findReconciledOpenServiceOrder(supabase, {
+      receptionId: params.receptionId,
+      sapTransferId: params.sapTransferId,
+      mainSerial,
+      allSeries: params.units[0]?.all_series,
+    });
+    if (reconciled) {
+      return reconciledClassifyResult(reconciled);
+    }
+  }
+
   return last;
 }
 
@@ -152,18 +174,23 @@ export async function runClassifyEquipmentBatchChunked(
   const chunks = chunkClassifyUnits(params.units);
   const parts: ClassifyBatchResult[] = [];
   const baseCorrelation = params.correlationId ?? params.receptionId;
+  const concurrency = chunks.length > CLASSIFY_MAX_CONCURRENCY ? CLASSIFY_MAX_CONCURRENCY : 1;
 
-  for (let index = 0; index < chunks.length; index += 1) {
-    const chunkUnits = chunks[index];
-    const part = await classifyUnitWithReconcile(supabase, {
-      ...params,
-      units: chunkUnits,
-      correlationId: `${baseCorrelation}:u${index + 1}`,
-    });
+  for (let start = 0; start < chunks.length; start += concurrency) {
+    const wave = chunks.slice(start, start + concurrency);
+    const waveParts = await Promise.all(
+      wave.map((chunkUnits, offset) =>
+        classifyUnitWithReconcile(supabase, {
+          ...params,
+          units: chunkUnits,
+          correlationId: `${baseCorrelation}:u${start + offset + 1}`,
+        }),
+      ),
+    );
 
-    parts.push(part);
+    parts.push(...waveParts);
 
-    if (part.error && !part.data?.length) {
+    if (waveParts.some((part) => part.error && !part.data?.length)) {
       break;
     }
   }

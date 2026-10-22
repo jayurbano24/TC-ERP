@@ -48,6 +48,15 @@ export function humanizeClassifyEquipmentError(raw: string | null | undefined): 
     };
   }
 
+  // Identity/context must win over "Serie duplicada" prefixes used in soft-skip formatting.
+  if (/identidad S1-S4|EQUIPMENT_IDENTITY_MISMATCH|contexto recepci[oó]n\/SAP/i.test(text)) {
+    return {
+      title: 'No se pudo clasificar',
+      description: text.replace(/^Serie duplicada:\s*[A-Z0-9\-_:]+[.\s]*/i, '').trim() || text,
+      isDuplicate: false,
+    };
+  }
+
   if (isDuplicateClassifyError(text)) {
     const serial = extractSerial(text);
 

@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { runClassifyEquipmentBatchChunked } from './classify-equipment-batch-runner';
 import type { ClassifyBatchParams } from '../../domain/types/equipment-unit.types';
-import { auditClassifiedSeries, auditClassifyBatchCompleted } from '../audit';
 import { CLASSIFY_TIMEOUT_SAFE_MESSAGE } from './classify-batch-reconcile';
 
 const rpcMock = vi.fn();
@@ -15,7 +14,7 @@ const eqChain = {
   limit: limitMock,
 };
 const selectMock = vi.fn(() => eqChain);
-const fromMock = vi.fn(() => ({ select: selectMock }));
+const fromMock = vi.fn((_table?: string) => ({ select: selectMock }));
 
 vi.mock('../audit', () => ({
   auditClassifiedSeries: vi.fn().mockResolvedValue(undefined),
@@ -192,5 +191,236 @@ describe('runClassifyEquipmentBatchChunked', () => {
     expect(result.unitsProcessed).toBe(1);
     expect(result.unitsSkipped).toBe(1);
     expect(result.error).toMatch(/duplicad|U2/i);
+  });
+
+  it('procesa 12 equipos con concurrencia limitada para no multiplicar la latencia', async () => {
+    let active = 0;
+    let maxActive = 0;
+
+    rpcMock.mockImplementation(async (_name, args) => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      active -= 1;
+      return {
+        data: {
+          service_orders: [{ id: `os-${args.p_units[0].main_serial}` }],
+          series_ids: [],
+          units_processed: 1,
+          units_skipped: 0,
+        },
+        error: null,
+      };
+    });
+
+    const units = Array.from({ length: 12 }, (_, index) => unit(`U${index + 1}`));
+    const result = await runClassifyEquipmentBatchChunked(supabase, baseParams(units));
+
+    expect(result.data).toHaveLength(12);
+    expect(maxActive).toBeGreaterThan(1);
+    expect(maxActive).toBeLessThanOrEqual(3);
+  });
+
+  it('soft-skip EQUIPMENT_IDENTITY_MISMATCH con doc SAP equivalente => éxito reconciliado', async () => {
+    const receptionId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+    const retryTransferId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+    const originalTransferId = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+    const seriesOs89089 = ['M1934ER01847', '12E000158586', '2240001410438230'];
+
+    rpcMock.mockResolvedValue({
+      data: {
+        service_orders: [],
+        series_ids: [],
+        units_processed: 0,
+        units_skipped: 1,
+        errors: [
+          {
+            code: 'EQUIPMENT_IDENTITY_MISMATCH',
+            main_serial: 'M1934ER01847',
+            active_os: '89089',
+            error: 'La identidad S1-S4 o el contexto recepción/SAP no coincide con la OS activa.',
+          },
+        ],
+      },
+      error: null,
+    });
+
+    fromMock.mockImplementation((table: string) => {
+      if (table === 'service_orders') {
+        return {
+          select: () => ({
+            eq: () => ({
+              eq: () => ({
+                eq: () => ({
+                  limit: () => ({
+                    maybeSingle: async () => ({ data: null, error: null }),
+                  }),
+                }),
+                limit: async () => ({
+                  data: [
+                    {
+                      id: 'os-89089',
+                      main_serial: 'M1934ER01847',
+                      status: 'INGRESADO',
+                      reception_id: receptionId,
+                      sap_transfer_id: originalTransferId,
+                    },
+                  ],
+                  error: null,
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      if (table === 'sap_transfer_documents') {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({
+                data: { sap_document_number: '418845465/4' },
+                error: null,
+              }),
+            }),
+            in: async () => ({
+              data: [{ id: originalTransferId, sap_document_number: '418845465/4' }],
+              error: null,
+            }),
+          }),
+        };
+      }
+      if (table === 'series') {
+        return {
+          select: () => ({
+            in: async () => ({
+              data: seriesOs89089.map((serial_number) => ({
+                service_order_id: 'os-89089',
+                serial_number,
+              })),
+              error: null,
+            }),
+          }),
+        };
+      }
+      return { select: selectMock };
+    });
+
+    const result = await runClassifyEquipmentBatchChunked(supabase, {
+      receptionId,
+      sapTransferId: retryTransferId,
+      registeredBy: 'Operador Test',
+      correlationId: 'dta101u-soft-skip',
+      units: [
+        {
+          main_serial: 'M1934ER01847',
+          model_id: 'model-dta101u',
+          brand_id: 'brand-dta',
+          all_series: seriesOs89089,
+        },
+      ],
+    });
+
+    expect(result.data).toEqual([
+      expect.objectContaining({ id: 'os-89089', main_serial: 'M1934ER01847' }),
+    ]);
+    expect(result.error).toBeUndefined();
+  });
+
+  it('OS 89089: identidad S1-S4 con sap_transfer_id distinto pero mismo doc SAP => éxito reconciliado', async () => {
+    const receptionId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+    const retryTransferId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+    const originalTransferId = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+    const seriesOs89089 = ['M1934ER01847', '12E000158586', '2240001410438230'];
+
+    rpcMock.mockResolvedValue({
+      data: null,
+      error: {
+        message:
+          'No hay equipos para clasificar. La identidad S1-S4 o el contexto recepción/SAP no coincide con la OS activa.',
+        code: 'P0001',
+      },
+    });
+
+    fromMock.mockImplementation((table: string) => {
+      if (table === 'service_orders') {
+        return {
+          select: () => ({
+            eq: () => ({
+              eq: () => ({
+                eq: () => ({
+                  limit: () => ({
+                    maybeSingle: async () => ({ data: null, error: null }),
+                  }),
+                }),
+                limit: async () => ({
+                  data: [
+                    {
+                      id: 'os-89089',
+                      main_serial: 'M1934ER01847',
+                      status: 'INGRESADO',
+                      reception_id: receptionId,
+                      sap_transfer_id: originalTransferId,
+                    },
+                  ],
+                  error: null,
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      if (table === 'sap_transfer_documents') {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({
+                data: { sap_document_number: '418845465/4' },
+                error: null,
+              }),
+            }),
+            in: async () => ({
+              data: [{ id: originalTransferId, sap_document_number: '418845465/4' }],
+              error: null,
+            }),
+          }),
+        };
+      }
+      if (table === 'series') {
+        return {
+          select: () => ({
+            in: async () => ({
+              data: seriesOs89089.map((serial_number) => ({
+                service_order_id: 'os-89089',
+                serial_number,
+              })),
+              error: null,
+            }),
+          }),
+        };
+      }
+      return { select: selectMock };
+    });
+
+    const result = await runClassifyEquipmentBatchChunked(supabase, {
+      receptionId,
+      sapTransferId: retryTransferId,
+      registeredBy: 'Operador Test',
+      correlationId: 'dta101u-os89089',
+      units: [
+        {
+          main_serial: 'M1934ER01847',
+          model_id: 'model-dta101u',
+          brand_id: 'brand-dta',
+          all_series: seriesOs89089,
+        },
+      ],
+    });
+
+    expect(rpcMock).toHaveBeenCalledTimes(1);
+    expect(result.data).toEqual([
+      expect.objectContaining({ id: 'os-89089', main_serial: 'M1934ER01847' }),
+    ]);
+    expect(result.error).toBeUndefined();
+    expect(result.unitsProcessed).toBe(1);
   });
 });

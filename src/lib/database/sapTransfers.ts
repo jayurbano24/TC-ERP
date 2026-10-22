@@ -42,6 +42,39 @@ export async function createOrGetSapTransfer(params: {
     return { error: 'El valor indicado corresponde al Courier, no a una Agencia CAC.' };
   }
 
+  // Prefer the earliest transfer for the same reception + SAP document, even if
+  // the UI resolved a different reception_guide_id on retry (multi-guide boxes).
+  const { data: existingByReception, error: byReceptionError } = await supabase
+    .from('sap_transfer_documents')
+    .select(SAP_TRANSFER_DOC_SELECT)
+    .eq('reception_id', params.receptionId)
+    .eq('sap_document_number', sapDoc)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (byReceptionError) return { error: byReceptionError.message };
+  if (existingByReception) {
+    const shouldFillAgency =
+      params.agency?.trim() &&
+      !isCourierLabel(params.agency) &&
+      !existingByReception.agency?.trim();
+
+    if (shouldFillAgency) {
+      const { data: updated, error: updateError } = await supabase
+        .from('sap_transfer_documents')
+        .update({ agency: params.agency.trim() })
+        .eq('id', existingByReception.id)
+        .select()
+        .single();
+
+      if (updateError) return { error: updateError.message };
+      return { data: updated as SapTransferDocument };
+    }
+
+    return { data: existingByReception as SapTransferDocument };
+  }
+
   const { data: rpcData, error: rpcError } = await supabase.rpc(
     'create_or_get_sap_transfer_document',
     {

@@ -4,11 +4,24 @@ import type {
   ClassifyBatchResult,
   ClassifyUnitSkipError,
 } from '../../domain/types/equipment-unit.types';
+import { isClassifyIdentityMismatch } from './classify-batch-reconcile';
+
+function isIdentityMismatchSkip(err: ClassifyUnitSkipError): boolean {
+  const code = String(err.code || '').toUpperCase();
+  if (code === 'EQUIPMENT_IDENTITY_MISMATCH' || code === 'ACTIVE_OS_CONTEXT_MISMATCH') {
+    return true;
+  }
+  return isClassifyIdentityMismatch(String(err.error || ''));
+}
 
 export function formatSkippedClassifyError(err: ClassifyUnitSkipError): string {
   const serial = String(err.main_serial || err.serial || '').trim();
   const detail = String(err.error || '').trim();
   if (detail) {
+    // Identity/context mismatches must keep their wording so reconcile can detect them.
+    if (isIdentityMismatchSkip(err)) {
+      return humanizeClassifyEquipmentError(detail).description;
+    }
     const human = humanizeClassifyEquipmentError(
       serial && !/serie duplicada/i.test(detail) ? `Serie duplicada: ${serial}. ${detail}` : detail
     );

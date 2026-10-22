@@ -25,6 +25,7 @@ export type ClassifyUnitSkipError = {
   main_serial?: string;
   serial?: string;
   error?: string;
+  code?: string;
   active_os?: string;
   active_status?: string;
 };

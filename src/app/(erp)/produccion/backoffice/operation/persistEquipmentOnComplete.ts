@@ -162,14 +162,6 @@ export async function persistEquipmentOnComplete(params: PersistEquipmentParams)
       if (batchRes.error) {
         const human = humanizeClassifyEquipmentError(batchRes.error);
         equipmentPersistError = human.description;
-        // Solo toast inmediato si no se guardó nada de este grupo; el resumen final
-        // (ingreso incompleto) ya muestra el detalle humano.
-        if (!batchRes.data?.length) {
-          notify.error(human.title, {
-            description: `${human.description} (SAP ${sapGroup.sapDocument})`,
-            duration: 0,
-          });
-        }
       }
     } else {
       const legacyRes = await createServiceOrders(activeReceptionId, unitsForOS, updatedGuideId);

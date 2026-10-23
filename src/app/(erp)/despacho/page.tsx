@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState, useCallback, startTransition } from 'react';
+import React, { Suspense, useEffect, useMemo, useState, useCallback, startTransition } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -265,7 +265,7 @@ async function fetchDespachoData(): Promise<{ history: any[]; dispatches: Dispat
   return { history, dispatches };
 }
 
-export default function DespachoPage() {
+function DespachoContent() {
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   type DespachoTabId = 'equipo_listo' | 'warranty_pack' | 'operacion' | 'historial';
@@ -2806,4 +2806,11 @@ export default function DespachoPage() {
     </ModulePage>
   );
 }
-// Force HMR refresh
+
+export default function DespachoPage() {
+  return (
+    <Suspense fallback={null}>
+      <DespachoContent />
+    </Suspense>
+  );
+}

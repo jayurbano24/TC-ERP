@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { UserAuthz } from './canDo';
 import {
   canAccessWorkshopTab,
+  resolveWorkshopTab,
   workshopTabForActionName,
   workshopPermissionModule,
   type WorkshopPermissionTab,
@@ -26,6 +27,14 @@ function authz(rows: Array<{ module: string; view?: boolean; edit?: boolean }>):
 }
 
 describe('permisos por pestaña de Taller', () => {
+  it('resuelve la pestaña activa y tolera una lista vacía durante la carga de permisos', () => {
+    const tabs = [{ id: 'diagnostico' }, { id: 'reparacion' }];
+
+    expect(resolveWorkshopTab(tabs, 'reparacion')).toEqual({ id: 'reparacion' });
+    expect(resolveWorkshopTab(tabs, 'scraps')).toEqual({ id: 'diagnostico' });
+    expect(resolveWorkshopTab([], 'diagnostico')).toBeUndefined();
+  });
+
   it('mantiene acceso general mientras el rol no tenga permisos por pestaña', () => {
     const user = authz([{ module: 'Taller', view: true, edit: true }]);
 

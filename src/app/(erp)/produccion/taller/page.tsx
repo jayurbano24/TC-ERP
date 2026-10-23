@@ -88,6 +88,7 @@ import {
 import { useAuthz } from '@/components/authz';
 import {
   canAccessWorkshopTab,
+  resolveWorkshopTab,
   type WorkshopPermissionTab,
 } from '@/shared/authz/workshopTabPermissions';
 
@@ -1454,7 +1455,8 @@ ${repairCorrectionChanged ? `- Reparación corregida en QC: ${selectedDiagnostic
           {activeTab === 'po' && useProductionOrderHex ? (
             <ProductionOrderPanel />
           ) : activeTab !== 'despacho' && activeTab !== 'po' && (() => {
-            const currentTab = tabs.find(t => t.id === activeTab) || tabs[0];
+            const currentTab = resolveWorkshopTab(tabs, activeTab);
+            if (!currentTab) return null;
             const TabIcon = currentTab.icon;
 
             const tallerColumns = buildWorkshopQueueColumns({

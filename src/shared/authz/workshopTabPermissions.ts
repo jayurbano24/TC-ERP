@@ -32,6 +32,13 @@ export function workshopPermissionModule(tab: WorkshopPermissionTab): string {
   return WORKSHOP_TAB_MODULES[tab];
 }
 
+export function resolveWorkshopTab<T extends { id: string }>(
+  tabs: readonly T[],
+  activeTabId: string,
+): T | undefined {
+  return tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
+}
+
 const WORKSHOP_ACTION_TABS: Record<string, WorkshopPermissionTab> = {
   'DIAGNÓSTICO INICIAL COMPLETADO': 'diagnostico',
   'REPARACIÓN COMPLETADA': 'reparacion',

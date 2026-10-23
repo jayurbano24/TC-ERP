@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Card, Button, Badge } from '@/components/ui';
 import { ModulePage } from '@/components/module-page';
@@ -33,7 +33,7 @@ function defaultDateRange() {
 
 const PREDIAG_REPORT_CODE = 'PREDIAGNOSTICO_EQUIPOS';
 
-export default function ReportesPage() {
+function ReportesContent() {
   const searchParams = useSearchParams();
   const reportFromUrl = searchParams.get('code')?.trim().toUpperCase() || '';
   const enabled = isCentralReportingEnabledClient();
@@ -426,5 +426,13 @@ export default function ReportesPage() {
         </Card>
       </div>
     </ModulePage>
+  );
+}
+
+export default function ReportesPage() {
+  return (
+    <Suspense fallback={null}>
+      <ReportesContent />
+    </Suspense>
   );
 }

@@ -7,6 +7,7 @@ import {
   Badge,
   Button,
   DataTable,
+  HorizontalScrollArea,
   notify,
   confirmDialog,
   type DataTableColumn,
@@ -25,6 +26,8 @@ type PartCatalogRow = {
   category?: string | null;
   brand_id?: string | null;
   model_id?: string | null;
+  brand_ids?: string[];
+  model_ids?: string[];
   standard_cost?: number;
   stock_min?: number;
   reorder_point?: number;
@@ -45,14 +48,15 @@ type PartCatalogRow = {
   models?: { id: string; name: string } | null;
   brand_name?: string | null;
   model_name?: string | null;
+  compatible_models?: Array<{ id: string; name?: string; brand_id?: string; brand_name?: string }>;
 };
 
 type FormState = {
   sku: string;
   name: string;
   category: string;
-  brand_id: string;
-  model_id: string;
+  brand_ids: string[];
+  model_ids: string[];
   standard_cost: string;
   stock_min: string;
   reorder_point: string;
@@ -74,8 +78,8 @@ const EMPTY_FORM: FormState = {
   sku: '',
   name: '',
   category: '',
-  brand_id: '',
-  model_id: '',
+  brand_ids: [],
+  model_ids: [],
   standard_cost: '0',
   stock_min: '0',
   reorder_point: '0',
@@ -169,14 +173,41 @@ export function PiezasCatalogView() {
 
   const items = (catalogQuery.data ?? []) as PartCatalogRow[];
   const brands = brandsQuery.data ?? [];
-  const models = modelsQuery.data ?? [];
+  const models = useMemo(() => modelsQuery.data ?? [], [modelsQuery.data]);
 
-  const modelsForBrand = useMemo(() => {
-    if (!form.brand_id) return models as Array<{ id: string; brand_id?: string; name?: string; nombre?: string }>;
+  const modelsForBrands = useMemo(() => {
+    if (form.brand_ids.length === 0) return [];
     return (models as Array<{ id: string; brand_id?: string; name?: string; nombre?: string }>).filter(
-      (m) => String(m.brand_id) === form.brand_id,
+      (m) => form.brand_ids.includes(String(m.brand_id)),
     );
-  }, [models, form.brand_id]);
+  }, [models, form.brand_ids]);
+
+  const toggleBrand = (brandId: string) => {
+    setForm((current) => {
+      const selected = current.brand_ids.includes(brandId)
+        ? current.brand_ids.filter((id) => id !== brandId)
+        : [...current.brand_ids, brandId];
+      const allowedModels = new Set(
+        (models as Array<{ id: string; brand_id?: string }>)
+          .filter((model) => selected.includes(String(model.brand_id)))
+          .map((model) => model.id),
+      );
+      return {
+        ...current,
+        brand_ids: selected,
+        model_ids: current.model_ids.filter((id) => allowedModels.has(id)),
+      };
+    });
+  };
+
+  const toggleModel = (modelId: string) => {
+    setForm((current) => ({
+      ...current,
+      model_ids: current.model_ids.includes(modelId)
+        ? current.model_ids.filter((id) => id !== modelId)
+        : [...current.model_ids, modelId],
+    }));
+  };
 
   const allSelected = items.length > 0 && selectedIds.length === items.length;
 
@@ -202,8 +233,8 @@ export function PiezasCatalogView() {
       sku: row.sku || '',
       name: row.name || '',
       category: row.category || '',
-      brand_id: row.brand_id || '',
-      model_id: row.model_id || '',
+      brand_ids: row.brand_ids?.length ? row.brand_ids : row.brand_id ? [row.brand_id] : [],
+      model_ids: row.model_ids?.length ? row.model_ids : row.model_id ? [row.model_id] : [],
       standard_cost: String(row.standard_cost ?? 0),
       stock_min: String(row.stock_min ?? 0),
       reorder_point: String(row.reorder_point ?? 0),
@@ -235,8 +266,8 @@ export function PiezasCatalogView() {
         sku: form.sku.trim().toUpperCase(),
         name: form.name.trim(),
         category: form.category || null,
-        brand_id: form.brand_id || null,
-        model_id: form.model_id || null,
+        brand_ids: form.brand_ids,
+        model_ids: form.model_ids,
         standard_cost: Number(form.standard_cost) || 0,
         stock_min: Number(form.stock_min) || 0,
         reorder_point: Number(form.reorder_point) || 0,
@@ -313,8 +344,8 @@ export function PiezasCatalogView() {
     await savePartsCatalog({
       sku: row.sku,
       name: row.name,
-      brand_id: row.brand_id,
-      model_id: row.model_id,
+      brand_ids: row.brand_ids ?? (row.brand_id ? [row.brand_id] : []),
+      model_ids: row.model_ids ?? (row.model_id ? [row.model_id] : []),
       category: row.category,
       standard_cost: Number(row.standard_cost) || 0,
       stock_min: Number(row.stock_min) || 0,
@@ -432,13 +463,21 @@ export function PiezasCatalogView() {
       id: 'brand',
       header: 'Marca',
       width: '68px',
-      cell: (r) => <span className="truncate">{r.brands?.name || r.brand_name || '—'}</span>,
+      cell: (r) => {
+        const names = [...new Set((r.compatible_models ?? []).map((item) => item.brand_name).filter(Boolean))];
+        const label = names.length ? names.join(', ') : r.brands?.name || r.brand_name || '—';
+        return <span className="truncate" title={label}>{label}</span>;
+      },
     },
     {
       id: 'model',
       header: 'Modelo',
       width: '88px',
-      cell: (r) => <span className="truncate">{r.models?.name || r.model_name || '—'}</span>,
+      cell: (r) => {
+        const names = (r.compatible_models ?? []).map((item) => item.name).filter(Boolean);
+        const label = names.length ? names.join(', ') : r.models?.name || r.model_name || '—';
+        return <span className="truncate" title={label}>{label}</span>;
+      },
     },
     {
       id: 'cost',
@@ -650,20 +689,22 @@ export function PiezasCatalogView() {
             <p className="text-[10px] font-black uppercase tracking-widest">Sin piezas en el catálogo</p>
           </div>
         ) : (
-          <DataTable
-            columns={columns}
-            data={items}
-            getRowId={(row) => String(row.id)}
-            compact
-            dense
-            rowHeight={36}
-            maxBodyHeight={560}
-            minWidth={1280}
-            headerClassName={erpTableHeader}
-            headerTextClassName={erpTableHeaderText}
-            ariaLabel="Catálogo de piezas SKU"
-            onRowClick={(row) => openEdit(row)}
-          />
+          <HorizontalScrollArea minContentWidth={1280} hideTopWhenNoOverflow>
+            <DataTable
+              columns={columns}
+              data={items}
+              getRowId={(row) => String(row.id)}
+              compact
+              dense
+              rowHeight={36}
+              maxBodyHeight={560}
+              minWidth={1280}
+              headerClassName={erpTableHeader}
+              headerTextClassName={erpTableHeaderText}
+              ariaLabel="Catálogo de piezas SKU"
+              onRowClick={(row) => openEdit(row)}
+            />
+          </HorizontalScrollArea>
         )}
       </div>
 
@@ -772,38 +813,48 @@ export function PiezasCatalogView() {
                     onChange={(e) => setForm((f) => ({ ...f, lead_time_days: e.target.value }))}
                   />
                 </label>
-                <label className="block space-y-0.5">
-                  <span className={modalLabelClass}>Marca</span>
-                  <select
-                    className={modalFieldClass}
-                    value={form.brand_id}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, brand_id: e.target.value, model_id: '' }))
-                    }
-                  >
-                    <option value="">—</option>
-                    {(brands as Array<{ id: string; name?: string; nombre?: string }>).map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.name || b.nombre}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="col-span-2 block space-y-0.5">
-                  <span className={modalLabelClass}>Modelo</span>
-                  <select
-                    className={modalFieldClass}
-                    value={form.model_id}
-                    onChange={(e) => setForm((f) => ({ ...f, model_id: e.target.value }))}
-                  >
-                    <option value="">—</option>
-                    {modelsForBrand.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name || m.nombre}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <fieldset className="col-span-3 space-y-2 rounded-lg border border-[var(--border)] bg-[var(--surface-hover)] p-2">
+                  <legend className={`${modalLabelClass} px-1`}>Compatibilidad por marca y modelo</legend>
+                  <div>
+                    <div className="mb-1 flex items-center justify-between">
+                      <span className={modalLabelClass}>Marcas</span>
+                      <span className="text-[9px] text-[var(--muted)]">{form.brand_ids.length} seleccionada(s)</span>
+                    </div>
+                    <div className="grid max-h-24 grid-cols-2 gap-1 overflow-y-auto rounded-md border border-[var(--border)] bg-white p-1.5 sm:grid-cols-3">
+                      {(brands as Array<{ id: string; name?: string; nombre?: string }>).map((brand) => {
+                        const name = brand.name || brand.nombre || 'Sin nombre';
+                        return (
+                          <label key={brand.id} className="flex cursor-pointer items-center gap-1.5 rounded px-1.5 py-1 text-[10px] font-semibold hover:bg-slate-50">
+                            <input type="checkbox" aria-label={`Marca ${name}`} checked={form.brand_ids.includes(brand.id)} onChange={() => toggleBrand(brand.id)} />
+                            <span className="truncate" title={name}>{name}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="mb-1 flex items-center justify-between">
+                      <span className={modalLabelClass}>Modelos de las marcas seleccionadas</span>
+                      <span className="text-[9px] text-[var(--muted)]">{form.model_ids.length} seleccionado(s)</span>
+                    </div>
+                    {form.brand_ids.length === 0 ? (
+                      <p className="rounded-md border border-dashed border-[var(--border)] bg-white px-2 py-2 text-[10px] text-[var(--muted)]">Seleccione una o varias marcas para ver sus modelos.</p>
+                    ) : (
+                      <div className="grid max-h-28 grid-cols-2 gap-1 overflow-y-auto rounded-md border border-[var(--border)] bg-white p-1.5 sm:grid-cols-3">
+                        {modelsForBrands.map((model) => {
+                          const name = model.name || model.nombre || 'Sin nombre';
+                          return (
+                            <label key={model.id} className="flex cursor-pointer items-center gap-1.5 rounded px-1.5 py-1 text-[10px] font-semibold hover:bg-slate-50">
+                              <input type="checkbox" aria-label={`Modelo ${name}`} checked={form.model_ids.includes(model.id)} onChange={() => toggleModel(model.id)} />
+                              <span className="truncate" title={name}>{name}</span>
+                            </label>
+                          );
+                        })}
+                        {modelsForBrands.length === 0 && <p className="col-span-full px-1 py-1 text-[10px] text-[var(--muted)]">No hay modelos registrados para estas marcas.</p>}
+                      </div>
+                    )}
+                  </div>
+                </fieldset>
                 <label className="block space-y-0.5">
                   <span className={modalLabelClass}>Mín.</span>
                   <input

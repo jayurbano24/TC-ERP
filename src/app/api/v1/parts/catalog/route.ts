@@ -12,6 +12,8 @@ const PostBody = z.object({
   category: z.string().max(120).optional().nullable(),
   brand_id: z.string().uuid().optional().nullable(),
   model_id: z.string().uuid().optional().nullable(),
+  brand_ids: z.array(z.string().uuid()).max(50).optional(),
+  model_ids: z.array(z.string().uuid()).max(200).optional(),
   manufacturer: z.string().max(200).optional().nullable(),
   part_number: z.string().max(120).optional().nullable(),
   uom: z.string().max(20).optional(),

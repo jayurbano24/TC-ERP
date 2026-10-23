@@ -3,6 +3,7 @@ import { getSupabaseServerClient } from '@/lib/supabase/server';
 import { BusinessException, ValidationException } from '@/shared/errors/Exceptions';
 import { resolveProfileDisplayNames } from '@/shared/infrastructure/profiles/resolveProfileDisplayNames';
 import { expandOperationalRoles } from '@/shared/authz/roleGuard';
+import { buildPartCompatibilityWrite, normalizePartCompatibility } from './partsCompatibility';
 
 export type PartCatalogInput = {
   sku: string;
@@ -11,6 +12,8 @@ export type PartCatalogInput = {
   category?: string | null;
   brand_id?: string | null;
   model_id?: string | null;
+  brand_ids?: string[];
+  model_ids?: string[];
   manufacturer?: string | null;
   part_number?: string | null;
   uom?: string;
@@ -170,19 +173,17 @@ export async function listPartsCatalog(db?: SupabaseClient, opts?: { activeOnly?
   let query = admin
     .from('parts_catalog')
     .select(
-      '*, brands:brand_id(id, name), models:model_id(id, name), inventory:parts_inventory(qty_on_hand, qty_reserved, qty_new_on_hand, qty_recovered_on_hand, qty_new_reserved, qty_recovered_reserved, location)'
+      '*, brands:brand_id(id, name), models:model_id(id, name), compatible_models:part_catalog_models(model_id, models:model_id(id, name, brand_id, brands:brand_id(id, name))), inventory:parts_inventory(qty_on_hand, qty_reserved, qty_new_on_hand, qty_recovered_on_hand, qty_new_reserved, qty_recovered_reserved, location)'
     )
     .order('sku');
   if (opts?.activeOnly !== false) query = query.eq('active', true);
-  if (opts?.brandId) query = query.eq('brand_id', opts.brandId);
-  if (opts?.modelId) query = query.eq('model_id', opts.modelId);
   if (opts?.q?.trim()) {
     const q = opts.q.trim();
     query = query.or(`sku.ilike.%${q}%,name.ilike.%${q}%,description.ilike.%${q}%`);
   }
   const { data, error } = await query;
   if (error) throw new BusinessException(error.message);
-  return (data ?? []).map((row: any) => {
+  const mapped = (data ?? []).map((row: any) => {
     const inv = Array.isArray(row.inventory) ? row.inventory[0] : row.inventory;
     const onHand = Number(inv?.qty_on_hand ?? 0);
     const reserved = Number(inv?.qty_reserved ?? 0);
@@ -190,8 +191,16 @@ export async function listPartsCatalog(db?: SupabaseClient, opts?: { activeOnly?
     const onHandRecovered = Number(inv?.qty_recovered_on_hand ?? 0);
     const reservedNew = Number(inv?.qty_new_reserved ?? reserved);
     const reservedRecovered = Number(inv?.qty_recovered_reserved ?? 0);
+    const compatibility = normalizePartCompatibility(row);
+    const compatibleModels = (row.compatible_models ?? []).map((relation: any) => {
+      const model = Array.isArray(relation.models) ? relation.models[0] : relation.models;
+      const brand = Array.isArray(model?.brands) ? model.brands[0] : model?.brands;
+      return { id: relation.model_id, name: model?.name, brand_id: model?.brand_id, brand_name: brand?.name };
+    });
     return {
       ...row,
+      ...compatibility,
+      compatible_models: compatibleModels,
       qty_on_hand: onHand,
       qty_reserved: reserved,
       qty_available: availableQty(onHand, reserved),
@@ -207,6 +216,11 @@ export async function listPartsCatalog(db?: SupabaseClient, opts?: { activeOnly?
       inventory_id: inv?.id ?? null,
     };
   });
+  return mapped.filter((row) => {
+    if (opts?.brandId && !row.brand_ids.includes(opts.brandId)) return false;
+    if (opts?.modelId && !row.model_ids.includes(opts.modelId)) return false;
+    return true;
+  });
 }
 
 export async function upsertPartsCatalog(input: PartCatalogInput, db?: SupabaseClient) {
@@ -215,13 +229,28 @@ export async function upsertPartsCatalog(input: PartCatalogInput, db?: SupabaseC
   if (!sku || !input.name?.trim()) {
     throw new ValidationException('SKU y nombre son obligatorios');
   }
+  const requestedBrandIds = input.brand_ids ?? (input.brand_id ? [input.brand_id] : []);
+  const requestedModelIds = input.model_ids ?? (input.model_id ? [input.model_id] : []);
+  let modelRows: Array<{ id: string; brand_id: string | null }> = [];
+  if (requestedModelIds.length > 0) {
+    const { data: foundModels, error: modelsError } = await admin
+      .from('models')
+      .select('id, brand_id')
+      .in('id', [...new Set(requestedModelIds)]);
+    if (modelsError) throw new BusinessException(modelsError.message);
+    modelRows = foundModels ?? [];
+  }
+  const compatibility = buildPartCompatibilityWrite(requestedBrandIds, requestedModelIds, modelRows);
+  if (new Set(requestedModelIds).size !== compatibility.modelIds.length) {
+    throw new ValidationException('Uno o más modelos no pertenecen a las marcas seleccionadas');
+  }
   const payload = {
     sku,
     name: input.name.trim(),
     description: input.description ?? null,
     category: input.category ?? null,
-    brand_id: input.brand_id || null,
-    model_id: input.model_id || null,
+    brand_id: compatibility.primaryBrandId,
+    model_id: compatibility.primaryModelId,
     manufacturer: input.manufacturer ?? null,
     part_number: input.part_number ?? null,
     uom: input.uom || 'UN',
@@ -242,8 +271,19 @@ export async function upsertPartsCatalog(input: PartCatalogInput, db?: SupabaseC
     .select('*')
     .single();
   if (error || !data) throw new BusinessException(error?.message || 'No se pudo guardar catálogo');
+  const { error: deleteCompatibilityError } = await admin
+    .from('part_catalog_models')
+    .delete()
+    .eq('catalog_id', data.id);
+  if (deleteCompatibilityError) throw new BusinessException(deleteCompatibilityError.message);
+  if (compatibility.modelIds.length > 0) {
+    const { error: compatibilityError } = await admin.from('part_catalog_models').insert(
+      compatibility.modelIds.map((modelId) => ({ catalog_id: data.id, model_id: modelId })),
+    );
+    if (compatibilityError) throw new BusinessException(compatibilityError.message);
+  }
   await ensureInventoryRow(admin, String(data.id));
-  return data;
+  return { ...data, brand_ids: compatibility.brandIds, model_ids: compatibility.modelIds };
 }
 
 export async function listPartsInventory(db?: SupabaseClient) {
@@ -1825,4 +1865,3 @@ export async function listPartMovements(opts?: ListPartMovementsOpts, db?: Supab
       .some((x) => String(x).toLowerCase().includes(q))
   );
 }
-

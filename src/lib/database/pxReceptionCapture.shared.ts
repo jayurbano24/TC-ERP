@@ -105,6 +105,7 @@ export type PxReceptionSnapshot = {
     variance_reason: string | null;
     version: number;
     created_at: string;
+    inventory_destination?: 'CENTRAL' | 'OBSOLETE';
   };
   boxes: PxBoxSnapshot[];
   total_captured: number;
@@ -215,6 +216,7 @@ export function snapshotToGuideData(snapshot: PxReceptionSnapshot): Partial<Guid
   const pilotoMatch = notes.match(/^Piloto:\s*(.+)$/m);
   const courierMatch = notes.match(/^Courier:\s*(.+)$/m);
   return {
+    inventoryDestination: snapshot.reception.inventory_destination || 'CENTRAL',
     sap: snapshot.reception.sap_document || '',
     docReferencia: docMatch?.[1]?.trim() === '---' ? '' : docMatch?.[1]?.trim() || '',
     proveedorPx: snapshot.reception.carrier || '',

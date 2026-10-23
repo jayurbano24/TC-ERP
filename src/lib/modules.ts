@@ -24,6 +24,7 @@ export const erpModules: ErpModule[] = [
   { id: 20, categoria: 'Bodega', nombre: "Bodega de Salida", descripcion: "Cajas OUTBOUND / staging de despacho (LEGACY).", ruta: "/bodega/salida" },
   { id: 21, categoria: 'Bodega', nombre: "Bodega SCRAPS", descripcion: "Cajas SCRAP transferidas o de despacho scrap.", ruta: "/bodega/scraps" },
   { id: 22, categoria: 'Bodega', nombre: "Bodega de Partes", descripcion: "Catálogo, inventario, solicitudes y compras de piezas.", ruta: "/bodega/partes" },
+  { id: 24, categoria: 'Bodega', nombre: "Bodega de Obsoleto", descripcion: "Inventario de equipos obsoletos clasificados desde PX.", ruta: "/bodega/obsoleto" },
 
   // DESPACHO
   { id: 10, categoria: 'Bodega', nombre: "Despacho Final", descripcion: "Masivo, individual y Master Box.", ruta: "/despacho" },
@@ -71,9 +72,10 @@ export const navigationGroups = [
       { label: "Backoffice", href: "/produccion/backoffice", descripcion: "Aceptación & SN", icon: "Laptop" },
       { label: "Taller", href: "/produccion/taller", descripcion: "Reparación & QC", icon: "Wrench" },
       { label: "Bodega", href: "/bodega/gestion", descripcion: "Racks & Stock", icon: "Warehouse" },
-      { label: "Bodega SCRAPS", href: "/bodega/scraps", descripcion: "Cajas SCRAP", icon: "Trash2", permissionKey: "Bodega" },
+      { label: "Bodega SCRAPS", href: "/bodega/scraps", descripcion: "Cajas SCRAP", icon: "Trash2" },
+      { label: "Bodega de Obsoleto", href: "/bodega/obsoleto", descripcion: "Equipos obsoletos", icon: "PackageMinus", permissionKey: "Bodega" },
       { label: "Accesorios", href: "/bodega/accesorios", descripcion: "Bodega de Accesorios", icon: "Boxes", permissionKey: "Accesorios" },
-      { label: "Bodega de Partes", href: "/bodega/partes", descripcion: "Piezas / Solicitudes", icon: "PackageCheck", permissionKey: "Bodega" },
+      { label: "Bodega de Partes", href: "/bodega/partes", descripcion: "Piezas / Solicitudes", icon: "PackageCheck" },
       { label: "Despacho", href: "/despacho", descripcion: "Salida de Equipos", icon: "Truck", permissionKey: "Despacho" },
       { label: "Integración SAP", href: "/integracion-sap", descripcion: "Centro de Validación", icon: "Database", permissionKey: "Integración SAP" },
     ]
@@ -83,7 +85,7 @@ export const navigationGroups = [
     items: [
       { label: "Autorizaciones", href: "/autorizaciones", descripcion: "Aprobaciones Gerente", icon: "ShieldCheck", permissionKey: "Autorizaciones" },
       { label: "Motor de Reportes ERP", href: "/reportes", descripcion: "Exportaciones Excel y CSV", icon: "FileSpreadsheet", permissionKey: "Reportes" },
-      { label: "TEC-LAB DUT", href: "/reportes/ont-runs", descripcion: "ONT RUN · detalle certificado", icon: "FlaskConical", permissionKey: "Reportes" },
+      { label: "TEC-LAB DUT", href: "/reportes/ont-runs", descripcion: "ONT RUN · detalle certificado", icon: "FlaskConical" },
       { label: "Recursos Humanos", href: "/rrhh", descripcion: "Asistencia y Planilla", icon: "Users" },
       { label: "Productividad", href: "/gestion/bi", descripcion: "Métricas y KPIs", icon: "TrendingUp" },
       { label: "Costos", href: "/gestion/costos", descripcion: "Análisis financiero", icon: "CircleDollarSign" },

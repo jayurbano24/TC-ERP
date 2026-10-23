@@ -349,6 +349,17 @@ export async function joinOrStartPxReception(input: PxStartInput): Promise<
     joined: boolean;
   };
 
+  const { error: destinationError } = await supabase.rpc('set_px_reception_destination_tx', {
+    p_reception_id: payload.reception_id,
+    p_inventory_destination: input.guideData.inventoryDestination,
+  });
+  if (destinationError) {
+    const message = destinationError.message.includes('DESTINATION_MISMATCH')
+      ? 'Esta recepciÃ³n SAP ya estÃ¡ clasificada con otro destino.'
+      : destinationError.message;
+    return { success: false, error: message };
+  }
+
   await emitPxDomainEvent(payload.joined ? 'OperatorJoinedReception' : 'ReceptionStarted', payload.reception_id, {
     guide_number: payload.guide_number,
     sap_document: sap,
@@ -392,7 +403,7 @@ export async function listPxInProgressReceptions(): Promise<
   const supabase = getSupabaseServerClient();
   const { data: receptions, error } = await supabase
     .from('receptions')
-    .select('id, guide_number, sap_document, created_at, status')
+    .select('id, guide_number, sap_document, created_at, status, inventory_destination')
     .eq('source', 'px')
     .in('status', [PX_IN_PROGRESS, PX_FINALIZING])
     .order('created_at', { ascending: false });
@@ -649,7 +660,7 @@ export async function getPxReceptionSnapshot(
 
   const { data: reception, error } = await supabase
     .from('receptions')
-    .select('id, guide_number, status, sap_document, carrier, notes, expected_units, expected_units_sap, received_units, variance_units, variance_reason, version, created_at')
+    .select('id, guide_number, status, sap_document, carrier, notes, expected_units, expected_units_sap, received_units, variance_units, variance_reason, version, created_at, inventory_destination')
     .eq('id', receptionId)
     .maybeSingle();
 

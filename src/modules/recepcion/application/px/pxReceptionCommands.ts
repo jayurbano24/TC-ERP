@@ -112,12 +112,17 @@ export async function executeFinalizeReception(ctx: PxReceptionCommandContext): 
 
     notify.success(
       result.already_finalized ? 'Recepción ya estaba finalizada' : 'Recepción PX finalizada',
-      { description: `Equipos en Bodega Central${batchDesc}.` }
+      {
+        description: ctx.guideData.inventoryDestination === 'OBSOLETE'
+          ? `Equipos enviados a Bodega de Obsoleto${batchDesc}.`
+          : `Equipos enviados a Bodega Central${batchDesc}.`,
+      }
     );
 
     ctx.session.clearSession();
     ctx.resetOperationalState();
     ctx.setGuideData({
+      inventoryDestination: '',
       sap: '',
       docReferencia: '',
       agencia: 'Monte Verdes',

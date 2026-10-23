@@ -45,6 +45,7 @@ export function usePxUiState(): PxUiState {
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
 
   const [guideData, setGuideData] = useState<GuideData>({
+    inventoryDestination: '',
     sap: '',
     docReferencia: '',
     agencia: 'Monte Verdes',
@@ -97,7 +98,8 @@ export function usePxUiState(): PxUiState {
           selectedBoxForScan,
           guideDataDraft: isReceptionStarted
             ? undefined
-            : {
+              : {
+                inventoryDestination: guideData.inventoryDestination,
                 sap: guideData.sap,
                 docReferencia: guideData.docReferencia,
                 proveedorPx: guideData.proveedorPx,

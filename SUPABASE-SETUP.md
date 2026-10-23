@@ -36,7 +36,16 @@ npm install @supabase/supabase-js
 
 2. Crear cliente compartido en `src/lib/supabase/client.ts`.
 3. Conectar login con `signInWithPassword`.
-4. Ejecutar scripts SQL en este orden (Supabase SQL Editor):
+4. **Local (Docker, base descartable):**
+```bash
+npm run supabase:bootstrap:assemble
+npm run supabase:hr:assemble
+npx supabase start
+npx supabase db reset --local --no-seed
+```
+Requiere `supabase/config.toml` en el repo. Ver `docs/changes/CHG-supabase-local-bootstrap.md`.
+
+5. **SQL Editor (remoto / legado):** scripts en `supabase/001…019` + seeds:
 - `supabase/001_initial_schema.sql`
 - `supabase/002_seed_reference_data.sql`
 - `supabase/003_validation_queries.sql`

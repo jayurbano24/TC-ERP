@@ -1134,7 +1134,7 @@ export default function ConfiguracionPage() {
         </div>
 
         {/* Área de Trabajo */}
-        <div className="flex-1 space-y-6">
+        <div className="min-w-0 flex-1 space-y-6">
           {activeView === 'tema' && canEditThemes ? <ThemeColorsView /> : null}
 
           {activeView === 'marcas' && (

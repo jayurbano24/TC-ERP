@@ -51,7 +51,7 @@ export const PxBoxDetailView = (props: any) => {
     lastSavedAt, progressPct, received, scannedSerialUpperSet,
     scannedSeries, setCurrentEntry, setCurrentScans, systemModels,
     systemTechnologies, targetBox, totalExpected,
-    useIncrementalCapture,
+    useIncrementalCapture, guideData,
   } = props;
   const rejected = boxMeta?.rejected_count ?? 0;
 
@@ -252,6 +252,9 @@ export const PxBoxDetailView = (props: any) => {
 
   return (
     <div className="space-y-6 animate-rise-in">
+      <div className={`rounded-xl border px-4 py-3 text-sm font-black ${guideData?.inventoryDestination === 'OBSOLETE' ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>
+        Destino: {guideData?.inventoryDestination === 'OBSOLETE' ? 'Bodega de Obsoleto' : 'Bodega Central (Vigentes)'}
+      </div>
       <div className="flex flex-wrap items-center gap-4 mb-2">
         <Button 
           variant="outline" 

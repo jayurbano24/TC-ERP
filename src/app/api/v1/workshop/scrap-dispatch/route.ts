@@ -9,6 +9,7 @@ import { createScrapDispatchBox } from '@/modules/workshop/server/scrapDispatchS
 import { resolveSessionActor } from '@/shared/infrastructure/session/resolveSessionActor';
 import { estimateJsonBytes, logEgress } from '@/shared/infrastructure/http/egressLog';
 import { getCorrelationIdFromHeaders } from '@/shared/infrastructure/http/correlationId';
+import { userCanAccessWorkshopTab } from '@/shared/authz/requireWorkshopTabAccess';
 
 const ScrapDispatchBody = z.object({
   series_ids: z.array(z.string().uuid()).min(1),
@@ -33,6 +34,9 @@ export const POST = withErrorHandler(
 
     if (!supabase) {
       return NextResponse.json({ error: 'SERVER_CLIENT_REQUIRED' }, { status: 500 });
+    }
+    if (!(await userCanAccessWorkshopTab(user.id, 'scraps', 'edit'))) {
+      return NextResponse.json({ error: 'No autorizado para operar SCRAPS' }, { status: 403 });
     }
 
     const raw = await req.json().catch(() => null);

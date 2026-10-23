@@ -9,6 +9,7 @@ import { returnWorkshopSeriesBatch } from '@/modules/workshop/server/workshopRet
 import { resolveSessionActor } from '@/shared/infrastructure/session/resolveSessionActor';
 import { estimateJsonBytes, logEgress } from '@/shared/infrastructure/http/egressLog';
 import { getCorrelationIdFromHeaders } from '@/shared/infrastructure/http/correlationId';
+import { userCanAccessWorkshopTab } from '@/shared/authz/requireWorkshopTabAccess';
 
 const ReturnBody = z.object({
   series_ids: z.array(z.string().uuid()).min(1),
@@ -38,6 +39,9 @@ export const POST = withErrorHandler(
 
     if (!supabase) {
       return NextResponse.json({ error: 'SERVER_CLIENT_REQUIRED' }, { status: 500 });
+    }
+    if (!(await userCanAccessWorkshopTab(user.id, 'despacho', 'edit'))) {
+      return NextResponse.json({ error: 'No autorizado para Retornar a Bodega' }, { status: 403 });
     }
 
     const raw = await req.json().catch(() => null);

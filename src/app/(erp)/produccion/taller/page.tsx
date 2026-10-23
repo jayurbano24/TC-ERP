@@ -85,6 +85,11 @@ import {
   useWorkshopTabPagedQueue,
   workshopTabPagedQueryKey,
 } from '@/modules/workshop/client/useWorkshopTabPagedQueue';
+import { useAuthz } from '@/components/authz';
+import {
+  canAccessWorkshopTab,
+  type WorkshopPermissionTab,
+} from '@/shared/authz/workshopTabPermissions';
 
 type TabType = 'diagnostico' | 'reparacion' | 'esperando_partes' | 'reacondicionado' | 'qc' | 'l3' | 'scraps' | 'listo' | 'despacho' | 'po';
 
@@ -93,6 +98,7 @@ const TALLER_TABLE_HEADER_TEXT = 'text-[var(--primary-foreground)]';
 
 export default function TallerPage() {
   const queryClient = useQueryClient();
+  const { snapshot, can } = useAuthz();
   const [activeTab, setActiveTab] = useState<TabType>('diagnostico');
   const useProductionOrderHex = isHexagonalProductionOrderEnabled();
   const [selectedForOperation, setSelectedForOperation] = useState<any | null>(null);
@@ -700,6 +706,13 @@ export default function TallerPage() {
   };
 
   const openOperationForSelection = async (selection: any | any[]) => {
+    if (
+      activeTab !== 'po' &&
+      !canAccessWorkshopTab(snapshot, activeTab as WorkshopPermissionTab, 'edit')
+    ) {
+      notify.warning('No tiene permiso para operar esta pestaña de Taller.');
+      return;
+    }
     if (activeTab === 'esperando_partes') {
       notify.info('Esta OS espera piezas. Usa Bodega de Partes para despachar, o abre en Reparación tras el despacho.');
       return;
@@ -903,6 +916,13 @@ export default function TallerPage() {
 
   const handleCompleteOperation = async () => {
     if (!selectedForOperation) return;
+    if (
+      activeTab !== 'po' &&
+      !canAccessWorkshopTab(snapshot, activeTab as WorkshopPermissionTab, 'edit')
+    ) {
+      notify.warning('No tiene permiso para operar esta pestaña de Taller.');
+      return;
+    }
     if (!diagnosticResult) {
       notify.warning("Por favor selecciona un resultado de evaluación antes de continuar.");
       return;
@@ -1135,7 +1155,7 @@ ${repairCorrectionChanged ? `- Reparación corregida en QC: ${selectedDiagnostic
     }
   };
 
-  const tabs = [
+  const allTabs = [
     ...(useProductionOrderHex
       ? [{ id: 'po', label: 'PO Taller', icon: ClipboardList, color: 'text-cyan-600', bg: 'bg-cyan-50' }]
       : []),
@@ -1149,6 +1169,20 @@ ${repairCorrectionChanged ? `- Reparación corregida en QC: ${selectedDiagnostic
     // Equipo Listo no es pestaña: solo destino "Aceptado → Listo" en Control de Calidad.
     { id: 'despacho', label: 'Retornar a Bodega', icon: Send, color: 'text-indigo-500', bg: 'bg-indigo-50' },
   ];
+
+  const tabs = allTabs.filter((tab) =>
+    tab.id === 'po'
+      ? can('Taller', 'view')
+      : canAccessWorkshopTab(snapshot, tab.id as WorkshopPermissionTab, 'view'),
+  );
+  const allowedTabIds = tabs.map((tab) => tab.id).join('|');
+
+  useEffect(() => {
+    const allowed = allowedTabIds.split('|').filter(Boolean) as TabType[];
+    if (allowed.includes(activeTab)) return;
+    const firstAllowedTab = allowed[0];
+    if (firstAllowedTab) startTransition(() => setActiveTab(firstAllowedTab));
+  }, [activeTab, allowedTabIds]);
 
   // Cola por pestaña; búsqueda server-side cuando hay serie/OS en el buscador.
   const tabTasks = hasServerSearch ? searchTabRows : allTabRows;
@@ -2192,4 +2226,3 @@ ${repairCorrectionChanged ? `- Reparación corregida en QC: ${selectedDiagnostic
     </ModulePage>
   );
 }
-

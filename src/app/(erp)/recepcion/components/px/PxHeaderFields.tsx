@@ -8,6 +8,7 @@ type Props = {
   setHeaderFieldErrors: (updater: any) => void;
   checkHeaderFields: (sap: string, docReferencia: string, showAlert?: boolean) => Promise<boolean> | void;
   systemPxProviders: any[];
+  destinationDisabled?: boolean;
 };
 
 /**
@@ -21,9 +22,48 @@ export const PxHeaderFields = memo(function PxHeaderFields({
   setHeaderFieldErrors,
   checkHeaderFields,
   systemPxProviders,
+  destinationDisabled = false,
 }: Props) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <fieldset className="md:col-span-2 space-y-3" disabled={destinationDisabled}>
+        <legend className="text-xs font-black text-slate-500 uppercase tracking-widest">
+          ClasificaciÃ³n de los equipos *
+        </legend>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {([
+            ['CENTRAL', 'Vigentes', 'Al finalizar pasarÃ¡n a Bodega Central.'],
+            ['OBSOLETE', 'Obsoletos', 'Al finalizar pasarÃ¡n a Bodega de Obsoleto.'],
+          ] as const).map(([value, label, description]) => (
+            <label
+              key={value}
+              className={`flex cursor-pointer gap-3 rounded-xl border-2 p-4 transition-colors ${
+                guideData.inventoryDestination === value
+                  ? 'border-[var(--accent)] bg-[var(--accent)]/5'
+                  : 'border-slate-100 bg-slate-50'
+              } ${destinationDisabled ? 'cursor-not-allowed opacity-70' : ''}`}
+            >
+              <input
+                type="radio"
+                name="inventoryDestination"
+                value={value}
+                checked={guideData.inventoryDestination === value}
+                onChange={() => setGuideData({ ...guideData, inventoryDestination: value })}
+                className="mt-1 accent-[var(--accent)]"
+              />
+              <span>
+                <span className="block text-sm font-black text-[var(--heading)]">{label}</span>
+                <span className="block text-xs font-semibold text-slate-500 mt-1">{description}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        {destinationDisabled && (
+          <p className="text-[11px] font-bold text-amber-700">
+            El destino queda bloqueado al iniciar la recepciÃ³n para evitar mezclar inventario.
+          </p>
+        )}
+      </fieldset>
       <div className="space-y-2">
         <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Número de Pedido *</label>
         <input

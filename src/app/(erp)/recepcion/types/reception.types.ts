@@ -2,6 +2,7 @@ export type ModuleMode = 'cac' | 'px';
 export type ActiveTab = 'scan' | 'history';
 
 export interface GuideData {
+  inventoryDestination: '' | 'CENTRAL' | 'OBSOLETE';
   sap: string;
   docReferencia: string;
   agencia: string;

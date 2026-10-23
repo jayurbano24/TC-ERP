@@ -40,6 +40,7 @@ export const PxReceptionTab = (props: any) => {
       setHeaderFieldErrors={setHeaderFieldErrors}
       checkHeaderFields={checkHeaderFields}
       systemPxProviders={systemPxProviders}
+      destinationDisabled={isReceptionStarted}
     />
   );
 
@@ -321,6 +322,7 @@ export const PxReceptionTab = (props: any) => {
 
   return (
     <PxBoxDetailView
+      guideData={guideData}
       boxEditDisabled={boxEditDisabled}
       boxItems={boxItems}
       boxMeta={boxMeta}

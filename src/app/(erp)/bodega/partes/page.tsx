@@ -48,6 +48,7 @@ import {
 } from '@/lib/api/parts';
 import { getBrands, getModels } from '@/shared/catalogs/catalogs';
 import { PartsHarvestingTab } from './_components/PartsHarvestingTab';
+import { PartsBoomHvTab } from './_components/PartsBoomHvTab';
 
 type TabId =
   | 'inventario'
@@ -59,6 +60,7 @@ type TabId =
   | 'catalogo'
   | 'historial'
   | 'harvesting'
+  | 'boom_hv'
   | 'alertas';
 
 const TABS: { id: TabId; label: string }[] = [
@@ -71,6 +73,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'analisis', label: 'Análisis' },
   { id: 'catalogo', label: 'Catálogo' },
   { id: 'harvesting', label: 'Harvesting' },
+  { id: 'boom_hv', label: 'Boom HV' },
   { id: 'alertas', label: 'Alertas' },
 ];
 
@@ -1926,6 +1929,8 @@ export default function BodegaPartesPage() {
         )}
 
         {tab === 'harvesting' && <PartsHarvestingTab />}
+
+        {tab === 'boom_hv' && <PartsBoomHvTab />}
 
         {tab === 'alertas' && (
           <div className="space-y-2">

@@ -9,6 +9,8 @@ import { operateWorkshopSeriesBatch } from '@/modules/workshop/server/workshopOp
 import { resolveSessionActor } from '@/shared/infrastructure/session/resolveSessionActor';
 import { estimateJsonBytes, logEgress } from '@/shared/infrastructure/http/egressLog';
 import { getCorrelationIdFromHeaders } from '@/shared/infrastructure/http/correlationId';
+import { userCanAccessWorkshopTab } from '@/shared/authz/requireWorkshopTabAccess';
+import { workshopTabForActionName } from '@/shared/authz/workshopTabPermissions';
 
 const OperateBody = z.object({
   series_ids: z.array(z.string().uuid()).min(1),
@@ -42,6 +44,14 @@ export const POST = withErrorHandler(
     }
 
     const { series_ids, result, notes, selected_diagnostics, action_name } = parsed.data;
+
+    const permissionTab = workshopTabForActionName(action_name);
+    if (!permissionTab) {
+      return NextResponse.json({ error: 'Operación de Taller no reconocida' }, { status: 400 });
+    }
+    if (!(await userCanAccessWorkshopTab(user.id, permissionTab, 'edit'))) {
+      return NextResponse.json({ error: 'No autorizado para operar esta pestaña de Taller' }, { status: 403 });
+    }
 
     if (series_ids.length > BATCH_LIMITS.WORKSHOP_OPERATE_SERIES_BATCH) {
       return NextResponse.json(

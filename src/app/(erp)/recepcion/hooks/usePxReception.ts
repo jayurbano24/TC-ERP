@@ -132,6 +132,7 @@ export function usePxReception(props: any) {
     setClosedBoxes([]);
     setSelectedBoxForScan(null);
     setGuideData({
+      inventoryDestination: '',
       sap: '',
       docReferencia: '',
       agencia: guideData.agencia || 'Monte Verdes',
@@ -154,6 +155,10 @@ export function usePxReception(props: any) {
 
   // Funciones locales para el nuevo flujo
   const handleStartReception = async () => {
+    if (!guideData.inventoryDestination) {
+      notify.warning('Seleccione si la recepciÃ³n contiene equipos Vigentes u Obsoletos');
+      return;
+    }
     if (!guideData.sap || !guideData.proveedorPx) {
       notify.warning("Por favor complete al menos el Número de Pedido y Proveedor PX");
       return;

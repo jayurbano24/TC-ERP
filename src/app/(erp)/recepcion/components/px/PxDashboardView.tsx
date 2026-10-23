@@ -56,6 +56,9 @@ export const PxDashboardView = (props: any) => {
 
   return (
       <div className="space-y-8 animate-rise-in">
+        <div className={`rounded-xl border px-4 py-3 text-sm font-black ${guideData.inventoryDestination === 'OBSOLETE' ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>
+          Destino de esta recepciÃ³n: {guideData.inventoryDestination === 'OBSOLETE' ? 'Bodega de Obsoleto' : 'Bodega Central (Vigentes)'}
+        </div>
         
         {/* Cabecera Resumen & Botón Cancelar */}
         <div className="flex items-center justify-between">

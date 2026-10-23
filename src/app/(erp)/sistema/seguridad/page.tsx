@@ -42,6 +42,7 @@ import { getAdvancedAuditLogs, logAdvancedAudit } from '@/modules/platform/clien
 import { getRoles, getRolePermissions, updateRolePermission, getUsersWithRoles, getUserSecurity, updateUserSecurity, changeUserRole } from '@/modules/platform/client/roles';
 import { adminUpdateUserPassword, adminToggleUserStatus, adminCreateUser } from '@/lib/actions/users';
 import { uploadAvatar } from '@/modules/platform/client/storage';
+import { PERMISSION_MATRIX_MODULES } from '@/lib/permission-matrix';
 import { useCan } from '@/components/authz';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { Camera, Image as ImageIcon } from 'lucide-react';
@@ -94,25 +95,6 @@ export default function SeguridadPage() {
   const [profileFile, setProfileFile] = useState<File | null>(null);
   const [profilePreview, setProfilePreview] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
-
-  const MODULES_MATRIX = [
-    'Dashboard',
-    'Consulta',
-    'Recepción General', 
-    'Devoluciones', 
-    'Backoffice', 
-    'Taller', 
-    'Bodega',
-    'Accesorios',
-    'Despacho',
-    'Integración SAP',
-    'Reportes',
-    'Recursos Humanos',
-    'Productividad', 
-    'Costos', 
-    'Seguridad',
-    'Configuración del Sistema'
-  ];
 
   useEffect(() => {
     if (activeTab === 'roles' || activeTab === 'users') {
@@ -925,7 +907,7 @@ export default function SeguridadPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {MODULES_MATRIX.map(module => {
+                  {PERMISSION_MATRIX_MODULES.map(module => {
                     const perm = permissions.find(p => p.module_name === module) || {};
                     return (
                       <tr key={module} className="hover:bg-[var(--surface-hover)]/50 transition-colors">

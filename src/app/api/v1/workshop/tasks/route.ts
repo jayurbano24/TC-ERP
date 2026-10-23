@@ -12,6 +12,8 @@ import { getCorrelationIdFromHeaders } from '@/shared/infrastructure/http/correl
 import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
 import { getWorkshopReadClient } from '@/shared/infrastructure/workshop/workshopReadClient';
 import { WORKSHOP_SEARCH_Q_MAX_CHARS } from '@/modules/workshop/shared/workshopSearch';
+import { userCanAccessWorkshopTab } from '@/shared/authz/requireWorkshopTabAccess';
+import type { WorkshopPermissionTab } from '@/shared/authz/workshopTabPermissions';
 
 const TasksQuery = z.object({
   tab: z
@@ -44,6 +46,7 @@ export const GET = withErrorHandler(
 
     const auth = await requireApiUser(req);
     if (auth instanceof NextResponse) return auth;
+    const { user } = auth;
 
     const db = getWorkshopReadClient();
 
@@ -57,6 +60,12 @@ export const GET = withErrorHandler(
 
     const tab = parsed.data.tab as WorkshopTabId;
     const { cursor, limit, q } = parsed.data;
+    if (
+      tab !== 'listo' &&
+      !(await userCanAccessWorkshopTab(user.id, tab as WorkshopPermissionTab, 'view'))
+    ) {
+      return NextResponse.json({ error: 'No autorizado para esta pestaña de Taller' }, { status: 403 });
+    }
     const page = await queryWorkshopTasksPage(db, tab, {
       cursor: cursor ?? null,
       limit,

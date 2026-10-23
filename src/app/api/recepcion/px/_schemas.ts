@@ -15,6 +15,9 @@ const operatorFields = {
 };
 
 export const guideDataSchema = z.object({
+  inventoryDestination: z.enum(['CENTRAL', 'OBSOLETE'], {
+    message: 'Seleccione si los equipos son Vigentes u Obsoletos.',
+  }),
   sap: z.string().min(1, 'El pedido SAP es obligatorio.').max(120),
   docReferencia: z.string().max(160).optional().default(''),
   agencia: z.string().max(160).optional().default(''),

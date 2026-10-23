@@ -5,6 +5,7 @@ import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
 import { ROLES_TALLER } from '@/shared/authz/roleGuard';
 import { findReturnCandidatesWithoutDiagnosis } from '@/modules/workshop/server/workshopReturnService';
 import { getWorkshopReadClient } from '@/shared/infrastructure/workshop/workshopReadClient';
+import { userCanAccessWorkshopTab } from '@/shared/authz/requireWorkshopTabAccess';
 
 const Query = z.object({
   source: z.enum(['in_qc', 'in_validation', 'in_refurbish', 'in_control_warehouse']).default('in_qc'),
@@ -14,6 +15,9 @@ export const GET = withErrorHandler(
   async (req: Request) => {
     const auth = await requireApiUser(req);
     if (auth instanceof NextResponse) return auth;
+    if (!(await userCanAccessWorkshopTab(auth.user.id, 'despacho', 'view'))) {
+      return NextResponse.json({ error: 'No autorizado para Retornar a Bodega' }, { status: 403 });
+    }
 
     const parsed = Query.safeParse(Object.fromEntries(new URL(req.url).searchParams));
     if (!parsed.success) {

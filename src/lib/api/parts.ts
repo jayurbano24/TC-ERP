@@ -49,6 +49,8 @@ export type HarvestDonorApi = {
   os_label: string | null;
   current_status: string;
   rack_location: string | null;
+  brand_id: string | null;
+  model_id: string | null;
   model_name: string | null;
 };
 
@@ -60,8 +62,19 @@ export async function fetchHarvestDonors(q: string): Promise<HarvestDonorApi[]> 
   return data.items ?? [];
 }
 
-export async function fetchHarvestHistory() {
-  const res = await apiFetch('/api/v1/parts/harvest', { credentials: 'include' });
+export async function fetchHarvestDonorsBulk(serials: string[]): Promise<HarvestDonorApi[]> {
+  const res = await apiFetch('/api/v1/parts/harvest/donors', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ serials }),
+  });
+  const data = await readJson<{ items: HarvestDonorApi[] }>(res);
+  return data.items ?? [];
+}
+
+export async function fetchHarvestHistory(limit = 50) {
+  const res = await apiFetch(`/api/v1/parts/harvest?limit=${Math.min(Math.max(limit, 1), 2000)}`, { credentials: 'include' });
   const data = await readJson<{ items: unknown[] }>(res);
   return data.items ?? [];
 }
@@ -74,9 +87,13 @@ export async function fetchHarvestUsage(sessionId: string) {
 }
 
 export async function createPartHarvestApi(body: {
-  seriesId: string;
+  seriesId?: string;
+  donors?: Array<{
+    seriesId: string;
+    lines: Array<{ catalogId: string; qty: number; notes?: string | null }>;
+  }>;
   sessionNotes?: string | null;
-  lines: Array<{ catalogId: string; qty: number; notes?: string | null }>;
+  lines?: Array<{ catalogId: string; qty: number; notes?: string | null }>;
 }) {
   const res = await apiFetch('/api/v1/parts/harvest', {
     method: 'POST',

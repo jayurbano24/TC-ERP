@@ -32,7 +32,8 @@ import {
   Ban,
   KeyRound,
   UserX,
-  UserCheck
+  UserCheck,
+  Mail,
 } from 'lucide-react';
 
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
@@ -40,7 +41,21 @@ import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { getProfiles, assignUserRole, saveProfile } from '@/shared/catalogs/catalogs';
 import { getAdvancedAuditLogs, logAdvancedAudit } from '@/modules/platform/client/audit';
 import { getRoles, getRolePermissions, updateRolePermission, getUsersWithRoles, getUserSecurity, updateUserSecurity, changeUserRole } from '@/modules/platform/client/roles';
-import { adminUpdateUserPassword, adminToggleUserStatus, adminCreateUser } from '@/lib/actions/users';
+import {
+  adminUpdateUserPassword,
+  adminToggleUserStatus,
+  adminDeleteUser,
+  adminCreateUser,
+  adminInviteUser,
+  adminSendPasswordResetEmail,
+} from '@/lib/actions/users';
+import { isValidAuthEmail } from '@/lib/auth/isValidAuthEmail';
+import {
+  listUserInvitations,
+  revokeUserInvitation,
+  deleteUserInvitation,
+  type UserInvitationRow,
+} from '@/lib/actions/userInvitations';
 import { uploadAvatar } from '@/modules/platform/client/storage';
 import { PERMISSION_MATRIX_MODULES } from '@/lib/permission-matrix';
 import { useCan } from '@/components/authz';
@@ -50,7 +65,10 @@ import * as XLSX from 'xlsx';
 import { formatAuditDiffEntries } from '@/shared/audit/formatAuditDiff';
 
 export default function SeguridadPage() {
-  const [activeTab, setActiveTab] = useState<'users' | 'roles' | 'audit'>('roles');
+  const [activeTab, setActiveTab] = useState<'users' | 'roles' | 'audit' | 'invitations'>('roles');
+  const [invitations, setInvitations] = useState<UserInvitationRow[]>([]);
+  const [invitationsLoading, setInvitationsLoading] = useState(false);
+  const [invitationSearch, setInvitationSearch] = useState('');
   
   // ==========================================
   // AUDIT LOGS STATE
@@ -92,14 +110,42 @@ export default function SeguridadPage() {
   const [userProfileModal, setUserProfileModal] = useState<any>(null);
   const [profileData, setProfileData] = useState({ full_name: '', role_id: '', is_active: false, email: '', employee_id: '' });
   const [newPassword, setNewPassword] = useState('');
+  /** Alta: invitación por correo (default) o contraseña manual. */
+  const [createMode, setCreateMode] = useState<'invite' | 'manual'>('invite');
   const [profileFile, setProfileFile] = useState<File | null>(null);
   const [profilePreview, setProfilePreview] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
 
+  const loadInvitations = async () => {
+    setInvitationsLoading(true);
+    try {
+      const res = await listUserInvitations(200);
+      if (res.error) {
+        notify.warning('No se pudieron cargar invitaciones', { description: res.error });
+        setInvitations([]);
+      } else {
+        setInvitations(res.rows || []);
+      }
+    } catch (err: unknown) {
+      notify.warning('No se pudieron cargar invitaciones', {
+        description: err instanceof Error ? err.message : 'Error inesperado',
+      });
+      setInvitations([]);
+    } finally {
+      setInvitationsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'invitations') {
+      void loadInvitations();
+    }
+  }, [activeTab]);
+
   useEffect(() => {
     if (activeTab === 'roles' || activeTab === 'users') {
       loadRBACData();
-    } else {
+    } else if (activeTab === 'audit') {
       loadAuditLogs();
     }
   }, [activeTab]);
@@ -243,6 +289,31 @@ export default function SeguridadPage() {
     setProfilePreview(null);
     setProfileFile(null);
     setNewPassword('');
+    setCreateMode('invite');
+  };
+
+  /** Reabre el modal de invitación desde una fila (p. ej. revoked / correo inválido). */
+  const handleOpenInviteFromInvitation = (inv: UserInvitationRow) => {
+    const emailOk = isValidAuthEmail(inv.email);
+    setUserProfileModal({ isNew: true });
+    setProfileData({
+      full_name: inv.full_name || '',
+      role_id: inv.role_id || '',
+      is_active: true,
+      // Si el correo era inválido ("urbano"), dejar vacío para forzar el completo.
+      email: emailOk ? inv.email : '',
+      employee_id: inv.employee_id || '',
+    });
+    setProfilePreview(null);
+    setProfileFile(null);
+    setNewPassword('');
+    setCreateMode('invite');
+    if (!emailOk) {
+      notify.info('Corrige el correo', {
+        description:
+          'El registro anterior no tenía dominio. Escribe el correo completo (ej. gurbano24@gmail.com) y guarda.',
+      });
+    }
   };
 
   /** Dominio de correo de ingreso (siempre corporativo TC). */
@@ -430,17 +501,27 @@ export default function SeguridadPage() {
     }
 
     if (userProfileModal.isNew) {
-      // Create / link from empleado RRHH
-      if (!profileData.employee_id) {
-        notify.warning('Empleado requerido', {
-          description: 'Selecciona el empleado RRHH para completar nombre y correo de ingreso.',
+      // Empleado RRHH es opcional: basta con nombre + correo + rol (p. ej. invitación).
+      if (!profileData.email || !profileData.full_name) {
+        notify.warning('Datos incompletos', {
+          description: profileData.employee_id
+            ? 'Falta correo o nombre.'
+            : 'Indica nombre y correo, o selecciona un empleado RRHH para autocompletarlos.',
         });
         setActionLoading(false);
         return;
       }
-      if (!profileData.email || !newPassword || !profileData.full_name) {
+      if (!isValidAuthEmail(profileData.email)) {
+        notify.warning('Correo incompleto', {
+          description:
+            'Usa el correo completo con dominio (ej. gurbano24@gmail.com). No basta con el usuario sin @.',
+        });
+        setActionLoading(false);
+        return;
+      }
+      if (createMode === 'manual' && !newPassword) {
         notify.warning('Datos incompletos', {
-          description: 'Falta correo, nombre o contraseña.',
+          description: 'Falta la contraseña (modo asignación manual).',
         });
         setActionLoading(false);
         return;
@@ -450,37 +531,100 @@ export default function SeguridadPage() {
         setActionLoading(false);
         return;
       }
-      const res = await adminCreateUser(
-        profileData.email, 
-        newPassword, 
-        profileData.full_name, 
-        profileData.role_id, 
-        profileData.employee_id
-      );
-      if (res.error) {
-        notify.error('Error creando usuario', { description: res.error });
+
+      const res =
+        createMode === 'invite'
+          ? await adminInviteUser(
+              profileData.email,
+              profileData.full_name,
+              profileData.role_id,
+              profileData.employee_id || undefined,
+              typeof window !== 'undefined' ? window.location.origin : undefined
+            )
+          : await adminCreateUser(
+              profileData.email,
+              newPassword,
+              profileData.full_name,
+              profileData.role_id,
+              profileData.employee_id || undefined
+            );
+
+      if ('error' in res && res.error) {
+        // warning: evita que humanizeUserFacingError oculte el mensaje de negocio
+        // (p. ej. SITE_URL / localhost / rate limit) como "Sin permiso" genérico.
+        notify.warning(
+          createMode === 'invite' ? 'No se pudo invitar' : 'No se pudo crear el usuario',
+          { description: res.error }
+        );
         setActionLoading(false);
+        if (createMode === 'invite') {
+          setUserProfileModal(null);
+          setActiveTab('invitations');
+          await loadInvitations();
+        }
         return;
       }
 
-      if ('linked' in res && res.linked) {
+      if (createMode === 'invite') {
+        const emailSent = 'emailSent' in res && res.emailSent === true;
+        if (
+          !emailSent &&
+          'actionLink' in res &&
+          typeof res.actionLink === 'string' &&
+          res.actionLink
+        ) {
+          try {
+            await navigator.clipboard.writeText(res.actionLink);
+            notify.success('Enlace copiado', {
+              description:
+                ('message' in res && res.message) ||
+                'El enlace quedó en el portapapeles. Envíalo por WhatsApp/correo.',
+            });
+          } catch {
+            notify.success('Enlace listo', {
+              description:
+                ('message' in res && res.message) ||
+                'Copia el enlace en Invitaciones.',
+            });
+          }
+        } else {
+          notify.success(emailSent ? 'Invitación enviada' : 'Enlace listo', {
+            description:
+              ('message' in res && res.message) ||
+              (emailSent
+                ? 'Correo enviado con marca TC ERP.'
+                : 'Copia el enlace en Invitaciones y envíalo al usuario.'),
+          });
+        }
+      } else if ('linked' in res && res.linked) {
         notify.success('Usuario enlazado', {
           description:
-            res.message ||
+            ('message' in res && res.message) ||
             'La cuenta ya existía: se actualizó la clave y el vínculo con el empleado.',
         });
       } else {
         notify.success('Usuario creado', {
-          description: res.message || 'Cuenta de acceso creada correctamente.',
+          description:
+            ('message' in res && res.message) ||
+            'Cuenta de acceso creada correctamente.',
         });
       }
       
       // If we uploaded a file for a new user, we'd need to upload it AFTER user creation
-      if (profileFile && res.user) {
+      if (profileFile && 'user' in res && res.user) {
         const uploadRes = await uploadAvatar(res.user.id, profileFile);
         if (!uploadRes.error) {
           await saveProfile({ id: res.user.id, avatar_url: uploadRes.url });
         }
+      }
+
+      if (createMode === 'invite') {
+        setUserProfileModal(null);
+        setActionLoading(false);
+        setActiveTab('invitations');
+        await loadInvitations();
+        await loadRBACData();
+        return;
       }
     } else {
       // Update existing user
@@ -554,6 +698,45 @@ export default function SeguridadPage() {
       }
     } catch (err: any) {
       notify.error('Error al cambiar estatus', { description: err?.message });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDeleteUser = async (user: {
+    id: string;
+    full_name?: string | null;
+    email?: string | null;
+  }) => {
+    if (!canEditSeguridad) return;
+    const label = user.full_name || user.email || 'este usuario';
+    const ok = await confirmDialog({
+      title: 'Eliminar usuario',
+      message: `¿Eliminar permanentemente la cuenta de ${label} (${user.email || 'sin correo'})? No podrá iniciar sesión. El empleado RRHH no se borra.`,
+      tone: 'error',
+      confirmText: 'Eliminar',
+    });
+    if (!ok) return;
+
+    setActionLoading(true);
+    try {
+      const res = await adminDeleteUser(user.id);
+      if (res?.error) {
+        notify.warning('No se pudo eliminar', { description: res.error });
+        return;
+      }
+      notify.success('Usuario eliminado', {
+        description: res.message || label,
+      });
+      if (userProfileModal && !userProfileModal.isNew && userProfileModal.id === user.id) {
+        setUserProfileModal(null);
+      }
+      await loadRBACData();
+      await loadInvitations();
+    } catch (err: unknown) {
+      notify.error('Error al eliminar', {
+        description: err instanceof Error ? err.message : 'Error desconocido',
+      });
     } finally {
       setActionLoading(false);
     }
@@ -667,6 +850,16 @@ export default function SeguridadPage() {
           {activeTab === 'roles' && <div className="absolute bottom-0 left-0 w-full h-1 bg-[var(--accent)] rounded-t-full" />}
         </button>
         <button 
+          onClick={() => setActiveTab('invitations')}
+          className={`pb-4 px-2 text-sm font-black uppercase tracking-widest transition-all relative ${activeTab === 'invitations' ? 'text-[var(--heading)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]'}`}
+        >
+          <div className="flex items-center gap-2">
+            <Mail className="w-4 h-4" />
+            Invitaciones
+          </div>
+          {activeTab === 'invitations' && <div className="absolute bottom-0 left-0 w-full h-1 bg-[var(--accent)] rounded-t-full" />}
+        </button>
+        <button 
           onClick={() => setActiveTab('audit')}
           className={`pb-4 px-2 text-sm font-black uppercase tracking-widest transition-all relative ${activeTab === 'audit' ? 'text-[var(--heading)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]'}`}
         >
@@ -695,6 +888,327 @@ export default function SeguridadPage() {
             <h4 className="font-bold">Modo solo lectura</h4>
             <p className="text-sm">Puedes consultar roles, permisos y usuarios, pero no modificarlos. Requiere el permiso <strong>EDITAR</strong> en el módulo Seguridad.</p>
           </div>
+        </div>
+      )}
+
+      {/* PESTAÑA: INVITACIONES */}
+      {activeTab === 'invitations' && (
+        <div className="space-y-6 animate-rise-in">
+          <Card padding="none" className="overflow-hidden shadow-xl border-2 border-slate-100 flex flex-col min-h-[480px]">
+            <div className="p-5 border-b border-[var(--border)] bg-[var(--surface-hover)] flex flex-col md:flex-row justify-between items-center gap-4">
+              <div>
+                <h3 className="font-black text-[var(--heading)] text-sm uppercase tracking-widest flex items-center gap-2">
+                  <Mail size={18} className="text-[var(--accent)]" />
+                  Control de invitaciones
+                </h3>
+                <p className="text-xs text-[var(--muted)] mt-1">
+                  Correo destinatario, rol, estado y parámetros del enlace (sin marca de proveedor).
+                </p>
+              </div>
+              <div className="flex gap-3 items-center w-full md:w-auto">
+                <div className="relative flex-1 md:w-72">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--muted)]" />
+                  <input
+                    type="text"
+                    placeholder="Buscar correo o nombre..."
+                    value={invitationSearch}
+                    onChange={(e) => setInvitationSearch(e.target.value)}
+                    className="w-full h-10 pl-9 pr-3 rounded-lg border-2 border-[var(--border)] bg-[var(--surface)] text-sm font-medium outline-none focus:border-[var(--accent)]"
+                  />
+                </div>
+                <Button
+                  variant="outline"
+                  disabled={invitationsLoading}
+                  onClick={() => void loadInvitations()}
+                  className="h-10 px-3"
+                  title="Actualizar lista"
+                >
+                  <RefreshCw size={16} className={invitationsLoading ? 'animate-spin' : ''} />
+                </Button>
+                <Button
+                  disabled={!canEditSeguridad}
+                  className="h-10 px-3 bg-[var(--heading)] text-[var(--surface)]"
+                  onClick={() => {
+                    handleOpenCreateProfile();
+                  }}
+                >
+                  <Plus size={16} className="mr-1" /> Invitar
+                </Button>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-[var(--surface-hover)] text-[10px] uppercase tracking-widest text-[var(--muted)]">
+                  <tr>
+                    <th className="text-left px-4 py-3 font-black">Correo</th>
+                    <th className="text-left px-4 py-3 font-black">Nombre</th>
+                    <th className="text-left px-4 py-3 font-black">Rol</th>
+                    <th className="text-left px-4 py-3 font-black">Estado</th>
+                    <th className="text-left px-4 py-3 font-black">Base URL</th>
+                    <th className="text-left px-4 py-3 font-black">Enviado</th>
+                    <th className="text-right px-4 py-3 font-black">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {invitationsLoading ? (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-10 text-center text-[var(--muted)]">
+                        Cargando invitaciones…
+                      </td>
+                    </tr>
+                  ) : invitations.filter((inv) => {
+                      const q = invitationSearch.trim().toLowerCase();
+                      if (!q) return true;
+                      return (
+                        inv.email.toLowerCase().includes(q) ||
+                        inv.full_name.toLowerCase().includes(q) ||
+                        (inv.role_name || '').toLowerCase().includes(q)
+                      );
+                    }).length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-12 text-center">
+                        <p className="text-sm font-semibold text-[var(--heading)]">
+                          Aún no hay invitados en la tabla
+                        </p>
+                        <p className="mt-1 text-xs text-[var(--muted)] max-w-md mx-auto">
+                          Los intentos anteriores fallaron antes de registrarse. Usa{' '}
+                          <strong>Invitar</strong> (modo correo), y al guardar verás aquí el
+                          correo con botones <strong>Reenviar</strong> y <strong>Revocar</strong>.
+                        </p>
+                      </td>
+                    </tr>
+                  ) : (
+                    invitations
+                      .filter((inv) => {
+                        const q = invitationSearch.trim().toLowerCase();
+                        if (!q) return true;
+                        return (
+                          inv.email.toLowerCase().includes(q) ||
+                          inv.full_name.toLowerCase().includes(q) ||
+                          (inv.role_name || '').toLowerCase().includes(q)
+                        );
+                      })
+                      .map((inv) => (
+                        <tr key={inv.id} className="border-t border-[var(--border)] hover:bg-[var(--surface-hover)]/60">
+                          <td className="px-4 py-3 font-mono text-xs text-[var(--heading)]">{inv.email}</td>
+                          <td className="px-4 py-3 font-semibold text-[var(--heading)]">{inv.full_name || '—'}</td>
+                          <td className="px-4 py-3">
+                            <Badge className="bg-[var(--surface-hover)] text-[var(--muted)] border-none font-bold text-[10px]">
+                              {inv.role_name || 'Sin rol'}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-3">
+                            <Badge
+                              title={inv.last_error || undefined}
+                              className={
+                                inv.status === 'pending' || inv.status === 'resent'
+                                  ? 'bg-amber-100 text-amber-800 border-none'
+                                  : inv.status === 'failed' || inv.status === 'revoked'
+                                    ? 'bg-rose-100 text-rose-800 border-none'
+                                    : 'bg-emerald-100 text-emerald-800 border-none'
+                              }
+                            >
+                              {inv.status}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-3 max-w-[180px] truncate font-mono text-[10px] text-[var(--muted)]" title={inv.redirect_base || ''}>
+                            {inv.redirect_base || '—'}
+                          </td>
+                          <td className="px-4 py-3 text-xs text-[var(--muted)] whitespace-nowrap">
+                            {new Date(inv.last_sent_at || inv.created_at).toLocaleString()}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <div className="inline-flex flex-wrap justify-end gap-2">
+                              {typeof inv.params?.action_link === 'string' && inv.params.action_link && (
+                                <Button
+                                  variant="outline"
+                                  className="h-8 px-2 text-[10px] font-bold"
+                                  onClick={async () => {
+                                    try {
+                                      await navigator.clipboard.writeText(
+                                        String(inv.params.action_link)
+                                      );
+                                      notify.success('Enlace copiado', {
+                                        description:
+                                          'Pégalo en el navegador del invitado (válido por tiempo limitado).',
+                                      });
+                                    } catch {
+                                      notify.warning('No se pudo copiar', {
+                                        description: String(inv.params.action_link),
+                                      });
+                                    }
+                                  }}
+                                >
+                                  Copiar enlace
+                                </Button>
+                              )}
+                              {inv.status === 'revoked' || !isValidAuthEmail(inv.email) ? (
+                                <Button
+                                  variant="outline"
+                                  disabled={!canEditSeguridad || actionLoading}
+                                  className="h-8 px-2 text-[10px] font-bold"
+                                  onClick={() => {
+                                    if (!canEditSeguridad) return;
+                                    handleOpenInviteFromInvitation(inv);
+                                  }}
+                                >
+                                  Invitar de nuevo
+                                </Button>
+                              ) : (
+                                <Button
+                                  variant="outline"
+                                  disabled={!canEditSeguridad || actionLoading}
+                                  className="h-8 px-2 text-[10px] font-bold"
+                                  onClick={async () => {
+                                    if (!canEditSeguridad) return;
+                                    setActionLoading(true);
+                                    const res = await adminInviteUser(
+                                      inv.email,
+                                      inv.full_name || inv.email,
+                                      inv.role_id || undefined,
+                                      inv.employee_id || undefined,
+                                      typeof window !== 'undefined'
+                                        ? window.location.origin
+                                        : undefined
+                                    );
+                                    setActionLoading(false);
+                                    await loadInvitations();
+                                    if ('error' in res && res.error) {
+                                      notify.warning('No se pudo reenviar', {
+                                        description: res.error,
+                                      });
+                                      return;
+                                    }
+                                    const emailSent =
+                                      'emailSent' in res && res.emailSent === true;
+                                    if (
+                                      !emailSent &&
+                                      'actionLink' in res &&
+                                      typeof res.actionLink === 'string' &&
+                                      res.actionLink
+                                    ) {
+                                      try {
+                                        await navigator.clipboard.writeText(res.actionLink);
+                                        notify.success('Enlace regenerado y copiado', {
+                                          description:
+                                            ('message' in res && res.message) ||
+                                            'Pégalo en WhatsApp o correo del invitado.',
+                                        });
+                                      } catch {
+                                        notify.success('Enlace regenerado', {
+                                          description:
+                                            ('message' in res && res.message) ||
+                                            'Usa “Copiar enlace”.',
+                                        });
+                                      }
+                                    } else {
+                                      notify.success(
+                                        emailSent
+                                          ? 'Invitación reenviada'
+                                          : 'Enlace regenerado',
+                                        {
+                                          description:
+                                            ('message' in res && res.message) ||
+                                            (emailSent
+                                              ? 'Correo enviado.'
+                                              : 'Usa “Copiar enlace” si no hay Resend configurado.'),
+                                        }
+                                      );
+                                    }
+                                  }}
+                                >
+                                  Reenviar
+                                </Button>
+                              )}
+                              {(inv.status === 'pending' ||
+                                inv.status === 'resent' ||
+                                inv.status === 'failed') && (
+                                <Button
+                                  variant="ghost"
+                                  disabled={!canEditSeguridad || actionLoading}
+                                  className="h-8 px-2 text-[10px] font-bold text-rose-600"
+                                  onClick={async () => {
+                                    const ok = await confirmDialog({
+                                      title: 'Revocar invitación',
+                                      message: `¿Marcar como revocada la invitación a ${inv.email}?`,
+                                      tone: 'error',
+                                      confirmText: 'Revocar',
+                                    });
+                                    if (!ok) return;
+                                    setActionLoading(true);
+                                    const res = await revokeUserInvitation(inv.id);
+                                    setActionLoading(false);
+                                    if (res.error) {
+                                      notify.warning('No se pudo revocar', {
+                                        description: res.error,
+                                      });
+                                      return;
+                                    }
+                                    notify.success('Invitación revocada');
+                                    await loadInvitations();
+                                  }}
+                                >
+                                  Revocar
+                                </Button>
+                              )}
+                              <Button
+                                variant="ghost"
+                                disabled={!canEditSeguridad || actionLoading}
+                                className="h-8 px-2 text-[10px] font-bold text-rose-700"
+                                onClick={async () => {
+                                  if (!canEditSeguridad) return;
+                                  const ok = await confirmDialog({
+                                    title: 'Eliminar invitación',
+                                    message: `¿Eliminar de la tabla la invitación a ${inv.email}? No borra la cuenta Auth; solo el registro de control.`,
+                                    tone: 'error',
+                                    confirmText: 'Eliminar',
+                                  });
+                                  if (!ok) return;
+                                  setActionLoading(true);
+                                  const res = await deleteUserInvitation(inv.id);
+                                  setActionLoading(false);
+                                  if (res.error) {
+                                    notify.warning('No se pudo eliminar', {
+                                      description: res.error,
+                                    });
+                                    return;
+                                  }
+                                  notify.success('Invitación eliminada');
+                                  await loadInvitations();
+                                }}
+                              >
+                                Eliminar
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {invitations.some((i) => i.status === 'failed') && (
+              <div className="p-4 border-t border-[var(--border)] bg-rose-50/50 text-xs text-rose-800 space-y-1">
+                <p>
+                  Hay invitaciones fallidas. Usa <strong>Invitar de nuevo</strong> (o + Invitar)
+                  con el correo completo (@dominio). En móvil define{' '}
+                  <code className="font-mono">NEXT_PUBLIC_SITE_URL</code> (no localhost).
+                </p>
+                {invitations
+                  .filter((i) => i.status === 'failed' && i.last_error)
+                  .slice(0, 3)
+                  .map((i) => (
+                    <p
+                      key={i.id}
+                      className="font-mono text-[10px] text-rose-700/90 truncate"
+                      title={i.last_error || ''}
+                    >
+                      {i.email}: {i.last_error}
+                    </p>
+                  ))}
+              </div>
+            )}
+          </Card>
         </div>
       )}
 
@@ -812,6 +1326,16 @@ export default function SeguridadPage() {
                                 <UserCheck size={14} className="mr-2" /> Activar
                               </>
                             )}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void handleDeleteUser(user)}
+                            disabled={actionLoading || !canEditSeguridad}
+                            className="h-8 border-rose-300 text-rose-800 hover:bg-rose-100 hover:border-rose-400"
+                            title="Eliminar usuario"
+                          >
+                            <Trash2 size={14} className="mr-2" /> Eliminar
                           </Button>
                         </div>
                       </td>
@@ -1197,7 +1721,7 @@ export default function SeguridadPage() {
                   {userProfileModal.isNew && (
                     <div>
                       <label className="mb-1 flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-[var(--heading)]">
-                        <Users size={12} /> Empleado RRHH (Obligatorio)
+                        <Users size={12} /> Empleado RRHH (Opcional)
                       </label>
                       <select
                         value={profileData.employee_id || ''}
@@ -1226,7 +1750,7 @@ export default function SeguridadPage() {
                         ))}
                       </select>
                       <p className="mt-1 text-[10px] font-medium text-[var(--muted)]">
-                        Solo aparecen empleados sin cuenta. Nombre y correo se completan al elegir; defines rol y contraseña.
+                        Opcional. Solo aparecen empleados sin cuenta. Si eliges uno, se autocompletan nombre y correo; si no, escríbelos a mano.
                       </p>
                     </div>
                   )}
@@ -1315,6 +1839,45 @@ export default function SeguridadPage() {
                   </div>
                   )}
                   
+                  {userProfileModal.isNew && (
+                    <div className="space-y-3 rounded-xl border border-sky-200 bg-sky-50 p-4">
+                      <label className="mb-1 flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-sky-800">
+                        <KeyRound size={12} /> Modo de alta
+                      </label>
+                      <label className="flex cursor-pointer items-start gap-2 text-xs font-medium text-sky-900">
+                        <input
+                          type="radio"
+                          name="createMode"
+                          className="mt-0.5"
+                          checked={createMode === 'invite'}
+                          onChange={() => setCreateMode('invite')}
+                        />
+                        <span>
+                          <span className="font-bold">Enviar invitación por correo</span>
+                          <span className="mt-0.5 block text-[10px] font-medium text-sky-700">
+                            El usuario crea su contraseña (recomendado).
+                          </span>
+                        </span>
+                      </label>
+                      <label className="flex cursor-pointer items-start gap-2 text-xs font-medium text-sky-900">
+                        <input
+                          type="radio"
+                          name="createMode"
+                          className="mt-0.5"
+                          checked={createMode === 'manual'}
+                          onChange={() => setCreateMode('manual')}
+                        />
+                        <span>
+                          <span className="font-bold">Asignar contraseña manualmente</span>
+                          <span className="mt-0.5 block text-[10px] font-medium text-sky-700">
+                            Comportamiento anterior: defines la clave ahora.
+                          </span>
+                        </span>
+                      </label>
+                    </div>
+                  )}
+
+                  {(createMode === 'manual' || !userProfileModal.isNew) && (
                   <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
                      <label className="text-[10px] font-black text-amber-700 uppercase tracking-widest block mb-1 flex items-center gap-1"><KeyRound size={12}/> {userProfileModal.isNew ? 'Contraseña (Obligatoria)' : 'Forzar Cambio de Contraseña'}</label>
                      <p className="text-[10px] text-amber-600 mb-2 leading-tight">{userProfileModal.isNew ? 'Define rol y contraseña. Si el correo ya existe en Auth, se enlaza la cuenta y se reemplaza la clave.' : 'Si escribes aquí, la contraseña del usuario será reemplazada. Déjalo en blanco para no cambiarla.'}</p>
@@ -1325,7 +1888,67 @@ export default function SeguridadPage() {
                         placeholder="Mínimo 6 caracteres..."
                         className="w-full h-9 px-3 bg-[var(--surface)] border border-[var(--warning)]/30 rounded-md text-sm outline-none focus:border-[var(--warning)] transition-all"
                      />
+                     {!userProfileModal.isNew && (
+                       <Button
+                         type="button"
+                         variant="outline"
+                         disabled={actionLoading || !canEditSeguridad}
+                         className="mt-3 h-9 w-full border-amber-300 text-amber-800 hover:bg-amber-100"
+                         onClick={async () => {
+                           const targetEmail =
+                             profileData.email || userProfileModal.email || '';
+                           if (!targetEmail) {
+                             notify.warning('Sin correo', {
+                               description: 'Este usuario no tiene correo para restablecer.',
+                             });
+                             return;
+                           }
+                           setActionLoading(true);
+                           const res = await adminSendPasswordResetEmail(
+                             targetEmail,
+                             typeof window !== 'undefined' ? window.location.origin : undefined
+                           );
+                           setActionLoading(false);
+                           if (res.error) {
+                             notify.error('No se pudo enviar el enlace', {
+                               description: res.error,
+                             });
+                             return;
+                           }
+                           const emailSent =
+                             'emailSent' in res && res.emailSent === true;
+                           if (
+                             !emailSent &&
+                             'actionLink' in res &&
+                             typeof res.actionLink === 'string' &&
+                             res.actionLink
+                           ) {
+                             try {
+                               await navigator.clipboard.writeText(res.actionLink);
+                               notify.success('Enlace copiado', {
+                                 description:
+                                   res.message ||
+                                   'El enlace quedó en el portapapeles. Envíalo al usuario (WhatsApp/correo).',
+                               });
+                             } catch {
+                               notify.success('Enlace listo', {
+                                 description: res.actionLink,
+                               });
+                             }
+                             return;
+                           }
+                           notify.success('Enlace enviado', {
+                             description:
+                               res.message ||
+                               'Se envió un correo de restablecimiento al usuario.',
+                           });
+                         }}
+                       >
+                         Enviar enlace de restablecimiento al correo
+                       </Button>
+                     )}
                   </div>
+                  )}
                </div>
             </div>
 

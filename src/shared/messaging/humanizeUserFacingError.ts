@@ -144,7 +144,21 @@ export function humanizeUserFacingError(
     };
   }
 
-  if (/not authenticated|jwt|permission denied|row-level|rls/i.test(blob)) {
+  if (/no autorizado|se requiere permiso|se requiere administrador/i.test(blob)) {
+    return {
+      title: 'Sin permiso',
+      description:
+        rawDesc ||
+        'Su sesión no tiene permiso para esta acción. Verifique el módulo Seguridad (EDITAR) o contacte a un administrador.',
+    };
+  }
+
+  // Ojo: NO usar /rls/ suelto — coincide dentro de "URLs" (p. ej. Redirect URLs).
+  if (
+    /not authenticated|\bjwt\b|permission denied|row-level security|\brls\b/i.test(
+      blob
+    )
+  ) {
     return {
       title: 'Sin permiso',
       description: 'Su sesión no tiene permiso para esta acción. Vuelva a iniciar sesión o contacte a un administrador.',

@@ -2,6 +2,7 @@ import {
   isSapValidatedSeriesStatus,
   orderSeriesForSapDisplay,
 } from '@/app/(erp)/bodega/inventario/_components/inventorySeriesOrder';
+import { resolveWorkshopTreatment } from '@/modules/workshop/domain/workshopTreatment';
 
 export { isSapValidatedSeriesStatus, orderSeriesForSapDisplay };
 
@@ -60,13 +61,35 @@ export function finalizeWorkshopGroupSeriesOrder(group: {
   if (ordered[0]) group.serial_number = ordered[0];
 }
 
-/** Etiqueta única RC / RP según historial de etapas completadas. */
+/**
+ * Historial QC/Taller (columna Hist.).
+ * Delega la decisión a la política de dominio `resolveWorkshopTreatment`.
+ * Interfaz de flags conservada para no romper consumidores (tabla / export).
+ */
 export function formatWorkshopStageHistoryLabel(flags: {
   passed_repair?: boolean;
   passed_reacond?: boolean;
 }): string {
-  const parts: string[] = [];
-  if (flags.passed_reacond) parts.push('RC');
-  if (flags.passed_repair) parts.push('RP');
-  return parts.join(' · ');
+  return (
+    resolveWorkshopTreatment({
+      hasAddedRepair: Boolean(flags.passed_repair),
+      passedReacondicionado: Boolean(flags.passed_reacond),
+    }) ?? ''
+  );
+}
+
+/** Flags de presentación a partir de evidencias (reparación agregada vs paso por RC). */
+export function resolveWorkshopHistorialFlags(input: {
+  hasAddedRepair: boolean;
+  passedReacondicionado: boolean;
+}): { passed_repair: boolean; passed_reacond: boolean } {
+  return {
+    passed_repair: Boolean(input.hasAddedRepair),
+    passed_reacond: Boolean(input.passedReacondicionado),
+  };
+}
+
+export function hasNonEmptyCatalogIdList(ids: unknown): boolean {
+  if (!Array.isArray(ids)) return false;
+  return ids.some((id) => String(id || '').trim().length > 0);
 }

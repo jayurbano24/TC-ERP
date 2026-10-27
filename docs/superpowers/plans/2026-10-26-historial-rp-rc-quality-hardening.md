@@ -68,7 +68,7 @@
 - [x] Ejecutar `npx vitest run src/modules/workshop/domain/workshopTreatment.test.ts`; debe fallar porque el módulo aún no existe.
 - [x] Implementar `resolveWorkshopTreatment` en `workshopTreatment.ts`.
 - [x] Reejecutar la prueba; debe pasar.
-- [ ] Commit: `feat(workshop): centralize RP RC treatment policy`.
+- [x] Commit: `feat(workshop): centralize RP RC treatment policy`.
 
 ### Task 3: Adaptar Control de Calidad a la política única
 

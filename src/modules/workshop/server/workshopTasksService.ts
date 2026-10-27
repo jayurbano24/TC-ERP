@@ -17,7 +17,9 @@ import {
 import { formatWorkshopScrapOriginStage } from '@/modules/workshop/shared/workshopTaskLabels';
 import {
   finalizeWorkshopGroupSeriesOrder,
+  hasNonEmptyCatalogIdList,
   indexSeriesSapBySn,
+  resolveWorkshopHistorialFlags,
   seriesSlotsFromRow,
 } from '@/modules/workshop/shared/workshopSeriesDisplay';
 import {
@@ -29,6 +31,7 @@ import {
   parseListoOsCursor,
   sliceListoOsPage,
 } from '@/modules/workshop/server/listoOsPageCursor';
+import { loadWorkshopTreatmentEvidence } from '@/modules/workshop/server/workshopTreatmentEvidence';
 
 export type WorkshopTabId =
   | 'diagnostico'
@@ -1606,13 +1609,11 @@ async function enrichWorkshopRowsBeforeGroup(
   return enrichWorkshopRepairAndReacondCatalogs(supabase, rows);
 }
 
-const WORKSHOP_STAGE_HISTORY_ACTIONS = [
-  'REPARACIÓN COMPLETADA',
-  'REPARACIÓN L3 COMPLETADA',
-  'REACONDICIONADO COMPLETADO',
-] as const;
-
-/** Marca si alguna serie de la OS pasó por Reparación (RP) o Reacondicionado (RC). */
+/**
+ * Marca RP/RC para la columna Historial.
+ * RP = reparación agregada (catálogo o audit con IDs); visita al área no basta.
+ * RC = paso por Reacondicionado sin reparación agregada.
+ */
 async function enrichWorkshopStageHistoryFlags(
   supabase: SupabaseClient,
   groups: any[],
@@ -1622,44 +1623,34 @@ async function enrichWorkshopStageHistoryFlags(
   const seriesIds = [
     ...new Set(groups.flatMap((g) => (g.all_dbIds as string[] | undefined) || []).filter(Boolean)),
   ];
-  if (seriesIds.length === 0) return groups;
-
-  const repairIds = new Set<string>();
-  const reacondIds = new Set<string>();
-
-  for (let i = 0; i < seriesIds.length; i += 80) {
-    const chunk = seriesIds.slice(i, i + 80);
-    const { data, error } = await supabase
-      .from('erp_audit_logs')
-      .select('record_id, action')
-      .in('record_id', chunk)
-      .in('action', [...WORKSHOP_STAGE_HISTORY_ACTIONS])
-      .limit(4000);
-
-    if (error) {
-      console.warn('[workshop/server] stage history flags:', error.message);
-      break;
-    }
-
-    for (const log of data || []) {
-      const id = String(log.record_id || '');
-      const action = String(log.action || '');
-      if (!id) continue;
-      if (action === 'REACONDICIONADO COMPLETADO') {
-        reacondIds.add(id);
-      } else if (action === 'REPARACIÓN COMPLETADA' || action === 'REPARACIÓN L3 COMPLETADA') {
-        repairIds.add(id);
-      }
-    }
+  if (seriesIds.length === 0) {
+    return groups.map((g) => {
+      const hasAddedRepair = hasNonEmptyCatalogIdList(g.current_repairs);
+      const passedReacond =
+        hasNonEmptyCatalogIdList(g.current_reacondicionado) || Boolean(g.passed_reacond);
+      const flags = resolveWorkshopHistorialFlags({
+        hasAddedRepair,
+        passedReacondicionado: passedReacond,
+      });
+      return { ...g, ...flags };
+    });
   }
+
+  const evidenceBySeries = await loadWorkshopTreatmentEvidence(supabase, seriesIds);
 
   return groups.map((g) => {
     const ids = (g.all_dbIds as string[] | undefined) || [];
-    return {
-      ...g,
-      passed_repair: ids.some((id) => repairIds.has(id)),
-      passed_reacond: ids.some((id) => reacondIds.has(id)),
-    };
+    const hasAddedRepair =
+      hasNonEmptyCatalogIdList(g.current_repairs) ||
+      ids.some((id) => evidenceBySeries.get(String(id))?.hasAddedRepair === true);
+    const passedReacond =
+      hasNonEmptyCatalogIdList(g.current_reacondicionado) ||
+      ids.some((id) => evidenceBySeries.get(String(id))?.passedReacondicionado === true);
+    const flags = resolveWorkshopHistorialFlags({
+      hasAddedRepair,
+      passedReacondicionado: passedReacond,
+    });
+    return { ...g, ...flags };
   });
 }
 

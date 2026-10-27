@@ -39,8 +39,9 @@ export function useBackofficeHistoryActions({
   shellClass,
   verdict,
 }: Params) {
-  const handleExportReport = useCallback(async (opts?: { allData?: boolean }) => {
+  const handleExportReport = useCallback(async (opts?: { allData?: boolean; excludeBackfill?: boolean }) => {
     const allData = Boolean(opts?.allData) || (!dateFilterFrom && !dateFilterTo);
+    const excludeBackfill = Boolean(opts?.excludeBackfill);
     try {
       if (isCentralReportingEnabledClient()) {
         await downloadReportApi('CAC_CLASIFICACION_HISTORICO', {
@@ -52,6 +53,7 @@ export function useBackofficeHistoryActions({
               }),
           shellClass: shellClass || undefined,
           verdict: verdict || undefined,
+          excludeBackfill: excludeBackfill || undefined,
         });
         notify.success(
           allData
@@ -66,7 +68,7 @@ export function useBackofficeHistoryActions({
         catalogs,
         allData ? '' : dateFilterFrom,
         allData ? '' : dateFilterTo,
-        { excludeBackfill }
+        { excludeBackfill },
       );
     } catch (err) {
       console.error(err);

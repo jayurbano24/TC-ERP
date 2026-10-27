@@ -69,7 +69,7 @@ type SeriesRow = {
   entry_source: string | null;
   created_at: string | null;
   sap_transfer_id?: string | null;
-  sap_transfer_documents?: { agency?: string | null } | null;
+  sap_transfer_documents?: { agency?: string | null; sap_document_number?: string | null } | null;
   receptions: {
     source?: string | null;
     carrier?: string | null;

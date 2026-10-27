@@ -6,6 +6,7 @@ import {
   trayRowsToHistoryEntries,
 } from '@/lib/backoffice/trayRowAdapter';
 import { resolveUnitSapStatus } from '@/lib/sap/sapValidationStatus';
+import { filterHistoryEntriesExcludingBackfill } from '@/modules/backoffice/prediagnostico/prediagnosticoBackfillMarkers';
 import type { IReportDataProvider } from '../../domain/ports/report-data-provider.port';
 import type { ReportDataResult, ReportFilterParams, ReportRow } from '../../domain/types/report.types';
 

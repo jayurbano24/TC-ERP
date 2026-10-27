@@ -41,7 +41,7 @@ type Props = {
   MASTER_MARCAS: CatalogBrand[];
   MASTER_MODELOS: CatalogModel[];
   canReturnToPending: boolean;
-  onExportReport: (opts?: { allData?: boolean }) => void;
+  onExportReport: (opts?: { allData?: boolean; excludeBackfill?: boolean }) => void;
   onOpenMassTransfer: () => void;
   onSapBlockReturn: (entry: HistoryUnitEntry) => void;
   onReturnToPending: (receptionId: string) => void;

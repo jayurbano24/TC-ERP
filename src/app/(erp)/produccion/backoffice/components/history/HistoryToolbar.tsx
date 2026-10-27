@@ -10,7 +10,7 @@ type Props = {
   dateFilterTo: string;
   onDateFromChange: (value: string) => void;
   onDateToChange: (value: string) => void;
-  onExportReport: (opts?: { allData?: boolean }) => void;
+  onExportReport: (opts?: { allData?: boolean; excludeBackfill?: boolean }) => void;
   onOpenMassTransfer: () => void;
 };
 

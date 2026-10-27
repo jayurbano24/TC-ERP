@@ -18,8 +18,13 @@ type SeriesOsRow = SerialPickRow & {
 
 type ModelMeta = { name: string; brandId: string | null };
 
+type QueryResult<T> = {
+  data: T[] | null;
+  error: { message: string } | null;
+};
+
 async function fetchPaged<T>(
-  fetchPage: (from: number, to: number) => Promise<{ data: T[] | null; error: { message: string } | null }>,
+  fetchPage: (from: number, to: number) => PromiseLike<QueryResult<T>>,
 ): Promise<T[]> {
   const pageSize = 1000;
   const out: T[] = [];

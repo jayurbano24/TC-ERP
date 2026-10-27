@@ -65,8 +65,10 @@ export async function fetchCenamReportFromEtl(
     return (data as CenamSnapshotRpc | null) ?? null;
   };
 
-  const needsFieldRefresh = (rows: ReportRow[] | undefined): boolean =>
-    Boolean(rows?.length) && !rows.some((r) => r._osId != null || String(r.S1 ?? '').trim() !== '');
+  const needsFieldRefresh = (rows: ReportRow[] | undefined): boolean => {
+    if (!rows?.length) return false;
+    return !rows.some((r) => r._osId != null || String(r.S1 ?? '').trim() !== '');
+  };
 
   let snapshot = await readSnapshot();
   if (snapshot === null) return null;

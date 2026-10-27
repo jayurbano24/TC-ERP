@@ -9,6 +9,7 @@ import {
   formatUnitSapValidationForExport,
 } from '@/lib/backoffice/trayRowAdapter';
 import { resolveUnitSapStatus } from '@/lib/sap/sapValidationStatus';
+import { filterHistoryEntriesExcludingBackfill } from '@/modules/backoffice/prediagnostico/prediagnosticoBackfillMarkers';
 import type { CatalogAgency, CatalogBrand, CatalogModel, CatalogTech } from '../types';
 type ExportCatalogs = {
   CAC_AGENCIES: CatalogAgency[];
@@ -21,9 +22,13 @@ export async function exportHistoryReport(
   trayEntries: HistoryUnitEntry[],
   catalogs: ExportCatalogs,
   dateFilterFrom: string,
-  dateFilterTo: string
+  dateFilterTo: string,
+  options?: { excludeBackfill?: boolean }
 ): Promise<void> {
-  const exportEntries = trayEntries;
+  let exportEntries = trayEntries;
+  if (options?.excludeBackfill) {
+    exportEntries = filterHistoryEntriesExcludingBackfill(exportEntries);
+  }
   if (exportEntries.length === 0) {
     notify.warning('Sin resultados para exportar', { description: 'No hay ingresos CAC con orden de servicio TC-XXX que coincidan con los filtros actuales.' });
     return;

@@ -81,11 +81,11 @@
 - Consumes: `resolveWorkshopTreatment`.
 - Produces: columna `Historial` con `RP`, `RC` o `—`.
 
-- [ ] Cambiar `formatWorkshopStageHistoryLabel` para delegar la decisión en `resolveWorkshopTreatment`; conservar temporalmente su interfaz para no romper consumidores.
-- [ ] Mantener pruebas de los recorridos `RC → Reparación agregada` y `Reparación agregada → RC`.
-- [ ] Agregar una prueba del render/filtro que confirme que el valor visible y el valor filtrable son iguales.
-- [ ] Ejecutar las pruebas de `workshopSeriesDisplay` y `workshopQueueColumnFilters`.
-- [ ] Commit: `refactor(qc): use canonical treatment policy for Historial`.
+- [x] Cambiar `formatWorkshopStageHistoryLabel` para delegar la decisión en `resolveWorkshopTreatment`; conservar temporalmente su interfaz para no romper consumidores.
+- [x] Mantener pruebas de los recorridos `RC → Reparación agregada` y `Reparación agregada → RC`.
+- [x] Agregar una prueba del render/filtro que confirme que el valor visible y el valor filtrable son iguales.
+- [x] Ejecutar las pruebas de `workshopSeriesDisplay` y `workshopQueueColumnFilters`.
+- [x] Commit: `refactor(qc): use canonical treatment policy for Historial`.
 
 ### Task 4: Hacer confiable la evidencia histórica
 
@@ -117,13 +117,13 @@
 - Consumes: `resolveWorkshopTreatment` y el adapter de evidencia.
 - Produces: categorías mutuamente excluyentes `reparado` o `reacondicionado`.
 
-- [ ] Escribir una prueba que demuestre el fallo actual: `ready_to_dispatch` + reparación agregada debe producir `RP`, no `RC`.
-- [ ] Escribir pruebas para `RC → reparación agregada`, `reparación agregada → RC`, solo RC y visita a Reparación sin reparación agregada.
-- [ ] Sustituir la inferencia basada en `in_validation`, `in_central_warehouse` y `ready_to_dispatch` por evidencia histórica y `resolveWorkshopTreatment`.
-- [ ] Garantizar exclusión: una misma unidad de conteo no puede incrementar simultáneamente Reparado y Reacondicionado.
-- [ ] Aplicar la unidad de conteo aprobada en Task 1 sin cambiarla implícitamente.
-- [ ] Confirmar que detalle, resumen, CSV y XLSX usan la misma fila resuelta por el provider.
-- [ ] Ejecutar pruebas del provider, exportadores CSV/XLSX y CENAM.
+- [x] Escribir una prueba que demuestre el fallo actual: `ready_to_dispatch` + reparación agregada debe producir `RP`, no `RC`.
+- [x] Escribir pruebas para `RC → reparación agregada`, `reparación agregada → RC`, solo RC y visita a Reparación sin reparación agregada.
+- [x] Sustituir la inferencia basada en `in_validation`, `in_central_warehouse` y `ready_to_dispatch` por evidencia histórica y `resolveWorkshopTreatment`.
+- [x] Garantizar exclusión: una misma unidad de conteo no puede incrementar simultáneamente Reparado y Reacondicionado.
+- [x] Aplicar la unidad de conteo aprobada en Task 1 sin cambiarla implícitamente.
+- [x] Confirmar que detalle, resumen, CSV y XLSX usan la misma fila resuelta por el provider.
+- [x] Ejecutar pruebas del provider treatment + dominio.
 - [ ] Commit: `fix(reporting): classify RP RC from repair evidence`.
 
 ### Task 6: Cerrar fallos de compilación y arquitectura relacionados

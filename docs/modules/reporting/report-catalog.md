@@ -219,7 +219,7 @@ de lo contrario, si pasó por Reacondicionado → RC
 de lo contrario → vacío
 ```
 
-**Impacto en el provider actual (pre-fix):** `ops-monthly-tech-report.provider.ts` deduplica Reparado/Reacondicionado por `service_order_id` e infiere categorías desde `current_status` (`in_validation` / `in_central_warehouse` → reparado; `ready_to_dispatch` → reacondicionado). Eso **viola** este contrato y puede doble-contar RP+RC en la misma OS. Task 5 del plan `2026-10-26-historial-rp-rc-quality-hardening` debe reclasificar por evidencia histórica a nivel **equipo**.
+**Implementación (Task 5):** `ops-monthly-tech-report.provider.ts` clasifica RP/RC por equipo (`series.id`) con `loadWorkshopTreatmentEvidence` + `resolveWorkshopTreatment`. `current_status` solo delimita candidatos (QC / Equipo Listo / Reacondicionado); no decide el tratamiento. Una misma serie no incrementa Reparado y Reacondicionado a la vez.
 
 **CENAM Refurbished:** mismos códigos `RP`/`RC` y la misma unidad (equipo); no redefinir la matriz en ese provider.
 

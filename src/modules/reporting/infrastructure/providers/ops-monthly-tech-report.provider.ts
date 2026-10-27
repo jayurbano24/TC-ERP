@@ -1,5 +1,10 @@
 import { getSupabaseServerClient } from '@/lib/supabase/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { loadWorkshopTreatmentEvidence } from '@/modules/workshop/server/workshopTreatmentEvidence';
+import {
+  mergeSeriesTreatmentEvidence,
+  opsMonthlyCategoryFromEvidence,
+} from './ops-monthly-tech-treatment';
 import type { IReportDataProvider } from '../../domain/ports/report-data-provider.port';
 import type { ReportDataResult, ReportFilterParams, ReportRow } from '../../domain/types/report.types';
 
@@ -60,6 +65,8 @@ type SeriesRow = {
   current_reception_id: string | null;
   current_status: string | null;
   entry_source: string | null;
+  current_repairs?: string[] | null;
+  current_reacondicionado?: string[] | null;
 };
 
 export type IngresadoHit = {
@@ -116,6 +123,11 @@ function treatmentCode(category: DetailCategory): string {
 }
 
 function detailHitKey(hit: DetailHit): string {
+  // RP/RC: unidad de conteo = equipo (series.id). Resto de categorías: OS.
+  if (hit.category === 'reparado' || hit.category === 'reacondicionado') {
+    const seriesId = hit.seriesIds[0] || hit.osId;
+    return `${hit.category}|${hit.year}|${hit.month}|${hit.tech}|series:${seriesId}`;
+  }
   return `${hit.category}|${hit.year}|${hit.month}|${hit.tech}|${hit.osId}`;
 }
 
@@ -720,7 +732,7 @@ export async function buildEntregadoDetailRows(
 
   const rows: ReportRow[] = [];
 
-  // 1 fila por DetailHit (1 OS × categoría) — misma unidad de conteo que la matriz resumen.
+  // 1 fila por DetailHit — misma unidad que la matriz (OS para IG/TL/OB; series.id para RP/RC).
   for (const hit of hits) {
     const tech = hit.tech;
     const primaryId = pickPrimarySeriesId(hit.seriesIds, seriesMap);
@@ -793,13 +805,12 @@ export async function buildEntregadoDetailRows(
  * Matriz = foto de referencia:
  * Ingresado | Taller | Obsoleto | Reparado | Reacondicionado  (cada uno CACs / PX)
  *
- * Unidad de conteo equipo: 1 OS = 1 (Ingresado / Taller / Obsoleto). La hoja Entregado
- * emite exactamente 1 fila por OS y categoría (mismo DetailHit), cuadrando por Mes/Tecnología/TRATAMIENTO/canal.
- * Taller = equipos en cola Taller (mismo criterio UI) + los que entraron en el periodo.
- * Reparado: 1 OS que ya avanzó de Reparación → Control de Calidad o Equipo Listo.
- *   (no cuenta los que aún están en pestaña Reparación / in_qc).
- * Reacondicionado: 1 OS en pestaña Reacondicionado (ready_to_dispatch).
- * Origen CAC/PX: series.entry_source (mayoría por OS; fallback recepción / bandeja).
+ * Ingresado / Taller / Obsoleto: 1 OS = 1.
+ * Reparado (RP) / Reacondicionado (RC): 1 equipo (`series.id`) = 1; mutuamente excluyentes.
+ *   Clasificación por evidencia (reparación agregada / paso por RC), no por `current_status`.
+ *   Candidatos: series en QC / Equipo Listo / Reacondicionado (no cuenta in_qc).
+ * Hoja Entregado: 1 fila por DetailHit (misma unidad que el bucket).
+ * Origen CAC/PX: series.entry_source (por OS en IG/TL/OB; por serie en RP/RC).
  */
 export type OpsMonthlyAggregation = {
   buckets: Bucket[];
@@ -821,14 +832,20 @@ export type OpsMonthlyAggregationOptions = {
   cenamMode?: boolean;
 };
 
+type TreatmentCandidateSeries = WorkshopSeriesRow & {
+  current_repairs?: string[] | null;
+  current_reacondicionado?: string[] | null;
+};
+
+/** Candidatos a RP/RC: ubicaciones post-reparación / reacondicionado (foto operativa). */
 async function loadDispatchSeriesForReport(
   supabase: SupabaseClient,
-): Promise<WorkshopSeriesRow[]> {
-  return fetchPaged<WorkshopSeriesRow>((from, to) =>
+): Promise<TreatmentCandidateSeries[]> {
+  return fetchPaged<TreatmentCandidateSeries>((from, to) =>
     supabase
       .from('series')
       .select(
-        'id, service_order_id, model_id, current_reception_id, current_status, entry_source, updated_at',
+        'id, service_order_id, model_id, current_reception_id, current_status, entry_source, updated_at, current_repairs, current_reacondicionado',
       )
       .in('current_status', ['in_validation', 'in_central_warehouse', 'ready_to_dispatch'])
       .not('service_order_id', 'is', null)
@@ -1047,12 +1064,7 @@ export async function aggregateOpsMonthlyTechData(
       pushDetailHit(detailHits, detailHitSeen, { ...hit, category: 'ingresado' });
     }
 
-    let currentByOs: Map<string, WorkshopSeriesRow[]>;
-
-    if (options?.cenamMode) {
-      // CENAM no usa bucket Taller: solo Reparado/Reacondicionado (mucho más liviano).
-      currentByOs = buildCurrentByOsFromSeries(await loadDispatchSeriesForReport(supabase));
-    } else {
+    if (!options?.cenamMode) {
       // --- Taller: 1 OS = 1 (cola actual + entradas del periodo), no depende de Ingresado ---
       const tallerOsSeen = new Set<string>();
       const countTallerOs = (
@@ -1081,7 +1093,7 @@ export async function aggregateOpsMonthlyTechData(
 
       const queueSeries = await loadCurrentWorkshopQueueSeries(supabase);
       const listoSeries = await loadListoWorkshopSeries(supabase);
-      currentByOs = buildCurrentByOsFromSeries([...queueSeries, ...listoSeries]);
+      const currentByOs = buildCurrentByOsFromSeries([...queueSeries, ...listoSeries]);
 
       for (const [osId, seriesList] of currentByOs) {
         let m: number;
@@ -1203,65 +1215,61 @@ export async function aggregateOpsMonthlyTechData(
       });
     }
 
-    // --- Reparado: solo quien YA avanzó de Reparación (QC + Equipo Listo). ---
-    // No cuenta in_qc (aún en pestaña Reparación).
-    // --- Reacondicionado: pestaña Reacondicionado (ready_to_dispatch) ---
-    const reparadoOsSeen = new Set<string>();
-    const reacondOsSeen = new Set<string>();
+    // --- RP/RC por equipo (series.id): evidencia histórica, no current_status. ---
+    // Candidatos = ubicaciones post-taller (QC / Listo / Reacondicionado). in_qc no entra.
+    const treatmentCandidates = await loadDispatchSeriesForReport(supabase);
+    const treatmentSeriesIds = treatmentCandidates.map((s) => String(s.id));
+    const treatmentEvidence = await loadWorkshopTreatmentEvidence(supabase, treatmentSeriesIds);
+    const treatmentSeriesSeen = new Set<string>();
 
-    for (const [osId, seriesList] of currentByOs) {
-      const statuses = new Set(seriesList.map((s) => String(s.current_status || '')));
-      const isReparado =
-        statuses.has('in_validation') || statuses.has('in_central_warehouse');
-      const isReacond = statuses.has('ready_to_dispatch');
-      if (!isReparado && !isReacond) continue;
+    for (const s of treatmentCandidates) {
+      const seriesId = String(s.id);
+      if (!seriesId || treatmentSeriesSeen.has(seriesId)) continue;
+
+      const evidence = mergeSeriesTreatmentEvidence(
+        {
+          current_repairs: s.current_repairs,
+          current_reacondicionado: s.current_reacondicionado,
+        },
+        treatmentEvidence.get(seriesId),
+      );
+      const category = opsMonthlyCategoryFromEvidence(evidence);
+      if (!category) continue;
+
+      treatmentSeriesSeen.add(seriesId);
 
       let m: number;
       if (monthFilter) {
         m = monthFilter;
       } else {
-        const latest = seriesList.reduce((acc, s) => {
-          const t = new Date(s.updated_at).getTime();
-          return Number.isNaN(t) ? acc : Math.max(acc, t);
-        }, 0);
-        const dt = latest ? new Date(latest) : null;
-        if (!dt || dt.getFullYear() !== year) continue;
+        const dt = new Date(s.updated_at);
+        if (Number.isNaN(dt.getTime()) || dt.getFullYear() !== year) continue;
         m = dt.getMonth() + 1;
       }
 
-      const tech = resolveTech(seriesList[0]?.model_id);
+      const tech = resolveTech(s.model_id);
       if (techFilterRaw && !techNames.includes(tech)) continue;
-      const source = sourceFromSeriesList(seriesList, 'cac');
+      const source = sourceFromEntry(s.entry_source, 'cac');
       const b = ensure(year, m, tech);
+      const osId = String(s.service_order_id || '');
 
-      if (isReparado && !reparadoOsSeen.has(osId)) {
-        reparadoOsSeen.add(osId);
+      if (category === 'reparado') {
         if (source === 'px') b.reparadoPx += 1;
         else b.reparadoCac += 1;
-        pushDetailHit(detailHits, detailHitSeen, {
-          osId,
-          seriesIds: seriesList.map((row) => row.id),
-          year,
-          month: m,
-          tech,
-          source,
-          category: 'reparado',
-        });
-      }
-      if (isReacond && !reacondOsSeen.has(osId)) {
-        reacondOsSeen.add(osId);
+      } else {
         if (source === 'px') b.reacondicionadoPx += 1;
         else b.reacondicionadoCac += 1;
-        pushDetailHit(detailHits, detailHitSeen, {
-          osId,
-          seriesIds: seriesList.map((row) => row.id),
-          year,
-          month: m,
-          tech,
-          source,
-          category: 'reacondicionado',
-        });
       }
+
+      pushDetailHit(detailHits, detailHitSeen, {
+        osId,
+        seriesIds: [seriesId],
+        year,
+        month: m,
+        tech,
+        source,
+        category,
+      });
     }
 
     const rows: ReportRow[] = [...buckets.values()]

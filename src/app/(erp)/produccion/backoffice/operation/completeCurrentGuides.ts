@@ -165,7 +165,9 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
         }
 
         if (isDevolucion) {
-          const { validateReturnMotivoAgainstCatalog } = await import('@/lib/database/returns');
+          const { validateReturnMotivoAgainstCatalog } = await import(
+            '@/modules/returns/shared/returnMotivo'
+          );
           const motivo = ctx.returnReason?.trim() || '';
           if (!motivo) {
             notify.warning('Motivo obligatorio', {

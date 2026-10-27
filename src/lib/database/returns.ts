@@ -41,16 +41,8 @@ export function isMissingReturnMotivo(value: string | null | undefined): boolean
   return v.toLowerCase() === GENERIC_RETURN_MOTIVO;
 }
 
-export function validateReturnMotivoAgainstCatalog(
-  motivo: string,
-  catalogNames: string[] | null | undefined,
-): boolean {
-  const trimmed = motivo.trim();
-  if (!trimmed) return false;
-  const options = catalogNames ?? [];
-  if (options.length === 0) return trimmed.length >= 3;
-  return options.some((name) => name.trim().toLowerCase() === trimmed.toLowerCase());
-}
+/** @deprecated Prefer `@/modules/returns/shared/returnMotivo`. */
+export { validateReturnMotivoAgainstCatalog } from '@/modules/returns/shared/returnMotivo';
 
 function extractGuideBlockFromNotes(notes: string, guideNumber: string): string | null {
   const guideKey = String(guideNumber || '')

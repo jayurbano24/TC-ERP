@@ -5,7 +5,7 @@ import type { BackofficeTab, BackofficeReception, CatalogAgency, CatalogBrand, C
 import type { CompleteGuidesContext } from './completeGuidesContext';
 import { runCompleteCurrentGuides } from './completeCurrentGuides';
 import { notify } from '@/components/ui/messaging/messageStore';
-import { validateReturnMotivoAgainstCatalog } from '@/lib/database/returns';
+import { validateReturnMotivoAgainstCatalog } from '@/modules/returns/shared/returnMotivo';
 
 export type CompleteFlowParams = {
   isSubmitting: boolean;

@@ -3,7 +3,7 @@
 import React from 'react';
 import { Button, Card, notify } from '@/components/ui';
 import { Camera, ChevronLeft, FileText, X } from 'lucide-react';
-import { validateReturnMotivoAgainstCatalog } from '@/lib/database/returns';
+import { validateReturnMotivoAgainstCatalog } from '@/modules/returns/shared/returnMotivo';
 import type { OperationContext } from '../../operation/operationContext';
 import { getReceiverName } from '../../backofficeHelpers';
 

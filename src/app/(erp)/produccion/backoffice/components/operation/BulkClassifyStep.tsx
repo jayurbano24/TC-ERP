@@ -8,7 +8,7 @@ import {
   canClassifyToAccesorios,
   canClassifyToTelefonos,
 } from '../../operation/canClassifyAccesorios';
-import { validateReturnMotivoAgainstCatalog } from '@/lib/database/returns';
+import { validateReturnMotivoAgainstCatalog } from '@/modules/returns/shared/returnMotivo';
 import type { OperationContext } from '../../operation/operationContext';
 import type { OperationCategory } from '../../types';
 

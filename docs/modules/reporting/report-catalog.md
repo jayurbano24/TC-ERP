@@ -1,7 +1,7 @@
 # Catálogo de reportes — TC-ERP
 
 **Módulo:** `reporting`  
-**Versión catálogo:** 1.0 | **Fecha:** 2026-06-18
+**Versión catálogo:** 1.1 | **Fecha:** 2026-10-26
 
 Códigos canónicos para `report_definitions.code`. Columnas deben alinearse con [`glossary.md`](../../architecture/glossary.md).
 
@@ -172,6 +172,56 @@ Códigos canónicos para `report_definitions.code`. Columnas deben alinearse con
 | **Nombre UI** | Productividad técnico por día |
 | **Fuente** | `kpi-engine.ts` / `domain_events` futuro |
 | **Nota** | Puede vivir en `kpi-analytics`; reporting exporta detalle |
+
+### `OPERACIONES_MENSUAL_TECNOLOGIA` ✅
+
+| Campo | Valor |
+|-------|-------|
+| **Nombre UI** | Operaciones mensual por tecnología |
+| **Provider** | `ops-monthly-tech-report.provider.ts` |
+| **Hojas** | Resumen (matriz) + detalle Entregado (TRATAMIENTO) |
+| **Códigos TRATAMIENTO / Historial** | `IG`, `TL`, `OB`, `RP`, `RC` |
+
+#### Contrato Historial / TRATAMIENTO `RP` · `RC` (congelado 2026-10-26)
+
+**Unidad de conteo canónica: equipo (`series.id`), no orden de servicio.**
+
+| Tema | Decisión |
+|------|----------|
+| **Qué se clasifica** | Cada equipo inventariable (`series`), alineado a Control de Calidad (columna Hist.) |
+| **Por qué no OS** | Una OS puede agrupar varios equipos con recorridos distintos; contar por OS mezcla tratamientos y puede alterar totales (p. ej. un equipo RP y otro solo RC bajo la misma OS) |
+| **Exclusión** | La misma unidad de conteo **no** puede incrementar a la vez Reparado (`RP`) y Reacondicionado (`RC`) |
+| **`current_status`** | Ubicación operativa (cola / bodega / listo). **No** determina `RP`/`RC` |
+| **Pantalla = export** | QC, detalle del reporte, resumen, CSV y XLSX consumen el mismo valor resuelto por la política de dominio |
+
+**Definiciones**
+
+| Término | Significado |
+|---------|-------------|
+| **Historial / TRATAMIENTO** | Etiqueta de recorrido de taller del equipo: `RP`, `RC`, o vacío (no clasificado) |
+| **Reparación agregada** | Evidencia real de reparación asociada al equipo (`current_repairs` con IDs de catálogo válidos, o auditoría de reparación con IDs extraídos). Visitar el área Reparación **no** basta |
+| **Paso por Reacondicionado** | Evidencia de haber pasado por Reacondicionado (catálogo `current_reacondicionado` o auditoría de etapa RC). Un retorno a RC para limpieza **no** sustituye `RP` |
+
+**Matriz de decisión (única)**
+
+| Evidencia | Historial / TRATAMIENTO |
+|-----------|-------------------------|
+| Reparación agregada, con o sin paso por RC | **RP** |
+| Sin reparación agregada, con paso por RC | **RC** |
+| Sin reparación agregada y sin paso por RC | vacío / no clasificado |
+| Solo visita al área Reparación, luego RC (sin reparación agregada) | **RC** |
+
+**Pseudocódigo canónico**
+
+```
+si existe reparación agregada al equipo → RP
+de lo contrario, si pasó por Reacondicionado → RC
+de lo contrario → vacío
+```
+
+**Impacto en el provider actual (pre-fix):** `ops-monthly-tech-report.provider.ts` deduplica Reparado/Reacondicionado por `service_order_id` e infiere categorías desde `current_status` (`in_validation` / `in_central_warehouse` → reparado; `ready_to_dispatch` → reacondicionado). Eso **viola** este contrato y puede doble-contar RP+RC en la misma OS. Task 5 del plan `2026-10-26-historial-rp-rc-quality-hardening` debe reclasificar por evidencia histórica a nivel **equipo**.
+
+**CENAM Refurbished:** mismos códigos `RP`/`RC` y la misma unidad (equipo); no redefinir la matriz en ese provider.
 
 ---
 

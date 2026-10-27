@@ -74,7 +74,13 @@ export function PrediagnosticoCatalogPanel({ tecnologias, marcas, modelos }: Pro
   }, []);
 
   useEffect(() => {
-    void reload();
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (!cancelled) void reload();
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [reload]);
 
   const modelsForTech = useMemo(
@@ -93,13 +99,21 @@ export function PrediagnosticoCatalogPanel({ tecnologias, marcas, modelos }: Pro
   const brandIdForModel = selectedModel?.marcaId ?? '';
 
   useEffect(() => {
-    if (!configModelId || !selectedModel) {
-      setProfileItemIds([]);
-      setProfileLoaded(false);
-      setProfileHasRows(false);
-      return;
-    }
     let cancelled = false;
+
+    if (!configModelId || !selectedModel) {
+      void Promise.resolve().then(() => {
+        if (cancelled) return;
+        setProfileItemIds([]);
+        setProfileLoaded(false);
+        setProfileHasRows(false);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const model = selectedModel;
     void (async () => {
       const result = await fetchPrediagnosticoModelItemIds(configModelId);
       if (cancelled) return;
@@ -125,7 +139,7 @@ export function PrediagnosticoCatalogPanel({ tecnologias, marcas, modelos }: Pro
         }));
       const applicable = filterPrediagnosticoCatalogForEquipment(
         catalogRows,
-        selectedModel.tecnologiaId,
+        model.tecnologiaId,
         brandIdForModel,
         ids.length > 0 ? ids : null
       );
@@ -135,7 +149,7 @@ export function PrediagnosticoCatalogPanel({ tecnologias, marcas, modelos }: Pro
         setProfileItemIds(
           filterPrediagnosticoCatalogForEquipment(
             catalogRows,
-            selectedModel.tecnologiaId,
+            model.tecnologiaId,
             brandIdForModel,
             null
           ).map((row) => row.id)

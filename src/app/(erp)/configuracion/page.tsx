@@ -157,6 +157,10 @@ export default function ConfiguracionPage() {
       try {
         const { getSupabaseBrowserClient } = await import('@/lib/supabase/client');
         const supabase = getSupabaseBrowserClient();
+        if (!supabase) {
+          if (!cancelled) setSessionEmail(null);
+          return;
+        }
         const { data } = await supabase.auth.getUser();
         if (!cancelled) setSessionEmail(data.user?.email ?? null);
       } catch {

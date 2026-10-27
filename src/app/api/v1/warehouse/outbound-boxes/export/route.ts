@@ -10,6 +10,7 @@ import {
 } from '@/shared/infrastructure/warehouse/enrichWarehouseBoxItems';
 import { isOutboundStagingRack } from '@/lib/database/warehouse';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
+import { isRecord, isRowWithId } from '@/shared/infrastructure/supabase/rowGuards';
 import {
   buildEquipmentSerialSlots,
   coalesceMaterialLote,
@@ -109,7 +110,8 @@ async function fetchMap(
     const { data, error } = await db.from(table).select(cols).in('id', chunk);
     if (error) continue;
     for (const row of data || []) {
-      map.set(String((row as { id: string }).id), row as Record<string, unknown>);
+      if (!isRowWithId(row) || !isRecord(row)) continue;
+      map.set(row.id, row);
     }
   }
   return map;

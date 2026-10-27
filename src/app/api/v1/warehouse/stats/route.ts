@@ -183,7 +183,7 @@ export async function GET(req: NextRequest) {
       total_boxes: Number(row.total_boxes || 0),
       total_units: Number(row.total_units || 0),
     }))
-    .sort((a, b) => b.total_units - a.total_units);
+    .sort((a: TechStatRow, b: TechStatRow) => b.total_units - a.total_units);
 
   const stats = await attachTechNames(supabase, statsArray);
   const totals: DashboardTotals = {

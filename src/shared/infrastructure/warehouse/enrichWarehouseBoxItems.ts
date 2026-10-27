@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { BRAND_SELECT, MODEL_SELECT, TECHNOLOGY_SELECT } from '@/shared/constants/dbProjections';
+import { isRecord, isRowWithId } from '@/shared/infrastructure/supabase/rowGuards';
 
 export type WarehouseBoxListRow = {
   box_id: string;
@@ -20,6 +21,7 @@ export type WarehouseBoxListRow = {
 };
 
 export type EnrichedWarehouseBoxRow = WarehouseBoxListRow & {
+  model_id?: string | null;
   capacity?: number | null;
   equipos_count?: number | null;
   deletion_status?: string | null;
@@ -54,7 +56,8 @@ async function fetchMapById(
       continue;
     }
     for (const row of data ?? []) {
-      map.set(String((row as { id: string }).id), row as Record<string, unknown>);
+      if (!isRowWithId(row) || !isRecord(row)) continue;
+      map.set(row.id, row);
     }
   }
   return map;

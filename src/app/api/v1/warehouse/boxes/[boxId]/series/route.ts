@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { requireApiUser } from '@/shared/infrastructure/http/requireApiUser';
 import { logOnlyRoleCheck, ROLES_BODEGA_DESPACHO } from '@/shared/authz/roleGuard';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
+import { isRecord, isRowWithId } from '@/shared/infrastructure/supabase/rowGuards';
 
 const ListBoxSeriesQuery = z.object({
   cursor: z.string().uuid().optional(),
@@ -73,7 +74,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ boxI
         continue;
       }
       for (const row of data || []) {
-        map.set(String((row as { id: string }).id), row as Record<string, unknown>);
+        if (!isRowWithId(row) || !isRecord(row)) continue;
+        map.set(row.id, row);
       }
     }
     return map;

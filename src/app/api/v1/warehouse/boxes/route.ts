@@ -513,7 +513,7 @@ export async function GET(req: NextRequest) {
       p_limit: limit + 1,
     });
     if (!inProgress.error) {
-      const rows = onlyBodegaRows(inProgress.data ?? []);
+      const rows = onlyBodegaRows((inProgress.data ?? []) as WarehouseBoxCandidate[]);
       const hasMore = rows.length > limit;
       const items = hasMore ? rows.slice(0, -1) : rows;
       const enriched = await enrichWarehouseBoxItems(supabase, items);

@@ -14,7 +14,10 @@ const eqChain = {
   limit: limitMock,
 };
 const selectMock = vi.fn(() => eqChain);
-const fromMock = vi.fn((_table?: string) => ({ select: selectMock }));
+type FromTableResult = { select: (...args: unknown[]) => unknown };
+const fromMock = vi.fn<(table?: string) => FromTableResult>((_table?: string) => ({
+  select: selectMock,
+}));
 
 vi.mock('../audit', () => ({
   auditClassifiedSeries: vi.fn().mockResolvedValue(undefined),
@@ -245,63 +248,54 @@ describe('runClassifyEquipmentBatchChunked', () => {
       error: null,
     });
 
-    fromMock.mockImplementation((table: string) => {
-      if (table === 'service_orders') {
-        return {
-          select: () => ({
-            eq: () => ({
-              eq: () => ({
-                eq: () => ({
-                  limit: () => ({
-                    maybeSingle: async () => ({ data: null, error: null }),
-                  }),
-                }),
-                limit: async () => ({
-                  data: [
-                    {
-                      id: 'os-89089',
-                      main_serial: 'M1934ER01847',
-                      status: 'INGRESADO',
-                      reception_id: receptionId,
-                      sap_transfer_id: originalTransferId,
-                    },
-                  ],
-                  error: null,
-                }),
-              }),
-            }),
-          }),
-        };
-      }
-      if (table === 'sap_transfer_documents') {
-        return {
-          select: () => ({
-            eq: () => ({
-              maybeSingle: async () => ({
-                data: { sap_document_number: '418845465/4' },
-                error: null,
-              }),
-            }),
-            in: async () => ({
-              data: [{ id: originalTransferId, sap_document_number: '418845465/4' }],
-              error: null,
-            }),
-          }),
-        };
-      }
-      if (table === 'series') {
-        return {
-          select: () => ({
-            in: async () => ({
-              data: seriesOs89089.map((serial_number) => ({
-                service_order_id: 'os-89089',
-                serial_number,
-              })),
-              error: null,
-            }),
-          }),
-        };
-      }
+    const serviceOrdersSelect = vi.fn(() => ({
+      eq: vi.fn(() => ({
+        eq: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            limit: vi.fn(() => ({
+              maybeSingle: vi.fn(async () => ({ data: null, error: null })),
+            })),
+          })),
+          limit: vi.fn(async () => ({
+            data: [
+              {
+                id: 'os-89089',
+                main_serial: 'M1934ER01847',
+                status: 'INGRESADO',
+                reception_id: receptionId,
+                sap_transfer_id: originalTransferId,
+              },
+            ],
+            error: null,
+          })),
+        })),
+      })),
+    }));
+    const sapTransferSelect = vi.fn(() => ({
+      eq: vi.fn(() => ({
+        maybeSingle: vi.fn(async () => ({
+          data: { sap_document_number: '418845465/4' },
+          error: null,
+        })),
+      })),
+      in: vi.fn(async () => ({
+        data: [{ id: originalTransferId, sap_document_number: '418845465/4' }],
+        error: null,
+      })),
+    }));
+    const seriesSelect = vi.fn(() => ({
+      in: vi.fn(async () => ({
+        data: seriesOs89089.map((serial_number) => ({
+          service_order_id: 'os-89089',
+          serial_number,
+        })),
+        error: null,
+      })),
+    }));
+    fromMock.mockImplementation((table?: string) => {
+      if (table === 'service_orders') return { select: serviceOrdersSelect };
+      if (table === 'sap_transfer_documents') return { select: sapTransferSelect };
+      if (table === 'series') return { select: seriesSelect };
       return { select: selectMock };
     });
 
@@ -341,63 +335,54 @@ describe('runClassifyEquipmentBatchChunked', () => {
       },
     });
 
-    fromMock.mockImplementation((table: string) => {
-      if (table === 'service_orders') {
-        return {
-          select: () => ({
-            eq: () => ({
-              eq: () => ({
-                eq: () => ({
-                  limit: () => ({
-                    maybeSingle: async () => ({ data: null, error: null }),
-                  }),
-                }),
-                limit: async () => ({
-                  data: [
-                    {
-                      id: 'os-89089',
-                      main_serial: 'M1934ER01847',
-                      status: 'INGRESADO',
-                      reception_id: receptionId,
-                      sap_transfer_id: originalTransferId,
-                    },
-                  ],
-                  error: null,
-                }),
-              }),
-            }),
-          }),
-        };
-      }
-      if (table === 'sap_transfer_documents') {
-        return {
-          select: () => ({
-            eq: () => ({
-              maybeSingle: async () => ({
-                data: { sap_document_number: '418845465/4' },
-                error: null,
-              }),
-            }),
-            in: async () => ({
-              data: [{ id: originalTransferId, sap_document_number: '418845465/4' }],
-              error: null,
-            }),
-          }),
-        };
-      }
-      if (table === 'series') {
-        return {
-          select: () => ({
-            in: async () => ({
-              data: seriesOs89089.map((serial_number) => ({
-                service_order_id: 'os-89089',
-                serial_number,
-              })),
-              error: null,
-            }),
-          }),
-        };
-      }
+    const serviceOrdersSelect2 = vi.fn(() => ({
+      eq: vi.fn(() => ({
+        eq: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            limit: vi.fn(() => ({
+              maybeSingle: vi.fn(async () => ({ data: null, error: null })),
+            })),
+          })),
+          limit: vi.fn(async () => ({
+            data: [
+              {
+                id: 'os-89089',
+                main_serial: 'M1934ER01847',
+                status: 'INGRESADO',
+                reception_id: receptionId,
+                sap_transfer_id: originalTransferId,
+              },
+            ],
+            error: null,
+          })),
+        })),
+      })),
+    }));
+    const sapTransferSelect2 = vi.fn(() => ({
+      eq: vi.fn(() => ({
+        maybeSingle: vi.fn(async () => ({
+          data: { sap_document_number: '418845465/4' },
+          error: null,
+        })),
+      })),
+      in: vi.fn(async () => ({
+        data: [{ id: originalTransferId, sap_document_number: '418845465/4' }],
+        error: null,
+      })),
+    }));
+    const seriesSelect2 = vi.fn(() => ({
+      in: vi.fn(async () => ({
+        data: seriesOs89089.map((serial_number) => ({
+          service_order_id: 'os-89089',
+          serial_number,
+        })),
+        error: null,
+      })),
+    }));
+    fromMock.mockImplementation((table?: string) => {
+      if (table === 'service_orders') return { select: serviceOrdersSelect2 };
+      if (table === 'sap_transfer_documents') return { select: sapTransferSelect2 };
+      if (table === 'series') return { select: seriesSelect2 };
       return { select: selectMock };
     });
 

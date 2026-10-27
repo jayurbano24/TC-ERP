@@ -18,8 +18,10 @@ import { describe, expect, it } from 'vitest';
 
 config({ path: path.join(process.cwd(), '.env.local'), override: true });
 
-const EXPORT_TEST_TIMEOUT_MS = 900_000;
+/** Smoke: ~100 filas enriquecidas. Full dump (~87k) = `npm run export:prediagnostico` (8–15 min). */
+const EXPORT_TEST_TIMEOUT_MS = 180_000;
 const PROBE_TIMEOUT_MS = 15_000;
+const SMOKE_MAX_ROWS = 100;
 
 function supabaseIntegrationReady(): { ok: true; url: string; key: string } | { ok: false; reason: string } {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() || process.env.SUPABASE_URL?.trim();
@@ -89,12 +91,13 @@ describe('export prediagnostico all (integration)', () => {
 
       const { generateReportHex } = await import('@/modules/reporting/factory');
 
+      // No usar allData sin maxRows: el remoto tiene ~87k filas y supera cualquier timeout CI.
       const result = await generateReportHex({
         reportCode: 'PREDIAGNOSTICO_EQUIPOS',
         format: 'XLSX',
-        filters: { allData: true },
+        filters: { allData: true, maxRows: SMOKE_MAX_ROWS },
         userId: null,
-        userName: 'script-export',
+        userName: 'script-export-smoke',
       });
 
       if (!result.success) {

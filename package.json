@@ -10,7 +10,7 @@
     "test": "npm run test:unit",
     "test:unit": "vitest run --exclude src/scripts/export-prediagnostico-all.test.ts",
     "test:watch": "vitest",
-    "test:integration:prediagnostico": "vitest run src/scripts/export-prediagnostico-all.test.ts --testTimeout=900000",
+    "test:integration:prediagnostico": "vitest run src/scripts/export-prediagnostico-all.test.ts --testTimeout=180000",
     "export:prediagnostico": "npx --yes tsx scripts/export-prediagnostico.ts",
     "export:prediagnostico:sample100": "npx --yes tsx scripts/export-prediagnostico-sample-100.ts",
     "export:prediagnostico:range": "npx --yes tsx scripts/export-prediagnostico-range.ts",

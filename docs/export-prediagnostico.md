@@ -115,8 +115,9 @@ Esta prueba **no** corre en la suite unitaria. Es integración contra Supabase (
 | Comando | Alcance |
 |---------|---------|
 | `npm run test:unit` / `npm test` | Vitest **excluye** `src/scripts/export-prediagnostico-all.test.ts` |
-| `npm run test:integration:prediagnostico` | Solo el export (timeout 900 000 ms) |
+| `npm run test:integration:prediagnostico` | Smoke export con `maxRows: 100` (timeout 180 000 ms) |
 | `npm run export:prediagnostico:test` | Alias del comando de integración |
+| `npm run export:prediagnostico` | Dump completo (~87k filas, 8–15 min) — **no** es el test CI |
 
 ### Precondiciones
 
@@ -130,7 +131,9 @@ Esta prueba **no** corre en la suite unitaria. Es integración contra Supabase (
 
 3. Opcional: `RUN_PREDIAG_EXPORT_INTEGRATION=1` — si faltan vars, la prueba **falla** en lugar de salir con aviso (útil en CI con secretos).
 
-Sin URL/key **o** si el probe REST (15 s) no alcanza Supabase: warning y salida sin hang de 15 min. Con `RUN_PREDIAG_EXPORT_INTEGRATION=1` esos casos **fallan** (CI con secretos). Timeout del caso: **900 000 ms**.
+Sin URL/key **o** si el probe REST (15 s) no alcanza Supabase: warning y salida sin hang. Con `RUN_PREDIAG_EXPORT_INTEGRATION=1` esos casos **fallan** (CI con secretos).
+
+**Importante (2026-10-27):** el test de integración usa `filters.maxRows = 100` + `allData`. Un `allData` sin tope contra el proyecto cloud (~87 630 filas) agota 900 s y no aporta señal CI. El Excel completo sigue siendo `npm run export:prediagnostico`.
 
 ### CI recomendado
 

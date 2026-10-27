@@ -68,10 +68,16 @@ describe('confirm route handler wiring (smoke)', () => {
     vi.resetModules();
   });
 
-  it('exporta GET desde route.ts', async () => {
-    // El módulo se implementa en el ciclo GREEN; aquí solo documentamos el contrato.
-    // Si aún no existe, el import falla → RED correcto.
-    const mod = await import('./route');
-    expect(typeof mod.GET).toBe('function');
-  });
+  it(
+    'exporta GET desde route.ts',
+    async () => {
+      // El módulo se implementa en el ciclo GREEN; aquí solo documentamos el contrato.
+      // Si aún no existe, el import falla → RED correcto.
+      // Timeout amplio: bajo carga (suite completa + integración) el import de route.ts
+      // puede superar 5s por cold transform de next/server.
+      const mod = await import('./route');
+      expect(typeof mod.GET).toBe('function');
+    },
+    15_000
+  );
 });

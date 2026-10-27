@@ -53,7 +53,7 @@
 | Solo visita al área Reparación, luego RC | RC |
 
 - [x] Documentar que `current_status` sirve para ubicación operativa, no para determinar RP/RC.
-- [ ] Commit: `docs(reporting): define RP RC treatment contract`.
+- [x] Commit: `docs(reporting): define RP RC treatment contract`.
 
 ### Task 2: Crear la política de dominio única
 
@@ -64,28 +64,10 @@
 **Interfaces:**
 - Produces: `resolveWorkshopTreatment(evidence: WorkshopTreatmentEvidence): 'RP' | 'RC' | null`.
 
-- [ ] Escribir pruebas parametrizadas para los cuatro casos de la matriz y para valores booleanos falsos.
-- [ ] Ejecutar `npx vitest run src/modules/workshop/domain/workshopTreatment.test.ts`; debe fallar porque el módulo aún no existe.
-- [ ] Implementar:
-
-```ts
-export type WorkshopTreatment = 'RP' | 'RC';
-
-export type WorkshopTreatmentEvidence = {
-  hasAddedRepair: boolean;
-  passedReacondicionado: boolean;
-};
-
-export function resolveWorkshopTreatment(
-  evidence: WorkshopTreatmentEvidence,
-): WorkshopTreatment | null {
-  if (evidence.hasAddedRepair) return 'RP';
-  if (evidence.passedReacondicionado) return 'RC';
-  return null;
-}
-```
-
-- [ ] Reejecutar la prueba; debe pasar.
+- [x] Escribir pruebas parametrizadas para los cuatro casos de la matriz y para valores booleanos falsos.
+- [x] Ejecutar `npx vitest run src/modules/workshop/domain/workshopTreatment.test.ts`; debe fallar porque el módulo aún no existe.
+- [x] Implementar `resolveWorkshopTreatment` en `workshopTreatment.ts`.
+- [x] Reejecutar la prueba; debe pasar.
 - [ ] Commit: `feat(workshop): centralize RP RC treatment policy`.
 
 ### Task 3: Adaptar Control de Calidad a la política única

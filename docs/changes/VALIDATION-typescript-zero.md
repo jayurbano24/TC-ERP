@@ -91,13 +91,9 @@ git diff --check                         # OK
 
 ### ESLint (archivos del incremento, sin autofix)
 
-Lista representativa de paths committed (lotes A–H). Ejecutar:
+Ejecutado sobre paths representativos del incremento (`eslint --max-warnings 0`).
 
-```powershell
-npx eslint --max-warnings 0 <paths-del-incremento>
-```
-
-*(Si el proyecto no tiene script eslint dedicado por archivo, usar el CLI local del package.)*
+Resultado: **fallos preexistentes** (p. ej. `any` en `despacho/page.tsx`, hooks deps, unused `_osId` en CENAM). **Ningún** `eslint-disable` / `@ts-ignore` / `any` nuevo introducido por este incremento. No se aplicó autofix global.
 
 ## 5. Commits creados
 
@@ -109,7 +105,7 @@ npx eslint --max-warnings 0 <paths-del-incremento>
 6. `f73cf76` — `fix(types): synchronize prediagnostico script contracts`
 7. `4c043fd` — `fix(types): validate shared infrastructure results`
 8. `693699f` — `fix(types): close remaining application type errors`
-9. *(pendiente)* `docs(quality): record TypeScript zero validation`
+9. `e0a75ed` — `docs(quality): record TypeScript zero validation`
 
 ## 6. Estado del working tree tras commits
 

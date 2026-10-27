@@ -66,7 +66,11 @@ export async function startEphemeralPostgres(prefix = 'C:\\tmp\\tc-erp-classify-
         encoding: 'utf8',
         windowsHide: true,
       });
-      rmSync(dataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      try {
+        rmSync(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+      } catch {
+        // En Windows el proceso de Postgres o el indexador puede demorar unos ms en soltar el lock; no debe fallar el test.
+      }
     },
   };
 }

@@ -105,3 +105,41 @@ npm run export:prediagnostico:sample100
 ```
 
 Salida: `web\dist\PREDIAGNOSTICO_EQUIPOS_muestra_100.xlsx`
+
+---
+
+## Integración CI — `export-prediagnostico-all.test.ts`
+
+Esta prueba **no** corre en la suite unitaria. Es integración contra Supabase (remoto o Docker aislado).
+
+| Comando | Alcance |
+|---------|---------|
+| `npm run test:unit` / `npm test` | Vitest **excluye** `src/scripts/export-prediagnostico-all.test.ts` |
+| `npm run test:integration:prediagnostico` | Solo el export (timeout 900 000 ms) |
+| `npm run export:prediagnostico:test` | Alias del comando de integración |
+
+### Precondiciones
+
+1. `NEXT_PUBLIC_SUPABASE_URL` (o `SUPABASE_URL`)
+2. `SUPABASE_SERVICE_ROLE_KEY` en `.env.local`, **o** stack aislado:
+
+   ```powershell
+   npm run supabase:isolated:reset
+   # apuntar .env.local al URL/keys del stack aislado
+   ```
+
+3. Opcional: `RUN_PREDIAG_EXPORT_INTEGRATION=1` — si faltan vars, la prueba **falla** en lugar de salir con aviso (útil en CI con secretos).
+
+Sin URL/key: la prueba registra un warning y sale sin hang; no se considera “omitida del repo”, solo **condicionada** a backend disponible.
+
+### CI recomendado
+
+```yaml
+unit:
+  run: npm run test:unit
+integration-prediagnostico:
+  if: secrets.SUPABASE_SERVICE_ROLE_KEY
+  env:
+    RUN_PREDIAG_EXPORT_INTEGRATION: "1"
+  run: npm run test:integration:prediagnostico
+```

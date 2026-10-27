@@ -208,8 +208,13 @@ function sourceFromEntry(entry: string | null | undefined, fallback: Source = 'c
   return fallback;
 }
 
+type QueryResult<T> = {
+  data: T[] | null;
+  error: { message: string } | null;
+};
+
 async function fetchPaged<T>(
-  fetchPage: (from: number, to: number) => Promise<{ data: T[] | null; error: { message: string } | null }>
+  fetchPage: (from: number, to: number) => PromiseLike<QueryResult<T>>,
 ): Promise<T[]> {
   const pageSize = 1000;
   const out: T[] = [];
@@ -396,6 +401,11 @@ async function loadCurrentWorkshopQueueSeries(
   );
 }
 
+type ListoRpcRow = {
+  service_order_id: string | null;
+  sort_ts: string | null;
+};
+
 /**
  * Equipo Listo vía RPC (evita scan de toda bodega central).
  * Mismo criterio que count_workshop_os_all_tabs.listo.
@@ -407,22 +417,24 @@ async function loadListoWorkshopSeries(
   let cursor: string | null = null;
 
   for (let page = 0; page < 100 && osIds.length < 20_000; page++) {
-    const { data, error } = await supabase.rpc('workshop_list_listo_os_page', {
+    const rpcResult = await supabase.rpc('workshop_list_listo_os_page', {
       p_cursor: cursor,
       p_limit: 200,
     });
+    const error = rpcResult.error;
+    const data = (rpcResult.data ?? []) as ListoRpcRow[];
     if (error) {
       // RPC ausente en algún entorno: omitir listo sin tumbar el reporte
       console.warn('[ops-monthly-tech] listo RPC:', error.message);
       break;
     }
-    if (!data?.length) break;
+    if (!data.length) break;
     for (const row of data) {
       const id = String(row.service_order_id || '');
       if (id) osIds.push(id);
     }
     if (data.length < 200) break;
-    cursor = String(data[data.length - 1].sort_ts || '') || null;
+    cursor = String(data[data.length - 1]?.sort_ts || '') || null;
     if (!cursor) break;
   }
 

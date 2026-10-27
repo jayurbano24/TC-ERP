@@ -1,6 +1,13 @@
 import { normalizeCatalogLabel } from '@/shared/catalogs/normalizeCatalogName';
 
-export type CatalogRow = { id: string; name?: string; brand_id?: string; technology_id?: string };
+export type CatalogRow = {
+  id: string;
+  name?: string;
+  brand_id?: string;
+  technology_id?: string;
+  series_count?: number | null;
+  digits_per_series?: unknown;
+};
 
 export type CatalogLookups = {
   technologies: CatalogRow[];

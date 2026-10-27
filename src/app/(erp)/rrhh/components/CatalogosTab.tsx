@@ -79,19 +79,17 @@ export default function CatalogosTab() {
     setLoading(true);
     const supabase = getSupabaseBrowserClient();
     if (supabase) {
-      const payload =
+      const { error } =
         activeCatalog === 'shifts'
-          ? {
+          ? await supabase.from('company_shifts').insert({
               name: newItemName.trim(),
               weekly_schedule: DEFAULT_WEEKLY_SCHEDULE,
               ventana_desayuno_inicio: '08:00',
               ventana_desayuno_fin: '11:00',
               ventana_almuerzo_inicio: '12:00',
               ventana_almuerzo_fin: '15:00',
-            }
-          : { name: newItemName.trim() };
-
-      const { error } = await supabase.from(catalogTable(activeCatalog)).insert(payload);
+            })
+          : await supabase.from(catalogTable(activeCatalog)).insert({ name: newItemName.trim() });
       if (error) {
         notify.error(error.message || 'No se pudo crear el registro');
       } else {

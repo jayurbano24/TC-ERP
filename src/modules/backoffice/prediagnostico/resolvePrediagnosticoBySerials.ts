@@ -21,11 +21,18 @@ type SeriesRow = {
   brand_id: string | null;
   model_id: string | null;
   current_status: string | null;
-  service_orders: {
-    id: string;
-    os_label: string | null;
-    model_id: string | null;
-  } | null;
+  service_orders:
+    | {
+        id: string;
+        os_label: string | null;
+        model_id: string | null;
+      }
+    | {
+        id: string;
+        os_label: string | null;
+        model_id: string | null;
+      }[]
+    | null;
   models: ModelEmbed | ModelEmbed[] | null;
 };
 
@@ -40,6 +47,14 @@ function pickModel(models: SeriesRow['models']): ModelEmbed | null {
   if (!models) return null;
   if (Array.isArray(models)) return models[0] ?? null;
   return models;
+}
+
+function pickServiceOrder(
+  serviceOrders: SeriesRow['service_orders']
+): { id: string; os_label: string | null; model_id: string | null } | null {
+  if (!serviceOrders) return null;
+  if (Array.isArray(serviceOrders)) return serviceOrders[0] ?? null;
+  return serviceOrders;
 }
 
 export async function resolvePrediagnosticoBySerials(
@@ -77,9 +92,9 @@ export async function resolvePrediagnosticoBySerials(
 
   const bySerial = new Map<string, PrediagnosticoSerialResolveRow>();
 
-  for (const row of (seriesRows || []) as SeriesRow[]) {
+  for (const row of seriesRows || []) {
     const serial = String(row.serial_number || '').trim().toUpperCase();
-    const os = row.service_orders;
+    const os = pickServiceOrder(row.service_orders as SeriesRow['service_orders']);
     if (!serial || !os?.id || isClosedStatus(row.current_status)) continue;
 
     const modelEmbed = pickModel(row.models);

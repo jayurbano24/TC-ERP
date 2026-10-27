@@ -5,8 +5,12 @@ export function coerceOntRunCount(value: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+type OntRunsVerdictSummaryInput = Partial<Omit<OntRunsVerdictSummary, 'daily'>> & {
+  daily?: Partial<OntRunsDailyCertifiedPoint>[];
+};
+
 export function normalizeOntRunsVerdictSummary(
-  partial: Partial<OntRunsVerdictSummary> | null | undefined,
+  partial: OntRunsVerdictSummaryInput | null | undefined,
   totalFallback = 0
 ): OntRunsVerdictSummary {
   const pass = coerceOntRunCount(partial?.pass);
@@ -14,7 +18,7 @@ export function normalizeOntRunsVerdictSummary(
   const todayPass = coerceOntRunCount(partial?.todayPass);
   const todayFail = coerceOntRunCount(partial?.todayFail);
 
-  const daily: OntRunsDailyCertifiedPoint[] = (partial?.daily ?? []).map((point) => {
+  const daily: OntRunsDailyCertifiedPoint[] = (partial?.daily ?? []).map((point: Partial<OntRunsDailyCertifiedPoint>) => {
     const dayPass = coerceOntRunCount(point.pass);
     const dayFail = coerceOntRunCount(point.fail);
     return {

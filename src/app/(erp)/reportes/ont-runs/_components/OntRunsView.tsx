@@ -28,7 +28,6 @@ import { isNotRunVerdict } from '@/modules/ont-runs/domain/ontRunVerdict';
 import { resolveOntRunBrandModel } from '@/modules/ont-runs/domain/resolveOntRunBrandModel';
 import { groupOntRunEntriesBySerial, normalizeOntRunSerial } from '@/modules/ont-runs/domain/groupOntRunsBySerial';
 import { coerceOntRunCount } from '@/modules/ont-runs/domain/normalizeOntRunsSummary';
-import type { OntRun } from '@/modules/ont-runs/domain/types';
 import {
   EMPTY_ONT_RUN_EXCEL_FILTERS,
   filterOntRunEntriesByExcel,

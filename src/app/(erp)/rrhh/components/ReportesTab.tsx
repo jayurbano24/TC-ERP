@@ -9,6 +9,19 @@ import { apiFetch } from '@/lib/http/apiFetch';
 import { FileSpreadsheet, Calendar, Clock, AlertTriangle, UserX, Briefcase, RefreshCw, BarChart, CalendarDays, Calculator } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
+type NamedRelation = { name?: string | null } | null | undefined;
+type EmployeeRelation = { nombre_completo?: string | null } | null | undefined;
+
+function relationName(value: NamedRelation | NamedRelation[]): string {
+  const row = Array.isArray(value) ? value[0] : value;
+  return String(row?.name ?? '');
+}
+
+function employeeDisplayName(value: EmployeeRelation | EmployeeRelation[]): string {
+  const row = Array.isArray(value) ? value[0] : value;
+  return String(row?.nombre_completo ?? '');
+}
+
 export default function ReportesTab() {
   const getLocalDateString = () => {
     const today = new Date();
@@ -63,10 +76,10 @@ export default function ReportesTab() {
     setLoading(true);
     const emps = await getEmployeesData();
     const exportData = emps.map(e => ({
-      'Departamento': e.hr_departments?.name || 'Sin Asignar',
+      'Departamento': relationName(e.hr_departments) || 'Sin Asignar',
       'Código': e.codigo_empleado,
       'Nombre': e.nombre_completo,
-      'Cargo': e.hr_positions?.name || 'Sin Asignar',
+      'Cargo': relationName(e.hr_positions) || 'Sin Asignar',
       'Tipo Contrato': e.tipo_contrato,
       'Estado': e.estado_rrhh
     })).sort((a, b) => a.Departamento.localeCompare(b.Departamento));
@@ -118,7 +131,7 @@ export default function ReportesTab() {
       'Fecha': e.fecha_inicio_labores,
       'Código': e.codigo_empleado,
       'Nombre': e.nombre_completo,
-      'Departamento': e.hr_departments?.name || '',
+      'Departamento': relationName(e.hr_departments),
       'Estado Actual': e.estado_rrhh
     }));
     
@@ -195,7 +208,7 @@ export default function ReportesTab() {
           pushCurrentJornada(); // Cierra la anterior si la hubiera
           currentJornada = {
             'Día': dayString,
-            'Empleado': l.employees?.nombre_completo,
+            'Empleado': employeeDisplayName(l.employees),
             'Código': l.employees?.codigo_empleado,
             'Turno': shift?.name || 'Sin Turno',
             'Tipo de Jornada': l.tipo_jornada || (l.es_dia_extra ? 'Descanso' : 'Laboral'),
@@ -300,7 +313,7 @@ export default function ReportesTab() {
 
       return {
         'Fecha': new Date(l.timestamp).toLocaleDateString(),
-        'Empleado': l.employees?.nombre_completo,
+        'Empleado': employeeDisplayName(l.employees),
         'Hora Marcaje': new Date(l.timestamp).toLocaleTimeString(),
         'Tipo de Retraso': tipoRetraso,
         'Tiempo Perdido': formatSecondsHHMMSS(segundos),
@@ -334,7 +347,7 @@ export default function ReportesTab() {
 
       return {
         'Fecha': new Date(l.timestamp).toLocaleDateString(),
-        'Empleado': l.employees?.nombre_completo,
+        'Empleado': employeeDisplayName(l.employees),
         'Hora Salida': new Date(l.timestamp).toLocaleTimeString(),
         'Tiempo Extra Exacto': formatSecondsHHMMSS(segundos),
         'Cálculo de Pago': horasCalc,
@@ -366,7 +379,8 @@ export default function ReportesTab() {
       const logsOnDay = logs.filter(l => new Date(l.timestamp).toLocaleDateString() === dateStr);
       
       emps.forEach(e => {
-        const isActive = e.estado_rrhh === 'Activo' || e.status === 'Activo' || !e.estado_rrhh;
+        const legacyStatus = 'status' in e ? String((e as { status?: string }).status ?? '') : '';
+        const isActive = e.estado_rrhh === 'Activo' || legacyStatus === 'Activo' || !e.estado_rrhh;
         const [fy, fm, fd] = (e.fecha_inicio_labores || '2000-01-01').split('-');
         const fechaInicio = new Date(parseInt(fy), parseInt(fm) - 1, parseInt(fd));
 
@@ -377,7 +391,7 @@ export default function ReportesTab() {
               'Fecha Ausencia': dateStr,
               'Empleado': e.nombre_completo,
               'Código': e.codigo_empleado || 'N/A',
-              'Departamento': e.hr_departments?.name || 'Sin Depto'
+              'Departamento': relationName(e.hr_departments) || 'Sin Depto'
             });
           }
         }

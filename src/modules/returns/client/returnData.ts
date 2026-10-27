@@ -5,3 +5,5 @@
  * todo (funciones + tipos como `BoxReturnRow`, `ReturnDispatchTarget`).
  */
 export * from '@/lib/database/returns';
+export { archiveReturnRecord } from '@/lib/database/returnsArchive';
+export type { ArchiveReturnRecordInput, ArchiveReturnRecordResult } from '@/lib/database/returnsArchive';

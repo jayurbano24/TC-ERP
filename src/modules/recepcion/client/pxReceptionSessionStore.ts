@@ -65,7 +65,7 @@ export function createPxReceptionSessionStore(
 
   const listeners = new Set<() => void>();
   const resumeHydratedIds = new Set<string>();
-  const inFlight = new Map<string, Promise<PxSnapshotCacheEntry>>();
+  const inFlight = new Map<string, Promise<PxSnapshotCacheEntry | null>>();
   const abortByKey = new Map<string, AbortController>();
   let softRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   let generation = 0;
@@ -108,7 +108,7 @@ export function createPxReceptionSessionStore(
     reason: PxSnapshotReason,
     includeEquipment?: boolean,
     activeGeneration = generation
-  ): Promise<PxSnapshotCacheEntry> => {
+  ): Promise<PxSnapshotCacheEntry | null> => {
     const resolvedInclude = includeEquipment ?? reason === 'RESUME';
     const dedupeKey = buildSnapshotDedupeKey(receptionId, reason, resolvedInclude);
 
@@ -128,6 +128,7 @@ export function createPxReceptionSessionStore(
         signal: controller.signal,
       })
       .then((entry): PxSnapshotCacheEntry | null => {
+        if (!entry) return null;
         if (activeGeneration !== generation) return entry;
         applyEntry(entry);
         return entry;

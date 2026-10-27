@@ -838,7 +838,7 @@ export async function clearAllReceptions() {
 export async function createPxReceptionWithBoxes(
   reception: DbReception,
   boxes: { id: string; box_code: string; expected_units: number; brand_id: string; model_id: string; material?: string; }[],
-  seriesByBox: Record<string, string[]>
+  seriesByBox: Record<string, Array<{ sn?: string; s2?: string; s3?: string; s4?: string }>>
 ) {
   // Fail closed: este escritor legado hacía INSERT directo de recepción/OS/series
   // y podía dejar una recepción CLASIFICADA con 0 unidades si fallaba a mitad.

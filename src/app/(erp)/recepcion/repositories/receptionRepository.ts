@@ -20,7 +20,11 @@ export const receptionRepository = {
 
   deletePxReception: async (id: string) => deletePxReceptionCascade(id),
 
-  createPXReception: async (reception: any, boxes: any[], seriesByBox: Record<string, string[]>) => {
+  createPXReception: async (
+    reception: any,
+    boxes: any[],
+    seriesByBox: Record<string, Array<{ sn?: string; s2?: string; s3?: string; s4?: string }>>,
+  ) => {
     return await createPxReceptionWithBoxes(reception, boxes, seriesByBox);
   },
 

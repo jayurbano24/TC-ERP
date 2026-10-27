@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+﻿import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { resolveAuthEmailRedirect } from './resolveAuthEmailRedirect';
 
 describe('resolveAuthEmailRedirect', () => {
@@ -24,22 +24,20 @@ describe('resolveAuthEmailRedirect', () => {
   });
 
   it('en development permite localhost (isLocalhost=false operativo)', () => {
-    const prev = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'development';
+    vi.stubEnv('NODE_ENV', 'development');
     const r = resolveAuthEmailRedirect('http://localhost:3000');
     expect(r.baseUrl).toBe('http://localhost:3000');
     expect(r.isLocalhost).toBe(false);
-    process.env.NODE_ENV = prev;
+    vi.unstubAllEnvs();
   });
 
   it('en production marca localhost si no hay URL pública', () => {
-    const prev = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'production';
+    vi.stubEnv('NODE_ENV', 'production');
     delete process.env.ALLOW_LOCALHOST_AUTH_REDIRECT;
     const r = resolveAuthEmailRedirect('http://localhost:3000');
     expect(r.isLocalhost).toBe(true);
     expect(r.baseUrl).toBe('http://localhost:3000');
-    process.env.NODE_ENV = prev;
+    vi.unstubAllEnvs();
   });
 
   it('usa origen no-local del cliente si no hay env', () => {

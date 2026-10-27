@@ -70,6 +70,27 @@ const SAP_HISTORY_COLUMNS: DataTableColumn<any>[] = [
 
 type UploadStatus = 'idle' | 'parsing' | 'hashing' | 'fetching' | 'matching' | 'syncing' | 'done' | 'error';
 
+type SapDashboardKpis = Record<string, number>;
+
+type SapLastUpload = {
+  archivo: string;
+  fecha: string;
+  usuario: string;
+  estado: string;
+  registros: number;
+  encontrados: number;
+  tiempo_proceso?: string | null;
+};
+
+type SapDashboardPayload = {
+  success?: boolean;
+  kpis?: SapDashboardKpis;
+  lastUpload?: SapLastUpload | null;
+  osModules?: OsInventoryModules | null;
+  pctDenominator?: number;
+  enPlanta?: number;
+};
+
 const yieldUi = () => new Promise<void>((r) => setTimeout(r, 0));
 
 async function apiFetchJsonWithTimeout(
@@ -363,7 +384,7 @@ function IntegracionSapPage() {
     retry: 1,
     staleTime: 60_000,
   });
-  const dashboardData = dashboardQuery.data ?? null;
+  const dashboardData = (dashboardQuery.data ?? null) as SapDashboardPayload | null;
   const isLoadingDashboard = dashboardQuery.isLoading;
 
   const [exportingUnmatched, setExportingUnmatched] = useState(false);
@@ -581,13 +602,13 @@ function IntegracionSapPage() {
     }
 
     const { kpis, lastUpload, osModules, pctDenominator, enPlanta } =
-      dashboardData || {
-      kpis: {},
-      lastUpload: null,
-      osModules: null,
-      pctDenominator: 0,
-      enPlanta: 0,
-    };
+      dashboardData ?? {
+        kpis: {} as SapDashboardKpis,
+        lastUpload: null,
+        osModules: null,
+        pctDenominator: 0,
+        enPlanta: 0,
+      };
 
     const mods = (osModules as OsInventoryModules | null) ?? null;
 
@@ -651,7 +672,7 @@ function IntegracionSapPage() {
                 </div>
                 <Button
                   type="button"
-                  variant="default"
+                  variant="secondary"
                   size="sm"
                   className="h-8 text-[9px] font-black uppercase tracking-wider gap-1.5"
                   disabled={enPlantaSap <= 0}

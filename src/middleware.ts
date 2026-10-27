@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
+import type { AuthError } from '@supabase/supabase-js';
 import { getClientIpFromHeaders } from '@/lib/http/clientIp';
 import { checkRateLimit, type RateLimitResult } from '@/lib/security/rateLimit';
 import { fireHttpStatusSample } from '@/modules/system-health/server/httpTelemetry';
@@ -134,6 +135,14 @@ function enforceRateLimit(req: NextRequest, pathname: string): NextResponse | Ra
 /** Evita 504 en Vercel si Supabase está caído o reiniciando tras upgrade. */
 const SUPABASE_AUTH_TIMEOUT_MS = 10_000;
 
+function supabaseAuthTimeoutError(): AuthError {
+  const err = new Error('auth_timeout') as AuthError;
+  err.name = 'AuthTimeoutError';
+  err.status = 408;
+  err.code = 'auth_timeout';
+  return err;
+}
+
 async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -265,7 +274,7 @@ export async function middleware(req: NextRequest) {
       const { data, error } = await withTimeout(
         supabase.auth.getUser(),
         SUPABASE_AUTH_TIMEOUT_MS,
-        { data: { user: null }, error: { message: 'auth_timeout' } as { message: string } },
+        { data: { user: null }, error: supabaseAuthTimeoutError() },
       );
       if (data.user) {
         sessionUser = { id: data.user.id };

@@ -33,13 +33,10 @@ export const GET = withErrorHandler(async (req: Request, context: RouteContext) 
   }
 
   const supabase = getSupabaseServerClient();
-  const { data, error } = await supabase.from('ont_runs').select('*').eq('run_id', id).maybeSingle();
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-  if (!data) {
+  const { row, duplicateCount } = await fetchOntRunByRunId(supabase, id);
+  if (!row) {
     return NextResponse.json({ error: 'Corrida no encontrada' }, { status: 404 });
   }
 
-  return NextResponse.json({ row: mapOntRunRow(data as Parameters<typeof mapOntRunRow>[0]) });
+  return NextResponse.json({ row, duplicateCount });
 });

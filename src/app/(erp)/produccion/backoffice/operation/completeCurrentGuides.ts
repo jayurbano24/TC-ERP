@@ -552,10 +552,6 @@ export async function runCompleteCurrentGuides(ctx: CompleteGuidesContext) {
         ctx.setActiveTab('sub_telefonos');
       } else if (step === 'return_confirmation' || (isBulkStep && ctx.category === 'Devolución')) {
         notify.success('Caja enviada a Bodega Devolución', { description: 'Disponible en Logística → Devoluciones.' });
-      } else if (ctx.category === 'Accesorio') {
-        notify.success('Caja enviada a Bodega Accesorios', { description: 'Disponible en la pestaña BODEGA ACCESORIOS.' });
-      } else if (ctx.category === 'Teléfono') {
-        notify.success('Caja enviada a Bodega Teléfonos', { description: 'Disponible en la pestaña BODEGA TELÉFONOS.' });
       } else if (ctx.category === 'Equipo') {
         ctx.setActiveTab('history');
         ctx.setHistoryPage(1);

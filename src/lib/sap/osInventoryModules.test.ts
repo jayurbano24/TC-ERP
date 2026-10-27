@@ -40,6 +40,8 @@ function mods(overrides: Partial<OsInventoryModules> = {}): OsInventoryModules {
     series_recepcionado_bo: 0,
     historial_backoffice: 0,
     equipo_listo: 0,
+    reac_suelto: 0,
+    sin_series_en_planta: 0,
     despachado: 0,
     devuelto: 0,
     taller_diagnostico: 0,

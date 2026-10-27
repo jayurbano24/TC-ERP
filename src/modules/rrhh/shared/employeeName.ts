@@ -11,6 +11,7 @@ export function normalizeEmployeeName(name: string): string {
 export type EmployeeNameRow = {
   id?: string | null;
   nombre_completo?: string | null;
+  codigo_empleado?: string | null;
 };
 
 /** Busca otro empleado con el mismo nombre normalizado (excluye `excludeId` al editar). */

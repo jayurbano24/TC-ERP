@@ -25,7 +25,7 @@ export function assertIclockDeviceSecret(request: NextRequest): { ok: true } | {
   const query = request.nextUrl.searchParams.get('device_key') ?? '';
   const provided = header || query;
 
-  if (!provided || !safeEqual(provided, expected)) {
+  if (!provided || !safe.equal(provided, expected)) {
     return { ok: false, status: 401, body: 'UNAUTHORIZED' };
   }
   return { ok: true };

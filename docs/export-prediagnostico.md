@@ -130,7 +130,7 @@ Esta prueba **no** corre en la suite unitaria. Es integración contra Supabase (
 
 3. Opcional: `RUN_PREDIAG_EXPORT_INTEGRATION=1` — si faltan vars, la prueba **falla** en lugar de salir con aviso (útil en CI con secretos).
 
-Sin URL/key: la prueba registra un warning y sale sin hang; no se considera “omitida del repo”, solo **condicionada** a backend disponible.
+Sin URL/key **o** si el probe REST (15 s) no alcanza Supabase: warning y salida sin hang de 15 min. Con `RUN_PREDIAG_EXPORT_INTEGRATION=1` esos casos **fallan** (CI con secretos). Timeout del caso: **900 000 ms**.
 
 ### CI recomendado
 

@@ -4,11 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Card, notify } from '@/components/ui';
 import {
   deletePrediagnosticoItem,
-  getPrediagnosticoItems,
   fetchPrediagnosticoModelItemIds,
+  getPrediagnosticoItems,
   savePrediagnosticoItem,
   savePrediagnosticoModelItems,
-} from '@/lib/database/config';
+} from '@/modules/backoffice/prediagnostico/prediagnosticoCatalogClient';
 import { filterPrediagnosticoCatalogForEquipment } from '@/modules/backoffice/prediagnostico/resolvePrediagnosticoCatalog';
 import { itemAppliesToEquipment } from '@/modules/backoffice/prediagnostico/validatePrediagnostico';
 
@@ -100,8 +100,18 @@ export function PrediagnosticoCatalogPanel({ tecnologias, marcas, modelos }: Pro
       return;
     }
     let cancelled = false;
-    void getPrediagnosticoModelItemIds(configModelId).then((ids) => {
+    void (async () => {
+      const result = await fetchPrediagnosticoModelItemIds(configModelId);
       if (cancelled) return;
+      if (!result.ok) {
+        setProfileItemIds([]);
+        setProfileHasRows(false);
+        setProfileLoaded(true);
+        notify.error(`No se pudo cargar el perfil: ${result.message}`);
+        return;
+      }
+
+      const ids = result.itemIds;
       setProfileHasRows(ids.length > 0);
       const catalogRows = items
         .filter((row) => row.active)
@@ -132,7 +142,7 @@ export function PrediagnosticoCatalogPanel({ tecnologias, marcas, modelos }: Pro
         );
       }
       setProfileLoaded(true);
-    });
+    })();
     return () => {
       cancelled = true;
     };

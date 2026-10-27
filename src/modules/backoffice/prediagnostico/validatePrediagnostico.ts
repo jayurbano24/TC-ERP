@@ -50,6 +50,9 @@ export function validatePrediagnostico(input: PrediagnosticoInput): string[] {
       errors.push(`Valor no válido en el funcionamiento «${key}»`);
     }
   }
+  if (input.verdict === 'irreparable' && !String(input.notes ?? '').trim()) {
+    errors.push(IRREPARABLE_NOTES_REQUIRED_MESSAGE);
+  }
   return errors;
 }
 

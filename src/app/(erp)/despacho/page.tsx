@@ -984,8 +984,10 @@ function DespachoContent() {
     const patch: { current_box_id: string; material?: string; valuation?: string } = {
       current_box_id: selectedBox.dbId,
     };
-    if (normMatLot(eqMaterial)) patch.material = normMatLot(eqMaterial);
-    if (normMatLot(eqValuation)) patch.valuation = normMatLot(eqValuation);
+    const patchMaterial = normMatLot(eqMaterial);
+    const patchValuation = normMatLot(eqValuation);
+    if (patchMaterial) patch.material = patchMaterial;
+    if (patchValuation) patch.valuation = patchValuation;
 
     const { error } = await supabase.from('series').update(patch).in('id', idsToUpdate);
     if (error) {

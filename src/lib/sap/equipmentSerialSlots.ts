@@ -6,10 +6,13 @@
 export type SerialPickRow = {
   id: string;
   serial_number: string | null;
+  brand_id?: string | null;
+  model_id?: string | null;
   material?: string | null;
   valuation?: string | null;
   sap_status?: string | null;
   created_at?: string | null;
+  current_status?: string | null;
   s2?: string | null;
   s3?: string | null;
   s4?: string | null;

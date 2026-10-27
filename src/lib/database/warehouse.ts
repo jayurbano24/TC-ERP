@@ -1603,7 +1603,7 @@ export async function getScrapInventoryDetails() {
 
   const enriched = scrapOnly.map((row) => {
     const ids = Array.isArray(row.current_diagnostics) ? row.current_diagnostics.map(String) : [];
-    const labels = ids.map((id) => diagNameById.get(id) || id).filter(Boolean);
+    const labels = ids.map((id: string) => diagNameById.get(id) || id).filter(Boolean);
     const notesWhy = String(row.notes || '').trim();
     return {
       ...row,

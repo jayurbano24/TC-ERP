@@ -373,13 +373,13 @@ export default function BodegaScrapsPage() {
 
   const techNameById = useMemo(() => {
     const map = new Map<string, string>();
-    for (const t of catTecnologias) map.set(t.id, t.name);
+    for (const t of catTecnologias) map.set(t.id, t.name ?? '');
     return map;
   }, [catTecnologias]);
 
   const brandNameById = useMemo(() => {
     const map = new Map<string, string>();
-    for (const b of catMarcas) map.set(b.id, b.name);
+    for (const b of catMarcas) map.set(b.id, b.name ?? '');
     return map;
   }, [catMarcas]);
 

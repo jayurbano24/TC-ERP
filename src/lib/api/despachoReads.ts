@@ -154,6 +154,7 @@ export type DespachoHistoryReprint = {
     model_id?: string | null;
     material?: string | null;
     valuation?: string | null;
+    capacity?: number | null;
   } | null;
   items: Array<{
     id: string;

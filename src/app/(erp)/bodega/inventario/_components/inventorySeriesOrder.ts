@@ -4,10 +4,13 @@ export function isSapValidatedSeriesStatus(status?: string | null): boolean {
 }
 
 /** S1 = serie Validada SAP; luego main_serial; luego fecha de creación. */
-export function orderSeriesForSapDisplay(
-  rows: ReadonlyArray<{ serial_number?: string | null; sap_status?: string | null; created_at?: string | null }>,
-  mainSerial?: string | null,
-): Array<{ serial_number?: string | null; sap_status?: string | null; created_at?: string | null }> {
+export function orderSeriesForSapDisplay<
+  T extends {
+    serial_number?: string | null;
+    sap_status?: string | null;
+    created_at?: string | null;
+  },
+>(rows: ReadonlyArray<T>, mainSerial?: string | null): T[] {
   const main = String(mainSerial || '')
     .trim()
     .toUpperCase();

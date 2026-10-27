@@ -419,9 +419,10 @@ export async function printOutboundLabels(
     return;
   }
 
-  let JsBarcode: typeof import('jsbarcode').default;
+  let JsBarcode: (element: SVGSVGElement | HTMLElement, data: string, options?: object) => void;
   try {
-    JsBarcode = (await import('jsbarcode')).default;
+    const mod = await import('jsbarcode');
+    JsBarcode = mod.default ?? mod;
   } catch {
     onBarcodeError?.();
     return;

@@ -49,7 +49,6 @@ describe('apply prediagnostico backfill CHG-015', () => {
             batchesRun: result.batchesRun,
             candidatesInBatch: result.candidatesInBatch,
             aggregates: result.aggregates,
-            rates: result.rates,
             errors: result.errorMessages.slice(0, 5),
             prediagnosticosBefore: before.count,
             prediagnosticosAfter: after.count,

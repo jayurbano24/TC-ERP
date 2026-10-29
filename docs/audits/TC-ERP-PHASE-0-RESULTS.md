@@ -2,7 +2,8 @@
 
 **Rama:** `audit/architecture-integrity-2026-10-29`  
 **Commit inicial:** `91a1bc8af52240d338b7939e35662ed5d28e03d0`  
-**Commit final:** 8e573821c19f44de5082495b22a3370a68b2be2b  
+**Commit contención (código):** `8e573821c19f44de5082495b22a3370a68b2be2b`  
+**Tip de rama (docs SHA stamp):** `7059ffa57ea5ce7e46d49a33e95d84511b23877f`  
 **Alcance:** código y configuración. Sin migraciones, sin producción, sin deploy, sin merge a `main`.  
 **Fecha:** 2026-10-29
 
@@ -31,7 +32,8 @@
 | | SHA |
 | :--- | :--- |
 | Inicial (autorización) | `91a1bc8af52240d338b7939e35662ed5d28e03d0` |
-| Final Fase 0 | 8e573821c19f44de5082495b22a3370a68b2be2b |
+| Contención código | `8e573821c19f44de5082495b22a3370a68b2be2b` |
+| Tip rama | `7059ffa57ea5ce7e46d49a33e95d84511b23877f` (+ commit docs SHA si aplica) |
 
 ---
 

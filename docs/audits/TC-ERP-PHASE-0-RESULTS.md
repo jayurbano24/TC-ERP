@@ -2,7 +2,7 @@
 
 **Rama:** `audit/architecture-integrity-2026-10-29`  
 **Commit inicial:** `91a1bc8af52240d338b7939e35662ed5d28e03d0`  
-**Commit final:** _(ver SHA tras commit de esta entrega)_  
+**Commit final:** 8e573821c19f44de5082495b22a3370a68b2be2b  
 **Alcance:** código y configuración. Sin migraciones, sin producción, sin deploy, sin merge a `main`.  
 **Fecha:** 2026-10-29
 
@@ -31,7 +31,7 @@
 | | SHA |
 | :--- | :--- |
 | Inicial (autorización) | `91a1bc8af52240d338b7939e35662ed5d28e03d0` |
-| Final Fase 0 | Ver `git rev-parse HEAD` en la rama tras el commit de contención |
+| Final Fase 0 | 8e573821c19f44de5082495b22a3370a68b2be2b |
 
 ---
 

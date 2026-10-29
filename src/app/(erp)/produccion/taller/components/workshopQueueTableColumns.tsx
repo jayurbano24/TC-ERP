@@ -167,6 +167,87 @@ export function buildWorkshopQueueColumns({
     : 'flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[var(--border)] transition-colors';
   const actionIconSize = isCompact ? 11 : 12;
 
+  /** Ancho de track: botones 28px (24 scrap) + gaps + padding de celda. */
+  const canRequestPart = activeTab === 'reparacion' || activeTab === 'l3';
+  const actionColWidth =
+    activeTab === 'diagnostico'
+      ? '52px'
+      : canRequestPart
+        ? '144px'
+        : activeTab === 'scraps'
+          ? isCompact
+            ? scrapW.accion
+            : '112px'
+          : '120px';
+
+  const actionColumn: DataTableColumn<WorkshopQueueRow> = {
+    id: 'accion',
+    header: 'Acc.',
+    width: actionColWidth,
+    align: 'left',
+    headerClassName: `justify-start !px-1 ${headerClassName} ${headerTextClassName}`,
+    cellClassName: `!px-1 overflow-visible${isCompact ? ' self-center' : ''}`,
+    cell: (item) => (
+      <div className="flex shrink-0 items-center justify-start gap-0.5">
+        {canRequestPart ? (
+          <button
+            type="button"
+            onClick={() => onRequestPart(item)}
+            className={`${actionBtnClass} border-sky-200 bg-sky-50 text-sky-700 hover:border-sky-400 hover:bg-sky-100`}
+            title="Solicitar pieza a Bodega de Partes"
+            aria-label={`Solicitar pieza para ${item.id || item.sn || 'la OS'}`}
+          >
+            <PackagePlus size={actionIconSize + 1} />
+          </button>
+        ) : null}
+        {activeTab !== 'diagnostico' ? (
+          <button
+            type="button"
+            onClick={() => onReturnStage(item)}
+            className={`${actionBtnClass} text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--heading)]`}
+            title="Regresar a otra etapa"
+            aria-label="Regresar a otra etapa"
+          >
+            <RotateCcw size={actionIconSize} />
+          </button>
+        ) : null}
+        {activeTab === 'scraps' ? (
+          <button
+            type="button"
+            onClick={() => onOpenComment(item)}
+            className={`${actionBtnClass} text-[var(--muted)] hover:bg-rose-50 hover:text-rose-700`}
+            title="Agregar comentario"
+            aria-label="Agregar comentario"
+          >
+            <MessageSquare size={actionIconSize} />
+          </button>
+        ) : null}
+        {activeTab !== 'diagnostico' ? (
+          <button
+            type="button"
+            onClick={() => onOpenHistory(item)}
+            className={`${actionBtnClass} text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--heading)]`}
+            title="Ver historial"
+            aria-label="Ver historial"
+          >
+            <History size={actionIconSize} />
+          </button>
+        ) : null}
+        {activeTab !== 'scraps' ? (
+          <button
+            type="button"
+            title="Evaluar"
+            aria-label="Evaluar"
+            className={`${actionBtnClass} bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90`}
+            onClick={() => void onOpenOperation(item)}
+          >
+            <ArrowRight size={actionIconSize} />
+          </button>
+        ) : null}
+      </div>
+    ),
+  };
+
   const columns: DataTableColumn<WorkshopQueueRow>[] = [
     {
       id: 'select',
@@ -195,6 +276,7 @@ export function buildWorkshopQueueColumns({
         />
       ),
     },
+    actionColumn,
     mkFilter(
       'os',
       'OS',
@@ -261,7 +343,7 @@ export function buildWorkshopQueueColumns({
     ),
   );
 
-  if (activeTab === 'reparacion') {
+  if (activeTab === 'reparacion' || activeTab === 'l3') {
     columns.push(
       mkFilter('sku', 'SKU', 'minmax(88px, 0.7fr)', (item) => {
         const label = String(item.dispatchedSkuLabel || '').trim();
@@ -276,14 +358,6 @@ export function buildWorkshopQueueColumns({
           </span>
         );
       }),
-    );
-  }
-
-  if (!isCompact) {
-    columns.push(
-      mkFilter('caja', 'Caja', 'minmax(72px, 0.45fr)', (item) =>
-        cellText(String(item.boxCode || '—'), !item.boxCode),
-      ),
     );
   }
 
@@ -400,84 +474,7 @@ export function buildWorkshopQueueColumns({
               </span>
             );
           }),
-        ]),
-    {
-      id: 'accion',
-      header: 'Acc.',
-      width:
-        activeTab === 'diagnostico'
-          ? '40px'
-          : activeTab === 'reparacion'
-            ? '116px'
-            : activeTab === 'scraps'
-              ? isCompact
-                ? scrapW.accion
-                : '96px'
-              : '84px',
-      sticky: 'end',
-      align: 'right',
-      headerClassName: `justify-end ${headerClassName} ${headerTextClassName}`,
-      cellClassName: isCompact ? 'self-center' : undefined,
-      cell: (item) => (
-        <div className="flex items-center justify-end gap-0.5">
-          {activeTab === 'reparacion' ? (
-            <button
-              type="button"
-              onClick={() => onRequestPart(item)}
-              className={`${actionBtnClass} border-sky-200 bg-sky-50 text-sky-700 hover:border-sky-400 hover:bg-sky-100`}
-              title="Solicitar pieza a Bodega de Partes"
-              aria-label={`Solicitar pieza para ${item.id || item.sn || 'la OS'}`}
-            >
-              <PackagePlus size={actionIconSize + 1} />
-            </button>
-          ) : null}
-          {activeTab !== 'diagnostico' ? (
-            <button
-              type="button"
-              onClick={() => onReturnStage(item)}
-              className={`${actionBtnClass} text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--heading)]`}
-              title="Regresar a otra etapa"
-              aria-label="Regresar a otra etapa"
-            >
-              <RotateCcw size={actionIconSize} />
-            </button>
-          ) : null}
-          {activeTab === 'scraps' ? (
-            <button
-              type="button"
-              onClick={() => onOpenComment(item)}
-              className={`${actionBtnClass} text-[var(--muted)] hover:bg-rose-50 hover:text-rose-700`}
-              title="Agregar comentario"
-              aria-label="Agregar comentario"
-            >
-              <MessageSquare size={actionIconSize} />
-            </button>
-          ) : null}
-          {activeTab !== 'diagnostico' ? (
-            <button
-              type="button"
-              onClick={() => onOpenHistory(item)}
-              className={`${actionBtnClass} text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--heading)]`}
-              title="Ver historial"
-              aria-label="Ver historial"
-            >
-              <History size={actionIconSize} />
-            </button>
-          ) : null}
-          {activeTab !== 'scraps' ? (
-            <button
-              type="button"
-              title="Evaluar"
-              aria-label="Evaluar"
-              className={`${actionBtnClass} bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90`}
-              onClick={() => void onOpenOperation(item)}
-            >
-              <ArrowRight size={actionIconSize} />
-            </button>
-          ) : null}
-        </div>
-      ),
-    },
+        ])
   );
 
   return columns;

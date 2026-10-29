@@ -22,6 +22,12 @@ describe('assertAllowedWorkshopResult', () => {
     ).not.toThrow();
   });
 
+  it('permite control_calidad desde Reparación', () => {
+    expect(() =>
+      assertAllowedWorkshopResult('REPARACIÓN COMPLETADA', 'control_calidad')
+    ).not.toThrow();
+  });
+
   it('bloquea Equipo Listo (listo) desde Reacondicionado', () => {
     expect(() =>
       assertAllowedWorkshopResult('REACONDICIONADO COMPLETADO', 'listo')

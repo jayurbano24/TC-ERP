@@ -74,6 +74,23 @@ function availableQty(onHand: number, reserved: number): number {
   return Math.max(0, onHand - reserved);
 }
 
+/** Etapas Taller desde las que se puede solicitar pieza. */
+const PART_REQUEST_SOURCE_STATUSES = ['in_qc', 'in_control_warehouse'] as const;
+type PartRequestResumeStatus = (typeof PART_REQUEST_SOURCE_STATUSES)[number];
+
+function resolvePartRequestResumeStatus(
+  statuses: Array<string | null | undefined>,
+): PartRequestResumeStatus {
+  if (statuses.some((s) => String(s) === 'in_control_warehouse')) {
+    return 'in_control_warehouse';
+  }
+  return 'in_qc';
+}
+
+function parseStoredResumeStatus(value: unknown): PartRequestResumeStatus {
+  return String(value) === 'in_control_warehouse' ? 'in_control_warehouse' : 'in_qc';
+}
+
 /**
  * `part_reservations` es la fuente de verdad de lo reservado: los contadores de
  * `parts_inventory` son un cache que puede quedar desfasado si una escritura
@@ -367,7 +384,7 @@ export async function adjustPartsInventory(opts: {
   return { catalog_id: opts.catalogId, qty_on_hand: next, qty_reserved: nextReserved };
 }
 
-/** Solicitud desde Reparación: crea request + mueve series de la OS a waiting_parts. */
+/** Solicitud desde Reparación o L3: crea request + mueve series de la OS a waiting_parts. */
 export async function createPartRequest(input: CreatePartRequestInput, db?: SupabaseClient) {
   const admin = adminClient(db);
   if (!input.serviceOrderId || !input.catalogId || !(input.qty > 0)) {
@@ -379,6 +396,21 @@ export async function createPartRequest(input: CreatePartRequestInput, db?: Supa
     .eq('id', input.catalogId)
     .maybeSingle();
   if (!catalog?.active) throw new BusinessException('La pieza no está activa en el catálogo');
+
+  const { data: sourceSeries, error: sourceErr } = await admin
+    .from('series')
+    .select('id, current_status')
+    .eq('service_order_id', input.serviceOrderId)
+    .in('current_status', [...PART_REQUEST_SOURCE_STATUSES]);
+  if (sourceErr) throw new BusinessException(sourceErr.message);
+  if (!sourceSeries?.length) {
+    throw new BusinessException(
+      'La OS debe estar en Reparación o L3 para solicitar pieza.',
+    );
+  }
+  const resumeStatus = resolvePartRequestResumeStatus(
+    sourceSeries.map((row) => row.current_status),
+  );
 
   const { data: reqNum } = await admin.rpc('next_part_request_number');
   const { data: request, error: reqErr } = await admin
@@ -405,6 +437,7 @@ export async function createPartRequest(input: CreatePartRequestInput, db?: Supa
       priority: input.priority || 'NORMAL',
       reason: input.reason || null,
       notes: input.notes || null,
+      resume_status: resumeStatus,
       status: 'PENDING',
     })
     .select('*')
@@ -423,12 +456,12 @@ export async function createPartRequest(input: CreatePartRequestInput, db?: Supa
     .single();
   if (itemErr || !item) throw new BusinessException(itemErr?.message || 'No se pudo crear ítem');
 
-  // Mover todas las series de la OS a waiting_parts (si están en reparación)
+  // Mover series elegibles (Reparación o L3) a waiting_parts
   const { error: stErr } = await admin
     .from('series')
     .update({ current_status: 'waiting_parts', updated_at: new Date().toISOString() })
     .eq('service_order_id', input.serviceOrderId)
-    .eq('current_status', 'in_qc');
+    .in('current_status', [...PART_REQUEST_SOURCE_STATUSES]);
   if (stErr) throw new BusinessException(stErr.message);
 
   return { request, item, catalog };
@@ -693,17 +726,20 @@ export async function rejectPartRequest(opts: {
     })
     .eq('id', request.id);
 
-  // Devolver OS a reparación
+  // Devolver OS a la etapa de origen (Reparación o L3)
+  const resumeStatus = parseStoredResumeStatus(
+    (request as { resume_status?: string | null }).resume_status,
+  );
   await admin
     .from('series')
-    .update({ current_status: 'in_qc', updated_at: new Date().toISOString() })
+    .update({ current_status: resumeStatus, updated_at: new Date().toISOString() })
     .eq('service_order_id', request.service_order_id)
     .eq('current_status', 'waiting_parts');
 
   return { ok: true };
 }
 
-/** Despacha ítems reservados (o reserva+despacha qty pendiente). Vuelve OS a in_qc. */
+/** Despacha ítems reservados (o reserva+despacha qty pendiente). Vuelve OS a etapa de origen. */
 export async function dispatchPartRequest(opts: {
   requestId: string;
   userId?: string | null;
@@ -868,9 +904,12 @@ export async function dispatchPartRequest(opts: {
     .eq('id', request.id);
   if (requestUpdateError) throw new BusinessException(requestUpdateError.message);
 
+  const resumeStatus = parseStoredResumeStatus(
+    (request as { resume_status?: string | null }).resume_status,
+  );
   const { error: seriesUpdateError } = await admin
     .from('series')
-    .update({ current_status: 'in_qc', updated_at: new Date().toISOString() })
+    .update({ current_status: resumeStatus, updated_at: new Date().toISOString() })
     .eq('service_order_id', request.service_order_id)
     .eq('current_status', 'waiting_parts');
   if (seriesUpdateError) throw new BusinessException(seriesUpdateError.message);

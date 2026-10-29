@@ -6,6 +6,7 @@ import { getSupabaseServerClient } from '@/lib/supabase/server';
 import {
   ROLES_PREDIAGNOSTICO_WRITE,
   ROLES_RECEPCION,
+  ROLES_TALLER,
   userHasAnyOperationalRole,
 } from '@/shared/authz/roleGuard';
 import { savePrediagnostico } from '@/modules/backoffice/prediagnostico/prediagnosticoService';
@@ -59,7 +60,12 @@ export const GET = withErrorHandler(
 
     return NextResponse.json({ item, items: motorCatalog.items, canEdit });
   },
-  { module: 'backoffice', action: 'prediagnostico.read', roles: ROLES_RECEPCION }
+  {
+    module: 'backoffice',
+    action: 'prediagnostico.read',
+    /** Lectura también para Taller (ver clasificación en Diagnóstico). */
+    roles: [...ROLES_RECEPCION, ...ROLES_TALLER],
+  }
 );
 
 export const POST = withErrorHandler(

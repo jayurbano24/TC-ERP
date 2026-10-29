@@ -14,15 +14,32 @@ export async function fetchReferenceCatalogsViaApi(): Promise<CatalogLookups> {
   return buildCatalogLookups(payload.technologies, payload.brands, payload.models);
 }
 
+export type WorkshopOperationCatalogDiagnostic = {
+  id: string;
+  nombre: string;
+  reparacionesIds?: string[];
+  technologyIds?: string[];
+  allowedOutcomes?: Array<'reacondicionado' | 'reparacion' | 'l3'>;
+};
+
 export type WorkshopOperationCatalogs = {
-  diagnostics: Array<{ id: string; nombre: string; reparacionesIds?: string[] }>;
+  diagnostics: WorkshopOperationCatalogDiagnostic[];
   repairs: Array<{ id: string; nombre: string }>;
   reacondicionadoTests: unknown[];
   catalogNamesById?: Record<string, string>;
 };
 
+/** Incluye versión de contrato (allowedOutcomes) para invalidar caches viejos del cliente. */
+export const WORKSHOP_OPERATION_CATALOGS_QUERY_KEY = [
+  'workshop-operation-catalogs',
+  'v3-reacond-only',
+] as const;
+
 export async function fetchWorkshopOperationCatalogsViaApi(): Promise<WorkshopOperationCatalogs> {
-  const res = await fetch('/api/v1/catalogs/workshop', { credentials: 'include' });
+  const res = await fetch('/api/v1/catalogs/workshop', {
+    credentials: 'include',
+    cache: 'no-store',
+  });
   const data = await res.json();
   if (!res.ok) {
     throw new Error(data.error ?? data.detail ?? `HTTP ${res.status}`);

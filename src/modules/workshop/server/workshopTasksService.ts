@@ -1910,11 +1910,15 @@ export async function fetchWorkshopOperationCatalogs(supabase: SupabaseClient) {
     const techRels = techRelData.filter(
       (r: { diagnostic_id: string }) => r.diagnostic_id === d.id,
     );
+    const rawOutcomes = Array.isArray((d as { allowed_outcomes?: unknown }).allowed_outcomes)
+      ? ((d as { allowed_outcomes: unknown[] }).allowed_outcomes as string[])
+      : [];
     return {
       id: d.id,
       nombre: d.name,
       reparacionesIds: rels.map((r: { repair_id: string }) => r.repair_id),
       technologyIds: techRels.map((r: { technology_id: string }) => r.technology_id),
+      allowedOutcomes: rawOutcomes,
     };
   });
   const repairsAll = (repairsRes.data ?? []).map((r) => ({ id: r.id, nombre: r.name }));

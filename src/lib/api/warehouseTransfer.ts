@@ -16,9 +16,10 @@ export async function transferBoxesToWorkshopViaApi(boxIds: string[]): Promise<T
 
   const payload = (await res.json().catch(() => ({}))) as TransferResult;
   if (!res.ok) {
+    const firstBoxError = payload.results?.find((r) => !r.ok && r.error)?.error;
     return {
       success: false,
-      error: payload.error ?? `HTTP ${res.status}`,
+      error: firstBoxError || payload.error || `HTTP ${res.status}`,
       results: payload.results,
     };
   }

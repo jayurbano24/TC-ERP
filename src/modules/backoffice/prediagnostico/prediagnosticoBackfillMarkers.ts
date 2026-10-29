@@ -10,18 +10,31 @@ export function displayPrediagnosticoObservaciones(notes: string | null | undefi
   const raw = String(notes ?? '').trim();
   if (!raw) return '';
 
+  // Cualquier mención a la migración sintética: no mostrar en UI operativa.
+  if (/backfill|chg[\s-]*015/i.test(raw)) {
+    if (!isPrediagnosticoBackfillNotes(raw)) return '';
+    const lines = raw
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && !/^\[BACKFILL\]/i.test(line) && !/backfill|chg[\s-]*015/i.test(line));
+    return lines.join('\n').trim();
+  }
+
   if (!isPrediagnosticoBackfillNotes(raw)) return raw;
 
   const lines = raw.split(/\r?\n/);
   const tail = lines.slice(1).join('\n').trim();
-  if (tail) return tail;
+  if (tail && !/backfill|chg[\s-]*015|pre-diagn[oó]stico sint[eé]tico/i.test(tail)) {
+    return tail;
+  }
 
   const afterPrefix = raw.replace(/^\[BACKFILL\]\s*/i, '').trim();
   const syntheticOnly =
-    /pre-diagnóstico sintético|equipo en estatus scrap|defectos según catálogo del modelo/i.test(
+    /pre-diagn[oó]stico sint[eé]tico|equipo en estatus scrap|defectos seg[uú]n cat[aá]logo del modelo|stock hist[oó]rico/i.test(
       afterPrefix
     );
   if (syntheticOnly) return '';
+  if (/backfill|chg[\s-]*015/i.test(afterPrefix)) return '';
   return afterPrefix;
 }
 

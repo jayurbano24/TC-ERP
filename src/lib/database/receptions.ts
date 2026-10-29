@@ -779,6 +779,13 @@ export const RECEPTIONS_WITH_SERIES_SELECT =
 export const CAC_HISTORY_SELECT =
   '*, reception_guides(id, guide_number, category, agency, classified_at), sap_transfer_documents(id, reception_guide_id, sap_document_number, agency, status, created_at), series(id, serial_number, brand_id, model_id, current_status, current_box_id, sap_transfer_id, service_order_id, created_at, updated_at, service_orders(id, os_label, main_serial, reentry_count, created_at, reception_guide_id, sap_transfer_id))';
 
+/**
+ * Listado para Costos / KPIs de ingreso: sin embeds de series ni guías.
+ * Evita statement timeout del select anidado RECEPTIONS_WITH_SERIES_SELECT.
+ */
+export const RECEPTIONS_COSTING_SELECT =
+  'id, source, guide_number, sap_document, carrier, received_units, expected_units, status, created_at, reception_time';
+
 export async function queryCacHistoryReceptions(supabase: { from: (table: string) => any }) {
   const { data, error } = await supabase
     .from('receptions')
@@ -795,9 +802,11 @@ export async function queryReceptionsWithSeries(
   supabase: { from: (table: string) => any },
   source?: 'cac' | 'px'
 ) {
+  // Costos solo necesita columnas de recepción; el join profundo de series
+  // provoca "canceling statement due to statement timeout" con ~300 filas.
   let query = supabase
     .from('receptions')
-    .select(RECEPTIONS_WITH_SERIES_SELECT)
+    .select(RECEPTIONS_COSTING_SELECT)
     .order('created_at', { ascending: false })
     .limit(300);
 

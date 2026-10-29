@@ -1,9 +1,29 @@
+/** Destinos de evaluación inicial (Diagnóstico → siguiente etapa). */
+export const WORKSHOP_DIAGNOSTIC_OUTCOMES = [
+  'reacondicionado',
+  'reparacion',
+  'l3',
+] as const;
+
+export type WorkshopDiagnosticOutcome = (typeof WORKSHOP_DIAGNOSTIC_OUTCOMES)[number];
+
+export const WORKSHOP_DIAGNOSTIC_OUTCOME_LABELS: Record<WorkshopDiagnosticOutcome, string> = {
+  reacondicionado: 'Reacondicionado',
+  reparacion: 'Reparación L1/L2',
+  l3: 'Nivel 3',
+};
+
 export type WorkshopDiagnosticCatalogEntry = {
   id: string;
   nombre?: string | null;
   reparacionesIds?: string[];
   /** Vacío = aplica a todas las tecnologías. */
   technologyIds?: string[];
+  /**
+   * Destinos permitidos al completar Diagnóstico.
+   * Vacío/ausente = Reparación L1/L2 + Nivel 3 (nunca Reacondicionado por defecto).
+   */
+  allowedOutcomes?: WorkshopDiagnosticOutcome[];
 };
 
 export type WorkshopRepairCatalogEntry = {
@@ -135,4 +155,133 @@ export function intersectAllowedRepairIdsAcrossEquipments(
   }
 
   return intersection ?? new Set();
+}
+
+/** Default seguro: sin Reacondicionado salvo configuración explícita. */
+const DEFAULT_DIAGNOSTIC_OUTCOMES: WorkshopDiagnosticOutcome[] = [
+  'reparacion',
+  'l3',
+];
+
+function normalizeDiagnosticOutcomes(
+  raw: unknown,
+): WorkshopDiagnosticOutcome[] {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return [...DEFAULT_DIAGNOSTIC_OUTCOMES];
+  }
+  const allowed = new Set<string>(WORKSHOP_DIAGNOSTIC_OUTCOMES);
+  const out = [
+    ...new Set(
+      raw
+        .map((v) => String(v || '').trim())
+        .filter((v): v is WorkshopDiagnosticOutcome => allowed.has(v)),
+    ),
+  ];
+  return out.length > 0 ? out : [...DEFAULT_DIAGNOSTIC_OUTCOMES];
+}
+
+type DiagnosticOutcomesSource = WorkshopDiagnosticCatalogEntry & {
+  allowed_outcomes?: unknown;
+};
+
+function readDiagnosticAllowedOutcomes(
+  diagnostic: WorkshopDiagnosticCatalogEntry | undefined,
+): unknown {
+  if (!diagnostic) return undefined;
+  const row = diagnostic as DiagnosticOutcomesSource;
+  return row.allowedOutcomes ?? row.allowed_outcomes;
+}
+
+/** Destinos permitidos por un diagnóstico del catálogo. */
+export function resolveOutcomesForDiagnostic(
+  diagnostic: WorkshopDiagnosticCatalogEntry | undefined,
+): Set<WorkshopDiagnosticOutcome> {
+  return new Set(normalizeDiagnosticOutcomes(readDiagnosticAllowedOutcomes(diagnostic)));
+}
+
+function isReacondicionadoOnly(allowed: Set<WorkshopDiagnosticOutcome>): boolean {
+  return allowed.size === 1 && allowed.has('reacondicionado');
+}
+
+function intersectOutcomeSets(
+  sets: Array<Set<WorkshopDiagnosticOutcome>>,
+): Set<WorkshopDiagnosticOutcome> {
+  if (sets.length === 0) return new Set();
+  let intersection: Set<WorkshopDiagnosticOutcome> | null = null;
+  for (const allowed of sets) {
+    if (intersection === null) {
+      intersection = new Set(allowed);
+      continue;
+    }
+    intersection = new Set([...intersection].filter((o) => allowed.has(o)));
+  }
+  return intersection ?? new Set();
+}
+
+/**
+ * Destinos permitidos por los diagnósticos seleccionados.
+ *
+ * - Solo fallas “reacondicionado-only” → Reacondicionado.
+ * - Si se agrega alguna falla con Reparación L1/L2 o L3, prevalecen esos destinos
+ *   (se ignoran las fallas solo-reacondicionado al calcular la intersección).
+ * - Si no hay diagnósticos, el conjunto queda vacío.
+ */
+export function resolveAllowedOutcomesForDiagnostics(
+  diagnosticIds: string[],
+  diagnosticsCatalog: WorkshopDiagnosticCatalogEntry[],
+): Set<WorkshopDiagnosticOutcome> {
+  const ids = [...new Set(diagnosticIds.map(String).filter(Boolean))];
+  if (ids.length === 0) return new Set();
+
+  const perDiag = ids.map((id) => {
+    const diag = diagnosticsCatalog.find((d) => String(d.id) === id);
+    return resolveOutcomesForDiagnostic(diag);
+  });
+
+  const repairSets = perDiag.filter((allowed) => !isReacondicionadoOnly(allowed));
+  if (repairSets.length > 0) {
+    const intersection = intersectOutcomeSets(repairSets);
+    intersection.delete('reacondicionado');
+    return intersection;
+  }
+
+  return intersectOutcomeSets(perDiag);
+}
+
+export type WorkshopOutcomeValidationResult =
+  | { ok: true }
+  | { ok: false; message: string };
+
+/** Valida que el resultado de Diagnóstico esté permitido por los diagnósticos elegidos. */
+export function validateDiagnosticOutcome(
+  diagnosticIds: string[],
+  result: string,
+  diagnosticsCatalog: WorkshopDiagnosticCatalogEntry[],
+): WorkshopOutcomeValidationResult {
+  const outcome = String(result || '').trim();
+  if (!(WORKSHOP_DIAGNOSTIC_OUTCOMES as readonly string[]).includes(outcome)) {
+    return { ok: true };
+  }
+
+  const diags = [...new Set(diagnosticIds.map(String).filter(Boolean))];
+  if (diags.length === 0) {
+    return { ok: false, message: 'Seleccione al menos un diagnóstico del catálogo.' };
+  }
+
+  const allowed = resolveAllowedOutcomesForDiagnostics(diags, diagnosticsCatalog);
+  if (allowed.has(outcome as WorkshopDiagnosticOutcome)) return { ok: true };
+
+  const label =
+    WORKSHOP_DIAGNOSTIC_OUTCOME_LABELS[outcome as WorkshopDiagnosticOutcome] || outcome;
+  const diagLabels = diagnosticCatalogNames(diags, diagnosticsCatalog).join(' · ');
+  const allowedLabels = [...allowed]
+    .map((o) => WORKSHOP_DIAGNOSTIC_OUTCOME_LABELS[o])
+    .join(' · ');
+
+  return {
+    ok: false,
+    message: allowedLabels
+      ? `"${label}" no aplica al diagnóstico (${diagLabels}). Destinos permitidos: ${allowedLabels}. Revise Configuración → Diagnósticos.`
+      : `"${label}" no aplica al diagnóstico (${diagLabels}). Ningún destino común configurado. Revise Configuración → Diagnósticos.`,
+  };
 }

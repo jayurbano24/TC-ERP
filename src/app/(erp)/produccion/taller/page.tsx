@@ -29,7 +29,10 @@ import {
   validateWorkshopPrerequisitesViaApi,
   actionNameForTab,
 } from '@/lib/api/workshopPrerequisites';
-import { fetchWorkshopOperationCatalogsViaApi } from '@/lib/api/referenceCatalogs';
+import {
+  fetchWorkshopOperationCatalogsViaApi,
+  WORKSHOP_OPERATION_CATALOGS_QUERY_KEY,
+} from '@/lib/api/referenceCatalogs';
 import { useReferenceCatalogs } from '@/hooks/useReferenceCatalogs';
 import { getSeriesHistory } from '@/modules/platform/client/audit';
 import { useEffect } from 'react';
@@ -54,7 +57,10 @@ import { fetchDispatchedSkusByOsApi } from '@/lib/api/parts';
 import { buildWorkshopQueueColumns } from './components/workshopQueueTableColumns';
 import type { ExcelFilterSelection } from '@/components/molecules/ExcelColumnFilter';
 import { enrichWorkshopTaskDisplayLabels } from '@/modules/workshop/shared/workshopTaskLabels';
-import { validateRepairsAgainstDiagnostics } from '@/modules/workshop/shared/workshopDiagnosticRepairPolicy';
+import {
+  validateDiagnosticOutcome,
+  validateRepairsAgainstDiagnostics,
+} from '@/modules/workshop/shared/workshopDiagnosticRepairPolicy';
 import {
   workshopQueueIsCompactTab,
   workshopQueueTableClassName,
@@ -308,10 +314,10 @@ export default function TallerPage() {
   const [catReacondicionadoTests, setCatReacondicionadoTests] = useState<any[]>([]);
 
   const workshopCatalogsQuery = useQuery({
-    queryKey: ['workshop-operation-catalogs', 'v1'],
+    queryKey: [...WORKSHOP_OPERATION_CATALOGS_QUERY_KEY],
     queryFn: fetchWorkshopOperationCatalogsViaApi,
-    staleTime: 30 * 60 * 1000,
-    refetchOnWindowFocus: false,
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: true,
   });
 
   useEffect(() => {
@@ -393,7 +399,12 @@ export default function TallerPage() {
   }, [debouncedSearchTerm]);
 
   useEffect(() => {
-    if (activeTab !== 'reparacion' || !workshopDatasetQuery.data?.items.length) return;
+    if (
+      (activeTab !== 'reparacion' && activeTab !== 'l3') ||
+      !workshopDatasetQuery.data?.items.length
+    ) {
+      return;
+    }
     let cancelled = false;
     const osIds = workshopDatasetQuery.data.items
       .map((row) => String(row.service_order_id || row.id || ''))
@@ -576,6 +587,7 @@ export default function TallerPage() {
       scrapResponsableLabel: String(t.scrap_marked_by_name || '').trim() || '—',
       brandId: t.brand_id || brandId || null,
       modelId: t.model_id || modelId || null,
+      techId: t.models?.technologies?.id || techId || null,
       seriesId: t.all_dbIds?.[0] || t.id || null,
       dispatchedSkuLabel:
         skuLabelsByOs[String(t.service_order_id || t.id || '')] || '',
@@ -889,7 +901,6 @@ export default function TallerPage() {
           tecnologia: a.tecnologia,
           marca: a.marca,
           modelo: a.modelo,
-          caja: a.boxCode,
           diagnostico: a.diagnosticoLabel || '',
           detalle_diagnostico: a.diagnosticoDetalleLabel || '',
           razon_scrap: a.scrapReasonLabel || '',
@@ -952,6 +963,18 @@ export default function TallerPage() {
     if (activeTab === 'reacondicionado' && diagnosticResult === 'reparacion') {
       const confirmed = await confirmDialog({ title: 'Enviar a reparación', message: '¿Está seguro que desea enviar el equipo a Requiere Reparación (L1/L2)?', confirmText: 'Enviar' });
       if (!confirmed) return;
+    }
+
+    if (activeTab === 'diagnostico' && diagnosticResult) {
+      const outcomeCheck = validateDiagnosticOutcome(
+        selectedDiagnostics,
+        diagnosticResult,
+        catDiagnosticos,
+      );
+      if (!outcomeCheck.ok) {
+        notify.warning(outcomeCheck.message);
+        return;
+      }
     }
 
     if (activeTab === 'reparacion' || activeTab === 'l3') {
@@ -1735,7 +1758,8 @@ ${repairCorrectionChanged ? `- Reparación corregida en QC: ${selectedDiagnostic
                       </div>
                     ) : selectedRows.length > 0 ? (
                       <div className="flex flex-wrap gap-2 animate-rise-in w-full xl:w-auto">
-                            {activeTab === 'reparacion' && selectedRows.length > 1 && (
+                            {(activeTab === 'reparacion' || activeTab === 'l3') &&
+                              selectedRows.length > 1 && (
                               <Button
                                 variant="outline"
                                 className="border-sky-300 bg-sky-50 text-sky-800 font-black"

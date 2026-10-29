@@ -500,6 +500,51 @@ export const ConfigModal = memo(function ConfigModal({
               </div>
 
               <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase text-slate-400">
+                  Destinos permitidos al diagnosticar
+                </label>
+                <p className="text-[9px] font-medium text-slate-500 leading-snug">
+                  Define si esta falla puede ir a Reacondicionado, Reparación L1/L2 y/o Nivel 3.
+                  En Taller, el resultado solo se habilita si todos los diagnósticos elegidos lo permiten.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                  {(
+                    [
+                      { id: 'reacondicionado', label: 'Reacondicionado' },
+                      { id: 'reparacion', label: 'Reparación L1/L2' },
+                      { id: 'l3', label: 'Nivel 3' },
+                    ] as const
+                  ).map((outcome) => {
+                    const selectedOutcomes: string[] = formData.allowedOutcomes || [];
+                    const isSelected = selectedOutcomes.includes(outcome.id);
+                    return (
+                      <button
+                        key={outcome.id}
+                        type="button"
+                        onClick={() => {
+                          const current = formData.allowedOutcomes || [];
+                          const next = isSelected
+                            ? current.filter((id: string) => id !== outcome.id)
+                            : [...current, outcome.id];
+                          setFormData({ ...formData, allowedOutcomes: next });
+                        }}
+                        className={`flex items-center gap-1.5 px-2 py-2 rounded-md border text-left transition-all ${compactToggleClass(isSelected, 'sky')}`}
+                      >
+                        <div
+                          className={`w-3.5 h-3.5 shrink-0 rounded border flex items-center justify-center ${compactCheckClass(isSelected, 'sky')}`}
+                        >
+                          {isSelected && <CheckCircle2 size={10} />}
+                        </div>
+                        <span className="text-[9px] font-black uppercase tracking-tight leading-tight">
+                          {outcome.label}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
                 <label className="text-[10px] font-black uppercase text-slate-400">Vincular Reparaciones Sugeridas</label>
                 <div className="max-h-[180px] overflow-y-auto rounded-lg border border-slate-100 p-1.5 custom-scrollbar">
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">

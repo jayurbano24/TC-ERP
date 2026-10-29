@@ -37,7 +37,8 @@ export const GET = withErrorHandler(
     });
 
     return NextResponse.json(responseBody, {
-      headers: { 'Cache-Control': 'private, max-age=1800' },
+      // Destinos por diagnóstico cambian en Configuración; no cachear 30 min.
+      headers: { 'Cache-Control': 'private, no-store' },
     });
   },
   { module: 'catalogs', action: 'workshop', roles: ROLES_TALLER }

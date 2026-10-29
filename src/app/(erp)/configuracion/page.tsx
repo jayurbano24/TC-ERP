@@ -1,8 +1,10 @@
 "use client";
 
 import React, { useEffect, useState, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Card, Badge, Button, notify, confirmDialog } from '@/components/ui';
 import { ModulePage } from '@/components/module-page';
+import { WORKSHOP_OPERATION_CATALOGS_QUERY_KEY } from '@/lib/api/referenceCatalogs';
 import { 
   Settings, 
   Cpu, 
@@ -144,10 +146,12 @@ type Agencia = {
 };
 
 export default function ConfiguracionPage() {
+  const queryClient = useQueryClient();
   const { email: authzEmail, roleLabel, isLoading: authzLoading, snapshot } = useAuthz();
   const [sessionEmail, setSessionEmail] = useState<string | null>(null);
   const resolvedEmail = authzEmail || snapshot.email || sessionEmail;
   const canEditThemes = canConfigureThemes(resolvedEmail);
+
   const [activeView, setActiveView] = useState<'tema' | 'marcas' | 'modelos' | 'tecnologias' | 'diagnosticos' | 'reparaciones' | 'reacondicionado' | 'prediagnostico' | 'agencias' | 'transportes' | 'usuarios' | 'px_providers' | 'razones_devolucion' | 'piezas'>('marcas');
   const [showModal, setShowModal] = useState(false);
 
@@ -253,6 +257,7 @@ export default function ConfiguracionPage() {
         ...item,
         reparacionesIds: item.reparacionesIds || [],
         technologyIds: item.technologyIds || [],
+        allowedOutcomes: item.allowedOutcomes || ['reparacion', 'l3'],
       });
     } else {
       setFormData(
@@ -261,7 +266,11 @@ export default function ConfiguracionPage() {
           : type === 'modelo'
             ? { seriesCount: 2, digitsPerSeries: [12, 12], vigenciaPortafolio: 'vigente' }
             : type === 'diagnostico'
-              ? { reparacionesIds: [], technologyIds: [] }
+              ? {
+                  reparacionesIds: [],
+                  technologyIds: [],
+                  allowedOutcomes: ['reparacion', 'l3'],
+                }
               : {},
       );
     }
@@ -366,8 +375,7 @@ export default function ConfiguracionPage() {
             technologyIds: formData.technologyIds || [],
           });
           if (!error) {
-            const d = await getDiagnostics();
-            setDiagnosticos(d);
+            await reloadWorkshopCatalogs();
           } else {
             notify.error('Error al guardar diagnóstico', { description: (error as any)?.message });
             setLoading(false);
@@ -574,6 +582,7 @@ export default function ConfiguracionPage() {
       } else if (type === 'diagnostico') {
         await deleteDiagnosticConfig(id);
         setDiagnosticos(diagnosticos.filter(d => d.id !== id));
+        void queryClient.invalidateQueries({ queryKey: [...WORKSHOP_OPERATION_CATALOGS_QUERY_KEY] });
       } else if (type === 'reacondicionado') {
         await deleteReacondicionadoTest(id);
         setReacondicionadoTests(reacondicionadoTests.filter(t => t.id !== id));
@@ -637,6 +646,7 @@ export default function ConfiguracionPage() {
         modelIds: x.model_ids || [],
       })),
     );
+    void queryClient.invalidateQueries({ queryKey: [...WORKSHOP_OPERATION_CATALOGS_QUERY_KEY] });
   };
 
   const handleExportReparaciones = () => {

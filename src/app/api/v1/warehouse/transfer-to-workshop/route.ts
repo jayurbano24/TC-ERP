@@ -120,9 +120,10 @@ export const POST = withErrorHandler(
     }
 
     const succeeded = results.filter((r) => r.ok).length;
+    const firstError = results.find((r) => !r.ok && r.error)?.error;
     const responseBody =
       succeeded === 0
-        ? { error: 'ALL_FAILED', results }
+        ? { error: firstError || 'ALL_FAILED', results }
         : { success: true, transferred: succeeded, total: boxIds.length, results };
 
     const status = succeeded === 0 ? 422 : 200;

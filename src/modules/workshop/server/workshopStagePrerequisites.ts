@@ -235,7 +235,7 @@ export async function loadWorkshopCompletionBySeries(
       if (!Array.isArray(diags) || diags.length === 0) continue;
       const id = String(row.id);
       const set = completedBySeries.get(id) ?? new Set<string>();
-      set.add(WORKSHOP_STAGE_ACTIONS.DIG);
+      set.add(WORKSHOP_STAGE_ACTIONS.DIAG);
       completedBySeries.set(id, set);
     }
   }

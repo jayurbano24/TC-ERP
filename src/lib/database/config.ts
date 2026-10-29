@@ -652,11 +652,15 @@ export async function getDiagnostics() {
     const techRels = (techRelData || []).filter(
       (r: { diagnostic_id: string }) => r.diagnostic_id === d.id,
     );
+    const rawOutcomes = Array.isArray((d as { allowed_outcomes?: unknown }).allowed_outcomes)
+      ? ((d as { allowed_outcomes: unknown[] }).allowed_outcomes as string[])
+      : [];
     return {
       id: d.id,
       nombre: d.name,
       reparacionesIds: rels.map((r: { repair_id: string }) => r.repair_id),
       technologyIds: techRels.map((r: { technology_id: string }) => r.technology_id),
+      allowedOutcomes: rawOutcomes,
     };
   });
 }
@@ -665,7 +669,7 @@ export async function saveDiagnosticConfig(diagnostic: any) {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return { error: "Supabase not configured" };
   
-  const { id, nombre, reparacionesIds, technologyIds } = diagnostic;
+  const { id, nombre, reparacionesIds, technologyIds, allowedOutcomes } = diagnostic;
   const trimmed = String(nombre || '').trim();
   if (!trimmed) {
     return { error: { message: 'El nombre del diagnóstico es obligatorio.' } };
@@ -693,15 +697,45 @@ export async function saveDiagnosticConfig(diagnostic: any) {
   let diagnosticId = id;
   const dbName = canonicalCatalogName(trimmed);
 
+  const outcomeValues = Array.isArray(allowedOutcomes)
+    ? [
+        ...new Set(
+          allowedOutcomes
+            .map((v: string) => String(v || '').trim())
+            .filter((v: string) =>
+              v === 'reacondicionado' || v === 'reparacion' || v === 'l3',
+            ),
+        ),
+      ]
+    : undefined;
+
+  const diagnosticPayload: { name: string; allowed_outcomes?: string[] } = {
+    name: dbName,
+  };
+  if (outcomeValues !== undefined) {
+    diagnosticPayload.allowed_outcomes =
+      outcomeValues.length > 0 ? outcomeValues : ['reparacion', 'l3'];
+  }
+
   if (excludeId) {
-    const { error } = await supabase.from('cat_diagnostics').update({ name: dbName }).eq('id', excludeId);
+    const { error } = await supabase
+      .from('cat_diagnostics')
+      .update(diagnosticPayload)
+      .eq('id', excludeId);
     if (error?.code === '23505') {
       return { error: { message: 'Ya existe un diagnóstico con el mismo nombre.' } };
     }
     if (error) return { error };
     diagnosticId = excludeId;
   } else {
-    const { data, error } = await supabase.from('cat_diagnostics').insert([{ name: dbName }]).select().single();
+    if (!diagnosticPayload.allowed_outcomes) {
+      diagnosticPayload.allowed_outcomes = ['reparacion', 'l3'];
+    }
+    const { data, error } = await supabase
+      .from('cat_diagnostics')
+      .insert([diagnosticPayload])
+      .select()
+      .single();
     if (error?.code === '23505') {
       return { error: { message: 'Ya existe un diagnóstico con el mismo nombre.' } };
     }

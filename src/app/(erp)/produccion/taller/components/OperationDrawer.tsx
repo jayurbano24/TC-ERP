@@ -4,10 +4,16 @@ import { memo, useMemo } from 'react';
 import { Card, Button, Badge, notify, confirmDialog } from '@/components/ui';
 import {
   Stethoscope, Box, ChevronDown, AlertCircle, Wrench, Activity,
-  RefreshCw, XCircle, Loader2, Printer, PackagePlus,
+  RefreshCw, XCircle, Loader2, Printer, PackagePlus, ClipboardList,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { fetchOsPartStatus, confirmDispatchItemReceiptApi, returnUnusedGoodPartApi } from '@/lib/api/parts';
+import { apiFetch } from '@/lib/http/apiFetch';
+import { labelPrediagnosticoDictamen } from '@/shared/catalogs/prediagnosticoDictamenLabels';
+import {
+  displayPrediagnosticoObservaciones,
+  isPrediagnosticoBackfillNotes,
+} from '@/modules/backoffice/prediagnostico/prediagnosticoBackfillMarkers';
 import {
   isKaonQcPrintableModel,
   printKaonQcLabel,
@@ -15,8 +21,38 @@ import {
 import {
   filterDiagnosticsForTechnology,
   intersectAllowedRepairIdsAcrossEquipments,
+  resolveAllowedOutcomesForDiagnostics,
   resolveAllowedRepairIdsForDiagnostics,
+  WORKSHOP_DIAGNOSTIC_OUTCOME_LABELS,
+  type WorkshopDiagnosticOutcome,
 } from '@/modules/workshop/shared/workshopDiagnosticRepairPolicy';
+
+type PrediagnosticoCatalogItem = { id: string; name: string; kind?: string };
+type PrediagnosticoSnapshot = {
+  shellClass: string | null;
+  cosmetics: Record<string, string>;
+  functionChecks: Record<string, string>;
+  verdict: string | null;
+  notes: string;
+  operatorName: string;
+  performedAt: string | null;
+};
+
+function formatPrediagCheckValue(raw: string): string {
+  const v = String(raw || '').trim().toLowerCase();
+  if (v === 'si' || v === 'sí' || v === 'yes' || v === 'ok') return 'Sí';
+  if (v === 'no') return 'No';
+  if (v === 'na' || v === 'n/a') return 'N/A';
+  return String(raw || '—');
+}
+
+/** Actor/notas sintéticas CHG-015 — no deben verse en Taller. */
+function isPrediagnosticoBackfillNoise(value: string | null | undefined): boolean {
+  const text = String(value ?? '');
+  if (!text.trim()) return false;
+  if (isPrediagnosticoBackfillNotes(text)) return true;
+  return /backfill|chg[\s-]*015|pre-diagn[oó]stico sint[eé]tico/i.test(text);
+}
 
 type DispatchedPart = {
   id: string;
@@ -273,11 +309,32 @@ export const OperationDrawer = memo(function OperationDrawer({
     (activeTab === 'reparacion' || activeTab === 'l3') &&
     (selectedDiagnostics.length === 0 || availableRepairs.length === 0);
 
+  const allowedDiagnosticOutcomes = useMemo(() => {
+    if (activeTab !== 'diagnostico') {
+      return null as Set<WorkshopDiagnosticOutcome> | null;
+    }
+    // Preferir la lista filtrada (misma fuente del select) para no perder allowedOutcomes.
+    const catalogForOutcomes =
+      availableDiagnostics.length > 0 ? availableDiagnostics : catDiagnosticos;
+    return resolveAllowedOutcomesForDiagnostics(selectedDiagnostics, catalogForOutcomes);
+  }, [activeTab, selectedDiagnostics, availableDiagnostics, catDiagnosticos]);
+
   useEffect(() => {
     if (repairOutcomeBlocked && diagnosticResult) {
       setDiagnosticResult(null);
     }
   }, [repairOutcomeBlocked, diagnosticResult, setDiagnosticResult]);
+
+  useEffect(() => {
+    if (
+      activeTab === 'diagnostico' &&
+      diagnosticResult &&
+      allowedDiagnosticOutcomes &&
+      !allowedDiagnosticOutcomes.has(diagnosticResult as WorkshopDiagnosticOutcome)
+    ) {
+      setDiagnosticResult(null);
+    }
+  }, [activeTab, diagnosticResult, allowedDiagnosticOutcomes, setDiagnosticResult]);
 
   const [partStatus, setPartStatus] = useState<{
     hasOpenRequest: boolean;
@@ -286,6 +343,94 @@ export const OperationDrawer = memo(function OperationDrawer({
     dispatchedParts: DispatchedPart[];
   } | null>(null);
   const [receiptBusyId, setReceiptBusyId] = useState<string | null>(null);
+  const [prediagnostico, setPrediagnostico] = useState<PrediagnosticoSnapshot | null>(null);
+  const [prediagnosticoItems, setPrediagnosticoItems] = useState<PrediagnosticoCatalogItem[]>([]);
+  const [prediagnosticoLoading, setPrediagnosticoLoading] = useState(false);
+  const [prediagnosticoMissing, setPrediagnosticoMissing] = useState(false);
+  const [showPrediagnosticoDetail, setShowPrediagnosticoDetail] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const target = Array.isArray(selectedForOperation)
+      ? null
+      : selectedForOperation;
+    const osId = target?.dbId || target?.groupId || target?.service_order_id;
+    if (!osId || activeTab !== 'diagnostico') {
+      setPrediagnostico(null);
+      setPrediagnosticoItems([]);
+      setPrediagnosticoMissing(false);
+      setPrediagnosticoLoading(false);
+      setShowPrediagnosticoDetail(false);
+      return;
+    }
+    setShowPrediagnosticoDetail(false);
+
+    setPrediagnosticoLoading(true);
+    setPrediagnosticoMissing(false);
+    const params = new URLSearchParams({ serviceOrderId: String(osId) });
+    if (target?.techId) params.set('techId', String(target.techId));
+    if (target?.brandId) params.set('brandId', String(target.brandId));
+    if (target?.modelId) params.set('modelId', String(target.modelId));
+
+    void apiFetch(`/api/v1/backoffice/prediagnostico?${params}`)
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || 'No se pudo cargar prediagnóstico');
+        if (cancelled) return;
+        const item = data.item as Record<string, unknown> | null;
+        const catalog = Array.isArray(data.items) ? (data.items as PrediagnosticoCatalogItem[]) : [];
+        setPrediagnosticoItems(catalog);
+        if (!item) {
+          setPrediagnostico(null);
+          setPrediagnosticoMissing(true);
+          return;
+        }
+        const rawNotes = String(item.notes ?? item.observaciones ?? '');
+        const actorRaw = String(
+          item.updatedByName ??
+            item.actualizado_por_nombre ??
+            item.createdByName ??
+            item.creado_por_nombre ??
+            '',
+        );
+        const isBackfill =
+          isPrediagnosticoBackfillNoise(rawNotes) || isPrediagnosticoBackfillNoise(actorRaw);
+        const cleanNotes = displayPrediagnosticoObservaciones(rawNotes);
+        const performedAtRaw = String(item.updatedAt ?? item.actualizado_en ?? item.createdAt ?? item.creado_en ?? '');
+        setPrediagnostico({
+          shellClass: String(item.shellClass ?? item.clase_carcasa ?? '') || null,
+          cosmetics: (item.cosmetics as Record<string, string>) ||
+            (item.detalles_cosmeticos as Record<string, string>) ||
+            {},
+          functionChecks: (item.functionChecks as Record<string, string>) ||
+            (item.funcionamiento as Record<string, string>) ||
+            {},
+          verdict: String(item.verdict ?? item.dictamen ?? '') || null,
+          notes: isBackfill || isPrediagnosticoBackfillNoise(cleanNotes) ? '' : cleanNotes,
+          operatorName: isBackfill ? '' : actorRaw,
+          performedAt: isBackfill || !performedAtRaw ? null : performedAtRaw,
+        });
+        setPrediagnosticoMissing(false);
+        if (!cosmeticClass && item.shellClass) {
+          setCosmeticClass(String(item.shellClass).toUpperCase());
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPrediagnostico(null);
+          setPrediagnosticoMissing(true);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setPrediagnosticoLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // cosmeticClass / setCosmeticClass solo para prefijo inicial; no re-fetch al cambiar clase
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedForOperation, activeTab]);
 
   const reloadPartStatus = async (osId: string) => {
     const status = await fetchOsPartStatus(String(osId));
@@ -303,7 +448,7 @@ export const OperationDrawer = memo(function OperationDrawer({
       ? selectedForOperation[0]
       : selectedForOperation;
     const osId = target?.dbId || target?.groupId;
-    if (!osId || (activeTab !== 'reparacion' && activeTab !== 'qc')) {
+    if (!osId || (activeTab !== 'reparacion' && activeTab !== 'l3' && activeTab !== 'qc')) {
       setPartStatus(null);
       return;
     }
@@ -422,8 +567,8 @@ export const OperationDrawer = memo(function OperationDrawer({
 
   return (
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-[#181c3a]/40 backdrop-blur-sm p-2 sm:p-4 overflow-y-auto">
-          <Card className="max-w-2xl w-full max-h-[92vh] my-2 sm:my-4 shadow-xl animate-rise-in p-0 flex flex-col overflow-hidden">
-            <div className={`px-3 py-2.5 text-white flex items-start justify-between gap-2 shrink-0 ${
+          <Card className="max-w-3xl w-full max-h-[94vh] my-2 sm:my-4 shadow-xl animate-rise-in p-0 flex flex-col overflow-hidden">
+            <div className={`px-4 py-3 text-white flex items-start justify-between gap-2 shrink-0 ${
               activeTab === 'diagnostico' ? 'bg-amber-500' :
               activeTab === 'reparacion' ? 'bg-blue-500' :
               activeTab === 'reacondicionado' ? 'bg-emerald-500' :
@@ -439,29 +584,29 @@ export const OperationDrawer = memo(function OperationDrawer({
                 </div>
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-1.5 mb-1">
-                    <Badge variant="blue" className="bg-white/20 text-white font-black text-[8px] uppercase border-none backdrop-blur-sm px-1.5 py-0">
+                    <Badge variant="blue" className="bg-white/20 text-white font-black text-xs uppercase border-none backdrop-blur-sm px-1.5 py-0">
                       {Array.isArray(selectedForOperation)
                         ? `MASIVO · ${selectedForOperation.length} eq.`
                         : selectedForOperation.id}
                     </Badge>
-                    <span className="text-[8px] font-bold text-white/90 uppercase tracking-wider">
+                    <span className="text-sm font-bold text-white uppercase tracking-wide">
                       {activeTab === 'diagnostico' ? 'Diagnóstico' : activeTab === 'reparacion' ? 'Reparación' : activeTab === 'qc' ? 'QC' : activeTab === 'reacondicionado' ? 'Reacond.' : 'Operación'}
                     </span>
                     
                     {!Array.isArray(selectedForOperation) && (
                       <div className="flex gap-1 flex-wrap">
-                        <Badge variant="slate" className={`border-none font-black text-[7px] uppercase px-1.5 py-0 ${selectedForOperation.ingress_count > 1 ? 'bg-amber-500 text-white' : 'bg-black/40 text-white'}`}>
+                        <Badge variant="slate" className={`border-none font-black text-sm uppercase px-1.5 py-0 ${selectedForOperation.ingress_count > 1 ? 'bg-amber-500 text-white' : 'bg-black/40 text-white'}`}>
                           {selectedForOperation.ingress_count === 1 ? '1° ing.' : `${selectedForOperation.ingress_count}° ing.`}
                         </Badge>
-                        <Badge variant="slate" className="bg-black/40 text-white border-none font-black text-[7px] uppercase px-1.5 py-0">
+                        <Badge variant="slate" className="bg-black/40 text-white border-none font-black text-sm uppercase px-1.5 py-0">
                           {selectedForOperation.etapa}
                         </Badge>
                       </div>
                     )}
                   </div>
-                  <h3 className="text-sm font-black leading-tight truncate">
+                  <h3 className="text-base font-black leading-tight truncate">
                     {Array.isArray(selectedForOperation) ? 'Varios equipos' : selectedForOperation.modelo}
-                    <span className="text-white/90 font-mono text-[10px] font-bold block sm:inline sm:ml-2 truncate">
+                    <span className="text-white/90 font-mono text-sm font-bold block sm:inline sm:ml-2 truncate">
                       {Array.isArray(selectedForOperation) ? '' : selectedForOperation.sn}
                     </span>
                   </h3>
@@ -485,14 +630,16 @@ export const OperationDrawer = memo(function OperationDrawer({
               >✕</button>
             </div>
 
-            <div className="p-3 bg-slate-50/50 space-y-3 overflow-y-auto flex-1 min-h-0">
+            <div className="p-4 bg-slate-50/80 space-y-3.5 overflow-y-auto flex-1 min-h-0">
 
-              {activeTab === 'reparacion' && onRequestPart && !Array.isArray(selectedForOperation) && (
+              {(activeTab === 'reparacion' || activeTab === 'l3') &&
+                onRequestPart &&
+                !Array.isArray(selectedForOperation) && (
                 <div className="flex flex-col gap-2">
                   <Button
                     type="button"
                     variant="outline"
-                    className="h-9 w-full gap-1.5 border-blue-200 bg-blue-50 text-[10px] font-black uppercase text-blue-700"
+                    className="h-9 w-full gap-1.5 border-blue-200 bg-blue-50 text-[13px] font-black uppercase text-blue-700"
                     onClick={onRequestPart}
                   >
                     <PackagePlus className="h-3.5 w-3.5" />
@@ -500,7 +647,7 @@ export const OperationDrawer = memo(function OperationDrawer({
                   </Button>
                   {partStatus && partStatus.dispatchedParts.length > 0 && (
                     <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
-                      <p className="mb-1.5 text-[9px] font-black uppercase tracking-wider text-slate-500">
+                      <p className="mb-1.5 text-xs font-black uppercase tracking-wide text-slate-700">
                         Piezas despachadas a esta OS
                       </p>
                       <ul className="space-y-1">
@@ -510,23 +657,23 @@ export const OperationDrawer = memo(function OperationDrawer({
                             className="space-y-1 border-b border-slate-100 pb-1.5 last:border-b-0 last:pb-0"
                           >
                             <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
-                              <span className="text-[10px] font-bold text-slate-700">
+                              <span className="text-[13px] font-bold text-slate-700">
                                 <span className="font-mono">{part.sku}</span>
                                 {part.name ? ` · ${part.name}` : ''}
                                 {part.qty > 1 ? ` ×${part.qty}` : ''}
                               </span>
-                              <span className="text-[9px] font-semibold text-slate-500">
+                              <span className="text-xs font-semibold text-slate-500">
                                 {formatDispatchDate(part.dispatchedAt)}
                                 {part.dispatchNumber ? ` · ${part.dispatchNumber}` : ''}
                               </span>
                             </div>
                             <div className="flex flex-wrap items-center gap-1">
-                              <span className="text-[9px] font-black uppercase text-slate-400">
+                              <span className="text-xs font-black uppercase text-slate-400">
                                 ¿Recibiste la pieza?
                               </span>
                               <Button
                                 size="sm"
-                                className="h-6 px-2 text-[8px] font-black uppercase"
+                                className="h-6 px-2 text-xs font-black uppercase"
                                 disabled={receiptBusyId === part.id}
                                 variant={part.receiptStatus === 'RECEIVED' ? 'primary' : 'outline'}
                                 onClick={() => void handleReceipt(part, true)}
@@ -535,7 +682,7 @@ export const OperationDrawer = memo(function OperationDrawer({
                               </Button>
                               <Button
                                 size="sm"
-                                className="h-6 px-2 text-[8px] font-black uppercase text-rose-600"
+                                className="h-6 px-2 text-xs font-black uppercase text-rose-600"
                                 disabled={receiptBusyId === part.id}
                                 variant={part.receiptStatus === 'NOT_RECEIVED' ? 'primary' : 'outline'}
                                 onClick={() => void handleReceipt(part, false)}
@@ -543,15 +690,15 @@ export const OperationDrawer = memo(function OperationDrawer({
                                 No
                               </Button>
                               {part.receiptStatus === 'RECEIVED' && (
-                                <span className="text-[9px] font-black uppercase text-emerald-600">Recibida</span>
+                                <span className="text-xs font-black uppercase text-emerald-600">Recibida</span>
                               )}
                               {part.receiptStatus === 'NOT_RECEIVED' && (
-                                <span className="text-[9px] font-black uppercase text-rose-600">
+                                <span className="text-xs font-black uppercase text-rose-600">
                                   No recibida · Bodega notificada
                                 </span>
                               )}
                               {part.unusedReturned && (
-                                <span className="text-[9px] font-black uppercase text-emerald-700">
+                                <span className="text-xs font-black uppercase text-emerald-700">
                                   Devuelta a stock (buena)
                                 </span>
                               )}
@@ -559,7 +706,7 @@ export const OperationDrawer = memo(function OperationDrawer({
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  className="h-6 px-2 text-[8px] font-black uppercase"
+                                  className="h-6 px-2 text-xs font-black uppercase"
                                   disabled={receiptBusyId === part.id}
                                   onClick={() => void handleReturnGood(part)}
                                 >
@@ -568,7 +715,7 @@ export const OperationDrawer = memo(function OperationDrawer({
                               )}
                               {part.returnRequired && (
                                 <span
-                                  className={`text-[9px] font-black uppercase ${
+                                  className={`text-xs font-black uppercase ${
                                     part.returnStatus === 'PENDING' ? 'text-amber-600' : 'text-emerald-600'
                                   }`}
                                 >
@@ -584,7 +731,7 @@ export const OperationDrawer = memo(function OperationDrawer({
                     </div>
                   )}
                   {partStatus && (partStatus.hasOpenRequest || partStatus.pendingReturns.length > 0) && (
-                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[10px] font-semibold text-amber-800">
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[13px] font-semibold text-amber-800">
                       {partStatus.hasOpenRequest && (
                         <p>Solicitud de piezas abierta. Es informativa y no bloquea completar la reparación.</p>
                       )}
@@ -600,6 +747,153 @@ export const OperationDrawer = memo(function OperationDrawer({
               )}
 
 
+              {/* 1. PRE-DIAGNÓSTICO (clasificación de recepción / backoffice) */}
+              {activeTab === 'diagnostico' && !Array.isArray(selectedForOperation) ? (
+                <div className="bg-violet-50 p-3 rounded-xl shadow-sm border border-violet-200 space-y-2">
+                  <h4 className="text-sm font-black uppercase tracking-wide text-violet-800 flex items-center gap-2">
+                    <ClipboardList className="w-4 h-4" />
+                    1. Pre-diagnóstico
+                  </h4>
+                  {prediagnosticoLoading ? (
+                    <p className="text-[13px] font-bold text-violet-600/80 flex items-center gap-2">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Cargando clasificación…
+                    </p>
+                  ) : prediagnostico ? (
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap gap-2">
+                        <span className="inline-flex items-center gap-1.5 rounded-lg bg-white border border-violet-200 px-2.5 py-1.5 text-[12px] font-bold text-slate-800">
+                          <span className="text-[10px] uppercase tracking-wide text-violet-600">Dictamen</span>
+                          {labelPrediagnosticoDictamen(String(prediagnostico.verdict || '—'))}
+                        </span>
+                        <span className="inline-flex items-center gap-1.5 rounded-lg bg-white border border-violet-200 px-2.5 py-1.5 text-[12px] font-bold text-slate-800">
+                          <span className="text-[10px] uppercase tracking-wide text-violet-600">Clase</span>
+                          {prediagnostico.shellClass || '—'}
+                        </span>
+                      </div>
+                      {prediagnostico.operatorName &&
+                      !isPrediagnosticoBackfillNoise(prediagnostico.operatorName) ? (
+                        <p className="text-[11px] font-semibold text-violet-900/80">
+                          Por {prediagnostico.operatorName}
+                          {prediagnostico.performedAt
+                            ? ` · ${new Date(prediagnostico.performedAt).toLocaleString('es-GT')}`
+                            : ''}
+                        </p>
+                      ) : null}
+                      {(() => {
+                        const cosmeticEntries = Object.entries(prediagnostico.cosmetics || {});
+                        const functionEntries = Object.entries(prediagnostico.functionChecks || {});
+                        const hasDetail =
+                          cosmeticEntries.length > 0 ||
+                          functionEntries.length > 0 ||
+                          (Boolean(prediagnostico.notes.trim()) &&
+                            !isPrediagnosticoBackfillNoise(prediagnostico.notes));
+                        if (!hasDetail) return null;
+
+                        const nameById = new Map(
+                          prediagnosticoItems.map((it) => [String(it.id), String(it.name || it.id)]),
+                        );
+
+                        const renderGroup = (
+                          title: string,
+                          entries: [string, string][],
+                        ) => {
+                          if (entries.length === 0) return null;
+                          return (
+                            <div className="rounded-lg border border-violet-100 bg-white overflow-hidden">
+                              <div className="bg-violet-100/70 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-violet-800">
+                                {title}
+                              </div>
+                              <table className="w-full text-left text-[12px]">
+                                <thead className="bg-violet-50 text-[10px] uppercase font-black text-violet-700">
+                                  <tr>
+                                    <th className="px-2.5 py-1.5">Ítem</th>
+                                    <th className="px-2.5 py-1.5 w-16 text-center">Res.</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-violet-50">
+                                  {entries.map(([id, value]) => {
+                                    const label = nameById.get(String(id)) || String(id);
+                                    const shown = formatPrediagCheckValue(value);
+                                    return (
+                                      <tr key={`${title}-${id}`}>
+                                        <td className="px-2.5 py-1.5 font-semibold text-slate-700">
+                                          {label}
+                                        </td>
+                                        <td className="px-2.5 py-1.5 text-center">
+                                          <span
+                                            className={`inline-block min-w-[2rem] rounded px-1.5 py-0.5 text-[10px] font-black uppercase ${
+                                              shown === 'Sí'
+                                                ? 'bg-emerald-50 text-emerald-700'
+                                                : shown === 'No'
+                                                  ? 'bg-rose-50 text-rose-700'
+                                                  : 'bg-slate-50 text-slate-600'
+                                            }`}
+                                          >
+                                            {shown}
+                                          </span>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          );
+                        };
+
+                        return (
+                          <div className="space-y-2">
+                            <button
+                              type="button"
+                              onClick={() => setShowPrediagnosticoDetail((v) => !v)}
+                              className="w-full flex items-center justify-between rounded-lg border border-violet-200 bg-white px-3 py-2 text-left hover:bg-violet-50 transition-colors"
+                            >
+                              <span className="text-[12px] font-black uppercase tracking-wide text-violet-800">
+                                {showPrediagnosticoDetail ? 'Ocultar detalle' : 'Mostrar detalle'}
+                                <span className="ml-2 font-bold normal-case tracking-normal text-violet-600">
+                                  ({cosmeticEntries.length + functionEntries.length} ítems
+                                  {prediagnostico.verdict
+                                    ? ` · ${labelPrediagnosticoDictamen(String(prediagnostico.verdict))}`
+                                    : ''}
+                                  )
+                                </span>
+                              </span>
+                              <ChevronDown
+                                className={`w-4 h-4 text-violet-600 transition-transform ${
+                                  showPrediagnosticoDetail ? 'rotate-180' : ''
+                                }`}
+                              />
+                            </button>
+                            {showPrediagnosticoDetail ? (
+                              <div className="space-y-2 animate-in slide-in-from-top-1 fade-in duration-150">
+                                {renderGroup('Cosmético', cosmeticEntries)}
+                                {renderGroup('Funcionamiento', functionEntries)}
+                                {prediagnostico.notes.trim() &&
+                                !isPrediagnosticoBackfillNoise(prediagnostico.notes) ? (
+                                  <p className="text-[12px] font-medium text-slate-700 bg-white border border-violet-100 rounded-lg px-2.5 py-2">
+                                    <span className="text-[10px] font-black uppercase text-violet-600 block mb-0.5">
+                                      Observaciones
+                                    </span>
+                                    {prediagnostico.notes}
+                                  </p>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  ) : (
+                    <p className="text-[13px] font-bold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
+                      {prediagnosticoMissing
+                        ? 'Sin pre-diagnóstico registrado para esta OS. Complete el prediagnóstico en Recepción/Backoffice.'
+                        : 'Sin datos de pre-diagnóstico.'}
+                    </p>
+                  )}
+                </div>
+              ) : null}
+
               {/* 2. CLASIFICACIÓN COSMÉTICA */}
               {activeTab === 'diagnostico' ? (
                 <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 transition-all">
@@ -607,7 +901,7 @@ export const OperationDrawer = memo(function OperationDrawer({
                     onClick={() => setIsCosmeticOpen(!isCosmeticOpen)}
                     className="w-full flex items-center justify-between group outline-none"
                   >
-                    <h4 className="text-[9px] font-black uppercase tracking-wider text-amber-500 flex items-center gap-2">
+                    <h4 className="text-sm font-black uppercase tracking-wide text-amber-700 flex items-center gap-2">
                       <Box className="w-4 h-4 group-hover:scale-110 transition-transform" />
                       2. Clasificación Cosmética
                     </h4>
@@ -628,7 +922,7 @@ export const OperationDrawer = memo(function OperationDrawer({
                         className={`p-2 rounded-lg border text-center transition-all flex flex-col items-center justify-center gap-0.5 ${cosmeticClass === item.val ? 'border-amber-500 bg-amber-50 shadow-sm' : 'border-slate-200 bg-transparent hover:border-amber-400'}`}
                       >
                         <span className={`text-base font-black ${cosmeticClass === item.val ? 'text-amber-500' : 'text-slate-600'}`}>{item.val}</span>
-                        <span className={`text-[8px] font-bold ${cosmeticClass === item.val ? 'text-amber-500' : 'text-slate-400'}`}>{item.label}</span>
+                        <span className={`text-[13px] font-bold ${cosmeticClass === item.val ? 'text-amber-700' : 'text-slate-600'}`}>{item.label}</span>
                       </button>
                     ))}
                     </div>
@@ -636,7 +930,7 @@ export const OperationDrawer = memo(function OperationDrawer({
                 </div>
               ) : (
                 <div className="bg-slate-50 p-3 rounded-xl shadow-sm border border-slate-200">
-                  <h4 className="text-[9px] font-black uppercase tracking-wider text-slate-500 flex items-center gap-2 mb-4">
+                  <h4 className="text-xs font-black uppercase tracking-wide text-slate-700 flex items-center gap-2 mb-4">
                     <Box className="w-4 h-4" />
                     Clasificación Cosmética Inicial (Bloqueada)
                   </h4>
@@ -644,12 +938,12 @@ export const OperationDrawer = memo(function OperationDrawer({
                     {lockedCosmetic ? (
                       <div className="px-6 py-3 bg-white border border-slate-200 rounded-xl shadow-sm flex items-center gap-3">
                         <span className="text-xl font-black text-slate-600">{lockedCosmetic}</span>
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                        <span className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
                           {lockedCosmetic === 'A' ? 'Excelente' : lockedCosmetic === 'B' ? 'Bueno' : lockedCosmetic === 'C' ? 'Regular' : 'Dañado'}
                         </span>
                       </div>
                     ) : (
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">NO HAY CLASIFICACIÓN REGISTRADA</p>
+                      <p className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">NO HAY CLASIFICACIÓN REGISTRADA</p>
                     )}
                   </div>
                 </div>
@@ -664,7 +958,7 @@ export const OperationDrawer = memo(function OperationDrawer({
                   onClick={() => setIsLabelOpen(!isLabelOpen)}
                   className="w-full flex items-center justify-between group outline-none"
                 >
-                  <h4 className="text-[9px] font-black uppercase tracking-wider text-amber-500 flex items-center gap-2">
+                  <h4 className="text-sm font-black uppercase tracking-wide text-amber-700 flex items-center gap-2">
                     <Badge className="w-4 h-4 group-hover:scale-110 transition-transform" />
                     3. Estado de la Etiqueta de Datos
                   </h4>
@@ -677,13 +971,13 @@ export const OperationDrawer = memo(function OperationDrawer({
                     onClick={() => setLabelStatus('OK')}
                     className={`p-2 rounded-lg border text-center transition-all flex items-center justify-center ${labelStatus === 'OK' ? 'border-emerald-500 bg-emerald-50 shadow-sm' : 'border-slate-200 bg-transparent hover:border-amber-400'}`}
                   >
-                    <span className={`text-[9px] font-black uppercase ${labelStatus === 'OK' ? 'text-emerald-600' : 'text-slate-500'}`}>Etiqueta OK</span>
+                    <span className={`text-xs font-black uppercase ${labelStatus === 'OK' ? 'text-emerald-600' : 'text-slate-500'}`}>Etiqueta OK</span>
                   </button>
                   <button 
                     onClick={() => setLabelStatus('MAL')}
                     className={`p-2 rounded-lg border text-center transition-all flex items-center justify-center ${labelStatus === 'MAL' ? 'border-rose-400 bg-rose-50 shadow-sm' : 'border-slate-200 bg-transparent hover:border-amber-400'}`}
                   >
-                    <span className={`text-[9px] font-black uppercase ${labelStatus === 'MAL' ? 'text-rose-600' : 'text-slate-500'}`}>Etiqueta mal</span>
+                    <span className={`text-xs font-black uppercase ${labelStatus === 'MAL' ? 'text-rose-600' : 'text-slate-500'}`}>Etiqueta mal</span>
                   </button>
                   </div>
                 )}
@@ -693,10 +987,10 @@ export const OperationDrawer = memo(function OperationDrawer({
               {/* DIAGNÓSTICO PREVIO (SOLO EN REPARACIÓN/OTROS) */}
               {activeTab !== 'diagnostico' && (
                 <div className="bg-slate-50 p-3 rounded-xl shadow-sm border border-slate-200">
-                  <h4 className="text-[9px] font-black uppercase tracking-wider text-slate-500 mb-4 flex flex-wrap items-center gap-2">
+                  <h4 className="text-xs font-black uppercase tracking-wide text-slate-700 mb-4 flex flex-wrap items-center gap-2">
                     <AlertCircle className="w-4 h-4" />
                     Diagnóstico Inicial (Bloqueado)
-                    {lockedDiagProfile && <span className="ml-auto text-[9px] font-black text-slate-100 bg-slate-800 px-3 py-1 rounded-full shadow-sm tracking-widest border border-slate-900">POR: {lockedDiagProfile.toUpperCase()}</span>}
+                    {lockedDiagProfile && <span className="ml-auto text-xs font-black text-slate-100 bg-slate-800 px-3 py-1 rounded-full shadow-sm tracking-wide border border-slate-900">POR: {lockedDiagProfile.toUpperCase()}</span>}
                   </h4>
                   <div className="flex flex-col gap-2">
                     {(lockedDiagnostics.length > 0 ? lockedDiagnostics : diagnosticIdsForRepairGate).length > 0 ? (
@@ -705,12 +999,12 @@ export const OperationDrawer = memo(function OperationDrawer({
                         return (
                           <div key={id} className="bg-white border border-slate-200 text-slate-600 px-4 py-3 rounded-xl shadow-sm flex items-center gap-2">
                             <span className="w-2 h-2 rounded-full bg-slate-300"></span>
-                            <span className="text-[11px] font-black uppercase tracking-widest">{diag ? diag.nombre : id}</span>
+                            <span className="text-sm font-black uppercase tracking-wide">{diag ? diag.nombre : id}</span>
                           </div>
                         );
                       })
                     ) : (
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">NO HAY DIAGNÓSTICOS REGISTRADOS</p>
+                      <p className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">NO HAY DIAGNÓSTICOS REGISTRADOS</p>
                     )}
                   </div>
                 </div>
@@ -719,16 +1013,16 @@ export const OperationDrawer = memo(function OperationDrawer({
               {/* REPARACIONES PREVIAS (SOLO EN REACOND / L3 — en QC son editables abajo) */}
               {activeTab !== 'diagnostico' && activeTab !== 'reparacion' && activeTab !== 'qc' && (
                 <div className="bg-slate-50 p-3 rounded-xl shadow-sm border border-slate-200 mt-2">
-                  <h4 className="text-[9px] font-black uppercase tracking-wider text-blue-500 mb-4 flex flex-wrap items-center gap-2">
+                  <h4 className="text-xs font-black uppercase tracking-wide text-blue-700 mb-4 flex flex-wrap items-center gap-2">
                     <Wrench className="w-4 h-4" />
                     Reparaciones Aplicadas (Bloqueado)
-                    {lockedRepProfile && <span className="ml-auto text-[9px] font-black text-slate-100 bg-slate-800 px-3 py-1 rounded-full shadow-sm tracking-widest border border-slate-900">POR: {lockedRepProfile.toUpperCase()}</span>}
+                    {lockedRepProfile && <span className="ml-auto text-xs font-black text-slate-100 bg-slate-800 px-3 py-1 rounded-full shadow-sm tracking-wide border border-slate-900">POR: {lockedRepProfile.toUpperCase()}</span>}
                   </h4>
                   <div className="flex flex-col gap-2">
                     {activeTab === 'reacondicionado' ? (
                       <div className="bg-white border border-blue-200 text-blue-700 px-4 py-3 rounded-xl shadow-sm flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-blue-400"></span>
-                        <span className="text-[11px] font-black uppercase tracking-widest">MASTER RESET</span>
+                        <span className="text-sm font-black uppercase tracking-wide">MASTER RESET</span>
                       </div>
                     ) : lockedRepairs && lockedRepairs.length > 0 ? (
                       lockedRepairs.map((id: string) => {
@@ -736,12 +1030,12 @@ export const OperationDrawer = memo(function OperationDrawer({
                         return (
                           <div key={id} className="bg-white border border-blue-200 text-blue-700 px-4 py-3 rounded-xl shadow-sm flex items-center gap-2">
                             <span className="w-2 h-2 rounded-full bg-blue-400"></span>
-                            <span className="text-[11px] font-black uppercase tracking-widest">{rep ? rep.nombre : id}</span>
+                            <span className="text-sm font-black uppercase tracking-wide">{rep ? rep.nombre : id}</span>
                           </div>
                         );
                       })
                     ) : (
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">NO HAY REPARACIONES REGISTRADAS</p>
+                      <p className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">NO HAY REPARACIONES REGISTRADAS</p>
                     )}
                   </div>
                 </div>
@@ -754,7 +1048,7 @@ export const OperationDrawer = memo(function OperationDrawer({
                   onClick={() => setIsDiagnosticsOpen(!isDiagnosticsOpen)}
                   className="w-full flex items-center justify-between group outline-none"
                 >
-                  <h4 className={`text-[9px] font-black uppercase tracking-wider flex items-center gap-2 ${activeTab === 'diagnostico' ? 'text-amber-500' : activeTab === 'l3' ? 'text-orange-500' : activeTab === 'qc' ? 'text-purple-600' : 'text-blue-500'}`}>
+                  <h4 className={`text-sm font-black uppercase tracking-wide flex items-center gap-2 ${activeTab === 'diagnostico' ? 'text-amber-700' : activeTab === 'l3' ? 'text-orange-700' : activeTab === 'qc' ? 'text-purple-700' : 'text-blue-700'}`}>
                     {activeTab === 'diagnostico' ? <AlertCircle className="w-4 h-4 group-hover:scale-110 transition-transform" /> : <Wrench className="w-4 h-4 group-hover:scale-110 transition-transform" />}
                     {activeTab === 'diagnostico'
                       ? '4. Fallas Encontradas (Catálogo)'
@@ -782,7 +1076,7 @@ export const OperationDrawer = memo(function OperationDrawer({
 
                   return (
                   <div className="mt-6 border-t border-slate-100 pt-6 animate-in slide-in-from-top-2 fade-in duration-200">
-                    <p className="text-[10px] font-bold text-slate-400 mb-4 uppercase tracking-widest">
+                    <p className="text-[13px] font-bold text-slate-600 mb-4 uppercase tracking-wide">
                       {activeTab === 'diagnostico'
                         ? 'Seleccione hasta 3 diagnósticos'
                         : activeTab === 'qc'
@@ -790,7 +1084,7 @@ export const OperationDrawer = memo(function OperationDrawer({
                           : 'Seleccione hasta 3 reparaciones'}
                     </p>
                     {repairGateMessage ? (
-                      <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-amber-700">
+                      <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] font-bold uppercase tracking-wide text-amber-700">
                         {repairGateMessage}
                       </p>
                     ) : null}
@@ -822,7 +1116,7 @@ export const OperationDrawer = memo(function OperationDrawer({
                       </select>
 
                       {optionsList.length === 0 && (
-                         <span className="text-xs font-bold text-slate-400">
+                         <span className="text-xs font-bold text-slate-600">
                            No hay {activeTab === 'diagnostico' ? 'diagnósticos' : 'reparaciones vinculadas'} configurados en el catálogo.
                          </span>
                       )}
@@ -837,7 +1131,7 @@ export const OperationDrawer = memo(function OperationDrawer({
                                 ? 'bg-amber-50 border-amber-200 text-amber-700' 
                                 : 'bg-blue-50 border-blue-200 text-blue-700'
                             }`}>
-                              <span className="text-[11px] font-black uppercase tracking-widest">{item.nombre}</span>
+                              <span className="text-sm font-black uppercase tracking-wide">{item.nombre}</span>
                               <button 
                                 onClick={() => setSelectedDiagnostics(selectedDiagnostics.filter(sid => sid !== id))} 
                                 className={`transition-colors ${activeTab === 'diagnostico' ? 'text-amber-500 hover:text-rose-500' : 'text-blue-500 hover:text-rose-500'}`}
@@ -859,7 +1153,7 @@ export const OperationDrawer = memo(function OperationDrawer({
               {activeTab === 'qc' && (
                 <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 space-y-3">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-                  <h4 className="text-[9px] font-black uppercase tracking-wider text-purple-600 flex items-center gap-2">
+                  <h4 className="text-xs font-black uppercase tracking-wide text-purple-700 flex items-center gap-2">
                     <Activity className="w-4 h-4" />
                     Detalle de Control de Calidad
                   </h4>
@@ -871,7 +1165,7 @@ export const OperationDrawer = memo(function OperationDrawer({
                           e.preventDefault();
                           void handlePrintKaonLabel();
                         }}
-                        className="text-[10px] font-black uppercase tracking-wider text-white bg-[#181c3a] hover:bg-slate-800 px-4 py-2 rounded-xl transition-all border border-[#181c3a] shadow-sm hover:shadow active:scale-95 inline-flex items-center gap-1.5"
+                        className="text-[13px] font-black uppercase tracking-wider text-white bg-[#181c3a] hover:bg-slate-800 px-4 py-2 rounded-xl transition-all border border-[#181c3a] shadow-sm hover:shadow active:scale-95 inline-flex items-center gap-1.5"
                         title="Imprimir label del equipo (CG-2200 / CG-3000)"
                       >
                         <Printer className="w-3.5 h-3.5" />
@@ -887,7 +1181,7 @@ export const OperationDrawer = memo(function OperationDrawer({
                         setQcChecklist('SI');
                         setQcLegible('SI');
                       }}
-                      className="text-[10px] font-black uppercase tracking-wider text-purple-600 bg-purple-50 hover:bg-purple-100 px-4 py-2 rounded-xl transition-all border border-purple-200 shadow-sm hover:shadow active:scale-95"
+                      className="text-[13px] font-black uppercase tracking-wide text-purple-700 bg-purple-50 hover:bg-purple-100 px-4 py-2 rounded-xl transition-all border border-purple-200 shadow-sm hover:shadow active:scale-95"
                     >
                       Marcar Todos SÍ
                     </button>
@@ -949,7 +1243,7 @@ export const OperationDrawer = memo(function OperationDrawer({
 
                 return (
                 <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 space-y-3">
-                  <h4 className="text-[9px] font-black uppercase tracking-wider text-emerald-600 flex items-center gap-2 mb-6">
+                  <h4 className="text-xs font-black uppercase tracking-wide text-emerald-700 flex items-center gap-2 mb-6">
                     <RefreshCw className="w-4 h-4" />
                     Pruebas de Reacondicionado
                   </h4>
@@ -976,7 +1270,7 @@ export const OperationDrawer = memo(function OperationDrawer({
                       </select>
                       <button 
                         onClick={() => setReacondTests(REACOND_OPTIONS)}
-                        className="shrink-0 bg-emerald-500 text-white hover:bg-emerald-600 font-black uppercase tracking-widest text-[10px] px-6 rounded-xl transition-all shadow-sm shadow-emerald-500/20 flex items-center justify-center"
+                        className="shrink-0 bg-emerald-500 text-white hover:bg-emerald-600 font-black uppercase tracking-wide text-[13px] px-6 rounded-xl transition-all shadow-sm shadow-emerald-500/20 flex items-center justify-center"
                       >
                         Cargar Todas
                       </button>
@@ -985,7 +1279,7 @@ export const OperationDrawer = memo(function OperationDrawer({
                     <div className="flex flex-col gap-2">
                       {reacondTests.map(test => (
                         <div key={test} className="flex items-center justify-between border px-4 py-3 rounded-xl shadow-sm bg-emerald-50 border-emerald-200 text-emerald-700">
-                          <span className="text-[11px] font-black uppercase tracking-widest">{test}</span>
+                          <span className="text-sm font-black uppercase tracking-wide">{test}</span>
                           <button 
                             onClick={() => setReacondTests(reacondTests.filter(t => t !== test))} 
                             className="transition-colors text-emerald-500 hover:text-rose-500"
@@ -995,7 +1289,7 @@ export const OperationDrawer = memo(function OperationDrawer({
                         </div>
                       ))}
                       {reacondTests.length === 0 && (
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-2">No se han seleccionado pruebas.</p>
+                        <p className="text-[13px] font-bold text-slate-600 uppercase tracking-wide px-2">No se han seleccionado pruebas.</p>
                       )}
                     </div>
                   </div>
@@ -1004,13 +1298,13 @@ export const OperationDrawer = memo(function OperationDrawer({
 
               {/* Observaciones Técnicas */}
               <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 space-y-2">
-                <label className="text-[9px] font-black uppercase tracking-wider text-amber-500 flex items-center gap-1.5">
+                <label className="text-sm font-black uppercase tracking-wide text-amber-700 flex items-center gap-1.5">
                   Observaciones{diagnosticResult === 'l3' ? ' / Motivo L3' : ''}
                 </label>
                 <textarea 
                   value={diagnosticNotes}
                   onChange={(e) => setDiagnosticNotes(e.target.value)}
-                  className="w-full h-20 bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs font-medium text-slate-700 outline-none focus:border-amber-400 resize-none"
+                  className="w-full h-24 bg-white border border-slate-300 rounded-lg p-3 text-sm font-medium text-slate-800 placeholder:text-slate-500 outline-none focus:border-amber-500 resize-none"
                   placeholder={
                     diagnosticResult === 'l3'
                       ? 'Obligatorio si no hay diagnóstico: indique por qué se envía a L3...'
@@ -1020,17 +1314,25 @@ export const OperationDrawer = memo(function OperationDrawer({
               </div>
             </div>
 
-            <div className="p-3 border-t border-slate-100 bg-white shrink-0 space-y-3">
+            <div className="p-4 border-t border-slate-200 bg-white shrink-0 space-y-3">
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                <h4 className={`text-[9px] font-black uppercase tracking-wider mb-2 flex items-center gap-1.5 ${activeTab === 'qc' ? 'text-purple-600' : 'text-amber-500'}`}>
-                  <Activity className="w-3.5 h-3.5" />
+                <h4 className={`text-sm font-black uppercase tracking-wide mb-2 flex items-center gap-1.5 ${activeTab === 'qc' ? 'text-purple-700' : 'text-amber-700'}`}>
+                  <Activity className="w-4 h-4" />
                   Resultado de evaluación
                 </h4>
                 {repairOutcomeBlocked ? (
-                  <p className="mb-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-rose-700">
+                  <p className="mb-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[13px] font-bold uppercase tracking-wide text-rose-700">
                     {availableRepairs.length === 0
                       ? 'No hay reparaciones válidas para el diagnóstico. Revise el catálogo antes de continuar.'
                       : 'Seleccione al menos una reparación del catálogo para habilitar el resultado.'}
+                  </p>
+                ) : null}
+                {activeTab === 'diagnostico' && selectedDiagnostics.length > 0 && allowedDiagnosticOutcomes ? (
+                  <p className="mb-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[12px] font-bold text-slate-600">
+                    Destinos habilitados:{' '}
+                    {[...allowedDiagnosticOutcomes]
+                      .map((o) => WORKSHOP_DIAGNOSTIC_OUTCOME_LABELS[o])
+                      .join(' · ') || 'Ninguno — revise Configuración'}
                   </p>
                 ) : null}
                 <div className="grid grid-cols-2 gap-2">
@@ -1056,27 +1358,39 @@ export const OperationDrawer = memo(function OperationDrawer({
                     { label: 'Reacondicionar', value: 'reacondicionado', variant: 'text-emerald-600 border-emerald-500/30 hover:border-emerald-500 hover:bg-emerald-50' },
                     { label: 'Reparación L1/L2', value: 'reparacion', variant: 'text-blue-600 border-blue-500/30 hover:border-blue-500 hover:bg-blue-50' },
                     { label: 'Nivel 3', value: 'l3', variant: 'text-orange-600 border-orange-500/30 hover:border-orange-500 hover:bg-orange-50' },
-                  ]).map((res) => (
+                  ]).map((res) => {
+                    const outcomeBlockedByCatalog =
+                      activeTab === 'diagnostico' &&
+                      Boolean(allowedDiagnosticOutcomes) &&
+                      !allowedDiagnosticOutcomes!.has(res.value as WorkshopDiagnosticOutcome);
+                    const disabled = repairOutcomeBlocked || outcomeBlockedByCatalog;
+                    return (
                     <button 
                       key={res.value}
                       type="button"
-                      disabled={repairOutcomeBlocked}
+                      disabled={disabled}
+                      title={
+                        outcomeBlockedByCatalog
+                          ? `Este diagnóstico no permite ${res.label}. Configure destinos en Configuración → Diagnósticos.`
+                          : undefined
+                      }
                       onClick={() => {
-                        if (repairOutcomeBlocked) return;
+                        if (disabled) return;
                         setDiagnosticResult(res.value);
                       }}
-                      className={`p-2 rounded-lg border text-center transition-all ${res.variant} ${diagnosticResult === res.value ? 'bg-current/10 border-current shadow-sm' : 'bg-white border-slate-200'} ${repairOutcomeBlocked ? 'cursor-not-allowed opacity-40 pointer-events-none' : ''}`}
+                      className={`p-3 rounded-xl border text-center transition-all ${res.variant} ${diagnosticResult === res.value ? 'bg-current/10 border-current shadow-sm' : 'bg-white border-slate-200'} ${disabled ? 'cursor-not-allowed opacity-40 pointer-events-none' : ''}`}
                     >
-                      <p className="text-[8px] font-black uppercase leading-tight">{res.label}</p>
+                      <p className="text-sm font-black uppercase leading-snug">{res.label}</p>
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 
               <div className="flex gap-2">
               <Button 
                 variant="outline" 
-                className="flex-1 h-9 font-black uppercase tracking-wide text-[9px]" 
+                className="flex-1 h-11 font-black uppercase tracking-wide text-sm" 
                 onClick={() => {
                   setSelectedForOperation(null);
                   setDiagnosticResult(null);
@@ -1091,7 +1405,7 @@ export const OperationDrawer = memo(function OperationDrawer({
               </Button>
               <Button 
                 variant="primary" 
-                className="flex-[2] h-9 font-black uppercase tracking-wide text-[9px] bg-[#181c3a] shadow-md" 
+                className="flex-[2] h-11 font-black uppercase tracking-wide text-sm bg-[#181c3a] shadow-md" 
                 disabled={
                   loading || 
                   !diagnosticResult || 

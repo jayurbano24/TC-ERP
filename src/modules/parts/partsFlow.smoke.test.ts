@@ -1,7 +1,7 @@
 /**
  * Smoke rules for Bodega de Partes circuit (sin DB).
  * Circuito esperado:
- * solicitar → waiting_parts → reservar → despachar → in_qc → retorno mala → compra → recepción
+ * solicitar → waiting_parts → reservar → despachar → etapa origen (in_qc|L3) → retorno mala → compra → recepción
  */
 import { describe, expect, it } from 'vitest';
 
@@ -58,6 +58,13 @@ describe('Bodega de Partes — reglas de circuito', () => {
     expect(flow[0]).toBe('in_qc');
     expect(flow[1]).toBe('waiting_parts');
     expect(flow[2]).toBe('in_qc');
+  });
+
+  it('flujo L3: in_control_warehouse → waiting_parts → in_control_warehouse', () => {
+    const flow = ['in_control_warehouse', 'waiting_parts', 'in_control_warehouse'];
+    expect(flow[0]).toBe('in_control_warehouse');
+    expect(flow[1]).toBe('waiting_parts');
+    expect(flow[2]).toBe('in_control_warehouse');
   });
 
   it('SKU en Reparación agrega cantidades por pieza despachada', () => {

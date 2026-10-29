@@ -6,7 +6,10 @@ import {
   loadWorkshopCompletionBySeries,
   validateEquipmentPrerequisites,
 } from '@/modules/workshop/server/workshopStagePrerequisites';
-import { assertWorkshopRepairsMatchDiagnostics } from '@/modules/workshop/server/workshopDiagnosticRepairValidation';
+import {
+  assertWorkshopDiagnosticOutcomeAllowed,
+  assertWorkshopRepairsMatchDiagnostics,
+} from '@/modules/workshop/server/workshopDiagnosticRepairValidation';
 
 export function resolveWorkshopNextStatus(result: string): string {
   if (result === 'reacondicionado') return 'ready_to_dispatch';
@@ -155,6 +158,13 @@ export async function operateWorkshopSeriesBatch(
   }
 
   assertAllowedWorkshopResult(actionName, result);
+
+  await assertWorkshopDiagnosticOutcomeAllowed(
+    admin,
+    selectedDiagnostics,
+    result,
+    actionName,
+  );
 
   await assertWorkshopRepairsMatchDiagnostics(
     admin,

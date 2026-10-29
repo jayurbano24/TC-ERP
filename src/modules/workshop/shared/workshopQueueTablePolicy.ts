@@ -50,8 +50,8 @@ export function workshopQueueShowsQcHistoryColumns(tab: string): boolean {
   return tab === 'qc';
 }
 
-/** SCRAPS: tabla densa — oculta columnas poco usadas en cola sin caja. */
-export const WORKSHOP_SCRAPS_HIDDEN_FILTER_COLS = ['hist', 'caja', 'ingresos'] as const;
+/** SCRAPS: tabla densa — oculta columnas poco usadas. */
+export const WORKSHOP_SCRAPS_HIDDEN_FILTER_COLS = ['hist', 'ingresos'] as const;
 
 export type WorkshopScrapsHiddenFilterCol =
   (typeof WORKSHOP_SCRAPS_HIDDEN_FILTER_COLS)[number];
@@ -82,7 +82,7 @@ export const WORKSHOP_SCRAPS_COLUMN_WIDTHS = {
   razon_scrap: '220px',
   responsable_scrap: '120px',
   fecha: '76px',
-  accion: '80px',
+  accion: '96px',
 } as const;
 
 /** SCRAPS: ancho natural del grid; sin mínimo artificial que infla columnas `fr`. */

@@ -45,7 +45,6 @@ export type WorkshopQueueFilterCol =
   | 'tec'
   | 'modelo'
   | 'sku'
-  | 'caja'
   | 'diagnostico'
   | 'detalle_diagnostico'
   | 'razon_scrap'
@@ -77,8 +76,7 @@ export function workshopQueueFilterColumnsForTab(tab: WorkshopQueueTabId): Works
     'tec',
     'modelo',
   ];
-  if (tab === 'reparacion') cols.push('sku');
-  cols.push('caja');
+  if (tab === 'reparacion' || tab === 'l3') cols.push('sku');
   if (workshopQueueShowsDiagnosticColumn(tab)) cols.push('diagnostico');
   if (workshopQueueShowsDiagnosticDetailColumn(tab)) cols.push('detalle_diagnostico');
   if (workshopQueueShowsScrapReasonColumn(tab)) cols.push('razon_scrap');
@@ -122,8 +120,6 @@ export function workshopQueueCellValue(
       return `${row.marca || ''} ${row.modelo || ''}`.trim().toUpperCase() || '—';
     case 'sku':
       return String(row.dispatchedSkuLabel || '').trim() || '—';
-    case 'caja':
-      return String(row.boxCode || '—');
     case 'diagnostico':
       return String(row.diagnosticoLabel || 'Sin diagnóstico registrado');
     case 'detalle_diagnostico':

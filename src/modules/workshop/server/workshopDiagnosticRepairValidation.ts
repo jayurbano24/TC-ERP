@@ -1,9 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { BusinessException } from '@/shared/errors/Exceptions';
 import { CAT_DIAGNOSTIC_REPAIR_SELECT } from '@/shared/constants/dbProjections';
+import { CAT_DIAGNOSTIC_SELECT } from '@/shared/constants/dbProjections';
 import {
+  validateDiagnosticOutcome,
   validateRepairsAgainstDiagnostics,
   type WorkshopDiagnosticCatalogEntry,
+  type WorkshopDiagnosticOutcome,
   type WorkshopRepairCatalogEntry,
 } from '@/modules/workshop/shared/workshopDiagnosticRepairPolicy';
 
@@ -14,7 +17,7 @@ async function loadWorkshopDiagnosticRepairCatalog(
   repairs: WorkshopRepairCatalogEntry[];
 }> {
   const [diagnosticsRes, repairsRes, relRes] = await Promise.all([
-    supabase.from('cat_diagnostics').select('id, name').order('name'),
+    supabase.from('cat_diagnostics').select(CAT_DIAGNOSTIC_SELECT).order('name'),
     supabase.from('cat_repairs').select('id, name').order('name'),
     supabase.from('cat_diagnostic_repairs').select(CAT_DIAGNOSTIC_REPAIR_SELECT),
   ]);
@@ -28,10 +31,14 @@ async function loadWorkshopDiagnosticRepairCatalog(
     const rels = relData.filter(
       (r: { diagnostic_id: string }) => String(r.diagnostic_id) === String(d.id),
     );
+    const rawOutcomes = Array.isArray((d as { allowed_outcomes?: unknown }).allowed_outcomes)
+      ? ((d as { allowed_outcomes: unknown[] }).allowed_outcomes as string[])
+      : [];
     return {
       id: String(d.id),
       nombre: String(d.name || ''),
       reparacionesIds: rels.map((r: { repair_id: string }) => String(r.repair_id)),
+      allowedOutcomes: rawOutcomes as WorkshopDiagnosticOutcome[],
     };
   });
 
@@ -41,6 +48,22 @@ async function loadWorkshopDiagnosticRepairCatalog(
   }));
 
   return { diagnostics, repairs };
+}
+
+/** Valida destino de Diagnóstico inicial vs catálogo (allowed_outcomes). */
+export async function assertWorkshopDiagnosticOutcomeAllowed(
+  supabase: SupabaseClient,
+  selectedDiagnosticIds: string[],
+  result: string,
+  actionName: string,
+): Promise<void> {
+  if (actionName !== 'DIAGNÓSTICO INICIAL COMPLETADO') return;
+
+  const { diagnostics } = await loadWorkshopDiagnosticRepairCatalog(supabase);
+  const check = validateDiagnosticOutcome(selectedDiagnosticIds, result, diagnostics);
+  if (!check.ok) {
+    throw new BusinessException(check.message);
+  }
 }
 
 /** Valida reparaciones vs diagnóstico persistido en series (por OS). */

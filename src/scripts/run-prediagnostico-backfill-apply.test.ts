@@ -8,6 +8,7 @@
 import path from 'node:path';
 import { config } from 'dotenv';
 import { describe, expect, it } from 'vitest';
+import { assertIsolatedSupabaseMutationAllowed } from '@/shared/testing/isolatedSupabaseGuard';
 
 config({ path: path.join(process.cwd(), '.env.local'), override: true });
 
@@ -15,6 +16,9 @@ describe('apply prediagnostico backfill CHG-015', () => {
   it(
     'inserta prediagnosticos históricos (runAll)',
     async () => {
+      // Fail-closed: solo stack aislado. ALLOW_LIVE_DB_MUTATION no autoriza producción.
+      assertIsolatedSupabaseMutationAllowed('prediagnostico-backfill-apply');
+
       const cutoffIso =
         process.env.PREDIAG_BACKFILL_CUTOFF?.trim() || '2027-01-01T00:00:00-06:00';
       const cutoff = new Date(cutoffIso);

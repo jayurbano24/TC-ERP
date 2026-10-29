@@ -7,6 +7,7 @@ import {
   resolveAllowedRepairIdsForDiagnostics,
   validateDiagnosticOutcome,
   validateRepairsAgainstDiagnostics,
+  type WorkshopDiagnosticCatalogEntry,
 } from './workshopDiagnosticRepairPolicy';
 
 const catalog = [
@@ -114,16 +115,16 @@ describe('workshopDiagnosticRepairPolicy', () => {
   });
 
   it('solo diagnósticos de reacondicionado habilitan ese destino', () => {
-    const withOutcomes = [
+    const withOutcomes: WorkshopDiagnosticCatalogEntry[] = [
       {
         id: 'd-frisa',
         nombre: 'SE FRIZA',
-        allowedOutcomes: ['reacondicionado'] as const,
+        allowedOutcomes: ['reacondicionado'],
       },
       {
         id: 'd-hdmi',
         nombre: 'PUERTO HDMI DAÑADO',
-        allowedOutcomes: ['reparacion', 'l3'] as const,
+        allowedOutcomes: ['reparacion', 'l3'],
       },
       {
         id: 'd-sin-config',

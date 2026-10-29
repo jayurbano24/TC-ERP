@@ -828,21 +828,6 @@ export async function getReceptionsWithSeries(source?: 'cac' | 'px') {
     throw new Error(formatFetchError(err, 'Error al cargar el historial'));
   });
 }
-export async function clearAllReceptions() {
-  const supabase = getSupabaseBrowserClient();
-  if (!supabase) return { error: "Supabase not configured" };
-
-  // First clear series (cascade-like)
-  const { error: seriesError } = await supabase.from('series').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-  if (seriesError) console.error("Error clearing series:", seriesError);
-
-  const { error } = await supabase.from('receptions').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-  if (error) {
-    console.error("Error clearing receptions:", error);
-    return { error: error.message };
-  }
-  return { success: true };
-}
 
 export async function createPxReceptionWithBoxes(
   reception: DbReception,

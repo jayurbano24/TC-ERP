@@ -2,7 +2,6 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { v5 as uuidv5 } from "uuid";
 import { BATCH_LIMITS } from "@/shared/constants/batchLimits";
-import { isWarehouseTransferApiEnabled } from "@/shared/feature-flags/clientFlags";
 import { transferBoxesToWorkshopViaApi } from "@/lib/api/warehouseTransfer";
 import { formatWarrantyProfileRequiredError } from "@/modules/warranty/domain/warrantyPolicy";
 
@@ -976,71 +975,39 @@ export async function transferBoxesToArea(boxIds: string[], targetArea: string, 
   const rackLocation = targetRack ?? rackFromArea;
   const isWorkshop = rackLocation?.startsWith('TALLER');
 
-  if (isWorkshop && isWarehouseTransferApiEnabled()) {
+  // Phase 0: Bodega→Taller solo vía API autorizada (sin RPC browser a warehouse_dispersion_tx).
+  if (isWorkshop) {
+    if (boxIds.length > WORKSHOP_TRANSFER_BATCH_LIMIT) {
+      return {
+        error: `Máximo ${WORKSHOP_TRANSFER_BATCH_LIMIT} cajas por lote hacia Diagnóstico. Seleccionó ${boxIds.length}; divida en grupos más pequeños.`,
+      };
+    }
     const apiResult = await transferBoxesToWorkshopViaApi(boxIds);
     if (!apiResult.success) {
-      return { error: apiResult.error ?? 'Transferencia fallida' };
+      return { error: apiResult.error ?? 'Transferencia fallida', results: apiResult.results };
     }
-    return { success: true, seriesUpdated: apiResult.transferred ?? boxIds.length };
-  }
-
-  if (isWorkshop && boxIds.length > WORKSHOP_TRANSFER_BATCH_LIMIT) {
     return {
-      error: `Máximo ${WORKSHOP_TRANSFER_BATCH_LIMIT} cajas por lote hacia Diagnóstico. Seleccionó ${boxIds.length}; divida en grupos más pequeños.`,
+      success: true,
+      seriesUpdated: apiResult.transferred ?? boxIds.length,
+      results: apiResult.results,
     };
   }
 
   let successCount = 0;
   let lastError: string | null = null;
   for (const boxId of boxIds) {
-    if (isWorkshop) {
-      const idempotencyKey = warehouseBoxIdempotencyKey(boxId, "dispersion", "taller");
-      const { data, error } = await supabase.rpc(
-        'warehouse_dispersion_tx',
-        withUuidParams(
-          {
-            p_box_id: boxId,
-            p_target_module: 'taller',
-            p_operator_id: operatorId,
-            p_operator_name: userName,
-            p_idempotency_key: idempotencyKey,
-          },
-          ['p_box_id', 'p_operator_id', 'p_idempotency_key']
-        )
-      );
-      if (!error) {
-        const stale = await assertBoxLeftWarehouseInventory(supabase, boxId);
-        if (stale) {
-          lastError = stale;
-          console.error('Error in dispersion (stale success):', stale, data);
-        } else {
-          successCount++;
-        }
-      } else if (String(error.message || '').includes('ALREADY_DISPERSED')) {
-        const stale = await assertBoxLeftWarehouseInventory(supabase, boxId);
-        if (stale) {
-          lastError = stale;
-        } else {
-          successCount++;
-        }
-      } else {
-        lastError = formatSupabaseError(error);
-        console.error('Error in dispersion:', error, data);
-      }
-    } else {
-      const idempotencyKey = warehouseBoxIdempotencyKey(boxId, "traslado", rackLocation);
-      const { error } = await supabase.rpc('warehouse_traslado_tx', {
-        p_box_id: boxId,
-        p_target_location: rackLocation,
-        p_operator_id: asUuidOrNull(operatorId),
-        p_operator_name: userName,
-        p_idempotency_key: idempotencyKey
-      });
-      if (!error) successCount++;
-      else {
-        lastError = formatSupabaseError(error);
-        console.error('Error in traslado:', error);
-      }
+    const idempotencyKey = warehouseBoxIdempotencyKey(boxId, "traslado", rackLocation ?? targetArea);
+    const { error } = await supabase.rpc('warehouse_traslado_tx', {
+      p_box_id: boxId,
+      p_target_location: rackLocation,
+      p_operator_id: asUuidOrNull(operatorId),
+      p_operator_name: userName,
+      p_idempotency_key: idempotencyKey
+    });
+    if (!error) successCount++;
+    else {
+      lastError = formatSupabaseError(error);
+      console.error('Error in traslado:', error);
     }
   }
 

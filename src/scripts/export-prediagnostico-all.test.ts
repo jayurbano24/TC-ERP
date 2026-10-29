@@ -15,6 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config } from 'dotenv';
 import { describe, expect, it } from 'vitest';
+import { assertIsolatedSupabaseReadAllowed } from '@/shared/testing/isolatedSupabaseGuard';
 
 config({ path: path.join(process.cwd(), '.env.local'), override: true });
 
@@ -24,18 +25,18 @@ const PROBE_TIMEOUT_MS = 15_000;
 const SMOKE_MAX_ROWS = 100;
 
 function supabaseIntegrationReady(): { ok: true; url: string; key: string } | { ok: false; reason: string } {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() || process.env.SUPABASE_URL?.trim();
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
-    process.env.SUPABASE_SERVICE_KEY?.trim();
-  if (!url || !key) {
+  try {
+    const isolated = assertIsolatedSupabaseReadAllowed('export-prediagnostico-all');
+    return { ok: true, url: isolated.url, key: isolated.serviceRoleKey };
+  } catch (err) {
     return {
       ok: false,
       reason:
-        'Faltan NEXT_PUBLIC_SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY (.env.local o Docker aislado). Ver docs/export-prediagnostico.md',
+        err instanceof Error
+          ? err.message
+          : 'Se requiere stack aislado (ISOLATED_SUPABASE_*). Producción rechazada.',
     };
   }
-  return { ok: true, url, key };
 }
 
 async function probeSupabaseReachable(url: string, key: string): Promise<{ ok: true } | { ok: false; reason: string }> {

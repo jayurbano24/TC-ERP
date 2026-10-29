@@ -14,9 +14,12 @@ export function isClientFlagEnabled(code: string): boolean {
   return envFlags().includes(code);
 }
 
-/** POST /api/v1/warehouse/transfer-to-workshop en vez de RPC directo. */
+/**
+ * Transferencia Bodega→Taller siempre vía API (Phase 0).
+ * El flag legacy se ignora: el fallback RPC desde navegador fue retirado.
+ */
 export function isWarehouseTransferApiEnabled(): boolean {
-  return isClientFlagEnabled('USE_WAREHOUSE_TRANSFER_API');
+  return true;
 }
 
 /** GET /api/v1/workshop/* para conteos/cola. */

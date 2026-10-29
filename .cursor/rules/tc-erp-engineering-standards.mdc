@@ -1,0 +1,26 @@
+---
+description: Reglas obligatorias de calidad y seguridad de TC-ERP
+alwaysApply: true
+---
+
+# TC-ERP Engineering Standards
+
+- Inspeccionar el código existente antes de proponer cambios.
+- Respetar la arquitectura y las reglas de negocio actuales.
+- Preferir soluciones pequeñas, verificables y mantenibles.
+- Mantener TypeScript estricto y validar datos externos en runtime.
+- No introducir SQL destructivo ni modificar producción sin aprobación.
+- Mantener RLS y autorización en el servidor.
+- Proteger la integridad de números de serie y movimientos.
+- Usar transacciones para operaciones que deban ser atómicas.
+- Implementar idempotencia cuando existan reintentos o webhooks.
+- Registrar transiciones de estado con usuario, fecha y origen.
+- No inventar movimientos históricos ni sobrescribir evidencia.
+- Incorporar pruebas de regresión para cada defecto corregido.
+- Ejecutar typecheck, lint, tests y build según los scripts existentes.
+- Reportar claramente pruebas omitidas, fallidas o bloqueadas.
+- No afirmar que una corrección está desplegada sin verificarlo.
+- No mezclar módulos ni proyectos independientes.
+- Documentar causa raíz, impacto, solución y evidencia de cada cambio.
+- Solicitar aprobación antes de cambios críticos o irreversibles.
+- UX operativa: ver regla `tc-erp-operational-ux` — acciones bloqueadas con explicación, estados verificables (incl. timeout→consultar antes de reintentar), historial accesible y componentes uniformes.

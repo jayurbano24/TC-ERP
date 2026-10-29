@@ -1,0 +1,68 @@
+---
+description: UX operativa ERP — prevenir errores, explicar bloqueos y verificar resultados
+alwaysApply: true
+---
+
+# TC-ERP Operational UX Standards
+
+El problema de UX en un ERP no es solo color o apariencia. La interfaz operativa debe **impedir errores humanos**, **explicar por qué una acción está bloqueada** y **mostrar el resultado real** de cada operación.
+
+## 1. Acciones bloqueadas con explicación
+
+- Nunca deshabilitar un control crítico sin motivo visible.
+- Si una reparación no puede avanzar a Control de Calidad (u otra etapa), mostrar:
+  - motivo específico,
+  - requisito pendiente,
+  - acción sugerida (p. ej. “seleccione reparación del catálogo”, “falta diagnóstico”).
+- Preferir texto inline / banner sobre solo `disabled` + `title` oculto.
+- El frontend refleja permisos; el backend sigue siendo la autoridad.
+
+## 2. Operaciones con estado verificable
+
+Para transferencias, operate-batch, dispersión y acciones similares, la UI debe distinguir:
+
+| Estado | Significado |
+| :--- | :--- |
+| Procesando | Operación en curso; bloquear doble clic |
+| Confirmada | Backend respondió éxito verificable |
+| Fallida | Error explícito con mensaje accionable |
+| Requiere conciliación | Éxito reportado pero estado inconsistente |
+
+- Ante **timeout**: consultar resultado / estado del recurso **antes** de reintentar.
+- No asumir éxito por ausencia de error de red.
+- Mostrar indicadores de carga y feedback inmediato (toast o banner).
+
+## 3. Historial operativo accesible
+
+Cada equipo (serie / OS) debe permitir consultar, cuando existan datos:
+
+- movimientos,
+- usuario responsable,
+- fecha,
+- estado anterior,
+- estado nuevo,
+- observaciones.
+
+No inventar historial. Si no hay evidencia, mostrar empty state claro.
+
+## 4. Componentes uniformes
+
+Reutilizar el design system existente (`components/ui`, molecules, organisms):
+
+- tablas densas,
+- formularios,
+- filtros,
+- modales,
+- mensajes / toasts,
+- colores semánticos (éxito / aviso / error / info),
+- patrones de navegación.
+
+No rediseñar pantallas enteras ni introducir estilos ad hoc que rompan homogeneidad.
+
+## 5. Anti-patrones
+
+- Botón gris sin explicación.
+- “Éxito” optimista sin confirmación del servidor.
+- Reintento ciego tras timeout.
+- Duplicar lógica de autorización solo en la UI.
+- Cards / marketing layouts en consolas operativas.

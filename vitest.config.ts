@@ -5,6 +5,15 @@ const alias = {
   '@': path.resolve(__dirname, './src'),
 };
 
+/** Excluidos de test:unit — integración / backfill / scripts con DB real. */
+const UNIT_EXCLUDES = [
+  '**/node_modules/**',
+  '**/dist/**',
+  'src/scripts/**',
+  '**/*.integration.test.ts',
+  '**/*Integration.test.ts',
+];
+
 export default defineConfig({
   resolve: { alias },
   test: {
@@ -15,7 +24,9 @@ export default defineConfig({
         test: {
           name: 'node',
           environment: 'node',
-          include: ['src/**/*.test.ts', 'scripts/upgrade/*.test.mjs'],
+          // scripts/upgrade tiene `npm run test:upgrade:package` (fixtures independientes).
+          include: ['src/**/*.test.ts'],
+          exclude: UNIT_EXCLUDES,
         },
       },
       {
@@ -24,6 +35,7 @@ export default defineConfig({
           name: 'jsdom',
           environment: 'jsdom',
           include: ['src/**/*.test.tsx'],
+          exclude: UNIT_EXCLUDES,
         },
       },
     ],

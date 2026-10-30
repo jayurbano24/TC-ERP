@@ -2,9 +2,10 @@
 
 **Fecha:** 2026-10-29  
 **Actualización remediación SQL + reopen:** 2026-10-29  
+**Re-anclaje Antigravity:** 2026-10-29 — commit `567c0b7152acdfa6256ec3ac8ab07e2e9017a509`  
 **Roles:** Principal PostgreSQL Engineer · Supabase Database Architect · Database Migration Specialist · QA  
 **Alcance:** Bootstrap aislado `tc-erp-isolated-verify` + compatibilidad `workshop_operate_batch_tx` con Auth / PostgREST / JWT reales  
-**Estado del gate:** **PASS** (aislamiento verify únicamente)
+**Estado del gate:** **PASS** (aislamiento verify; evidencia anclada a commit)
 
 ---
 
@@ -122,8 +123,9 @@ Sin cambio de reglas de negocio G1–G4, auth, ni idempotencia respecto al dise�
 | :--- | :--- |
 | Destino | `tc-erp-isolated-verify` only |
 | Workdir | `.supabase-isolated-work` |
+| Commit anclado | `567c0b7152acdfa6256ec3ac8ab07e2e9017a509` (`audit/architecture-integrity-2026-10-29`) |
 | Comando | `npm run supabase:isolated:reset` |
-| Log (post-cast) | `.tmp-iso-db-reset-after-cast.log` |
+| Log (anclado) | `.tmp-iso-db-reset-anchored.log` (`RESET_GIT_SHA=567c0b7…`, `RESET_EXIT=0`) |
 | Resultado | **Finished supabase db reset** — EXIT **0** |
 | Migraciones aplicadas | **310** (`schema_migrations`) |
 | Puente normalize | Applying `20261022180000_…` **antes** de `20261022184507_…` |
@@ -147,9 +149,9 @@ Sin cambio de reglas de negocio G1–G4, auth, ni idempotencia respecto al dise�
 
 ## 6. Evidencia Gate Fase 1 (JWT / PostgREST / G1–G4)
 
-Script: `scripts/workshop-operate-supabase-gate.mjs`  
+Script: `scripts/workshop-operate-supabase-gate.mjs` (versionado en `567c0b7…`)  
 Env: `ISOLATED_SUPABASE_*` → `http://127.0.0.1:54331` + keys de `supabase status --workdir .supabase-isolated-work`  
-Log: `.tmp-iso-gate-tests-post-reset.log`
+Log: `.tmp-iso-gate-tests-anchored.log` (`GATE_GIT_SHA=567c0b7…`, `GATE_GIT_PORCELAIN_SCOPED=(empty)`, `GATE_EXIT=0`)
 
 | # | Caso | Resultado |
 | :---: | :--- | :---: |

@@ -1,10 +1,10 @@
 'use client';
 
-import { memo, useMemo, type FormEvent } from 'react';
+import { memo, useCallback, useMemo, useState, type FormEvent } from 'react';
 import { Card, Badge, Button, DataTable, type DataTableColumn } from '@/components/ui';
 import {
   Warehouse, Cpu, MapPin, QrCode, Info, Calendar, PackageCheck,
-  ArrowRight, History, Eye, Pencil, Printer, Trash2,
+  ArrowRight, History, Eye, Pencil, Printer, Trash2, Download, FileText,
 } from 'lucide-react';
 import {
   getExpectedDigitsForSlot,
@@ -12,6 +12,10 @@ import {
   resolveModelDigitRules,
   serialLengthCounterLabel,
 } from '@/shared/validation/serialDigitRules';
+import {
+  downloadWarehouseBoxSeriesExcel,
+  downloadWarehouseBoxSeriesPdf,
+} from '@/modules/inventario/client/downloadWarehouseBoxSeries';
 
 type Props = {
   selectedBox: any;
@@ -71,6 +75,71 @@ export const DetalleCajaModal = memo(function DetalleCajaModal({
   }, [catModelos, selectedBox?.modelo, selectedBox?.model_id]);
   const preparedSnLen = prepareScannedSerial(currentSN).length;
   const tecMap = useMemo(() => new Map(catTecnologias.map((t) => [t.id, t.name])), [catTecnologias]);
+  const [exporting, setExporting] = useState<'excel' | 'pdf' | null>(null);
+
+  const exportMeta = useMemo(() => {
+    const brandName =
+      marcaMap.get(selectedBox.marca) ||
+      catMarcas.find((b) => b.id === selectedBox.marca)?.name ||
+      selectedBox.marca ||
+      '—';
+    const modelName =
+      modeloMap.get(selectedBox.modelo) ||
+      catModelos.find((m) => m.id === selectedBox.modelo)?.name ||
+      selectedBox.modelo ||
+      '—';
+    const techFromSeries = selectedBox.series?.[0];
+    const techName =
+      tecMap.get(techFromSeries?.tecnologia) ||
+      techFromSeries?.tecnologiaLabel ||
+      techFromSeries?.tecnologia ||
+      'N/A';
+    return {
+      boxLabel: String(selectedBox.displayId || selectedBox.id || 'caja'),
+      rack: selectedBox.rack || null,
+      brandName: String(brandName),
+      modelName: String(modelName),
+      techName: String(techName),
+      status: String(selectedBox.status || ''),
+    };
+  }, [
+    selectedBox,
+    marcaMap,
+    modeloMap,
+    tecMap,
+    catMarcas,
+    catModelos,
+  ]);
+
+  const canExport = !loadingSeries && seriesCount > 0 && !exporting;
+
+  const handleExportExcel = useCallback(async () => {
+    if (!canExport) return;
+    setExporting('excel');
+    try {
+      await downloadWarehouseBoxSeriesExcel(selectedBox.series || [], exportMeta, {
+        brands: marcaMap,
+        models: modeloMap,
+        technologies: tecMap,
+      });
+    } finally {
+      setExporting(null);
+    }
+  }, [canExport, selectedBox.series, exportMeta, marcaMap, modeloMap, tecMap]);
+
+  const handleExportPdf = useCallback(() => {
+    if (!canExport) return;
+    setExporting('pdf');
+    try {
+      downloadWarehouseBoxSeriesPdf(selectedBox.series || [], exportMeta, {
+        brands: marcaMap,
+        models: modeloMap,
+        technologies: tecMap,
+      });
+    } finally {
+      setExporting(null);
+    }
+  }, [canExport, selectedBox.series, exportMeta, marcaMap, modeloMap, tecMap]);
 
   const seriesColumns = useMemo<DataTableColumn<any>[]>(() => [
     { id: 'fecha', header: 'Fecha / Hora', width: '150px', cell: (item) => <span className="text-[10px] font-bold text-[var(--foreground)]">{item.fechaHora || item.timestamp}</span> },
@@ -152,7 +221,51 @@ export const DetalleCajaModal = memo(function DetalleCajaModal({
                   </div>
                 </div>
               </div>
-              <button onClick={onClose} className="rounded-lg p-2 text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]" aria-label="Cerrar">✕</button>
+              <div className="flex shrink-0 items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={!canExport}
+                  className="gap-1.5"
+                  title={
+                    loadingSeries
+                      ? 'Espere a que carguen las series'
+                      : seriesCount === 0
+                        ? 'Sin series en la caja'
+                        : 'Descargar series en Excel'
+                  }
+                  onClick={() => void handleExportExcel()}
+                >
+                  <Download className="h-4 w-4 text-emerald-600" />
+                  {exporting === 'excel' ? 'Excel…' : 'Excel'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={!canExport}
+                  className="gap-1.5"
+                  title={
+                    loadingSeries
+                      ? 'Espere a que carguen las series'
+                      : seriesCount === 0
+                        ? 'Sin series en la caja'
+                        : 'Abrir PDF / imprimir series'
+                  }
+                  onClick={handleExportPdf}
+                >
+                  <FileText className="h-4 w-4 text-[var(--accent)]" />
+                  {exporting === 'pdf' ? 'PDF…' : 'PDF'}
+                </Button>
+                <button
+                  onClick={onClose}
+                  className="rounded-lg p-2 text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                  aria-label="Cerrar"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -289,9 +402,39 @@ export const DetalleCajaModal = memo(function DetalleCajaModal({
 
           {/* Listado de Series en Caja - Tabla Detallada */}
           <div className="space-y-4">
-            <h4 className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)] flex items-center gap-2">
-              Contenido de la Caja <span className="w-1.5 h-1.5 rounded-full bg-[var(--border)]" /> {loadingSeries ? 'Cargando…' : `${seriesCount || selectedBox.unitCount || 0} Unidades`}
-            </h4>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h4 className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)] flex items-center gap-2">
+                Contenido de la Caja{' '}
+                <span className="w-1.5 h-1.5 rounded-full bg-[var(--border)]" />{' '}
+                {loadingSeries
+                  ? 'Cargando…'
+                  : `${seriesCount || selectedBox.unitCount || 0} Unidades`}
+              </h4>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={!canExport}
+                  className="gap-1.5 h-8 text-[10px] font-black uppercase tracking-wide"
+                  onClick={() => void handleExportExcel()}
+                >
+                  <Download className="h-3.5 w-3.5 text-emerald-600" />
+                  Excel series
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={!canExport}
+                  className="gap-1.5 h-8 text-[10px] font-black uppercase tracking-wide"
+                  onClick={handleExportPdf}
+                >
+                  <FileText className="h-3.5 w-3.5 text-[var(--accent)]" />
+                  PDF series
+                </Button>
+              </div>
+            </div>
 
             <div className="rounded-xl border border-[var(--border)] shadow-sm bg-[var(--surface)] overflow-hidden">
               {loadingSeries ? (

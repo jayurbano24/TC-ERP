@@ -34,8 +34,15 @@ import {
   X,
   Truck,
   PackageMinus,
+  Download,
+  FileText,
 } from 'lucide-react';
 import { getInventoryBoxes, transferBoxesToArea, transferBoxesToAreaInBatches, startOrAppendBodegaScan, finalizeBodegaScan, listInProgressBodegaBoxes, requestBoxDeletion, addSeriesToBox, dispatchBoxFromWarehouse, dispatchSpecificSeries, transferSpecificSeriesToArea, canScanSeriesIntoWarehouse, resolveBoxDisplayStatus, resolveBoxListCapacity, isWarehouseScanInProgress, getBoxHistory, expandSelectedSeriesForOs } from '@/modules/inventario/client/warehouseBoxes';
+import {
+  downloadWarehouseBoxSeriesExcel,
+  downloadWarehouseBoxSeriesPdf,
+} from '@/modules/inventario/client/downloadWarehouseBoxSeries';
+import { downloadWarehouseFilteredExport } from '@/modules/inventario/client/downloadWarehouseFilteredExport';
 import { isBodegaOperationalRack } from '@/lib/database/warehouse';
 import { DispatchBatchSelector } from '@/modules/outbound-dispatch/components/DispatchBatchSelector';
 import { isHexagonalOutboundDispatchEnabled } from '@/modules/outbound-dispatch';
@@ -126,6 +133,7 @@ export default function BodegaGestionV2({
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(true);
   const [filterTech, setFilterTech] = useState('');
   const [filterModel, setFilterModel] = useState('');
+  const [exportBusy, setExportBusy] = useState(false);
   const [filterStatus, setFilterStatus] = useState('');
   const [inventoryPage, setInventoryPage] = useState(1);
   const fillStatusParam =
@@ -628,36 +636,42 @@ export default function BodegaGestionV2({
     }));
   }, [statsData, techName]);
 
-  const handleExportReport = async () => {
-    try {
-      const res = await apiFetch('/api/v1/warehouse/boxes/export');
-      if (isApiAuthFailure(res.status, null)) {
-        await haltForLoginRedirect();
-        return;
-      }
-      if (!res.ok) {
-        const payload = (await res.json().catch(() => ({}))) as { error?: string; detail?: string };
-        notify.error(payload.error || 'Error generando reporte', {
-          description: payload.detail,
+  const runFilteredExport = useCallback(
+    async (mode: 'boxes' | 'boxes-with-series-etl') => {
+      if (exportBusy) return;
+      setExportBusy(true);
+      try {
+        notify.info(
+          mode === 'boxes'
+            ? 'Exportando solo cajas…'
+            : 'Exportando cajas + series (Excel ETL)…',
+          {
+            description:
+              mode === 'boxes-with-series-etl'
+                ? 'Un solo .xlsx con hojas «Detalle Cajas» y «Series»; el servidor procesa por fases.'
+                : undefined,
+          }
+        );
+        await downloadWarehouseFilteredExport({
+          search: debouncedSearch || undefined,
+          fillStatus: fillStatusParam,
+          technologyId: filterTech || undefined,
+          modelId: filterModel || undefined,
+          mode,
         });
-        return;
+      } catch (err) {
+        notify.error('Error generando reporte', {
+          description: err instanceof Error ? err.message : undefined,
+        });
+      } finally {
+        setExportBusy(false);
       }
-      const blob = await res.blob();
-      const today = new Date().toISOString().slice(0, 10);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `Reporte_Detalle_Cajas_${today}.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      notify.success('Reporte descargado');
-    } catch (err) {
-      notify.error('Error generando reporte', {
-        description: err instanceof Error ? err.message : undefined,
-      });
-    }
+    },
+    [exportBusy, debouncedSearch, fillStatusParam, filterTech, filterModel]
+  );
+
+  const handleExportReport = () => {
+    void runFilteredExport('boxes');
   };
 
   useEffect(() => {
@@ -1854,7 +1868,7 @@ export default function BodegaGestionV2({
     {
       id: 'acciones',
       header: 'Acciones',
-      width: 'minmax(152px, 1fr)',
+      width: 'minmax(200px, 1fr)',
       align: 'right',
       sticky: 'end',
       headerClassName: 'justify-end pr-3',
@@ -1891,6 +1905,60 @@ export default function BodegaGestionV2({
             setShowPrintModal(item);
           }}>
             <Printer size={18} strokeWidth={2} />
+          </button>
+
+          <button
+            className="p-1 text-[var(--muted)] transition-all hover:scale-110 hover:text-emerald-600"
+            title="Descargar series Excel"
+            onClick={(e) => {
+              e.stopPropagation();
+              void (async () => {
+                try {
+                  const series = item.series?.length
+                    ? item.series
+                    : await ensureBoxSeriesLoaded(item);
+                  await downloadWarehouseBoxSeriesExcel(series || [], {
+                    boxLabel: String(item.displayId || item.id || 'caja'),
+                    rack: item.rack || null,
+                    brandName: item.marca || null,
+                    modelName: item.modelo || null,
+                    techName: item.tecnologia || null,
+                    status: item.status || null,
+                  });
+                } catch {
+                  notify.error('No se pudo generar el Excel de series');
+                }
+              })();
+            }}
+          >
+            <Download size={18} strokeWidth={2} />
+          </button>
+
+          <button
+            className="p-1 text-[var(--muted)] transition-all hover:scale-110 hover:text-[var(--accent)]"
+            title="Descargar series PDF"
+            onClick={(e) => {
+              e.stopPropagation();
+              void (async () => {
+                try {
+                  const series = item.series?.length
+                    ? item.series
+                    : await ensureBoxSeriesLoaded(item);
+                  downloadWarehouseBoxSeriesPdf(series || [], {
+                    boxLabel: String(item.displayId || item.id || 'caja'),
+                    rack: item.rack || null,
+                    brandName: item.marca || null,
+                    modelName: item.modelo || null,
+                    techName: item.tecnologia || null,
+                    status: item.status || null,
+                  });
+                } catch {
+                  notify.error('No se pudo generar el PDF de series');
+                }
+              })();
+            }}
+          >
+            <FileText size={18} strokeWidth={2} />
           </button>
 
           <button className="p-1 text-[var(--muted)] transition-all hover:scale-110 hover:text-[var(--success)]" title="Despachar de Inventario" onClick={(e) => {
@@ -2240,6 +2308,48 @@ export default function BodegaGestionV2({
               )
             }
           />
+
+          {(filterTech || filterModel || filterStatus || debouncedSearch) && (
+            <div className="flex flex-col gap-3 rounded-xl border border-accent/30 bg-accent/5 px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center">
+              <p className="text-[11px] font-semibold text-foreground">
+                Filtro activo
+                {filterTech
+                  ? ` · ${catTecnologias.find((t) => t.id === filterTech)?.name || 'Tech'}`
+                  : ''}
+                {filterModel
+                  ? ` · ${modelFilterOptions.find((m) => m.id === filterModel)?.label || 'Modelo'}`
+                  : ''}
+                {filterStatus ? ` · ${filterStatus}` : ''}
+                {debouncedSearch ? ` · “${debouncedSearch}”` : ''}
+              </p>
+              <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={exportBusy}
+                  className="gap-1.5 text-[10px] font-black uppercase tracking-wide"
+                  title="Solo detalle de cajas (Excel liviano)"
+                  onClick={() => void runFilteredExport('boxes')}
+                >
+                  <Download className="h-3.5 w-3.5 text-emerald-600" />
+                  {exportBusy ? 'Exportando…' : 'Solo cajas'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  disabled={exportBusy}
+                  className="gap-1.5 text-[10px] font-black uppercase tracking-wide"
+                  title="Un Excel con hojas Cajas + Series (ETL interno; apto para miles de equipos)"
+                  onClick={() => void runFilteredExport('boxes-with-series-etl')}
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  {exportBusy ? 'ETL…' : 'Cajas + series (Excel)'}
+                </Button>
+              </div>
+            </div>
+          )}
 
           {externalBoxTrace ? <BoxSearchTraceNotice trace={externalBoxTrace} /> : null}
 

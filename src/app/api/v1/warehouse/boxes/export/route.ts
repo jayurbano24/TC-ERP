@@ -1,24 +1,102 @@
 import { NextRequest, NextResponse } from 'next/server';
-import type { SupabaseClient } from '@supabase/supabase-js';
+import { z } from 'zod';
 import * as XLSX from 'xlsx';
 import { requireApiUser } from '@/shared/infrastructure/http/requireApiUser';
 import { logOnlyRoleCheck, ROLES_BODEGA_DESPACHO } from '@/shared/authz/roleGuard';
-import {
-  enrichWarehouseBoxItems,
-  type EnrichedWarehouseBoxRow,
-  type WarehouseBoxListRow,
-} from '@/shared/infrastructure/warehouse/enrichWarehouseBoxItems';
-import { isBodegaOperationalRack } from '@/lib/database/warehouse';
+import type { EnrichedWarehouseBoxRow } from '@/shared/infrastructure/warehouse/enrichWarehouseBoxItems';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
 import { resolveWarehouseBoxOperationalStatus } from '@/modules/inventario/domain/warehouseBoxStatus';
+import { formatWarehouseBoxId } from '@/modules/inventario/client/warehouseBoxDisplay';
+import {
+  fetchFilteredWarehouseBoxesForExport,
+  fetchFilteredWarehouseSeriesForExport,
+  WAREHOUSE_EXPORT_SERIES_BOXES_PER_PART,
+  type WarehouseSeriesExportRow,
+} from '@/modules/inventario/server/warehouseFilteredExport';
 
-export const maxDuration = 60;
+/** ETL cajas+series: fases internas de lectura → un solo Excel (2 hojas). */
+export const maxDuration = 120;
 
-const PAGE_SIZE = 200;
-const MAX_PAGES = 50; // tope de seguridad (~10k cajas)
+const ExportQuery = z.object({
+  search: z.string().trim().max(100).optional(),
+  fillStatus: z.enum(['partial', 'full', 'all']).optional(),
+  technologyId: z.string().uuid().optional(),
+  modelId: z.string().uuid().optional(),
+  /**
+   * boxes = solo detalle cajas (xlsx)
+   * series = una parte xlsx (legacy/paginado)
+   * boxes-series-etl = cajas + series en un Excel (fases internas)
+   */
+  kind: z.enum(['boxes', 'series', 'boxes-series-etl', 'series-etl']).default('boxes'),
+  boxOffset: z.coerce.number().int().min(0).default(0),
+  boxLimit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(80)
+    .default(WAREHOUSE_EXPORT_SERIES_BOXES_PER_PART),
+});
 
-function onlyBodegaRows<T extends { rack?: string | null }>(rows: T[]): T[] {
-  return rows.filter((row) => isBodegaOperationalRack(row.rack));
+const BOX_COLS = [
+  { wch: 16 },
+  { wch: 20 },
+  { wch: 14 },
+  { wch: 14 },
+  { wch: 18 },
+  { wch: 28 },
+  { wch: 10 },
+  { wch: 10 },
+  { wch: 10 },
+  { wch: 14 },
+  { wch: 10 },
+  { wch: 10 },
+  { wch: 10 },
+  { wch: 16 },
+  { wch: 40 },
+  { wch: 18 },
+];
+
+const SERIES_COLS = [
+  { wch: 14 },
+  { wch: 22 },
+  { wch: 12 },
+  { wch: 12 },
+  { wch: 16 },
+  { wch: 14 },
+  { wch: 18 },
+  { wch: 16 },
+  { wch: 16 },
+  { wch: 16 },
+  { wch: 12 },
+  { wch: 12 },
+  { wch: 18 },
+];
+
+async function loadAllSeriesViaEtlPhases(
+  db: Parameters<typeof fetchFilteredWarehouseSeriesForExport>[0],
+  boxes: EnrichedWarehouseBoxRow[],
+  filters: {
+    search?: string;
+    fillStatus?: 'partial' | 'full' | 'all' | null;
+    technologyId?: string;
+    modelId?: string;
+  }
+): Promise<{ rows: WarehouseSeriesExportRow[]; phases: number }> {
+  const allRows: WarehouseSeriesExportRow[] = [];
+  let offset = 0;
+  let phases = 0;
+  const maxPhases = 200;
+  while (phases < maxPhases) {
+    const page = await fetchFilteredWarehouseSeriesForExport(db, boxes, filters, {
+      boxOffset: offset,
+      boxLimit: WAREHOUSE_EXPORT_SERIES_BOXES_PER_PART,
+    });
+    phases += 1;
+    allRows.push(...page.rows);
+    if (page.done || page.nextBoxOffset == null) break;
+    offset = page.nextBoxOffset;
+  }
+  return { rows: allRows, phases };
 }
 
 function parseRackParts(rackLocation: string | null | undefined): {
@@ -41,7 +119,7 @@ function parseRackParts(rackLocation: string | null | undefined): {
   };
 }
 
-function toExcelRow(box: EnrichedWarehouseBoxRow) {
+function toExcelBoxRow(box: EnrichedWarehouseBoxRow) {
   const { ubicacion, rack, nivel, posicion } = parseRackParts(box.rack);
   const units = Number(box.equipos_count ?? box.series_count ?? 0);
   const capacity = Number(box.capacity || 0);
@@ -53,10 +131,11 @@ function toExcelRow(box: EnrichedWarehouseBoxRow) {
     partialReason: box.partial_box_reason,
   });
   const createdAt = box.created_at ? new Date(box.created_at).toLocaleString('es-GT') : '';
+  const code = formatWarehouseBoxId(box.label, box.box_id).primary;
 
+  // Sin UUID en columnas operativas — el operador necesita BOX-XXXX / TCW-BOX-XXX.
   return {
-    'ID Caja': box.box_id,
-    'Código Caja': box.label || '',
+    'Código Caja': code,
     'Fecha Ingreso': createdAt,
     Tecnología: box.tech_name || '---',
     Marca: box.brand_name || 'N/A',
@@ -75,51 +154,20 @@ function toExcelRow(box: EnrichedWarehouseBoxRow) {
   };
 }
 
-async function fetchAllBodegaBoxes(supabase: SupabaseClient): Promise<WarehouseBoxListRow[]> {
-  const all: WarehouseBoxListRow[] = [];
-  let cursor: string | null = null;
-
-  for (let page = 0; page < MAX_PAGES; page += 1) {
-    let pageRows: WarehouseBoxListRow[] = [];
-    const primary = await supabase.rpc('warehouse_list_boxes_page', {
-      p_cursor: cursor,
-      p_limit: PAGE_SIZE,
-      p_search: null,
-      p_fill_status: null,
-    });
-
-    let rpcError = primary.error;
-    if (!rpcError) {
-      pageRows = (primary.data ?? []) as WarehouseBoxListRow[];
-    } else if (
-      rpcError.message?.includes('warehouse_list_boxes_page') ||
-      rpcError.code === 'PGRST202'
-    ) {
-      const legacy = await supabase.rpc('warehouse_list_boxes_page', {
-        p_cursor: cursor,
-        p_limit: PAGE_SIZE,
-        p_search: null,
-      });
-      rpcError = legacy.error;
-      if (!rpcError) {
-        pageRows = (legacy.data ?? []) as WarehouseBoxListRow[];
-      }
-    }
-
-    if (rpcError) {
-      throw new Error(rpcError.message || 'QUERY_FAILED');
-    }
-
-    const rows = onlyBodegaRows(pageRows);
-    if (rows.length === 0) break;
-
-    all.push(...rows);
-    if (rows.length < PAGE_SIZE) break;
-    cursor = rows[rows.length - 1]?.box_id ?? null;
-    if (!cursor) break;
-  }
-
-  return all;
+function xlsxResponse(
+  wb: XLSX.WorkBook,
+  filename: string,
+  headers: Record<string, string>
+): NextResponse {
+  const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  return new NextResponse(buffer, {
+    headers: {
+      'Content-Type':
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      ...headers,
+    },
+  });
 }
 
 export async function GET(req: NextRequest) {
@@ -132,49 +180,158 @@ export async function GET(req: NextRequest) {
   });
   if (roleCheck) return roleCheck;
 
-  try {
-    // Service role: misma lectura que listado/KPIs (evita RLS parcial y columna fantasma).
-    const db = getSupabaseServerClient();
-    const items = await fetchAllBodegaBoxes(db);
-    const enriched = await enrichWarehouseBoxItems(db, items);
-    const rows = enriched.map(toExcelRow);
+  const parsed = ExportQuery.safeParse(Object.fromEntries(req.nextUrl.searchParams));
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: 'VALIDATION_ERROR', issues: parsed.error.flatten() },
+      { status: 422 }
+    );
+  }
 
-    if (rows.length === 0) {
-      return NextResponse.json({ error: 'No hay datos para exportar' }, { status: 404 });
+  const { search, fillStatus, technologyId, modelId, kind, boxOffset, boxLimit } =
+    parsed.data;
+  const hasCatalogFilter = Boolean(technologyId || modelId);
+  const today = new Date().toISOString().slice(0, 10);
+  const filterTag = hasCatalogFilter ? '_filtrado' : '';
+
+  try {
+    const db = getSupabaseServerClient();
+    const filters = {
+      search,
+      fillStatus: fillStatus ?? null,
+      technologyId,
+      modelId,
+    };
+    const boxes = await fetchFilteredWarehouseBoxesForExport(db, filters);
+
+    if (boxes.length === 0) {
+      return NextResponse.json(
+        {
+          error: 'No hay datos para exportar',
+          detail: hasCatalogFilter
+            ? 'Ninguna caja coincide con el filtro activo (tecnología / modelo / estatus).'
+            : undefined,
+        },
+        { status: 404 }
+      );
     }
 
-    const ws = XLSX.utils.json_to_sheet(rows);
-    ws['!cols'] = [
-      { wch: 38 },
-      { wch: 15 },
-      { wch: 20 },
-      { wch: 15 },
-      { wch: 15 },
-      { wch: 20 },
-      { wch: 28 },
-      { wch: 10 },
-      { wch: 10 },
-      { wch: 10 },
-      { wch: 15 },
-      { wch: 10 },
-      { wch: 10 },
-      { wch: 10 },
-      { wch: 16 },
-      { wch: 52 },
-      { wch: 20 },
-    ];
-    
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Detalle Cajas');
-    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    if (kind === 'boxes') {
+      const boxRows = boxes.map(toExcelBoxRow);
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(boxRows);
+      ws['!cols'] = BOX_COLS;
+      XLSX.utils.book_append_sheet(wb, ws, 'Detalle Cajas');
+      const partsNeeded = Math.ceil(boxes.length / WAREHOUSE_EXPORT_SERIES_BOXES_PER_PART);
+      return xlsxResponse(wb, `Reporte_Cajas${filterTag}_${today}.xlsx`, {
+        'X-Export-Kind': 'boxes',
+        'X-Export-Boxes': String(boxRows.length),
+        'X-Export-Filtered': hasCatalogFilter ? '1' : '0',
+        'X-Export-Series-Parts': String(partsNeeded),
+      });
+    }
 
-    const today = new Date().toISOString().slice(0, 10);
-    return new NextResponse(buffer, {
-      headers: {
-        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'Content-Disposition': `attachment; filename="Reporte_Detalle_Cajas_${today}.xlsx"`,
-      },
+    // ETL: fases internas → un solo Excel con hojas Cajas + Series.
+    if (kind === 'boxes-series-etl' || kind === 'series-etl') {
+      const boxRows = boxes.map(toExcelBoxRow);
+      const { rows: seriesRows, phases } = await loadAllSeriesViaEtlPhases(
+        db,
+        boxes,
+        filters
+      );
+
+      if (seriesRows.length === 0) {
+        return NextResponse.json(
+          {
+            error: 'No hay series para exportar en el filtro',
+            detail: 'Las cajas del filtro no tienen equipos en bodega con ese criterio.',
+          },
+          { status: 404 }
+        );
+      }
+
+      const wb = XLSX.utils.book_new();
+      const wsBoxes = XLSX.utils.json_to_sheet(boxRows);
+      wsBoxes['!cols'] = BOX_COLS;
+      XLSX.utils.book_append_sheet(wb, wsBoxes, 'Detalle Cajas');
+
+      const wsSeries = XLSX.utils.json_to_sheet(seriesRows);
+      wsSeries['!cols'] = SERIES_COLS;
+      XLSX.utils.book_append_sheet(wb, wsSeries, 'Series');
+
+      return xlsxResponse(
+        wb,
+        `Reporte_Cajas_y_Series${filterTag}_ETL_${today}.xlsx`,
+        {
+          'X-Export-Kind': 'boxes-series-etl',
+          'X-Export-Boxes': String(boxRows.length),
+          'X-Export-Series': String(seriesRows.length),
+          'X-Export-Phases': String(phases),
+          'X-Export-Filtered': hasCatalogFilter ? '1' : '0',
+        }
+      );
+    }
+
+    // kind === 'series' — una parte por lote de cajas (fallback)
+    const page = await fetchFilteredWarehouseSeriesForExport(db, boxes, filters, {
+      boxOffset,
+      boxLimit,
     });
+
+    if (page.rows.length === 0 && page.done && boxOffset === 0) {
+      return NextResponse.json(
+        { error: 'No hay series para exportar en el filtro' },
+        { status: 404 }
+      );
+    }
+
+    if (page.rows.length === 0) {
+      return new NextResponse(null, {
+        status: 204,
+        headers: {
+          'X-Export-Kind': 'series',
+          'X-Export-Done': '1',
+          'X-Export-Next-Box-Offset': '',
+          'X-Export-Boxes-Total': String(page.totalBoxes),
+        },
+      });
+    }
+
+    const partIndex = Math.floor(boxOffset / boxLimit) + 1;
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(page.rows);
+    ws['!cols'] = [
+      { wch: 14 },
+      { wch: 22 },
+      { wch: 12 },
+      { wch: 12 },
+      { wch: 16 },
+      { wch: 14 },
+      { wch: 18 },
+      { wch: 16 },
+      { wch: 16 },
+      { wch: 16 },
+      { wch: 12 },
+      { wch: 12 },
+      { wch: 18 },
+    ];
+    XLSX.utils.book_append_sheet(wb, ws, `Series p${partIndex}`);
+    const partPad = String(partIndex).padStart(2, '0');
+    return xlsxResponse(
+      wb,
+      `Reporte_Series${filterTag}_p${partPad}_${today}.xlsx`,
+      {
+        'X-Export-Kind': 'series',
+        'X-Export-Series': String(page.rows.length),
+        'X-Export-Boxes-In-Part': String(page.boxesInPart),
+        'X-Export-Boxes-Total': String(page.totalBoxes),
+        'X-Export-Done': page.done ? '1' : '0',
+        'X-Export-Next-Box-Offset':
+          page.nextBoxOffset == null ? '' : String(page.nextBoxOffset),
+        'X-Export-Part': String(partIndex),
+        'X-Export-Filtered': hasCatalogFilter ? '1' : '0',
+      }
+    );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('Export Error:', message, err);

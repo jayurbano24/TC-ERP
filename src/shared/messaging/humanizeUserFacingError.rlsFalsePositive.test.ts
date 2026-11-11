@@ -18,4 +18,14 @@ describe('humanizeUserFacingError — no confundir URLs con RLS', () => {
     );
     expect(human.title).toBe('Sin permiso');
   });
+
+  it('no confunde duplicate key de box_code con duplicado de serie en recepción', () => {
+    const human = humanizeUserFacingError(
+      'Error al crear Outbound',
+      'duplicate key value violates unique constraint "boxes_box_code_global_unique" (box_code)=(OB-001241)'
+    );
+    expect(human.title).toBe('No se pudo crear el Outbound');
+    expect(human.description).toMatch(/código OB/i);
+    expect(human.description).not.toMatch(/esta recepción/i);
+  });
 });

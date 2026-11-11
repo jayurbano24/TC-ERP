@@ -245,18 +245,37 @@ export async function allocateOutboundCode(): Promise<string> {
   const { data, error } = await supabase.rpc('next_outbound_code');
   if (!error && data) return String(data);
 
-  const { data: existingBoxes } = await supabase
-    .from('boxes')
-    .select('box_code')
-    .or('box_code.ilike.OB-%,box_code.ilike.MB-%,box_code.ilike.CS-%');
+  if (error) {
+    console.error('[allocateOutboundCode] next_outbound_code:', error.message);
+  }
 
+  // Fallback solo si falta la migración 115: paginar TODO el catálogo OB/MB/CS
+  // (PostgREST por defecto devuelve 1000 filas; sin paginar se reusan OB duplicados).
   let nextNum = 1;
-  for (const box of existingBoxes ?? []) {
-    const match = String(box.box_code || '').match(/^(?:OB|MB|CS)-(\d+)$/i);
-    if (match) {
-      const num = parseInt(match[1], 10);
-      if (num >= nextNum) nextNum = num + 1;
+  const pageSize = 1000;
+  for (let from = 0; ; from += pageSize) {
+    const { data: existingBoxes, error: listError } = await supabase
+      .from('boxes')
+      .select('box_code')
+      .or('box_code.ilike.OB-%,box_code.ilike.MB-%,box_code.ilike.CS-%')
+      .range(from, from + pageSize - 1);
+
+    if (listError) {
+      throw new Error(
+        listError.message ||
+          'No se pudo generar código Outbound (RPC next_outbound_code ni listado de cajas).'
+      );
     }
+
+    const page = existingBoxes ?? [];
+    for (const box of page) {
+      const match = String(box.box_code || '').match(/^(?:OB|MB|CS)-(\d+)$/i);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (num >= nextNum) nextNum = num + 1;
+      }
+    }
+    if (page.length < pageSize) break;
   }
   return `OB-${nextNum.toString().padStart(6, '0')}`;
 }

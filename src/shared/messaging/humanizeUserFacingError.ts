@@ -55,6 +55,19 @@ export function humanizeUserFacingError(
 
     // Unique de authz / catálogos: no reutilizar el copy de series/recepción.
     if (
+      /box_code|boxes_box_code|boxes_reception_id_box_code|outbound_code|next_outbound|no_outbound_code|\bob-\d/i.test(
+        blob
+      )
+    ) {
+      return {
+        title: 'No se pudo crear el Outbound',
+        description: /no_outbound_code/i.test(blob)
+          ? 'El correlativo OB no pudo reservarse (next_outbound_code). Reintente o contacte a TI.'
+          : 'El código OB ya está en uso o hubo conflicto al reservarlo. Reintente crear las cajas; no es un duplicado de serie en pistoleo.',
+      };
+    }
+
+    if (
       /user_roles|hr_positions|profiles|erp_roles|erp_user_security|auth\.users|cambiando rol|cambiar rol/i.test(
         blob
       )

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { planNextOutboundCodes, reserveNextOutboundCode } from '@/lib/api/outboundCodeReservation';
 
 const MANUAL_RECEPTION_GUIDE = 'MANUAL_BOXES_DESPACHO';
 
@@ -34,24 +35,9 @@ async function resolveManualDespachoReceptionId(supabase: SupabaseClient): Promi
   return String(data.id);
 }
 
-async function reserveOutboundCode(supabase: SupabaseClient): Promise<string> {
-  const { data, error } = await supabase.rpc('next_outbound_code');
-  if (error) {
-    throw new Error(
-      error.message?.includes('NO_OUTBOUND_CODE')
-        ? 'No hay correlativos OB disponibles. Contacte a TI.'
-        : `No se pudo reservar código OB (next_outbound_code): ${error.message}`
-    );
-  }
-  const code = data != null ? String(data).trim() : '';
-  if (!code) {
-    throw new Error('next_outbound_code no devolvió un código. Contacte a TI.');
-  }
-  return code;
-}
-
 /**
  * Crea N cajas Outbound vacías usando correlativo oficial en servidor (service_role).
+ * Si falta RPC next_outbound_code en prod (404), reserva por escaneo global OB-*.
  */
 export async function createOutboundBoxesBatch(
   supabase: SupabaseClient,
@@ -62,12 +48,14 @@ export async function createOutboundBoxesBatch(
   const valuation = input.valuation.trim();
   const material = input.material?.trim() ? input.material.trim() : null;
 
+  let plannedCodes = await planNextOutboundCodes(supabase, input.count);
+
   for (let i = 0; i < input.count; i++) {
     let inserted = false;
     let lastMsg = '';
 
     for (let attempt = 0; attempt < 8; attempt++) {
-      const boxCode = await reserveOutboundCode(supabase);
+      const boxCode = plannedCodes[i] ?? (await reserveNextOutboundCode(supabase));
       const { error } = await supabase.from('boxes').insert({
         reception_id: receptionId,
         box_code: boxCode,
@@ -87,12 +75,14 @@ export async function createOutboundBoxesBatch(
       }
 
       lastMsg = error.message;
-      const retryable = /duplicate|unique|box_code/i.test(error.message);
+      const retryable = /duplicate|unique|box_code|409/i.test(error.message);
       if (!retryable) {
         throw new Error(
           `Error al crear ${boxCode}: ${error.message}${createdCodes.length ? ` (${createdCodes.length} cajas ya creadas: ${createdCodes.join(', ')})` : ''}`
         );
       }
+
+      plannedCodes[i] = await reserveNextOutboundCode(supabase);
     }
 
     if (!inserted) {

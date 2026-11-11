@@ -237,6 +237,36 @@ export async function fetchDespachoPendientesViaApi(): Promise<any[]> {
   return (data.items ?? []) as any[];
 }
 
+export type CreateOutboundBoxesPayload = {
+  brandId: string;
+  modelId: string;
+  capacity: number;
+  material: string | null;
+  valuation: string;
+  count: number;
+};
+
+/** Creación atómica en servidor (next_outbound_code + insert con service_role). */
+export async function createOutboundBoxesApi(
+  payload: CreateOutboundBoxesPayload
+): Promise<string[]> {
+  const res = await apiFetch('/api/v1/despacho/boxes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    success?: boolean;
+    codes?: string[];
+    error?: string;
+    detail?: string;
+  };
+  if (!res.ok) {
+    throw new Error(data.error ?? data.detail ?? `HTTP ${res.status}`);
+  }
+  return data.codes ?? [];
+}
+
 /** Correlativo único OB-000001 vía RPC; fallback local si la migración 115 no está aplicada. */
 export async function allocateOutboundCode(): Promise<string> {
   const supabase = getSupabaseBrowserClient();

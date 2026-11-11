@@ -28,6 +28,8 @@ export interface ToastOptions {
   description?: string;
   tone?: MessageTone;
   duration?: number;
+  /** Si true, no re-humaniza mensajes técnicos (p. ej. errores ya explicados por la API). */
+  literalError?: boolean;
 }
 
 export type DialogKind = 'alert' | 'confirm' | 'prompt';
@@ -170,6 +172,9 @@ export const notify: NotifyFn = Object.assign(
       if (isSessionExpiredToast(message, opts)) {
         redirectToLoginFromToast();
         return '';
+      }
+      if (opts?.literalError) {
+        return pushToast('error', opts.title ?? message, opts);
       }
       const human = humanizeUserFacingError(
         opts?.title ?? message,

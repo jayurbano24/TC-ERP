@@ -30,6 +30,14 @@ export type OperationalRole =
 // Matriz rol→operación aprobada (ADR-011 §11.6). Reutilizable por endpoint.
 export const ROLES_RECEPCION: OperationalRole[] = ['admin', 'supervisor', 'receptor_px', 'receptor_cac'];
 export const ROLES_BODEGA_DESPACHO: OperationalRole[] = ['admin', 'supervisor', 'bodega'];
+/** Crear/editar cajas Outbound: misma cobertura que política boxes_write_ops. */
+export const ROLES_DESPACHO_BOXES_WRITE: OperationalRole[] = [
+  'admin',
+  'supervisor',
+  'bodega',
+  'receptor_cac',
+  'receptor_px',
+];
 export const ROLES_PRODUCCION: OperationalRole[] = ['admin', 'supervisor', 'gerencia'];
 export const ROLES_RETURNS_SAP: OperationalRole[] = ['admin', 'supervisor'];
 export const ROLES_TALLER: OperationalRole[] = ['admin', 'supervisor', 'tecnico', 'qc'];
@@ -92,6 +100,37 @@ export async function userHasAnyOperationalRole(
 ): Promise<boolean> {
   const roles = await loadEnumRoles(userId);
   return roles.some((role) => allowed.includes(role));
+}
+
+/**
+ * Bloqueo efectivo (fail-closed) para rutas que usan service_role u otro bypass RLS.
+ * Usar después de `requireApiUser`. Ante fallo de resolución de roles → 503 (no continuar).
+ */
+export async function requireOperationalRole(
+  userId: string,
+  allowed: readonly string[],
+  meta?: { correlationId?: string }
+): Promise<NextResponse | null> {
+  try {
+    const allow = await userHasAnyOperationalRole(userId, allowed);
+    if (!allow) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'No autorizado para esta operación',
+          correlationId: meta?.correlationId,
+        },
+        { status: 403 }
+      );
+    }
+    return null;
+  } catch (error) {
+    console.error('[AUTHZ_ENFORCE] requireOperationalRole', error);
+    return NextResponse.json(
+      { success: false, error: 'No se pudo verificar autorización' },
+      { status: 503 }
+    );
+  }
 }
 
 export function authzEnforced(): boolean {

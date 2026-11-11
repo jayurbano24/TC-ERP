@@ -68,7 +68,7 @@ import {
   fetchDespachoBoxesViaApi,
   fetchDespachoHistoryViaApi,
   fetchDespachoHistoryReprint,
-  allocateOutboundCode,
+  createOutboundBoxesApi,
 } from '@/lib/api/despachoReads';
 import {
   filterDespachoHistoryGroups,
@@ -1048,15 +1048,6 @@ function DespachoContent() {
       : Math.min(50, Math.max(1, Math.floor(Number(boxCount) || 1)));
 
     try {
-      let receptionId;
-      const { data: recData } = await supabase.from('receptions').select('id').eq('guide_number', 'MANUAL_BOXES_DESPACHO').single();
-      if (recData) {
-        receptionId = recData.id;
-      } else {
-        notify.error('No se encontró la recepción base para despacho.');
-        return;
-      }
-
       if (editBoxId) {
         const { error } = await supabase.from('boxes').update({
           brand_id: boxBrand,
@@ -1082,46 +1073,23 @@ function DespachoContent() {
       }
 
       setCreatingBoxes(true);
-      const createdCodes: string[] = [];
+      let createdCodes: string[] = [];
       let lastError: string | null = null;
 
-      for (let n = 0; n < boxesToCreate; n++) {
-        let inserted = false;
-        for (let attempt = 0; attempt < 5; attempt++) {
-          let boxCode: string;
-          try {
-            boxCode = await allocateOutboundCode();
-          } catch (e: unknown) {
-            lastError = e instanceof Error ? e.message : 'No se pudo generar código Outbound';
-            break;
-          }
-          const { error } = await supabase.from('boxes').insert({
-            reception_id: receptionId,
-            box_code: boxCode,
-            brand_id: boxBrand,
-            model_id: boxModel,
-            capacity: unitsPerBox,
-            material: iptv && !boxMaterial.trim() ? null : boxMaterial.trim() || null,
-            valuation: boxValuation.trim() || null,
-            status: 'open',
-            rack_location: 'OUTBOUND',
-          });
-
-          if (!error) {
-            createdCodes.push(boxCode);
-            inserted = true;
-            break;
-          }
-
-          lastError = error.message;
-          if (!/duplicate|unique|box_code/i.test(error.message)) {
-            break;
-          }
-        }
-        if (!inserted) break;
+      try {
+        createdCodes = await createOutboundBoxesApi({
+          brandId: boxBrand,
+          modelId: boxModel,
+          capacity: unitsPerBox,
+          material: iptv && !boxMaterial.trim() ? null : boxMaterial.trim() || null,
+          valuation: boxValuation.trim(),
+          count: boxesToCreate,
+        });
+      } catch (e: unknown) {
+        lastError = e instanceof Error ? e.message : 'No se pudieron crear los Outbounds';
+      } finally {
+        setCreatingBoxes(false);
       }
-
-      setCreatingBoxes(false);
 
       if (createdCodes.length === boxesToCreate) {
         if (boxesToCreate === 1) {
@@ -1147,7 +1115,11 @@ function DespachoContent() {
         return;
       }
 
-      notify.error('Error al crear Outbound', { description: lastError || 'Código no disponible' });
+      notify.error('Error al crear Outbound', {
+        description: lastError || 'Código no disponible',
+        literalError: true,
+        duration: 0,
+      });
     } catch (e) {
       setCreatingBoxes(false);
       console.error(e);

@@ -2,11 +2,18 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireApiUser } from '@/shared/infrastructure/http/requireApiUser';
 import { withErrorHandler } from '@/shared/infrastructure/http/apiHandler';
-import { ROLES_BODEGA_DESPACHO } from '@/shared/authz/roleGuard';
+import {
+  requireOperationalRole,
+  ROLES_BODEGA_DESPACHO,
+  ROLES_DESPACHO_BOXES_WRITE,
+} from '@/shared/authz/roleGuard';
 import { BATCH_LIMITS } from '@/shared/constants/batchLimits';
 import { estimateJsonBytes, logEgress } from '@/shared/infrastructure/http/egressLog';
 import { getCorrelationIdFromHeaders } from '@/shared/infrastructure/http/correlationId';
 import { resolveReadClient } from '@/shared/infrastructure/http/resolveReadClient';
+import { getSupabaseServerClient } from '@/lib/supabase/server';
+import { createOutboundBoxesBatch } from '@/lib/api/createOutboundBoxes';
+import { parseJsonBody } from '@/shared/validation/parseRequest';
 import {
   aggregateOutboundBoxSeriesStats,
   type OutboundBoxSeriesStats,
@@ -20,6 +27,15 @@ const ListQuery = z.object({
   limit: z.coerce.number().int().min(1).max(BATCH_LIMITS.API_PAGE_MAX).default(100),
   /** Filtro opcional por código Outbound (OB-000032, 32, etc.). */
   q: z.string().trim().max(80).optional(),
+});
+
+const CreateOutboundBoxesSchema = z.object({
+  brandId: z.string().uuid(),
+  modelId: z.string().uuid(),
+  capacity: z.coerce.number().int().positive().max(500),
+  material: z.string().trim().max(200).nullable().optional(),
+  valuation: z.string().trim().min(1).max(120),
+  count: z.coerce.number().int().min(1).max(50),
 });
 
 export const GET = withErrorHandler(
@@ -151,4 +167,33 @@ export const GET = withErrorHandler(
     return NextResponse.json(responseBody);
   },
   { module: 'despacho', action: 'list_boxes', roles: ROLES_BODEGA_DESPACHO }
+);
+
+export const POST = withErrorHandler(
+  async (req: Request) => {
+    const auth = await requireApiUser(req);
+    if (auth instanceof NextResponse) return auth;
+
+    const denied = await requireOperationalRole(auth.user.id, ROLES_DESPACHO_BOXES_WRITE);
+    if (denied) return denied;
+
+    const body = await parseJsonBody(req, CreateOutboundBoxesSchema);
+    const admin = getSupabaseServerClient();
+
+    const { createdCodes } = await createOutboundBoxesBatch(admin, {
+      brandId: body.brandId,
+      modelId: body.modelId,
+      capacity: body.capacity,
+      material: body.material ?? null,
+      valuation: body.valuation,
+      count: body.count,
+    });
+
+    return NextResponse.json({
+      success: true,
+      created: createdCodes.length,
+      codes: createdCodes,
+    });
+  },
+  { module: 'despacho', action: 'create_boxes', roles: ROLES_BODEGA_DESPACHO }
 );
